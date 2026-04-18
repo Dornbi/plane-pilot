@@ -54,7 +54,7 @@ Much of the code was written with Antigravity and Gemini. Prototyping and
 data generation was done in Python, and the C64 code is in C with some assembly.
 To compile the code, you need the [oscar64](https://github.com/drmortalwombat/oscar64/blob/main/README.md) cross-compiler.
 
-TODO: Add more details about how to compile and contribute.
+See [development.md](development.md) for more details.
 
 ## Inspirations
 
