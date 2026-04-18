@@ -1,15 +1,19 @@
 # Plane Pilot
 
-Plane Pilot is a 3D flight simulator prototype for the C64.
+Plane Pilot is a 3D flight simulator demo for the C64.
 
 ![Plane Pilot Screenshot](screens/screen01_crt.png)
 
 ## History and motivation
 
 Plane Pilot is an attempt to show how modern compilers and AI tools can
-be used in to create something retro in the late 2020s. It is also an attempt
-to create a slightly different type of C64 game and see how far it can be pushed
-for 3D simulations - something the C64 was absolutely not designed to do.
+be used in to create something retro in 2026. It is also an attempt
+to push the boundaries of C64 in a somewhat non-typical genre -
+3D simulations - something the C64 was absolutely not designed to do.
+
+## Download
+
+TODO: Add a prg download link
 
 ## Features
 
@@ -30,10 +34,6 @@ What you cannot do:
 - No joystick support
 - No sound
 
-## How to play
-
-TODO: Upload prg to csdb
-
 ## Controls
 
 To fly the plane you can use the following keys:
@@ -50,12 +50,14 @@ To fly the plane you can use the following keys:
 
 ## Development
 
-Much of the code was done using Antigravity and Gemini. Prototyping and
-data generation is in Python, and the C64 code is in C with some assembly.
-To compile the code, you need the oscar64 cross-compiler.
+Much of the code was written with Antigravity and Gemini. Prototyping and
+data generation was done in Python, and the C64 code is in C with some assembly.
+To compile the code, you need the [oscar64](https://github.com/drmortalwombat/oscar64/blob/main/README.md) cross-compiler.
+
+TODO: Add more details about how to compile and contribute.
 
 ## Inspirations
 
-- **Stunt Car Racer** is one of the best 3D games for C64, released in 1989: https://www.youtube.com/watch?v=KMgjmIW8fd8
-- **Spitfire 40** is an earlier flight sim from 1985: https://www.youtube.com/watch?v=cpq0VzBINno
-- **Chuck Yeager's Air Combat** is a much more advanced flight sim for DOS/PC from 1991, served as an inspiration for the horizon rendering: https://www.youtube.com/watch?v=L1x7229289w
+- **Stunt Car Racer** is one of the best 3D games for C64, released in 1989 ([YouTube](https://www.youtube.com/watch?v=KMgjmIW8fd8))
+- **Spitfire 40** is an earlier flight sim from 1985 ([YouTube](https://www.youtube.com/watch?v=cpq0VzBINno))
+- **Chuck Yeager's Air Combat** is a much more advanced flight sim for DOS/PC from 1991, served as an inspiration for the horizon rendering ([YouTube](https://www.youtube.com/watch?v=L1x7229289w))
