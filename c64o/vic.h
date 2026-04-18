@@ -1,0 +1,44 @@
+#ifndef VIC_H
+#define VIC_H
+
+#ifdef __OSCAR64__
+#include <c64/vic.h>
+#else
+#include <stdint.h>
+typedef uint8_t byte;
+struct VIC {
+  struct XY {
+    volatile byte x, y;
+  } spr_pos[8];
+  byte spr_msbx;
+
+  volatile byte ctrl1;
+  volatile byte raster;
+  volatile byte lpx, lpy;
+  volatile byte spr_enable;
+  volatile byte ctrl2;
+  volatile byte spr_expand_y;
+  volatile byte memptr;
+  volatile byte intr_ctrl;
+  volatile byte intr_enable;
+  volatile byte spr_priority;
+  volatile byte spr_multi;
+  volatile byte spr_expand_x;
+  volatile byte spr_sprcol;
+  volatile byte spr_backcol;
+  volatile byte color_border;
+  volatile byte color_back;
+  volatile byte color_back1;
+  volatile byte color_back2;
+  volatile byte color_back3;
+  volatile byte spr_mcolor0;
+  volatile byte spr_mcolor1;
+  volatile byte spr_color[8];
+};
+
+// reference to the VIC chip
+#define vic (*((struct VIC *)0xd000))
+
+#endif
+
+#endif
