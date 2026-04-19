@@ -34,19 +34,23 @@ What you cannot do:
 - No joystick support
 - No sound
 
+Instrument panel:
+
+![Instrument panel](screens/panel.png)
+
 ## Controls
 
 To fly the plane you can use the following keys:
 
-| Keys    | Action                            |
-| ------- | --------------------------------- |
-| I J K L | Roll and pitch                    |
-| A S     | Yaw                               |
-| + -     | Throttle up and down              |
-| D       | Toggle debug info                 |
-| R       | Reset to starting state           |
-| T       | Reset to alternate starting state |
-| F       | Reset to max fuel                 |
+| Keys            | Action                            |
+| --------------- | --------------------------------- |
+| `I` `J` `K` `L` | Roll and pitch                    |
+| `A` `S`         | Yaw                               |
+| `+` `-`         | Throttle up and down              |
+| `D`             | Toggle debug info                 |
+| `R`             | Reset to starting state           |
+| `T`             | Reset to alternate starting state |
+| `F`             | Reset to max fuel                 |
 
 ## Development
 

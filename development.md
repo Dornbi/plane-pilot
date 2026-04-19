@@ -11,6 +11,10 @@ Plane Pilot is something the C64 is not great for: a “3D” flight sim, with r
 
 ## Compiling the C64 code
 
+The C64 code is mostly written in C. The files have a .cc extenstion because they
+use some C++ features. oscar64 can optimize code pretty well, so only the most critical parts
+are written in assembly.
+
 Compiling the C64 code needs the install the [oscar64](https://github.com/drmortalwombat/oscar64/blob/main/README.md) cross-compiler and `make`. You may need to adjust `OSCAR64_INCLUDE` in the [c64o/Makefile]().
 
 ```bash
@@ -18,43 +22,11 @@ cd c64o
 make
 ```
 
-If everything goes well you will get 3 prg files:
+If everything goes well it builds these executables:
 
 - `ppilot.prg`: The main executable.
 - `vecdemo.prg`: Simple character mode prototype of the dots on the ground.
 - `vectest.prg`: Correctness test and cycle count for 3D vector operations.
-
-## Python prototype and scripts
-
-The Python code is in lib/, plus a few tools in the root. The most important ones:
-
-- [generate_frame.py](generate_frame.py): Generates a single reference frame as PNG.
-
-- [generate_all.py](generate_all.py): Generates reference frames that match the C64 graphics
-  capabilities at all roll angles as PNG, and turns them into:
-  - [chardefs.py](lib/chardefs.py): The character set used to render the sky gradient.
-  - [boxdefs.py](lib/boxdefs.py): The tiles used to render the sky gradient.
-
-- [render_frame.py](render_frame.py): Renders a single frame using the generated chardefs and boxdefs.
-
-- [render_all.py](render_all.py): Renders frame using the generated chardefs and boxdefs.
-
-- [flight_demo.py](flight_demo.py): A more interactive demo to test roll and pitch usiing
-  the chardefs and boxdefs.
-
-- [generate_sprites](generate_sprites.py): Generates sprite data for the C64 code.
-
-There are some unit tests in the [tests](tests) directory. You can run them with:
-
-```bash
-python -m unittest discover tests
-```
-
-## C64 Code
-
-The C64 code is mostly written in C. The files have a .cc extenstion because they
-use some C++ features. oscar64 can optimize code pretty well, so only the most critical parts
-are written in assembly.
 
 ## Debug info
 
@@ -83,6 +55,36 @@ The right hand side shows the cycles spent in various stages of rendering.
 | `GRD` | Draw the grid dots on the ground             |
 
 ![Debug info](screens/debug_crt.png)
+
+## Python prototype and scripts
+
+The Python code is in lib/, plus a few tools in the root. The most important ones:
+
+- [generate_frame.py](generate_frame.py): Generates a single reference frame as PNG.
+
+- [generate_all.py](generate_all.py): Generates reference frames that match the C64 graphics
+  capabilities at all roll angles as PNG, and turns them into:
+  - [chardefs.py](lib/chardefs.py): The character set used to render the sky gradient.
+  - [boxdefs.py](lib/boxdefs.py): The tiles used to render the sky gradient.
+
+- [render_frame.py](render_frame.py): Renders a single frame using the generated chardefs and boxdefs.
+
+- [render_all.py](render_all.py): Renders frame using the generated chardefs and boxdefs.
+
+- [flight_demo.py](flight_demo.py): A more interactive demo to test roll and pitch usiing
+  the chardefs and boxdefs.
+
+- [generate_sprites](generate_sprites.py): Generates sprite data for the C64 code.
+
+There are some unit tests in the [tests](tests) directory. You can run them with:
+
+```bash
+python -m unittest discover tests
+```
+
+This is an example reference frame from [generate_frame.py](generate_frame.py) for roll `r16u1`:
+
+![Reference frame](screens/flight_frame_c160_96_01_r16u1.png)
 
 ## Design conisderations
 
