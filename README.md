@@ -16,7 +16,7 @@ to push the boundaries of C64 in a somewhat non-typical genre -
 Paste the following URL into an online C64 emulator:
 
 - https://ty64.krissz.hu/ (online): Click the web icon
-  and paste
+  and paste \
   `https://github.com/Dornbi/plane-pilot/raw/refs/heads/main/bin/ppilot.prg`
 
 Or, download the [ppilot.prg](bin/ppilot.prg) binary and upload it to any of the online or offline emulators:
