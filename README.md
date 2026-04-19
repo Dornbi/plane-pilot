@@ -13,7 +13,7 @@ to push the boundaries of C64 in a somewhat non-typical genre -
 
 ## Download
 
-TODO: Add a prg download link
+[ppilot.prg](bin/ppilot.prg)
 
 ## Features
 
