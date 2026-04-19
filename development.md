@@ -44,11 +44,45 @@ The Python code is in lib/, plus a few tools in the root. The most important one
 
 - [generate_sprites](generate_sprites.py): Generates sprite data for the C64 code.
 
+There are some unit tests in the [tests](tests) directory. You can run them with:
+
+```bash
+python -m unittest discover tests
+```
+
 ## C64 Code
 
 The C64 code is mostly written in C. The files have a .cc extenstion because they
 use some C++ features. oscar64 can optimize code pretty well, so only the most critical parts
 are written in assembly.
+
+## Debug info
+
+With the `D` key the instrument panel shows debug info instead of the instrument panel.
+
+The left hand side show the state of the plane:
+
+| Label          | Value        |
+| -------------- | ------------ |
+| `FX` `FY` `FZ` | Front vector |
+| `LX` `LY` `LZ` | Left vector  |
+| `UX` `UY` `UZ` | Up vector    |
+| `EX` `EY` `EZ` | Eye position |
+
+The right hand side shows the cycles spent in various stages of rendering.
+
+| Label | Value                                        |
+| ----- | -------------------------------------------- |
+| `SNP` | "Snap" the view vector to screen coordinates |
+| `BGR` | Draw the background without the sky gradient |
+| `CHR` | Copy the relevant characters to char RAM     |
+| `PRP` | Prepare tiles for rendering                  |
+| `DRW` | Draw the tiles                               |
+| `COL` | Copy to the color RAM                        |
+| `MDL` | Model the plane state (motion etc.)          |
+| `GRD` | Draw the grid dots on the ground             |
+
+![Debug info](screens/debug_crt.png)
 
 ## Design conisderations
 
