@@ -13,13 +13,16 @@ to push the boundaries of C64 in a somewhat non-typical genre -
 
 ## How to play
 
-Paste the following URL into an online C64 emulator:
+There are many online and offline C64 emulators.
+One of the easiest: https://ty64.krissz.hu/
 
-- https://ty64.krissz.hu/ (online): Click the web icon
-  and paste \
-  `https://github.com/Dornbi/plane-pilot/raw/refs/heads/main/bin/ppilot.prg`
+Click the web icon and paste the URL:
 
-Or, download the [ppilot.prg](bin/ppilot.prg) binary and upload it to any of the online or offline emulators:
+```
+https://github.com/Dornbi/plane-pilot/raw/refs/heads/main/bin/ppilot.prg
+```
+
+Alternatively, download the [ppilot.prg](bin/ppilot.prg) binary and upload it to any of the online or offline emulators:
 
 - https://c64online.com/ (online)
 - https://retrogamecoders.com/c64-emulator/ (online)
