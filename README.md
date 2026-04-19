@@ -11,9 +11,19 @@ be used in to create something retro in 2026. It is also an attempt
 to push the boundaries of C64 in a somewhat non-typical genre -
 3D simulations - something the C64 was absolutely not designed to do.
 
-## Download
+## How to play
 
-[ppilot.prg](bin/ppilot.prg)
+Paste the following URL into an online C64 emulator:
+
+- https://ty64.krissz.hu/ (online): Click the web icon
+  and paste
+  `https://github.com/Dornbi/plane-pilot/raw/refs/heads/main/bin/ppilot.prg`
+
+Or, download the [ppilot.prg](bin/ppilot.prg) binary and upload it to any of the online or offline emulators:
+
+- https://c64online.com/ (online)
+- https://retrogamecoders.com/c64-emulator/ (online)
+- [VICE](https://vice-emu.sourceforge.io/) (offline)
 
 ## Features
 
