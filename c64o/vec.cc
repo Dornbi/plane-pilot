@@ -287,12 +287,12 @@ void vec_orthonormalize(mat3_t *mat) {
 // clang-format off
 const mat3_t kVecRollLeft = {
   { 256,    0,    0},
-  {   0,  256,  -16},
-  {   0,   16,  256}};
+  {   0,  256,  -32},
+  {   0,   32,  256}};
 const mat3_t kVecRollRight = {
   { 256,    0,    0},
-  {   0,  256,   16},
-  {   0,  -16,  256}};
+  {   0,  256,   32},
+  {   0,  -32,  256}};
 const mat3_t kVecPitchUp = {
   { 256,    0,   16},
   {   0,  256,    0},
