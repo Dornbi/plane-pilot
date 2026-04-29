@@ -24,7 +24,7 @@ static const uint8_t kRollPivotX = 160;
 static const uint8_t kRollPivotY = 168;
 static const uint8_t kThrottlePivotX = 8;  // 264 & 0xff
 static const uint8_t kThrottlePivotY = 166;
-static const uint8_t kFuelPivotX = 58;
+static const uint8_t kFuelPivotX = 56;
 static const uint8_t kFuelPivotY = 166;
 
 static const uint8_t kIdxFuel = 0;
