@@ -196,7 +196,7 @@ static void _update_sun_render_state() {
     sx = -100;
     sy = 0;
   }
-  sprites_set_sun(sx, sy);
+  sprites_set_sun_position(sx, sy);
 #ifdef __DEBUG_MODEL__
   if (mem_debug_enabled) {
     print_labeled_signed_bcd(920, SCREEN_STR("SXP:"), sx, 4);
@@ -273,6 +273,7 @@ void model_update() {
     sprites_set_alt(_model_eye_z >> 8);
     sprites_set_vspeed(vspeed);
     sprites_set_roll(roll_angle);
+    sprites_set_pitch(_model_cam.front.z >> 2);
     sprites_set_throttle(_model_throttle);
     sprites_set_fuel(_model_fuel);
     uint8_t heading = _get_heading();

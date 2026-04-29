@@ -208,13 +208,13 @@ void mem_init_mcbm(void) {
 #pragma optimize(push, noasm)
 static void _switch_to_panel() {
   if (mem_debug_enabled) {
-    sprites_hide_sun_hw();
+    sprites_show_no_sprites();
     return;
   }
 #assign num_nop 16
 #repeat
   __asm {
-    nop;
+      nop;
   }
 #assign num_nop num_nop - 1
 #until num_nop == 0
@@ -228,7 +228,8 @@ static void _switch_to_panel() {
     sta $d011;
     lda #$00;
     sta $d021;
-
+  }
+/*
     // Hide sun immediately after mode switch.
     lda #$00;
     sta $d00e;
@@ -236,27 +237,37 @@ static void _switch_to_panel() {
     and #$7f;
     sta $d010;
   }
+*/
   // clang-format on
+  sprites_show_no_sprites();
 }
-#pragma optimize(pop)
+
+static void _switch_to_instruments() {
+  sprites_show_instrument_sprites();
+}
 
 static void _switch_to_terrain() {
-  sprites_update_sun_hw();
+  sprites_show_terrain_sprites();
   vic.color_back = kColorGrad2;
   vic.ctrl1 = 0x1b; // Multicolor character mode
   vic_memptr = _mem_use_alt_buffer ? 0xA8 : 0xB8;
 }
 
-RIRQCode panel, view;
+#pragma optimize(pop)
+
+RIRQCode to_panel, to_instruments, to_terrain;
 
 void mem_init_rirq(void) {
   rirq_init(/*kernalIRQ=*/false);
-  rirq_build(&panel, 1);
-  rirq_call(&panel, 0, (void *)_switch_to_panel);
-  rirq_set(0, kRasterScreenYStart + kViewportEndYPixels - 1, &panel);
-  rirq_build(&view, 1);
-  rirq_call(&view, 0, (void *)_switch_to_terrain);
-  rirq_set(1, kRasterScreenYStart + kScreenHeightPixels, &view);
+  rirq_build(&to_panel, 1);
+  rirq_call(&to_panel, 0, (void *)_switch_to_panel);
+  rirq_set(0, kRasterScreenYStart + kViewportEndYPixels - 1, &to_panel);
+  rirq_build(&to_instruments, 1);
+  rirq_call(&to_instruments, 0, (void *)_switch_to_instruments);
+  rirq_set(1, kRasterScreenYStart + kViewportEndYPixels +24, &to_instruments);
+  rirq_build(&to_terrain, 1);
+  rirq_call(&to_terrain, 0, (void *)_switch_to_terrain);
+  rirq_set(2, kRasterScreenYStart + kScreenHeightPixels, &to_terrain);
   rirq_sort();
   rirq_start();
 }
@@ -269,13 +280,11 @@ void mem_clear_screen(void) {
 void mem_switch_debug(bool debug) {
   if (debug) {
     mem_init_mccm();
-    sprites_show_sun_only();
     memset(kColorRam + kScreenWidth * kViewportEndY, kColorBg,
            kScreenWidth * (kScreenHeight - kViewportEndY));
     memset(kScreenRamAlt + kViewportHeight * kScreenWidth, kCharSolid11,
            (kScreenHeight - kViewportHeight) * kScreenWidth);
   } else {
-    sprites_show_all();
     _expand_panel_screen_color();
   }
   mem_debug_enabled = debug;
