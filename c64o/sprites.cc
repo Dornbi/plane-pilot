@@ -161,12 +161,20 @@ inline void sprites_show_terrain_sprites() {
   vic.spr_color[kIdxSun] = kColorSun;
 }
 
-inline void sprites_show_no_sprites() {
+inline void sprites_show_no_terrain_sprites() {
 #pragma unroll(full)
   for (uint8_t i = 0; i < 7; i++) {
     vic.spr_pos[i].x = 0;
   }
-  vic.spr_msbx = (1 << kIdxThrottle);;
+  vic.spr_msbx = 0;
+}
+
+inline void sprites_show_no_sprites() {
+#pragma unroll(full)
+  for (uint8_t i = 0; i < 8; i++) {
+    vic.spr_pos[i].x = 0;
+  }
+  vic.spr_msbx = 0;
 }
 
 inline void sprites_show_instrument_sprites() {

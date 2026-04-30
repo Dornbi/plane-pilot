@@ -239,10 +239,13 @@ static void _switch_to_panel() {
   }
 */
   // clang-format on
-  sprites_show_no_sprites();
+  sprites_show_no_terrain_sprites();
 }
 
 static void _switch_to_instruments() {
+  if (mem_debug_enabled) {
+    return;
+  }
   sprites_show_instrument_sprites();
 }
 
