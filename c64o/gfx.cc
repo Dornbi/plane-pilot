@@ -24,6 +24,9 @@ static void rirq_sort(void) {}
 static void rirq_start(void) {}
 #endif
 
+const uint16_t kGfxViewportRowOffsets[kViewportHeight] = {
+    0, 40, 80, 120, 160, 200, 240, 280, 320, 360, 400, 440, 480, 520};
+
 #pragma optimize(push, noasm)
 static void _switch_to_panel_top() {
   if (mem_debug_enabled) {
@@ -86,13 +89,11 @@ void gfx_init(void) {
   rirq_start();
 }
 
-static const uint16_t kViewportRowOffsets[kViewportHeight] = {
-    0, 40, 80, 120, 160, 200, 240, 280, 320, 360, 400, 440, 480, 520};
-
 inline void gfx_draw_single_point(int16_t px, int16_t py) {
   uint8_t cx = (uint16_t)px >> 3;
   uint8_t cy = (uint8_t)py >> 3;
-  uint8_t *p = mem_screen_ram + kViewportRowOffsets[cy] + kViewportStartX + cx;
+  uint8_t *p =
+      mem_screen_ram + kGfxViewportRowOffsets[cy] + kViewportStartX + cx;
   if (*p == kCharSolidGround) {
     uint8_t lpx = (uint8_t)px;
     uint8_t lpy = (uint8_t)py;
