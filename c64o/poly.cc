@@ -5,14 +5,14 @@
 #include <stdint.h>
 
 // Buffers to store the left-most and right-most X bounds for each scanline
-int8_t min_x[kScreenHeight];
-int8_t max_x[kScreenHeight];
+int8_t min_x[kViewportHeight];
+int8_t max_x[kViewportHeight];
 
 // Initialize the scanline buffers
 void clear_buffers() {
-  for (uint8_t i = 0; i < kScreenHeight; i++) {
+  for (uint8_t i = 0; i < kViewportHeight; i++) {
     min_x[i] = kScreenWidth; // Set to out-of-bounds max
-    max_x[i] = -1;           // Set to out-of-bounds min
+    max_x[i] = -1;              // Set to out-of-bounds min
   }
 }
 
@@ -37,7 +37,7 @@ void trace_edge(int8_t x1, int8_t y1, int8_t x2, int8_t y2) {
 
   while (1) {
     // Record the X coordinate for this Y scanline
-    if (y >= 0 && y < kScreenHeight) {
+    if (y >= 0 && y < kViewportHeight) {
       if (x < min_x[y])
         min_x[y] = x;
       if (x > max_x[y])
@@ -90,7 +90,7 @@ void fill_poly(vertex_t *vertices, uint8_t num_vertices,
   // 2. Draw the scanlines directly to Screen RAM
   bm_start();
   unsigned char *screen = mem_screen_ram;
-  for (int8_t y = 0; y < kScreenHeight; y++) {
+  for (int8_t y = 0; y < kViewportHeight; y++) {
     int8_t left = min_x[y];
     int8_t right = max_x[y];
 

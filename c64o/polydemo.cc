@@ -22,9 +22,9 @@ int main() {
   // Define a convex diamond/kite shape
   vertex_t poly[] = {
       {20, 2},  // Top
-      {35, 10}, // Right
-      {20, 22}, // Bottom
-      {5, 10}   // Left
+      {35, 8},  // Right
+      {20, 12}, // Bottom
+      {5, 6}    // Left
   };
 
   // Infinite loop to keep the screen visible
