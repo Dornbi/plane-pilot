@@ -1,8 +1,10 @@
 #include "gfx.h"
 
+#include "chardefs.h"
 #include "color.h"
 #include "mem.h"
 #include "sprites.h"
+#include "vec.h"
 #include "vic.h"
 
 #ifdef __OSCAR64__
@@ -82,4 +84,31 @@ void gfx_init(void) {
   rirq_set(2, kRasterScreenYStart + kScreenHeightPixels, &_rirq_terrain);
   rirq_sort();
   rirq_start();
+}
+
+static const uint16_t kViewportRowOffsets[kViewportHeight] = {
+    0, 40, 80, 120, 160, 200, 240, 280, 320, 360, 400, 440, 480, 520};
+
+inline void gfx_draw_single_point(int16_t px, int16_t py) {
+  uint8_t cx = (uint16_t)px >> 3;
+  uint8_t cy = (uint8_t)py >> 3;
+  uint8_t *p = mem_screen_ram + kViewportRowOffsets[cy] + kViewportStartX + cx;
+  if (*p == kCharSolidGround) {
+    uint8_t lpx = (uint8_t)px;
+    uint8_t lpy = (uint8_t)py;
+    uint8_t ch =
+        kSinglePointCharStart + ((lpx & 0x06) >> 1) + ((lpy & 0x06) << 1);
+    *p = ch;
+  }
+}
+
+void gfx_project_and_draw() {
+  if (vec_project()) {
+    int16_t px = kViewportWidthPixels / 2 - vec_sx;
+    int16_t py = kViewportHeightPixels / 2 - vec_sy;
+    if ((uint16_t)px < (uint16_t)kViewportWidthPixels &&
+        (uint16_t)py < (uint16_t)kViewportHeightPixels) {
+      gfx_draw_single_point(px, py);
+    }
+  }
 }

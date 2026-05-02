@@ -4,8 +4,8 @@
 #include <stdlib.h>
 
 #include "benchmark.h"
-#include "chardefs.h"
 #include "fmath.h"
+#include "gfx.h"
 #include "mem.h"
 #include "render.h"
 #include "roll.h"
@@ -372,33 +372,6 @@ void model_input(enum model_input_t input) {
 
 static inline int16_t _down_shift(uint32_t val) { return (int16_t)(val >> 9); }
 
-static const uint16_t kViewportRowOffsets[kViewportHeight] = {
-    0, 40, 80, 120, 160, 200, 240, 280, 320, 360, 400, 440, 480, 520};
-
-static inline void _draw_single_point(int16_t px, int16_t py) {
-  uint8_t cx = (uint16_t)px >> 3;
-  uint8_t cy = (uint8_t)py >> 3;
-  uint8_t *p = mem_screen_ram + kViewportRowOffsets[cy] + kViewportStartX + cx;
-  if (*p == kCharSolidGround) {
-    uint8_t lpx = (uint8_t)px;
-    uint8_t lpy = (uint8_t)py;
-    uint8_t ch =
-        kSinglePointCharStart + ((lpx & 0x06) >> 1) + ((lpy & 0x06) << 1);
-    *p = ch;
-  }
-}
-
-static void _project_and_draw() {
-  if (vec_project()) {
-    int16_t px = kViewportWidthPixels / 2 - vec_sx;
-    int16_t py = kViewportHeightPixels / 2 - vec_sy;
-    if ((uint16_t)px < (uint16_t)kViewportWidthPixels &&
-        (uint16_t)py < (uint16_t)kViewportHeightPixels) {
-      _draw_single_point(px, py);
-    }
-  }
-}
-
 static void _split_vec(vec3_t *v, vec3_t d4[4]) {
   d4[0] = make_vector(-v->x, -v->y, -v->z);
   d4[1] = make_vector(0, 0, 0);
@@ -439,7 +412,7 @@ static inline void _draw_box_points(uint8_t start_idx, uint8_t num_points) {
     vec_v.x += _mitch_x[idx];
     vec_v.y += _mitch_y[idx];
     vec_v.z += _mitch_z[idx];
-    _project_and_draw();
+    gfx_project_and_draw();
     if (--i == 0) {
       break;
     }
