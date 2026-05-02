@@ -3,9 +3,6 @@
 
 #include <stdint.h>
 
-// Multiply by 40 for screen row offset.
-extern const uint16_t kGfxViewportRowOffsets[];
-
 // Init raster interrupts.
 void gfx_init(void);
 

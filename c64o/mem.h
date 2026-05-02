@@ -36,6 +36,9 @@ extern uint8_t *mem_screen_ram;
 extern uint8_t mem_box_char_start;
 extern uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
 
+// Multiply by 40 for screen row offset for the viewport.
+extern uint8_t *mem_screen_row_ptrs[kViewportHeight];
+
 // Sets CHAR_RAM and SCREEN_RAM to start at 0xC000 and 0xC800 respectively.
 // @result screen_ram
 void mem_init(void);

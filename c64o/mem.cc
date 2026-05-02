@@ -33,6 +33,22 @@ uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
 bool mem_debug_enabled;
 bool mem_using_alt_buffer;
 
+static uint8_t *const kScreenRowPtrsMain[kViewportHeight] = {
+    kScreenRamMain + 0,   kScreenRamMain + 40,  kScreenRamMain + 80,
+    kScreenRamMain + 120, kScreenRamMain + 160, kScreenRamMain + 200,
+    kScreenRamMain + 240, kScreenRamMain + 280, kScreenRamMain + 320,
+    kScreenRamMain + 360, kScreenRamMain + 400, kScreenRamMain + 440,
+    kScreenRamMain + 480, kScreenRamMain + 520};
+
+static uint8_t *const kScreenRowPtrsAlt[kViewportHeight] = {
+    kScreenRamAlt + 0,   kScreenRamAlt + 40,  kScreenRamAlt + 80,
+    kScreenRamAlt + 120, kScreenRamAlt + 160, kScreenRamAlt + 200,
+    kScreenRamAlt + 240, kScreenRamAlt + 280, kScreenRamAlt + 320,
+    kScreenRamAlt + 360, kScreenRamAlt + 400, kScreenRamAlt + 440,
+    kScreenRamAlt + 480, kScreenRamAlt + 520};
+
+uint8_t *mem_screen_row_ptrs[kViewportHeight];
+
 // cia2.pra should be volatile __memmap
 #define cia2_pra (*((volatile __memmap byte *)0xDD00))
 
@@ -157,12 +173,14 @@ void mem_switch_buffer(void) {
     // Switch to main buffer.
     vic_memptr = kVicMemScreenAlt;
     mem_screen_ram = kScreenRamMain;
+    mem_screen_row_ptrs = kScreenRowPtrsMain;
     mem_box_char_start = 0x02;
   }
   else {
     // Switch to alt buffer.
     vic_memptr = kVicMemScreenMain;
     mem_screen_ram = kScreenRamAlt;
+    mem_screen_row_ptrs = kScreenRowPtrsAlt;
     mem_box_char_start = 0x62;
   }
   __asm {
