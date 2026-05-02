@@ -94,7 +94,6 @@ void print_vectors() {
 
 int main() {
   cia_init();
-  bm_init();
   init_camera();
   mem_screen_ram = (uint8_t *)0x0400;
   memset(mem_screen_ram, ' ', 1000);
