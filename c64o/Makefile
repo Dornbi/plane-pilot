@@ -1,7 +1,8 @@
 OSCAR64_INCLUDE=../../../oscar64-main/include
 
 PPILOT_PROGRAM = ppilot
-PPILOT_SRC = 	benchmark.h \
+PPILOT_SRC = \
+		benchmark.h \
 		benchmark.cc \
 		bool.h \
 		box.h \
@@ -41,6 +42,17 @@ PPILOT_SRC = 	benchmark.h \
 		vec_lut.cc \
 		vic.h \
 
+POLYDEMO_PROGRAM = polydemo
+POLYDEMO_SRC = \
+		benchmark.h \
+		benchmark.cc \
+		bool.h \
+		print.h \
+		print.cc \
+		poly.h \
+		poly.cc \
+		polydemo.cc
+
 VECDEMO_PROGRAM = vecdemo
 VECDEMO_SRC = 	benchmark.h \
 		benchmark.cc \
@@ -69,10 +81,13 @@ CC = oscar64
 CFLAGS = -ii=${OSCAR64_INCLUDE} -D__OSCAR64__ -g -xz
 OPTFLAGS = -O2 -Op -Oa -Oi -Oz -Op
 
-all: $(PPILOT_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg
+all: $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg
 
 $(PPILOT_PROGRAM).prg: $(PPILOT_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_HORIZON__ -D__DEBUG_MODEL__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
+
+$(POLYDEMO_PROGRAM).prg: $(POLYDEMO_SRC)
+	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ polydemo.cc
 
 $(VECDEMO_PROGRAM).prg: $(VECDEMO_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ vecdemo.cc
