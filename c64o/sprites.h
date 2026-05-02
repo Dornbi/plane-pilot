@@ -18,9 +18,9 @@ void sprites_set_throttle(uint8_t throttle);
 void sprites_set_fuel(uint32_t fuel);
 
 void sprites_show_terrain_sprites();
-void sprites_show_instrument_sprites();
 void sprites_show_no_sprites();
-void sprites_show_no_terrain_sprites();
+void sprites_show_panel_top_sprites();
+void sprites_show_panel_bottom_sprites();
 void sprites_set_sun_position(int16_t x, int16_t y);
 
 static const uint8_t kHeadingMax = 48;

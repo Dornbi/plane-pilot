@@ -206,7 +206,7 @@ void mem_init_mcbm(void) {
 }
 
 #pragma optimize(push, noasm)
-static void _switch_to_panel() {
+static void _switch_to_panel_top() {
   if (mem_debug_enabled) {
     sprites_show_no_sprites();
     return;
@@ -229,24 +229,15 @@ static void _switch_to_panel() {
     lda #$00;
     sta $d021;
   }
-/*
-    // Hide sun immediately after mode switch.
-    lda #$00;
-    sta $d00e;
-    lda $d010;
-    and #$7f;
-    sta $d010;
-  }
-*/
   // clang-format on
-  sprites_show_no_terrain_sprites();
+  sprites_show_panel_top_sprites();
 }
 
-static void _switch_to_instruments() {
+static void _switch_to_panel_bottom() {
   if (mem_debug_enabled) {
     return;
   }
-  sprites_show_instrument_sprites();
+  sprites_show_panel_bottom_sprites();
 }
 
 static void _switch_to_terrain() {
@@ -258,19 +249,20 @@ static void _switch_to_terrain() {
 
 #pragma optimize(pop)
 
-RIRQCode to_panel, to_instruments, to_terrain;
+RIRQCode _rirq_panel_top, _rirq_panel_bottom, _rirq_terrain;
 
 void mem_init_rirq(void) {
   rirq_init(/*kernalIRQ=*/false);
-  rirq_build(&to_panel, 1);
-  rirq_call(&to_panel, 0, (void *)_switch_to_panel);
-  rirq_set(0, kRasterScreenYStart + kViewportEndYPixels - 1, &to_panel);
-  rirq_build(&to_instruments, 1);
-  rirq_call(&to_instruments, 0, (void *)_switch_to_instruments);
-  rirq_set(1, kRasterScreenYStart + kViewportEndYPixels +24, &to_instruments);
-  rirq_build(&to_terrain, 1);
-  rirq_call(&to_terrain, 0, (void *)_switch_to_terrain);
-  rirq_set(2, kRasterScreenYStart + kScreenHeightPixels, &to_terrain);
+  rirq_build(&_rirq_panel_top, 1);
+  rirq_call(&_rirq_panel_top, 0, (void *)_switch_to_panel_top);
+  rirq_set(0, kRasterScreenYStart + kViewportEndYPixels - 1, &_rirq_panel_top);
+  rirq_build(&_rirq_panel_bottom, 1);
+  rirq_call(&_rirq_panel_bottom, 0, (void *)_switch_to_panel_bottom);
+  rirq_set(1, kRasterScreenYStart + kViewportEndYPixels + 24,
+           &_rirq_panel_bottom);
+  rirq_build(&_rirq_terrain, 1);
+  rirq_call(&_rirq_terrain, 0, (void *)_switch_to_terrain);
+  rirq_set(2, kRasterScreenYStart + kScreenHeightPixels, &_rirq_terrain);
   rirq_sort();
   rirq_start();
 }

@@ -22,7 +22,7 @@ static const uint8_t kVSpeedPivotX = 224;
 static const uint8_t kVSpeedPivotY = 138;
 static const uint8_t kRollPivotX = 160;
 static const uint8_t kRollPivotY = 168;
-static const uint8_t kThrottlePivotX = 8;  // 264 & 0xff
+static const uint8_t kThrottlePivotX = 8; // 264 & 0xff
 static const uint8_t kThrottlePivotY = 166;
 static const uint8_t kFuelPivotX = 56;
 static const uint8_t kFuelPivotY = 166;
@@ -106,7 +106,8 @@ static const uint8_t _roll_to_dir[kRollMax] = {
 inline void sprites_set_pitch(int8_t pitch_angle) {
   const sprite_meta_t *meta = &kSpriteDefMetaLongArm[8];
   _sprite_instrument_xy[kIdxPitch].x = kSpriteOffsetX + kRollPivotX - 12;
-  _sprite_instrument_xy[kIdxPitch].y = kSpriteOffsetY + kRollPivotY - 10 - (pitch_angle >> 2);
+  _sprite_instrument_xy[kIdxPitch].y =
+      kSpriteOffsetY + kRollPivotY - 10 - (pitch_angle >> 2);
   _sprite_instrument_idx[kIdxPitch] = meta->bitmap_idx;
 }
 
@@ -161,14 +162,6 @@ inline void sprites_show_terrain_sprites() {
   vic.spr_color[kIdxSun] = kColorSun;
 }
 
-inline void sprites_show_no_terrain_sprites() {
-#pragma unroll(full)
-  for (uint8_t i = 0; i < 7; i++) {
-    vic.spr_pos[i].x = 0;
-  }
-  vic.spr_msbx = 0;
-}
-
 inline void sprites_show_no_sprites() {
 #pragma unroll(full)
   for (uint8_t i = 0; i < 8; i++) {
@@ -177,9 +170,21 @@ inline void sprites_show_no_sprites() {
   vic.spr_msbx = 0;
 }
 
-inline void sprites_show_instrument_sprites() {
+inline void sprites_show_panel_top_sprites() {
 #pragma unroll(full)
-  for (uint8_t i = 0; i < 8; i++) {
+  for (uint8_t i = 0; i < 7; i++) {
+    vic.spr_pos[i].x = 0;
+  }
+  vic.spr_msbx = 0;
+  vic.spr_pos[kIdxVSpeed].x = _sprite_instrument_xy[kIdxVSpeed].x;
+  vic.spr_pos[kIdxVSpeed].y = _sprite_instrument_xy[kIdxVSpeed].y;
+  *(kScreenRamMain + 1016 + kIdxVSpeed) = _sprite_instrument_idx[kIdxVSpeed];
+  *(kScreenRamAlt + 1016 + kIdxVSpeed) = _sprite_instrument_idx[kIdxVSpeed];
+}
+
+inline void sprites_show_panel_bottom_sprites() {
+#pragma unroll(full)
+  for (uint8_t i = 0; i < 7; i++) {
     vic.spr_pos[i].x = _sprite_instrument_xy[i].x;
     vic.spr_pos[i].y = _sprite_instrument_xy[i].y;
     *(kScreenRamMain + 1016 + i) = _sprite_instrument_idx[i];
