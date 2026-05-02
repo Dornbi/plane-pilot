@@ -133,9 +133,6 @@ void mem_init(void) {
 
   mem_using_alt_buffer = false;
   mem_debug_enabled = false;
-
-  sprites_set_speed(0);
-  // sprites_show(true);
 }
 
 static void _copy_color_ram(void) {
