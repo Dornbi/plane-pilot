@@ -6,6 +6,7 @@
 #include "sprites.h"
 #include "vec.h"
 #include "vic.h"
+#include <string.h>
 
 #ifdef __OSCAR64__
 #include <c64/rasterirq.h>
@@ -70,7 +71,7 @@ static void _switch_to_terrain() {
 
 RIRQCode _rirq_panel_top, _rirq_panel_bottom, _rirq_terrain;
 
-void gfx_init(void) {
+static inline void _init_raster_irq() {
   rirq_init(/*kernalIRQ=*/false);
   rirq_build(&_rirq_panel_top, 1);
   rirq_call(&_rirq_panel_top, 0, (void *)_switch_to_panel_top);
@@ -84,6 +85,29 @@ void gfx_init(void) {
   rirq_set(2, kRasterScreenYStart + kScreenHeightPixels, &_rirq_terrain);
   rirq_sort();
   rirq_start();
+}
+
+static inline void _init_single_point_chars() {
+  static const uint8_t alt_lines[] = {0x95, 0x65, 0x59, 0x56};
+  uint8_t *p = kCharRam + kSinglePointCharStart * 8;
+  for (uint8_t y = 0; y < 4; ++y) {
+    for (uint8_t x = 0; x < 4; ++x) {
+      for (uint8_t i = 0; i < 8; ++i) {
+        p[i] = 0x55;
+      }
+      p[y * 2] = alt_lines[x];
+      p[y * 2 + 1] = alt_lines[x];
+      p += 8;
+    }
+  }
+}
+
+void gfx_init(void) {
+  memset(kCharRam + kCharSolidGround * 8, 0x55, 8);
+  memset(kCharRam + kCharSolidGrad1 * 8, 0xAA, 8);
+  memset(kCharRam + kCharSolid11 * 8, 0xFF, 8);
+  _init_single_point_chars();
+  _init_raster_irq();
 }
 
 inline void gfx_draw_single_point(int16_t px, int16_t py) {

@@ -68,21 +68,6 @@ static const uint8_t kVicMemScreenMain = 0xA8;
 // static uint8_t *const kScreenRamAlt = (uint8_t *)0xEC00;
 static const uint8_t kVicMemScreenAlt = 0xB8;
 
-static inline void _init_single_point_chars() {
-  static const uint8_t alt_lines[] = {0x95, 0x65, 0x59, 0x56};
-  uint8_t *p = kCharRam + kSinglePointCharStart * 8;
-  for (uint8_t y = 0; y < 4; ++y) {
-    for (uint8_t x = 0; x < 4; ++x) {
-      for (uint8_t i = 0; i < 8; ++i) {
-        p[i] = 0x55;
-      }
-      p[y * 2] = alt_lines[x];
-      p[y * 2 + 1] = alt_lines[x];
-      p += 8;
-    }
-  }
-}
-
 static void _expand_panel_screen_color() {
   oscar_expand_lzo((char *)0xee30, kPanelScreenCompressed);
   oscar_expand_lzo((char *)0xda30, kPanelColorCompressed);
@@ -114,17 +99,14 @@ void mem_init(void) {
     cli;
   }
 
-  memset(kCharRam + kCharSolidGround * 8, 0x55, 8);
-  memset(kCharRam + kCharSolidGrad1 * 8, 0xAA, 8);
-  memset(kCharRam + kCharSolid11 * 8, 0xFF, 8);
-  _init_single_point_chars();
-
   //  Fill Color buffer with sky color.
   memset(mem_color_buffer, kColorSky | 0x08, sizeof(mem_color_buffer));
 
   // Fill Color RAM ($D800) with kColorBg.
   // Top part in multicolor mode.
-  memset(kColorRam, kColorBg | 0x08, kScreenWidth * kViewportEndY);
+  if (kViewportWidth < kScreenWidth) {
+    memset(kColorRam, kColorBg | 0x08, kScreenWidth * kViewportEndY);
+  }
   memset(kScreenRamMain + kViewportHeight * kScreenWidth, kCharSolid11,
          (kScreenHeight - kViewportHeight) * kScreenWidth);
 
