@@ -5,7 +5,7 @@
 
 // Using signed 8-bit integers for coordinates since the screen is 40x25
 struct vertex_t {
-  int8_t x, y;
+  uint8_t x, y;
 };
 
 // Fill the polygon using the traced edges.
