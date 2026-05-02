@@ -47,6 +47,10 @@ POLYDEMO_SRC = \
 		benchmark.h \
 		benchmark.cc \
 		bool.h \
+		cia.h \
+		keys.h \
+		mem.h \
+		mem.cc \
 		print.h \
 		print.cc \
 		poly.h \

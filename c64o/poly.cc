@@ -1,8 +1,10 @@
 #include "poly.h"
 
 #include "benchmark.h"
+#include "fmath.h"
 #include "mem.h"
 #include <stdint.h>
+#include <string.h>
 
 // Buffers to store the left-most and right-most X bounds for each scanline
 static __zeropage uint8_t _min_x[kViewportHeight];
@@ -10,57 +12,65 @@ static __zeropage uint8_t _max_x[kViewportHeight];
 
 // Initialize the scanline buffers
 static inline void _clear_buffers() {
+#pragma unroll(full)
   for (uint8_t i = 0; i < kViewportHeight; i++) {
     _min_x[i] = kScreenWidth; // Set to out-of-bounds max
     _max_x[i] = 0;            // Set to out-of-bounds min
   }
 }
 
-// Trace a single edge using Bresenham's algorithm (No Division)
 static void _trace_edge(int8_t x1, int8_t y1, int8_t x2, int8_t y2) {
-  // Calculate absolute differences and step directions
-  int8_t dx = (x2 > x1) ? (x2 - x1) : (x1 - x2); // abs(x2 - x1)
-  int8_t sx = (x1 < x2) ? 1 : -1;
+  if (y1 == y2) {
+    return; // Skip horizontal edges
+  }
 
-  int8_t dy = (y2 > y1)
-                  ? (y1 - y2)
-                  : (y2 - y1); // -abs(y2 - y1) to match standard Bresenham
-  int8_t sy = (y1 < y2) ? 1 : -1;
+  // Enforce top-to-bottom order to guarantee we always step Y positively
+  if (y1 > y2) {
+    int8_t tmp_x = x1;
+    x1 = x2;
+    x2 = tmp_x;
 
-  // The error accumulator. Since max screen width is 40 and height is 25,
-  // the error * 2 will never overflow a signed 8-bit integer (-128 to 127).
-  int8_t err = dx + dy;
-  int8_t e2;
+    int8_t tmp_y = y1;
+    y1 = y2;
+    y2 = tmp_y;
+  }
 
+  int8_t dx = x2 - x1;
+  int8_t sx = 1;
+  if (dx < 0) {
+    sx = -1;
+    dx = -dx;
+  }
+
+  int8_t dy = y2 - y1;
+  int8_t err = dy >> 1; // Half-pixel offset for rounding
   int8_t x = x1;
-  int8_t y = y1;
 
-  while (1) {
-    // Record the X coordinate for this Y scanline
-    if (y >= 0 && y < kViewportHeight) {
-      if (x < _min_x[y])
-        _min_x[y] = x;
-      if (x > _max_x[y])
-        _max_x[y] = x;
-    }
+  for (int8_t y = y1; y <= y2; y++) {
+    int8_t start_x = x;
 
-    // Break when we reach the destination vertex
-    if (x == x2 && y == y2)
-      break;
-
-    // e2 = err * 2 (using a bit-shift for speed)
-    e2 = err << 1;
-
-    // Step X if needed
-    if (e2 >= dy) {
-      err += dy;
-      x += sx;
-    }
-
-    // Step Y if needed
-    if (e2 <= dx) {
+    // Step X if we haven't reached the last scanline
+    if (y < y2) {
       err += dx;
-      y += sy;
+      while (err >= dy) {
+        x += sx;
+        err -= dy;
+      }
+    }
+
+    int8_t end_x = x;
+
+    // Update scanline bounds (eliminating inner-loop viewport bounds checks)
+    if (sx > 0) {
+      if (start_x < _min_x[y])
+        _min_x[y] = start_x;
+      if (end_x > _max_x[y])
+        _max_x[y] = end_x;
+    } else {
+      if (end_x < _min_x[y])
+        _min_x[y] = end_x;
+      if (start_x > _max_x[y])
+        _max_x[y] = start_x;
     }
   }
 }
@@ -76,8 +86,14 @@ static uint8_t *const kPolyScreenRowPtrsMain[kViewportHeight] = {
     kPolyScreenRamMain + 400, kPolyScreenRamMain + 440,
     kPolyScreenRamMain + 480, kPolyScreenRamMain + 520};
 
+static inline void _fill_line(uint8_t *dst, uint8_t val, int8_t cnt) {
+  for (int8_t i = cnt - 1; i >= 0; --i) {
+    dst[i] = val;
+  }
+}
+
 // Fill the polygon using the traced edges
-void fill_poly(vertex_t *vertices, uint8_t num_vertices,
+void fill_poly(const vertex_t *vertices, uint8_t num_vertices,
                unsigned char fill_char) {
   if (num_vertices < 3) {
     return; // A polygon needs at least 3 vertices
@@ -102,26 +118,9 @@ void fill_poly(vertex_t *vertices, uint8_t num_vertices,
   // 2. Draw the scanlines directly to Screen RAM
   bm_start();
   for (int8_t y = 0; y < kViewportHeight; y++) {
-    int8_t left = _min_x[y];
-    int8_t right = _max_x[y];
-
-    // Clip X coordinates to the physical screen width
-    if (left < 0) {
-      left = 0;
-    }
-    if (right >= kScreenWidth) {
-      right = kScreenWidth - 1;
-    }
-
-    // If valid bounds exist for this scanline, fill it
-    if (left <= right) {
-      // Calculate row start pointer to avoid multiplying y * 40 in the inner
-      // loop
-      unsigned char *row_ptr = kPolyScreenRowPtrsMain[y];
-      for (int8_t x = left; x <= right; x++) {
-        row_ptr[x] = fill_char;
-      }
-    }
+    int8_t left = _max8(_min_x[y], 0);
+    int8_t right = _min8(_max_x[y], kScreenWidth - 1);
+    _fill_line(kPolyScreenRowPtrsMain[y] + left, fill_char, right - left + 1);
   }
   bm_end(960, SCREEN_STR("scan: "));
 }
