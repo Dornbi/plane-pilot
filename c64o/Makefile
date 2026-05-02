@@ -55,6 +55,8 @@ POLYDEMO_SRC = \
 		print.cc \
 		poly.h \
 		poly.cc \
+		vec.h \
+		vec_lut.cc \
 		polydemo.cc
 
 VECDEMO_PROGRAM = vecdemo
