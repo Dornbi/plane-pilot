@@ -42,16 +42,13 @@ void mem_init(void);
 
 // Switches SCREEN_RAM back and forth between 0xC800 and 0xCC00.
 // @result screen_ram
+extern bool mem_using_alt_buffer;
 void mem_switch_buffer(void);
 
 // Initializes the VIC-II for Multicolor Character Mode (MCCM).
 // Sets the background and multi-color registers.
 void mem_init_mccm(void);
 void mem_init_mcbm(void);
-
-// Initializes the raster IRQ to switch between multicolor bitmap and character
-// mode.
-void mem_init_rirq(void);
 
 // Initializes the solid characters used for Ground, Sky, and Border.
 // Maps to characters 64, 65, and 66.
@@ -63,6 +60,9 @@ void mem_clear_screen(void);
 
 extern bool mem_debug_enabled;
 void mem_switch_debug(bool debug);
+
+// vic.memptr should be volatile __memmap
+#define vic_memptr (*((volatile __memmap byte *)0xD018))
 
 #pragma compile("mem.cc")
 

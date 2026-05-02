@@ -5,7 +5,6 @@
 
 #ifdef __OSCAR64__
 #include <c64/memmap.h>
-#include <c64/rasterirq.h>
 #include <oscar.h>
 #else
 #define MMAP_ROM 0x37
@@ -17,19 +16,6 @@
 static void mmap_trampoline() {}
 static char mmap_set(char pla) { return pla; }
 static const char *oscar_expand_lzo(char *dp, const char *sp) { return sp; }
-
-#define RIRQ_SIZE 2
-typedef struct RIRQCode {
-  uint8_t size;
-  uint8_t code[RIRQ_SIZE];
-} RIRQCode;
-
-static void rirq_init(bool kernalIRQ) {}
-static void rirq_build(RIRQCode *ic, uint8_t size) {}
-static void rirq_call(RIRQCode *ic, uint8_t n, void *addr) {}
-static void rirq_set(uint8_t n, uint8_t raster, RIRQCode *ic) {}
-static void rirq_sort(void) {}
-static void rirq_start(void) {}
 #endif
 
 #include "benchmark.h"
@@ -45,14 +31,10 @@ uint8_t *mem_screen_ram;
 uint8_t mem_box_char_start;
 uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
 bool mem_debug_enabled;
-
-static bool _mem_use_alt_buffer;
+bool mem_using_alt_buffer;
 
 // cia2.pra should be volatile __memmap
 #define cia2_pra (*((volatile __memmap byte *)0xDD00))
-
-// vic.memptr should be volatile __memmap
-#define vic_memptr (*((volatile __memmap byte *)0xD018))
 
 // VIC Memory Pointers:
 // - Bank starts at $C000
@@ -133,7 +115,7 @@ void mem_init(void) {
   oscar_expand_lzo((char *)0xF000, kPanelBitmapCompressed);
   _expand_panel_screen_color();
 
-  _mem_use_alt_buffer = false;
+  mem_using_alt_buffer = false;
   mem_debug_enabled = false;
 
   sprites_set_speed(0);
@@ -171,7 +153,7 @@ void mem_switch_buffer(void) {
   __asm {
     sei;
   }
-  if (_mem_use_alt_buffer) {
+  if (mem_using_alt_buffer) {
     // Switch to main buffer.
     vic_memptr = kVicMemScreenAlt;
     mem_screen_ram = kScreenRamMain;
@@ -186,7 +168,7 @@ void mem_switch_buffer(void) {
   __asm {
     cli;
   }
-  _mem_use_alt_buffer = !_mem_use_alt_buffer;
+  mem_using_alt_buffer = !mem_using_alt_buffer;
 }
 
 void mem_init_mccm(void) {
@@ -203,68 +185,6 @@ void mem_init_mcbm(void) {
   vic.color_back = kColorPanelBg;
   vic.ctrl1 = 0x3b;
   vic.ctrl2 = 0xd8;
-}
-
-#pragma optimize(push, noasm)
-static void _switch_to_panel_top() {
-  if (mem_debug_enabled) {
-    sprites_show_no_sprites();
-    return;
-  }
-#assign num_nop 16
-#repeat
-  __asm {
-      nop;
-  }
-#assign num_nop num_nop - 1
-#until num_nop == 0
-#undef num_nop
-
-  // clang-format off
-  __asm {
-    lda #$b8;
-    sta $d018;
-    lda #$3b;
-    sta $d011;
-    lda #$00;
-    sta $d021;
-  }
-  // clang-format on
-  sprites_show_panel_top_sprites();
-}
-
-static void _switch_to_panel_bottom() {
-  if (mem_debug_enabled) {
-    return;
-  }
-  sprites_show_panel_bottom_sprites();
-}
-
-static void _switch_to_terrain() {
-  sprites_show_terrain_sprites();
-  vic.color_back = kColorGrad2;
-  vic.ctrl1 = 0x1b; // Multicolor character mode
-  vic_memptr = _mem_use_alt_buffer ? 0xA8 : 0xB8;
-}
-
-#pragma optimize(pop)
-
-RIRQCode _rirq_panel_top, _rirq_panel_bottom, _rirq_terrain;
-
-void mem_init_rirq(void) {
-  rirq_init(/*kernalIRQ=*/false);
-  rirq_build(&_rirq_panel_top, 1);
-  rirq_call(&_rirq_panel_top, 0, (void *)_switch_to_panel_top);
-  rirq_set(0, kRasterScreenYStart + kViewportEndYPixels - 1, &_rirq_panel_top);
-  rirq_build(&_rirq_panel_bottom, 1);
-  rirq_call(&_rirq_panel_bottom, 0, (void *)_switch_to_panel_bottom);
-  rirq_set(1, kRasterScreenYStart + kViewportEndYPixels + 24,
-           &_rirq_panel_bottom);
-  rirq_build(&_rirq_terrain, 1);
-  rirq_call(&_rirq_terrain, 0, (void *)_switch_to_terrain);
-  rirq_set(2, kRasterScreenYStart + kScreenHeightPixels, &_rirq_terrain);
-  rirq_sort();
-  rirq_start();
 }
 
 void mem_clear_screen(void) {

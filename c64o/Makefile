@@ -1,4 +1,4 @@
-OSCAR64_INCLUDE=../../oscar64-main/include
+OSCAR64_INCLUDE=../../../oscar64-main/include
 
 PPILOT_PROGRAM = ppilot
 PPILOT_SRC = 	benchmark.h \
@@ -14,6 +14,8 @@ PPILOT_SRC = 	benchmark.h \
 		color.h \
 		fmath.h \
 		fmath.cc \
+		gfx.h \
+		gfx.cc \
 		mem.h \
 		mem.cc \
 		model.h \

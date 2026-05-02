@@ -1,6 +1,7 @@
 #include "benchmark.h"
 #include "box.h"
 #include "cia.h"
+#include "gfx.h"
 #include "keys.h"
 #include "mem.h"
 #include "model.h"
@@ -19,9 +20,9 @@ int main(void) {
   mem_clear_screen();
 
   mem_init_mccm();
-  mem_init_rirq();
   model_init();
   sprites_init();
+  gfx_init();
   render_snap_center_chars();
 
   while (1) {
