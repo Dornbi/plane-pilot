@@ -26,8 +26,8 @@ uint8_t _get_msb(uint16_t n) {
 }
 
 uint8_t _get_ratio(int16_t x, int16_t y) {
-  uint16_t ay = _abs(y);
-  uint16_t ax = _abs(x);
+  uint16_t ay = _abs16(y);
+  uint16_t ax = _abs16(x);
   uint16_t sum = ay + ax;
 
   if (sum == 0) {

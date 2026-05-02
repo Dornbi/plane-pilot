@@ -203,7 +203,7 @@ static inline void _fill_sky_ground_with_skip() {
     }
 
     if (roll_dy < 0) {
-      int16_t dx_left = dx - _abs(roll_dx_div_dy) * kSkipLines;
+      int16_t dx_left = dx - _abs16(roll_dx_div_dy) * kSkipLines;
       for (uint8_t y = 0; y < kViewportHeight; ++y) {
         if (dx < 0x0f) {
           _fill_line(dst, kCharSolidGround);
@@ -226,7 +226,7 @@ static inline void _fill_sky_ground_with_skip() {
         dx_left += roll_dx_div_dy;
       }
     } else {
-      int16_t dx_right = dx + _abs(roll_dx_div_dy) * kSkipLines;
+      int16_t dx_right = dx + _abs16(roll_dx_div_dy) * kSkipLines;
       for (uint8_t y = 0; y < kViewportHeight; ++y) {
         if (dx_right < 0x0f) {
           _fill_line(dst, kCharSolid11);

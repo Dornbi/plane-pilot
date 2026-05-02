@@ -3,9 +3,14 @@
 
 #include <stdint.h>
 
-inline int16_t _abs(int16_t a) { return a > 0 ? a : -a; }
-inline uint16_t _max(uint16_t a, uint16_t b) { return a > b ? a : b; }
-inline uint16_t _min(uint16_t a, uint16_t b) { return a > b ? b : a; }
+inline int8_t _abs8(int8_t a) { return a > 0 ? a : -a; }
+inline int16_t _abs16(int16_t a) { return a > 0 ? a : -a; }
+
+inline uint8_t _max8(uint8_t a, uint8_t b) { return a > b ? a : b; }
+inline uint16_t _max16(uint16_t a, uint16_t b) { return a > b ? a : b; }
+
+inline uint8_t _min8(uint8_t a, uint8_t b) { return a > b ? b : a; }
+inline uint16_t _min16(uint16_t a, uint16_t b) { return a > b ? b : a; }
 
 uint8_t _get_msb(uint16_t n);
 

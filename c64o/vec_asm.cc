@@ -26,8 +26,8 @@ inline bool vec_project() {
     return false;
   }
 
-  project_mul_a = _abs(vec_v.y);
-  project_mul_b = _abs(vec_v.z);
+  project_mul_a = _abs16(vec_v.y);
+  project_mul_b = _abs16(vec_v.z);
   if (project_mul_a > vec_v.x || project_mul_b > vec_v.x) {
     return false;
   }

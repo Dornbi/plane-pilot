@@ -524,12 +524,12 @@ void model_render_grid() {
   uint8_t cx = _start_cx;
   for (int8_t x = -_grid_radius;;) {
     _vec_v = _p_start;
-    uint8_t abs_x = _abs(x);
+    uint8_t abs_x = _abs16(x);
     uint8_t cx2 = cx << 1;
     uint8_t cy = _start_cy;
     for (int8_t y = -_grid_radius;;) {
       uint8_t start_idx = cx2 + cy;
-      uint8_t num_points = _num_points_per_radius[_max(abs_x, _abs(y))];
+      uint8_t num_points = _num_points_per_radius[_max16(abs_x, _abs16(y))];
       _draw_box_points(start_idx, num_points);
       if (++y > _grid_radius) {
         break;
