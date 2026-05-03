@@ -1,37 +1,46 @@
+#include "chardefs.h"
 #include "poly.h"
-
-#include <string.h>
 
 #include "benchmark.h"
 #include "cia.h"
+#include "gfx.h"
 #include "keys.h"
 #include "mem.h"
+#include <string.h>
 
 static const vertex_t polys[][4] = {{{20, 2}, {35, 8}, {20, 12}, {5, 6}},
                                     {{0, 0}, {35, 0}, {35, 12}, {0, 12}},
                                     {{10, 5}, {12, 5}, {12, 7}, {10, 7}}};
 
+static void _clear_screen() {
+  memset(mem_screen_ram, kCharSolidGround, kViewportHeight * kScreenWidth);
+}
+
 int main() {
-  uint8_t idx = 0;
   cia_init();
   bm_init();
-  mem_screen_ram = (uint8_t *)0x0400;
-  memset(mem_screen_ram, ' ', 1000);
-  mem_debug_enabled = true;
 
-  // Clear the screen (basic spaces)
-  for (int i = 0; i < 1000; i++) {
-    mem_screen_ram[i] = 32;
-  }
+  mem_init();
+  mem_switch_buffer();
+  _clear_screen();
+  mem_switch_buffer();
+  _clear_screen();
 
-  // Infinite loop to keep the screen visible
+  mem_init_mccm();
+  gfx_init_chars();
+  gfx_init_raster_irqs();
+
+  uint8_t idx = 0;
+  mem_switch_debug(true);
+
   while (1) {
-    fill_poly(polys[idx], 4, 81);
+    fill_poly(polys[idx], 4, kQuadCharStart + 15);
     keyb_poll();
     if (key_pressed(KSCAN_SPACE)) {
       idx = (idx + 1) % (sizeof(polys) / sizeof(polys[0]));
-      memset(mem_screen_ram, ' ', 1000);
+      _clear_screen();
     }
+    mem_switch_buffer();
   };
 
   return 0;

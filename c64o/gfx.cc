@@ -71,7 +71,7 @@ static void _switch_to_terrain() {
 
 RIRQCode _rirq_panel_top, _rirq_panel_bottom, _rirq_terrain;
 
-static inline void _init_raster_irq() {
+void gfx_init_raster_irqs(void) {
   rirq_init(/*kernalIRQ=*/false);
   rirq_build(&_rirq_panel_top, 1);
   rirq_call(&_rirq_panel_top, 0, (void *)_switch_to_panel_top);
@@ -87,26 +87,52 @@ static inline void _init_raster_irq() {
   rirq_start();
 }
 
+static inline void _init_solid_chars() {
+  memset(kCharRam + kCharSolidGround * 8, 0x55, 8);
+  memset(kCharRam + kCharSolid11 * 8, 0xFF, 8);
+}
+
 static inline void _init_single_point_chars() {
-  static const uint8_t alt_lines[] = {0x95, 0x65, 0x59, 0x56};
+  static const uint8_t kAltLines[] = {0x95, 0x65, 0x59, 0x56};
   uint8_t *p = kCharRam + kSinglePointCharStart * 8;
   for (uint8_t y = 0; y < 4; ++y) {
     for (uint8_t x = 0; x < 4; ++x) {
       for (uint8_t i = 0; i < 8; ++i) {
         p[i] = 0x55;
       }
-      p[y * 2] = alt_lines[x];
-      p[y * 2 + 1] = alt_lines[x];
+      p[y * 2] = kAltLines[x];
+      p[y * 2 + 1] = kAltLines[x];
       p += 8;
     }
   }
 }
 
-void gfx_init(void) {
-  memset(kCharRam + kCharSolidGround * 8, 0x55, 8);
-  memset(kCharRam + kCharSolid11 * 8, 0xFF, 8);
+static inline void _init_quad_chars() {
+  static const uint8_t kFullQuadChar[] = {0x99, 0x66, 0x9A, 0xA6,
+                                          0x99, 0x66, 0xA9, 0x66};
+  uint8_t *p = kCharRam + kQuadCharStart * 8;
+  for (uint8_t ch_idx = 0; ch_idx < 16; ++ch_idx) {
+    for (uint8_t line_idx = 0; line_idx < 8; ++line_idx) {
+      uint8_t line_val = kFullQuadChar[line_idx];
+      if (!(ch_idx & (line_idx < 4 ? 0x01 : 0x04))) {
+        // Mask the left 4 bits to 0101 (ground).
+        line_val &= 0x0f;
+        line_val |= 0x50;
+      }
+      if (!(ch_idx & (line_idx < 4 ? 0x02 : 0x08))) {
+        // Mask the right 4 bits to 0101 (ground).
+        line_val &= 0xf0;
+        line_val |= 0x05;
+      }
+      *p++ = line_val;
+    }
+  }
+}
+
+void gfx_init_chars(void) {
+  _init_solid_chars();
   _init_single_point_chars();
-  _init_raster_irq();
+  _init_quad_chars();
 }
 
 inline void gfx_draw_single_point(int16_t px, int16_t py) {

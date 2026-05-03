@@ -144,6 +144,7 @@ static void _trace_edge_bresenham(int8_t x1, int8_t y1, int8_t x2, int8_t y2) {
   }
 }
 
+/*
 static uint8_t *const kPolyScreenRamMain = (uint8_t *)0x0400;
 
 static uint8_t *const kPolyScreenRowPtrsMain[kViewportHeight] = {
@@ -154,6 +155,7 @@ static uint8_t *const kPolyScreenRowPtrsMain[kViewportHeight] = {
     kPolyScreenRamMain + 320, kPolyScreenRamMain + 360,
     kPolyScreenRamMain + 400, kPolyScreenRamMain + 440,
     kPolyScreenRamMain + 480, kPolyScreenRamMain + 520};
+    */
 
 static inline void _fill_line(uint8_t *dst, uint8_t val, int8_t cnt) {
   for (int8_t i = cnt - 1; i >= 0; --i) {
@@ -170,7 +172,7 @@ void fill_poly(const vertex_t *vertices, uint8_t num_vertices,
 
   bm_start();
   _clear_buffers();
-  bm_end(880, SCREEN_STR("clear:"));
+  bm_end(880, SCREEN_STR("CLEAR:"));
 
   // 1. Trace all edges
   bm_start();
@@ -182,14 +184,14 @@ void fill_poly(const vertex_t *vertices, uint8_t num_vertices,
     _trace_edge_bresenham(vertices[i].x, vertices[i].y, vertices[next].x,
                           vertices[next].y);
   }
-  bm_end(920, SCREEN_STR("trace:"));
+  bm_end(920, SCREEN_STR("TRACE:"));
 
   // 2. Draw the scanlines directly to Screen RAM
   bm_start();
   for (int8_t y = 0; y < kViewportHeight; y++) {
     int8_t left = _max8(_min_x[y], 0);
     int8_t right = _min8(_max_x[y], kScreenWidth - 1);
-    _fill_line(kPolyScreenRowPtrsMain[y] + left, fill_char, right - left + 1);
+    _fill_line(mem_screen_row_ptrs[y] + left, fill_char, right - left + 1);
   }
-  bm_end(960, SCREEN_STR("scan: "));
+  bm_end(960, SCREEN_STR("SCAN: "));
 }

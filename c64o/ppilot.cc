@@ -22,7 +22,8 @@ int main(void) {
   mem_init_mccm();
   model_init();
   sprites_init();
-  gfx_init();
+  gfx_init_chars();
+  gfx_init_raster_irqs();
   render_snap_center_chars();
 
   while (1) {

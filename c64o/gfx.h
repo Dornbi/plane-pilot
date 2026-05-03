@@ -5,9 +5,13 @@
 
 // Start of range with 16 characters used to draw single pixels.
 static const uint8_t kSinglePointCharStart = 128;
+static const uint8_t kQuadCharStart = 144;
+
+// Init the fixed characters.
+void gfx_init_chars(void);
 
 // Init raster interrupts.
-void gfx_init(void);
+void gfx_init_raster_irqs(void);
 
 // Draw a single point from the pre-initialized character set.
 void gfx_draw_single_point(int16_t px, int16_t py);
