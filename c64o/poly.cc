@@ -67,7 +67,9 @@ static void _trace_edge_dda(int8_t x1, uint8_t y1, int8_t x2, uint8_t y2) {
     int8_t start_x = x_fp >> 8;
     int8_t end_x = start_x;
     if (y < y2) {
-      end_x = (x_fp + dx_fp) >> 8;
+      if (abs_dx > dy) {
+        end_x = (x_fp + dx_fp) >> 8;
+      }
     }
 
     // Update scanline bounds
@@ -111,52 +113,91 @@ static void _trace_edge_bresenham(int8_t x1, uint8_t y1, int8_t x2,
     uint8_t dx = x2 - x1;
     uint8_t x = x1;
 
-    for (uint8_t y = y1; y <= y2; y++) {
-      // Step X if we haven't reached the last scanline
-      uint8_t start_x = x;
-      if (y < y2) {
+    if (dx > dy) {
+      for (uint8_t y = y1; y < y2; y++) {
+        uint8_t start_x = x;
         err += dx;
         while (err >= dy) {
           x++;
           err -= dy;
         }
-      }
-      uint8_t end_x = x;
+        uint8_t end_x = x;
 
-      // Update scanline bounds (eliminating inner-loop viewport bounds checks)
-      if (start_x < _min_x[y])
-        _min_x[y] = start_x;
-      if (end_x > _max_x[y])
-        _max_x[y] = end_x;
+        if (start_x < _min_x[y])
+          _min_x[y] = start_x;
+        if (end_x > _max_x[y])
+          _max_x[y] = end_x;
+      }
+    } else {
+      for (uint8_t y = y1; y < y2; y++) {
+        if (x < _min_x[y])
+          _min_x[y] = x;
+        if (x > _max_x[y])
+          _max_x[y] = x;
+
+        err += dx;
+        if (err >= dy) {
+          x++;
+          err -= dy;
+        }
+      }
     }
+    if (x < _min_x[y2])
+      _min_x[y2] = x;
+    if (x > _max_x[y2])
+      _max_x[y2] = x;
   } else {
     uint8_t dx = x1 - x2;
     uint8_t x = x1;
 
-    for (uint8_t y = y1; y <= y2; y++) {
-      // Step X if we haven't reached the last scanline
-      uint8_t start_x = x;
-      if (y < y2) {
+    if (dx > dy) {
+      for (uint8_t y = y1; y < y2; y++) {
+        uint8_t start_x = x;
         err += dx;
         while (err >= dy) {
           x--;
           err -= dy;
         }
-      }
-      uint8_t end_x = x;
+        uint8_t end_x = x;
 
-      // Update scanline bounds (eliminating inner-loop viewport bounds checks)
-      if (end_x < _min_x[y])
-        _min_x[y] = end_x;
-      if (start_x > _max_x[y])
-        _max_x[y] = start_x;
+        if (end_x < _min_x[y])
+          _min_x[y] = end_x;
+        if (start_x > _max_x[y])
+          _max_x[y] = start_x;
+      }
+    } else {
+      for (uint8_t y = y1; y < y2; y++) {
+        if (x < _min_x[y])
+          _min_x[y] = x;
+        if (x > _max_x[y])
+          _max_x[y] = x;
+
+        err += dx;
+        if (err >= dy) {
+          x--;
+          err -= dy;
+        }
+      }
     }
+    if (x < _min_x[y2])
+      _min_x[y2] = x;
+    if (x > _max_x[y2])
+      _max_x[y2] = x;
   }
 }
 
-static inline void _fill_line(uint8_t *dst, uint8_t val, int8_t cnt) {
+static inline void _scan_line(uint8_t *dst, uint8_t val, int8_t cnt) {
   for (int8_t i = cnt - 1; i >= 0; --i) {
     dst[i] = val;
+  }
+}
+
+static inline void _scan_lines(uint8_t fill_char_start_idx) {
+  for (int8_t y = 0; y < kViewportHeight; y++) {
+    int8_t left = _max8(_min_x[y], 0);
+    int8_t right = _min8(_max_x[y], kScreenWidth - 1);
+    _scan_line(mem_screen_row_ptrs[y] + left, fill_char_start_idx + 15,
+               right - left + 1);
   }
 }
 
@@ -185,11 +226,6 @@ void fill_poly(const vertex_t *vertices, uint8_t num_vertices,
 
   // 2. Draw the scanlines directly to Screen RAM
   bm_start();
-  for (int8_t y = 0; y < kViewportHeight; y++) {
-    int8_t left = _max8(_min_x[y], 0);
-    int8_t right = _min8(_max_x[y], kScreenWidth - 1);
-    _fill_line(mem_screen_row_ptrs[y] + left, fill_char_start_idx + 15,
-               right - left + 1);
-  }
+  _scan_lines(fill_char_start_idx);
   bm_end(960, SCREEN_STR("SCAN: "));
 }
