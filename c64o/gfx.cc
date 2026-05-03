@@ -104,7 +104,6 @@ static inline void _init_single_point_chars() {
 
 void gfx_init(void) {
   memset(kCharRam + kCharSolidGround * 8, 0x55, 8);
-  memset(kCharRam + kCharSolidGrad1 * 8, 0xAA, 8);
   memset(kCharRam + kCharSolid11 * 8, 0xFF, 8);
   _init_single_point_chars();
   _init_raster_irq();
