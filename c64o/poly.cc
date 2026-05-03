@@ -36,7 +36,7 @@ static inline uint16_t _div(uint8_t a, uint8_t b) {
   return p >> (8 - shift);
 }
 
-static void _trace_edge_dda(int8_t x1, int8_t y1, int8_t x2, int8_t y2) {
+static void _trace_edge_dda(int8_t x1, uint8_t y1, int8_t x2, uint8_t y2) {
   if (y1 == y2) {
     return; // Skip horizontal edges
   }
@@ -47,7 +47,7 @@ static void _trace_edge_dda(int8_t x1, int8_t y1, int8_t x2, int8_t y2) {
     x1 = x2;
     x2 = tmp_x;
 
-    int8_t tmp_y = y1;
+    uint8_t tmp_y = y1;
     y1 = y2;
     y2 = tmp_y;
   }
@@ -63,7 +63,7 @@ static void _trace_edge_dda(int8_t x1, int8_t y1, int8_t x2, int8_t y2) {
 
   int16_t x_fp = ((int16_t)x1 << 8) + 0x80; // +0x80 for half-pixel rounding
 
-  for (int8_t y = y1; y <= y2; y++) {
+  for (uint8_t y = y1; y <= y2; y++) {
     int8_t start_x = x_fp >> 8;
     int8_t end_x = start_x;
     if (y < y2) {
@@ -168,8 +168,8 @@ void fill_poly(const vertex_t *vertices, uint8_t num_vertices,
     if (next == num_vertices) {
       next = 0; // Wrap around to the first vertex
     }
-    _trace_edge_bresenham(vertices[i].x, vertices[i].y, vertices[next].x,
-                          vertices[next].y);
+    _trace_edge_dda(vertices[i].x, vertices[i].y, vertices[next].x,
+                    vertices[next].y);
   }
   bm_end(920, SCREEN_STR("TRACE:"));
 
