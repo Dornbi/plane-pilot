@@ -59,18 +59,10 @@ def render_batch(colors: List[int],
     global_chars: Dict[bytes, Dict[str, Any]] = {} # bytes -> {'id': int, 'rolls': set(roll_key)}
     box_defs = {}
     # roll_key format: "r8u1_c160_100"
-        
-    # Fixed Mapping: 
-    # 01: Ground (colors[0])
-    # 10: Grad1 (colors[1])
-    # 00: Grad2 (colors[2])
-    # 11: Sky (colors[3])
-    
+
     color_to_bits = {
-        colors[2]: 0, # Grad2 -> 00
         colors[0]: 1, # Ground -> 01
         colors[1]: 3, # Grad1 -> 11
-        colors[3]: 3  # Sky -> 11
     }
     
     # Global colors validation not strictly needed if we assume inputs are valid
@@ -80,7 +72,6 @@ def render_batch(colors: List[int],
     # convert_mcbm_to_mccm will return globals.
     
     ground_c = colors[0]
-    sky_c = colors[3]
     
     # Helper to find bit pattern for a color
     def get_solid_bytes(color_idx: int, fallback_bits: int) -> bytes:
