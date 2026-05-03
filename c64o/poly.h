@@ -10,7 +10,7 @@ struct vertex_t {
 
 // Fill the polygon using the traced edges.
 void fill_poly(const vertex_t *vertices, uint8_t num_vertices,
-               unsigned char fill_char);
+               uint8_t fill_char_start_idx);
 
 #pragma compile("poly.cc")
 

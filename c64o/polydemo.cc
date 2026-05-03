@@ -34,7 +34,7 @@ int main() {
   mem_switch_debug(true);
 
   while (1) {
-    fill_poly(polys[idx], 4, kQuadCharStart + 15);
+    fill_poly(polys[idx], 4, kQuadCharStart);
     keyb_poll();
     if (key_pressed(KSCAN_SPACE)) {
       idx = (idx + 1) % (sizeof(polys) / sizeof(polys[0]));

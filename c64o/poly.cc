@@ -3,12 +3,11 @@
 #include "benchmark.h"
 #include "fmath.h"
 #include "mem.h"
-#include "vec.h"
 #include <stdint.h>
 
 // Buffers to store the left-most and right-most X bounds for each scanline
-static __zeropage uint8_t _min_x[kViewportHeight];
-static __zeropage uint8_t _max_x[kViewportHeight];
+static uint8_t _min_x[kViewportHeight];
+static uint8_t _max_x[kViewportHeight];
 
 // Initialize the scanline buffers
 static inline void _clear_buffers() {
@@ -144,19 +143,6 @@ static void _trace_edge_bresenham(int8_t x1, int8_t y1, int8_t x2, int8_t y2) {
   }
 }
 
-/*
-static uint8_t *const kPolyScreenRamMain = (uint8_t *)0x0400;
-
-static uint8_t *const kPolyScreenRowPtrsMain[kViewportHeight] = {
-    kPolyScreenRamMain + 0,   kPolyScreenRamMain + 40,
-    kPolyScreenRamMain + 80,  kPolyScreenRamMain + 120,
-    kPolyScreenRamMain + 160, kPolyScreenRamMain + 200,
-    kPolyScreenRamMain + 240, kPolyScreenRamMain + 280,
-    kPolyScreenRamMain + 320, kPolyScreenRamMain + 360,
-    kPolyScreenRamMain + 400, kPolyScreenRamMain + 440,
-    kPolyScreenRamMain + 480, kPolyScreenRamMain + 520};
-    */
-
 static inline void _fill_line(uint8_t *dst, uint8_t val, int8_t cnt) {
   for (int8_t i = cnt - 1; i >= 0; --i) {
     dst[i] = val;
@@ -165,7 +151,7 @@ static inline void _fill_line(uint8_t *dst, uint8_t val, int8_t cnt) {
 
 // Fill the polygon using the traced edges
 void fill_poly(const vertex_t *vertices, uint8_t num_vertices,
-               unsigned char fill_char) {
+               uint8_t fill_char_start_idx) {
   if (num_vertices < 3) {
     return; // A polygon needs at least 3 vertices
   }
@@ -191,7 +177,8 @@ void fill_poly(const vertex_t *vertices, uint8_t num_vertices,
   for (int8_t y = 0; y < kViewportHeight; y++) {
     int8_t left = _max8(_min_x[y], 0);
     int8_t right = _min8(_max_x[y], kScreenWidth - 1);
-    _fill_line(mem_screen_row_ptrs[y] + left, fill_char, right - left + 1);
+    _fill_line(mem_screen_row_ptrs[y] + left, fill_char_start_idx + 15,
+               right - left + 1);
   }
   bm_end(960, SCREEN_STR("SCAN: "));
 }
