@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 
+// Start of range with 16 characters used to draw single pixels.
+static const uint8_t kSinglePointCharStart = 128;
+
 // Init raster interrupts.
 void gfx_init(void);
 

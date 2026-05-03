@@ -26,7 +26,6 @@ static const uint16_t kViewportStartYPixels = kViewportStartY * 8;
 static const uint16_t kViewportEndYPixels = kViewportEndY * 8;
 
 static uint8_t *const kCharRam = (uint8_t *)0xE000;
-static const uint8_t kSinglePointCharStart = 128;
 static const uint8_t kRasterScreenYStart = 50;
 
 static uint8_t *const kScreenRamMain = (uint8_t *)0xE800;
