@@ -309,7 +309,7 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
                                total_chars: int,
                                use_8bit_offsets: bool) -> str:
     """
-    Generates chardefs.c content with preprocessed boxdef_t structures.
+    Generates boxdefs.c content with preprocessed boxdef_t structures.
     """
     import re
     
