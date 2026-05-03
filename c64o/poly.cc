@@ -87,7 +87,8 @@ static void _trace_edge_dda(int8_t x1, int8_t y1, int8_t x2, int8_t y2) {
   }
 }
 
-static void _trace_edge_bresenham(int8_t x1, int8_t y1, int8_t x2, int8_t y2) {
+static void _trace_edge_bresenham(int8_t x1, uint8_t y1, int8_t x2,
+                                  uint8_t y2) {
   if (y1 == y2) {
     return; // Skip horizontal edges
   }
@@ -98,7 +99,7 @@ static void _trace_edge_bresenham(int8_t x1, int8_t y1, int8_t x2, int8_t y2) {
     x1 = x2;
     x2 = tmp_x;
 
-    int8_t tmp_y = y1;
+    uint8_t tmp_y = y1;
     y1 = y2;
     y2 = tmp_y;
   }
@@ -110,11 +111,11 @@ static void _trace_edge_bresenham(int8_t x1, int8_t y1, int8_t x2, int8_t y2) {
     dx = -dx;
   }
 
-  int8_t dy = y2 - y1;
+  uint8_t dy = y2 - y1;
   int8_t err = dy >> 1; // Half-pixel offset for rounding
   int8_t x = x1;
 
-  for (int8_t y = y1; y <= y2; y++) {
+  for (uint8_t y = y1; y <= y2; y++) {
     int8_t start_x = x;
 
     // Step X if we haven't reached the last scanline
