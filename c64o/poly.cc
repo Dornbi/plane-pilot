@@ -6,13 +6,13 @@
 #include <stdint.h>
 
 // Buffers to store the left-most and right-most X bounds for each scanline
-static uint8_t _min_x[kViewportHeight];
-static uint8_t _max_x[kViewportHeight];
+static uint8_t _min_x[2 * kViewportHeight];
+static uint8_t _max_x[2 * kViewportHeight];
 
 // Initialize the scanline buffers
 static inline void _clear_buffers() {
 #pragma unroll(full)
-  for (uint8_t i = 0; i < kViewportHeight; i++) {
+  for (uint8_t i = 0; i < 2 * kViewportHeight; i++) {
     _min_x[i] = kScreenWidth; // Set to out-of-bounds max
     _max_x[i] = 0;            // Set to out-of-bounds min
   }
@@ -104,38 +104,48 @@ static void _trace_edge_bresenham(int8_t x1, uint8_t y1, int8_t x2,
     y2 = tmp_y;
   }
 
-  int8_t dx = x2 - x1;
-  int8_t sx = 1;
-  if (dx < 0) {
-    sx = -1;
-    dx = -dx;
-  }
-
   uint8_t dy = y2 - y1;
   int8_t err = dy >> 1; // Half-pixel offset for rounding
-  int8_t x = x1;
 
-  for (uint8_t y = y1; y <= y2; y++) {
-    int8_t start_x = x;
+  if (x2 > x1) {
+    uint8_t dx = x2 - x1;
+    uint8_t x = x1;
 
-    // Step X if we haven't reached the last scanline
-    if (y < y2) {
-      err += dx;
-      while (err >= dy) {
-        x += sx;
-        err -= dy;
+    for (uint8_t y = y1; y <= y2; y++) {
+      // Step X if we haven't reached the last scanline
+      uint8_t start_x = x;
+      if (y < y2) {
+        err += dx;
+        while (err >= dy) {
+          x++;
+          err -= dy;
+        }
       }
-    }
+      uint8_t end_x = x;
 
-    int8_t end_x = x;
-
-    // Update scanline bounds (eliminating inner-loop viewport bounds checks)
-    if (sx > 0) {
+      // Update scanline bounds (eliminating inner-loop viewport bounds checks)
       if (start_x < _min_x[y])
         _min_x[y] = start_x;
       if (end_x > _max_x[y])
         _max_x[y] = end_x;
-    } else {
+    }
+  } else {
+    uint8_t dx = x1 - x2;
+    uint8_t x = x1;
+
+    for (uint8_t y = y1; y <= y2; y++) {
+      // Step X if we haven't reached the last scanline
+      uint8_t start_x = x;
+      if (y < y2) {
+        err += dx;
+        while (err >= dy) {
+          x--;
+          err -= dy;
+        }
+      }
+      uint8_t end_x = x;
+
+      // Update scanline bounds (eliminating inner-loop viewport bounds checks)
       if (end_x < _min_x[y])
         _min_x[y] = end_x;
       if (start_x > _max_x[y])
@@ -168,8 +178,8 @@ void fill_poly(const vertex_t *vertices, uint8_t num_vertices,
     if (next == num_vertices) {
       next = 0; // Wrap around to the first vertex
     }
-    _trace_edge_dda(vertices[i].x, vertices[i].y, vertices[next].x,
-                    vertices[next].y);
+    _trace_edge_bresenham(vertices[i].x, vertices[i].y, vertices[next].x,
+                          vertices[next].y);
   }
   bm_end(920, SCREEN_STR("TRACE:"));
 
