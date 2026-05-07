@@ -93,7 +93,7 @@ $(PPILOT_PROGRAM).prg: $(PPILOT_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_HORIZON__ -D__DEBUG_MODEL__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
 
 $(POLYDEMO_PROGRAM).prg: $(POLYDEMO_SRC)
-	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ polydemo.cc
+	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__  polydemo.cc
 
 $(VECDEMO_PROGRAM).prg: $(VECDEMO_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ vecdemo.cc
@@ -102,4 +102,4 @@ $(VECTEST_PROGRAM).prg: $(VECTEST_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ vectest.cc
 
 clean:
-	rm -f $(PPILOT_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg *.asm *.dbj *.int *.lbl *.map
+	rm -f $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg *.asm *.dbj *.int *.lbl *.map
