@@ -206,7 +206,7 @@ static void _update_sun_render_state() {
 }
 
 static void _model_stall() {
-  static mat3_t mat_stall = {{256, 0, 0}, {0, 256, 0}, {0, 0, 256}};
+  static mat3_t mat_stall;
   mat_stall.up = make_vector(0, 0, 256);
   vec_cross(&mat_stall.up, &_model_cam.front, &mat_stall.left);
   vec_normalize(&mat_stall.left);
@@ -390,8 +390,6 @@ static int16_t _mitch_x[16];
 static int16_t _mitch_y[16];
 static int16_t _mitch_z[16];
 static __zeropage vec3_t _vec_v;
-static __zeropage uint8_t _grid_x;
-static __zeropage uint8_t _grid_y;
 static __zeropage int8_t _step_x;
 static __zeropage int8_t _step_y;
 static __zeropage uint8_t _start_cx;
@@ -494,22 +492,22 @@ static void _init_start_dx_dy() {
   p_start_world.x -= (mx & kGridMask);
   p_start_world.y -= (my & kGridMask);
   p_start_world.z = -_down_shift(_model_eye_z);
-  _grid_x = mx >> 10;
-  _grid_y = my >> 10;
+  uint8_t grid_x = mx >> 10;
+  uint8_t grid_y = my >> 10;
   vec_transform_inv(&_model_cam, &p_start_world, &_p_start);
 
   _step_x = 1;
-  _start_cx = _grid_x - _grid_radius;
+  _start_cx = grid_x - _grid_radius;
   if (_model_cam.front.x > 0) {
     _step_x = -1;
-    _start_cx = _grid_x + _grid_radius;
+    _start_cx = grid_x + _grid_radius;
   }
 
   _step_y = 1;
-  _start_cy = _grid_y - _grid_radius;
+  _start_cy = grid_y - _grid_radius;
   if (_model_cam.front.y > 0) {
     _step_y = -1;
-    _start_cy = _grid_y + _grid_radius;
+    _start_cy = grid_y + _grid_radius;
   }
 }
 
