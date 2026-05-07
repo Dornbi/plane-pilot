@@ -241,16 +241,14 @@ static inline void _scan_lines(uint8_t fill_char_start_idx) {
       _set_pixel(row + px, fill_char_start_idx, full_mask);
     }
 #ifdef __DEBUG_POLY__
-/*
-    if (y < 10) {
-      print_labeled_bcd(610 + y * 40, SCREEN_STR("1:"), left1, 2);
-      print_labeled_bcd(615 + y * 40, SCREEN_STR("2:"), left2, 2);
-      print_labeled_bcd(620 + y * 40, SCREEN_STR("C:"), left_common, 2);
-      print_labeled_bcd(625 + y * 40, SCREEN_STR("1:"), right1, 2);
-      print_labeled_bcd(630 + y * 40, SCREEN_STR("2:"), right2, 2);
-      print_labeled_bcd(635 + y * 40, SCREEN_STR("C:"), right_common, 2);
+    if (py < 20) {
+      uint16_t shift = py * 40;
+      if (sy & 1) {
+        shift += 5;
+      }
+      print_labeled_bcd(610 + shift, SCREEN_STR("L:"), min_x, 2);
+      print_labeled_bcd(630 + shift, SCREEN_STR("R:"), max_x, 2);
     }
-      */
 #endif
   }
 }
