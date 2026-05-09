@@ -260,6 +260,12 @@ static inline void _set_line(uint8_t *dst, uint8_t val, int8_t cnt) {
   }
 }
 
+// This version does not take the previous value into account.
+static inline void _set_pixel2(uint8_t *dst, uint8_t fill_char_start_idx,
+                               uint8_t val) {
+  dst[0] = fill_char_start_idx + val;
+}
+
 // About 250 bytes more code, faster for large polygons.
 void _scan_lines2(uint8_t fill_char_start_idx) {
   for (uint8_t py = 0; py < kViewportHeight; ++py) {
@@ -338,7 +344,7 @@ void _scan_lines2(uint8_t fill_char_start_idx) {
         }
       }
       if (mask) {
-        _set_pixel(row + px, fill_char_start_idx, mask);
+        _set_pixel2(row + px, fill_char_start_idx, mask);
       }
     }
 
@@ -370,7 +376,7 @@ void _scan_lines2(uint8_t fill_char_start_idx) {
         }
       }
       if (mask) {
-        _set_pixel(row + px, fill_char_start_idx, mask);
+        _set_pixel2(row + px, fill_char_start_idx, mask);
       }
     }
 #ifdef __DEBUG_POLY__
