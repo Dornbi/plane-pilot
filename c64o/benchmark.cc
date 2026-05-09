@@ -31,14 +31,16 @@ void bm_init(void) {
 }
 
 void bm_start(void) {
-  if (!mem_debug_enabled) return;
+  if (!mem_debug_enabled)
+    return;
   const uint16_t timer_a = cia2.ta;
   const uint16_t timer_b = cia2.tb;
   _benchmark_start = (((uint32_t)timer_b << 16) | timer_a);
 }
 
 void bm_end(uint16_t pos, const char *label) {
-  if (!mem_debug_enabled) return;
+  if (!mem_debug_enabled)
+    return;
   const uint16_t timer_a = cia2.ta;
   const uint16_t timer_b = cia2.tb;
   const uint32_t benchmark_end = (((uint32_t)timer_b << 16) | timer_a);
@@ -48,9 +50,16 @@ void bm_end(uint16_t pos, const char *label) {
 }
 
 void bm_total(uint16_t pos, const char *label) {
-  if (!mem_debug_enabled) return;
+  if (!mem_debug_enabled)
+    return;
   print_labeled_bcd(pos, label, _benchmark_total_cycles);
   _benchmark_total_cycles = 0;
 }
+
+void bm_horiz_start(void) { bm_start(); }
+void bm_horiz_end(uint16_t pos, const char *label) { bm_end(pos, label); }
+
+void bm_model_start(void) { bm_start(); }
+void bm_model_end(uint16_t pos, const char *label) { bm_end(pos, label); }
 
 #endif

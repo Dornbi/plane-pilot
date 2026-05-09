@@ -21,20 +21,16 @@ inline void bm_total(uint16_t pos, const char *label) {}
 #endif
 
 #ifdef __DEBUG_HORIZON__
-inline void bm_horiz_start(void) { bm_start(); }
-inline void bm_horiz_end(uint16_t pos, const char *label) {
-  bm_end(pos, label);
-}
+void bm_horiz_start(void);
+void bm_horiz_end(uint16_t pos, const char *label);
 #else
 inline void bm_horiz_start(void) {}
 inline void bm_horiz_end(uint16_t pos, const char *label) {}
 #endif
 
 #ifdef __DEBUG_MODEL__
-inline void bm_model_start(void) { bm_start(); }
-inline void bm_model_end(uint16_t pos, const char *label) {
-  bm_end(pos, label);
-}
+void bm_model_start(void);
+void bm_model_end(uint16_t pos, const char *label);
 #else
 inline void bm_model_start(void) {}
 inline void bm_model_end(uint16_t pos, const char *label) {}
