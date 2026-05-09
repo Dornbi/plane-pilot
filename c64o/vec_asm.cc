@@ -17,21 +17,11 @@ __zeropage int16_t vec_sy;
 
 // These are used for temporary storage.
 static __zeropage uint8_t tmp1, tmp2, tmp3, tmp4;
+static __zeropage int16_t project_mul_a;
+static __zeropage int16_t project_mul_b;
 
-inline bool vec_project() {
-  static __zeropage int16_t project_mul_a;
-  static __zeropage int16_t project_mul_b;
-
-  if (vec_v.x <= 8) {
-    return false;
-  }
-
-  project_mul_a = _abs16(vec_v.y);
-  project_mul_b = _abs16(vec_v.z);
-  if (project_mul_a > vec_v.x || project_mul_b > vec_v.x) {
-    return false;
-  }
-
+// PERF: inline -> bytes: +290 bytes, cycles: -1000
+static inline void _vec_project_internal() {
   // clang-format off
   __asm {
         lda vec_v;
@@ -149,5 +139,20 @@ inline bool vec_project() {
     L_done_proj:
   }
   // clang-format on
+}
+
+// PERF: inline -> +500 bytes, -2000 cycles
+inline bool vec_project() {
+  if (vec_v.x <= 8) {
+    return false;
+  }
+
+  project_mul_a = _abs16(vec_v.y);
+  project_mul_b = _abs16(vec_v.z);
+  if (project_mul_a > vec_v.x || project_mul_b > vec_v.x) {
+    return false;
+  }
+
+  _vec_project_internal();
   return true;
 }
