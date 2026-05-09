@@ -370,6 +370,8 @@ void model_input(enum model_input_t input) {
   }
 }
 
+// OPT: This seems to buy 1000 cycles
+#pragma optimize(3)
 static inline int16_t _down_shift(uint32_t val) { return (int16_t)(val >> 9); }
 
 static void _split_vec(vec3_t *v, vec3_t d4[4]) {
