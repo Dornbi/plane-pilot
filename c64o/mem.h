@@ -19,8 +19,9 @@
 // but it overlaps with VIC control registers so we would have to
 // switch back and forth.
 #pragma region( main, 0x0860, 0xD000, , , {code, data, bss, heap} )
-// Region 0x5F..0xFF is safe if we don't use BASIC.
-#pragma region( zeropage, 0x5F, 0xFF, , , {zeropage} )
+// Region 0x5F..0xFF should be possible, except that the irq trap
+// handles 0x80.
+#pragma region( zeropage, 0x80, 0xFF, , , {zeropage} )
 
 static const uint8_t kScreenWidth = 40;
 static const uint8_t kScreenHeight = 25;
