@@ -17,7 +17,7 @@ static inline int16_t _optmul(int8_t a, int16_t b) {
   }
 }
 
-// PERF: Using this would cost: -100 bytes, +1700 cycles (when tilted).
+// PERF: using this -> -100 bytes, +1700 cycles (when tilted).
 int16_t _unused_vec_fastmul8p8(int16_t a, int16_t b) {
   // vec_asm.c is faster but also increases code size.
   if (!_lobyte(b)) {
