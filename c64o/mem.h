@@ -9,8 +9,16 @@
 #define __zeropage
 #endif
 
-// We barely use the stack.
-#pragma stacksize(256)
+// We barely use the stack, make it smaller than the default.
+#pragma stacksize(0x100)
+// Since the screen ram is moved to 0xE800 and 0xEC00, we can
+// use the original location for stack.
+#pragma region( stack, 0x0400, 0x0500, , , {stack} )
+// Startup code is 0x0801 .. 0x0853, use everything before the VIC
+// range as RAM. In theory we could use everything until kSpriteData
+// but it overlaps with VIC control registers so we would have to
+// switch back and forth.
+#pragma region( main, 0x0860, 0xD000, , , {code, data, bss, heap} )
 // Region 0x5F..0xFF is safe if we don't use BASIC.
 #pragma region( zeropage, 0x5F, 0xFF, , , {zeropage} )
 
