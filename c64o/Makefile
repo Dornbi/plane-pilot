@@ -41,6 +41,8 @@ PPILOT_SRC = \
 		vec_asm.cc \
 		vec_lut.cc \
 		vic.h \
+		world.h \
+		world.cc
 
 POLYDEMO_PROGRAM = polydemo
 POLYDEMO_SRC = \

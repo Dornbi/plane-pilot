@@ -8,6 +8,7 @@
 #include "print.h"
 #include "render.h"
 #include "sprites.h"
+#include "world.h"
 
 int main(void) {
   cia_init();
@@ -73,7 +74,7 @@ int main(void) {
     render_fill_sky_ground();
     box_prepare();
     box_draw();
-    model_render_grid();
+    world_render_grid();
 #ifdef __DEBUG_CYCLES__
     bm_end(990, SCREEN_STR("TOT:"));
 #else

@@ -1,6 +1,7 @@
 #ifndef MODEL_H
 #define MODEL_H
 
+#include "vec.h"
 #include <stdint.h>
 
 enum model_input_t {
@@ -15,12 +16,19 @@ enum model_input_t {
   MODEL_INPUT_THROTTLE_DOWN,
 };
 
+// View matrix.
+extern mat3_t model_cam;
+
+// Roughly 24.8 fixed point in meters
+extern int32_t model_eye_x;
+extern int32_t model_eye_y;
+extern int32_t model_eye_z;
+
 void model_init();
 void model_init_alt();
 void model_reset_fuel();
 void model_input(enum model_input_t input);
 void model_update();
-void model_render_grid();
 
 #pragma compile("model.cc")
 
