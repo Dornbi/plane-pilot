@@ -9,6 +9,11 @@
 #define __zeropage
 #endif
 
+// We barely use the stack.
+#pragma stacksize(256)
+// Region 0x5F..0xFF is safe if we don't use BASIC.
+#pragma region( zeropage, 0x5F, 0xFF, , , {zeropage} )
+
 static const uint8_t kScreenWidth = 40;
 static const uint8_t kScreenHeight = 25;
 static const uint16_t kScreenWidthPixels = kScreenWidth * 8;
@@ -65,8 +70,6 @@ void mem_switch_debug(bool debug);
 
 // vic.memptr should be volatile __memmap
 #define vic_memptr (*((volatile __memmap byte *)0xD018))
-
-#pragma stacksize(256)
 
 #pragma compile("mem.cc")
 
