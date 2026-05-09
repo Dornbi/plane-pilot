@@ -205,6 +205,7 @@ static inline void _set_pixel(uint8_t *dst, uint8_t fill_char_start_idx,
   dst[0] = fill_char_start_idx | (dst[0] & 0xF) | val;
 }
 
+// This implementation is simpler and faster for small filled polygons.
 static inline void _scan_lines(uint8_t fill_char_start_idx) {
   for (uint8_t sy = 0; sy < 2 * kViewportHeight; ++sy) {
     uint8_t min_x = _min_x[sy];
@@ -259,6 +260,7 @@ static inline void _set_line(uint8_t *dst, uint8_t val, int8_t cnt) {
   }
 }
 
+// About 250 bytes more code, faster for large polygons.
 void _scan_lines2(uint8_t fill_char_start_idx) {
   for (uint8_t py = 0; py < kViewportHeight; ++py) {
     uint8_t t_min, b_min, t_max, b_max;
@@ -407,6 +409,6 @@ void fill_poly(const vertex_t *vertices, uint8_t num_vertices,
 
   // 2. Draw the scanlines directly to Screen RAM
   bm_start();
-  _scan_lines(fill_char_start_idx);
+  _scan_lines2(fill_char_start_idx);
   bm_end(960, SCREEN_STR("SCN:"));
 }
