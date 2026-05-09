@@ -20,7 +20,8 @@
 // switch back and forth.
 #pragma region( main, 0x0860, 0xD000, , , {code, data, bss, heap} )
 // Region 0x5F..0xFF should be possible, except that the irq trap
-// handles 0x80.
+// handles 0x80. This probably depends on that the irq routines
+// should not touch anything below 0x80.
 #pragma region( zeropage, 0x80, 0xFF, , , {zeropage} )
 
 static const uint8_t kScreenWidth = 40;
