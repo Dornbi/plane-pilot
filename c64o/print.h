@@ -3,11 +3,13 @@
 
 #include <stdint.h>
 
+// clang-format off
 #ifdef __OSCAR64__
-#define SCREEN_STR(str) s##str
+#define SCREEN_STR(str) s ##str
 #else
 #define SCREEN_STR(str) str
 #endif
+// clang-format on
 
 inline void print_label(uint16_t pos, const char *label);
 void print_bcd(uint16_t pos, uint32_t value, uint8_t num_digits = 5);
