@@ -66,6 +66,8 @@ void mem_switch_debug(bool debug);
 // vic.memptr should be volatile __memmap
 #define vic_memptr (*((volatile __memmap byte *)0xD018))
 
+#pragma stacksize(256)
+
 #pragma compile("mem.cc")
 
 #endif
