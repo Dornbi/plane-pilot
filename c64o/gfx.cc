@@ -10,6 +10,7 @@
 
 #ifdef __OSCAR64__
 #include <c64/rasterirq.h>
+#include <oscar.h>
 #else
 #define RIRQ_SIZE 2
 typedef struct RIRQCode {
@@ -23,7 +24,13 @@ static void rirq_call(RIRQCode *ic, uint8_t n, void *addr) {}
 static void rirq_set(uint8_t n, uint8_t raster, RIRQCode *ic) {}
 static void rirq_sort(void) {}
 static void rirq_start(void) {}
+
+static const char *oscar_expand_lzo(char *dp, const char *sp) { return sp; }
 #endif
+
+const char kGfxCharsCompressed[] = {
+#embed 256 lzo "gfx_chars.bin"
+};
 
 #pragma optimize(push, noasm)
 static void _switch_to_panel_top() {
@@ -92,47 +99,10 @@ static inline void _init_solid_chars() {
   memset(kCharRam + kCharSolid11 * 8, 0xFF, 8);
 }
 
-static inline void _init_single_point_chars() {
-  static const uint8_t kAltLines[] = {0x95, 0x65, 0x59, 0x56};
-  uint8_t *p = kCharRam + kSinglePointCharStart * 8;
-  for (uint8_t y = 0; y < 4; ++y) {
-    for (uint8_t x = 0; x < 4; ++x) {
-      for (uint8_t i = 0; i < 8; ++i) {
-        p[i] = 0x55;
-      }
-      p[y * 2] = kAltLines[x];
-      p[y * 2 + 1] = kAltLines[x];
-      p += 8;
-    }
-  }
-}
-
-static inline void _init_quad_chars() {
-  static const uint8_t kFullQuadChar[] = {0x99, 0x66, 0x9A, 0xA6,
-                                          0x99, 0x66, 0xA9, 0x66};
-  uint8_t *p = kCharRam + kQuadCharStart * 8;
-  for (uint8_t ch_idx = 0; ch_idx < 16; ++ch_idx) {
-    for (uint8_t line_idx = 0; line_idx < 8; ++line_idx) {
-      uint8_t line_val = kFullQuadChar[line_idx];
-      if (!(ch_idx & (line_idx < 4 ? 0x01 : 0x04))) {
-        // Mask the left 4 bits to 0101 (ground).
-        line_val &= 0x0f;
-        line_val |= 0x50;
-      }
-      if (!(ch_idx & (line_idx < 4 ? 0x02 : 0x08))) {
-        // Mask the right 4 bits to 0101 (ground).
-        line_val &= 0xf0;
-        line_val |= 0x05;
-      }
-      *p++ = line_val;
-    }
-  }
-}
-
 void gfx_init_chars(void) {
   _init_solid_chars();
-  _init_single_point_chars();
-  _init_quad_chars();
+  oscar_expand_lzo((char *)kCharRam + kSinglePointCharStart * 8,
+                   kGfxCharsCompressed);
 }
 
 inline void gfx_draw_single_point(int16_t px, int16_t py) {
