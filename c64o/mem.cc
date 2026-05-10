@@ -27,27 +27,47 @@ static const char *oscar_expand_lzo(char *dp, const char *sp) { return sp; }
 static uint8_t *const kColorRam = (uint8_t *)0xD800;
 static uint8_t *const kSpriteData = (uint8_t *)0xD7C0;
 
-uint8_t *mem_screen_ram;
 uint8_t mem_box_char_start;
-uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
 bool mem_debug_enabled;
 bool mem_using_alt_buffer;
 
 static uint8_t *const kScreenRowPtrsMain[kViewportHeight] = {
-    kScreenRamMain + 0,   kScreenRamMain + 40,  kScreenRamMain + 80,
-    kScreenRamMain + 120, kScreenRamMain + 160, kScreenRamMain + 200,
-    kScreenRamMain + 240, kScreenRamMain + 280, kScreenRamMain + 320,
-    kScreenRamMain + 360, kScreenRamMain + 400, kScreenRamMain + 440,
-    kScreenRamMain + 480, kScreenRamMain + 520};
+    kScreenRamMain + kScreenWidth * 0,  kScreenRamMain + kScreenWidth * 1,
+    kScreenRamMain + kScreenWidth * 2,  kScreenRamMain + kScreenWidth * 3,
+    kScreenRamMain + kScreenWidth * 4,  kScreenRamMain + kScreenWidth * 5,
+    kScreenRamMain + kScreenWidth * 6,  kScreenRamMain + kScreenWidth * 7,
+    kScreenRamMain + kScreenWidth * 8,  kScreenRamMain + kScreenWidth * 9,
+    kScreenRamMain + kScreenWidth * 10, kScreenRamMain + kScreenWidth * 11,
+    kScreenRamMain + kScreenWidth * 12, kScreenRamMain + kScreenWidth * 13};
 
 static uint8_t *const kScreenRowPtrsAlt[kViewportHeight] = {
-    kScreenRamAlt + 0,   kScreenRamAlt + 40,  kScreenRamAlt + 80,
-    kScreenRamAlt + 120, kScreenRamAlt + 160, kScreenRamAlt + 200,
-    kScreenRamAlt + 240, kScreenRamAlt + 280, kScreenRamAlt + 320,
-    kScreenRamAlt + 360, kScreenRamAlt + 400, kScreenRamAlt + 440,
-    kScreenRamAlt + 480, kScreenRamAlt + 520};
+    kScreenRamAlt + kScreenWidth * 0,  kScreenRamAlt + kScreenWidth * 1,
+    kScreenRamAlt + kScreenWidth * 2,  kScreenRamAlt + kScreenWidth * 3,
+    kScreenRamAlt + kScreenWidth * 4,  kScreenRamAlt + kScreenWidth * 5,
+    kScreenRamAlt + kScreenWidth * 6,  kScreenRamAlt + kScreenWidth * 7,
+    kScreenRamAlt + kScreenWidth * 8,  kScreenRamAlt + kScreenWidth * 9,
+    kScreenRamAlt + kScreenWidth * 10, kScreenRamAlt + kScreenWidth * 11,
+    kScreenRamAlt + kScreenWidth * 12, kScreenRamAlt + kScreenWidth * 13};
 
+uint8_t *mem_screen_ram;
 uint8_t *mem_screen_row_ptrs[kViewportHeight];
+
+uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
+uint8_t *const mem_color_row_ptrs[kViewportHeight] = {
+    mem_color_buffer + kViewportWidth * 0,
+    mem_color_buffer + kViewportWidth * 1,
+    mem_color_buffer + kViewportWidth * 2,
+    mem_color_buffer + kViewportWidth * 3,
+    mem_color_buffer + kViewportWidth * 4,
+    mem_color_buffer + kViewportWidth * 5,
+    mem_color_buffer + kViewportWidth * 6,
+    mem_color_buffer + kViewportWidth * 7,
+    mem_color_buffer + kViewportWidth * 8,
+    mem_color_buffer + kViewportWidth * 9,
+    mem_color_buffer + kViewportWidth * 10,
+    mem_color_buffer + kViewportWidth * 11,
+    mem_color_buffer + kViewportWidth * 12,
+    mem_color_buffer + kViewportWidth * 13};
 
 // cia2.pra should be volatile __memmap
 #define cia2_pra (*((volatile __memmap byte *)0xDD00))

@@ -46,12 +46,17 @@ static const uint8_t kRasterScreenYStart = 50;
 static uint8_t *const kScreenRamMain = (uint8_t *)0xE800;
 static uint8_t *const kScreenRamAlt = (uint8_t *)0xEC00;
 
+// Current screen ram.
 extern uint8_t *mem_screen_ram;
-extern uint8_t mem_box_char_start;
-extern uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
-
 // Multiply by 40 for screen row offset for the viewport.
 extern uint8_t *mem_screen_row_ptrs[kViewportHeight];
+
+// Color buffer. Unlike the screen ram, this is fixed.
+extern uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
+extern uint8_t *const mem_color_row_ptrs[kViewportHeight];
+
+// The starting character for the box characters.
+extern uint8_t mem_box_char_start;
 
 // Sets CHAR_RAM and SCREEN_RAM to start at 0xC000 and 0xC800 respectively.
 // @result screen_ram
