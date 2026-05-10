@@ -112,9 +112,7 @@ static void _init_start_dx_dy() {
   _dx_vec.z = model_cam.up.x;
   _split_vec(&_dx_vec, _dx4);
   if (model_cam.front.x > 0) {
-    _dx_vec.x = -_dx_vec.x;
-    _dx_vec.y = -_dx_vec.y;
-    _dx_vec.z = -_dx_vec.z;
+    vec_negate(&_dx_vec);
     p_start_world.x = grid_spacing;
   } else {
     p_start_world.x = -grid_spacing;
@@ -124,9 +122,7 @@ static void _init_start_dx_dy() {
   _dy_vec.z = model_cam.up.y;
   _split_vec(&_dy_vec, _dy4);
   if (model_cam.front.y > 0) {
-    _dy_vec.x = -_dy_vec.x;
-    _dy_vec.y = -_dy_vec.y;
-    _dy_vec.z = -_dy_vec.z;
+    vec_negate(&_dy_vec);
     p_start_world.y = grid_spacing;
   } else {
     p_start_world.y = -grid_spacing;
@@ -165,7 +161,11 @@ static void _init_start_dx_dy() {
   }
 }
 
-static inline void _render_object(ObjectType object_type) {}
+static inline void _render_object(ObjectType object_type) {
+  if (object_type == OBJECT_RUNWAY) {
+    vec_v = _vec_v;
+  }
+}
 
 void world_render_grid() {
   // 1. Initial point P0 = (X_start, Y_start, Z_start) in _model_camera space
@@ -201,9 +201,7 @@ void world_render_grid() {
       }
       cy += _step_y;
       //  Step along Y axis
-      _vec_v.x += _dy_vec.x;
-      _vec_v.y += _dy_vec.y;
-      _vec_v.z += _dy_vec.z;
+      vec_add(&_vec_v, &_dy_vec);
       if (_vec_v.x < 0) {
         break;
       }
@@ -213,9 +211,7 @@ void world_render_grid() {
     }
     cx += _step_x;
     // Step along X axis
-    _p_start.x += _dx_vec.x;
-    _p_start.y += _dx_vec.y;
-    _p_start.z += _dx_vec.z;
+    vec_add(&_p_start, &_dx_vec);
     if (_p_start.x < 0) {
       break;
     }

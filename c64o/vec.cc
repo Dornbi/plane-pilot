@@ -44,6 +44,24 @@ static inline uint16_t _get_sqr_div4(uint16_t x) {
   return ((uint16_t)vec_sqr_hi[x] << 8) | vec_sqr_lo[x];
 }
 
+inline void vec_add(vec3_t *dest, const vec3_t *src) {
+  dest->x += src->x;
+  dest->y += src->y;
+  dest->z += src->z;
+}
+
+inline void vec_sub(vec3_t *dest, const vec3_t *src) {
+  dest->x -= src->x;
+  dest->y -= src->y;
+  dest->z -= src->z;
+}
+
+inline void vec_negate(vec3_t *v) {
+  v->x = -v->x;
+  v->y = -v->y;
+  v->z = -v->z;
+}
+
 uint16_t vec_fastsqr8p8u(uint16_t a) {
 
   uint8_t h = _hibyte(a);

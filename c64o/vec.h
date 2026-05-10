@@ -40,6 +40,11 @@ extern vec3_t vec_v;
 extern int16_t vec_sx;
 extern int16_t vec_sy;
 
+// Addition and subtraction in place.
+void vec_add(vec3_t *dst, const vec3_t *src);
+void vec_sub(vec3_t *dst, const vec3_t *src);
+void vec_negate(vec3_t *v);
+
 // Projects 3d vector to screen coordinates and populates vec_sx and vec_sy.
 // x is forward, y is left, z is up.
 // @param vec_v: vector to project
