@@ -103,9 +103,7 @@ static void _draw_one_box(int8_t cx, int8_t cy) {
     return;
   }
 
-  uint8_t *dst_chr = mem_screen_ram +
-                     (int16_t)(kViewportStartY + cy) * kScreenWidth + cx +
-                     kViewportStartX;
+  uint8_t *dst_chr = mem_screen_row_ptrs[cy] + cx + kViewportStartX;
   uint8_t *dst_col = mem_color_buffer + (int16_t)cy * kViewportWidth + cx;
 
   --w;
