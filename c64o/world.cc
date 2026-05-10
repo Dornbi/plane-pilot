@@ -7,7 +7,21 @@
 #include "model.h"
 #include "vec.h"
 
-// OPT: This seems to buy 1000 cycles
+// Objects represent grid positions where there is something else
+// than the default dots. One object per row is allowed.
+enum DotType { DOT_NOTHING = 0, DOT_GROUND = 1, DOT_WATER = 2 };
+
+static const uint8_t kObjectNumRows = 4;
+static const uint8_t kDotStartX[kObjectNumRows] = {2, 2, 2, 2};
+static const uint8_t kDotEndX[kObjectNumRows] = {6, 6, 6, 6};
+static const DotType kDotTypes[kObjectNumRows] = {DOT_WATER, DOT_WATER,
+                                                  DOT_WATER, DOT_GROUND};
+enum ObjectType { OBJECT_NOTHING = 0, OBJECT_RUNWAY = 1 };
+static const uint8_t kObjectX[kObjectNumRows] = {2, 2, 2, 2};
+static const ObjectType kObjectTypes[kObjectNumRows] = {
+    OBJECT_NOTHING, OBJECT_NOTHING, OBJECT_NOTHING, OBJECT_NOTHING};
+
+// PERF: optimize(3) -> bytes: negligible cycles: -1000
 #pragma optimize(3)
 static inline int16_t _down_shift(uint32_t val) { return (int16_t)(val >> 9); }
 
@@ -42,14 +56,15 @@ static const uint8_t kMitchellPointsX[16] = {0, 3, 0, 1, 3, 1, 2, 0,
 static const uint8_t kMitchellPointsY[16] = {0, 0, 3, 1, 2, 3, 0, 1,
                                              3, 2, 2, 0, 1, 1, 2, 3};
 
-static inline void _draw_box_points(uint8_t start_idx, uint8_t num_points) {
+static inline void _draw_box_points(uint8_t start_idx, uint8_t num_points,
+                                    bool is_ground) {
   uint8_t idx = start_idx & 0x0F;
   for (uint8_t i = num_points;;) {
     vec_v = _vec_v;
     vec_v.x += _mitch_x[idx];
     vec_v.y += _mitch_y[idx];
     vec_v.z += _mitch_z[idx];
-    gfx_project_and_draw();
+    gfx_project_and_draw(is_ground);
     if (--i == 0) {
       break;
     }
@@ -150,6 +165,8 @@ static void _init_start_dx_dy() {
   }
 }
 
+static inline void _render_object(ObjectType object_type) {}
+
 void world_render_grid() {
   // 1. Initial point P0 = (X_start, Y_start, Z_start) in _model_camera space
   // Base grid is on Z = -_model_cam_ALTITUDE plane in world space (relative
@@ -165,9 +182,20 @@ void world_render_grid() {
     uint8_t cx2 = cx << 1;
     uint8_t cy = _start_cy;
     for (int8_t y = -_grid_radius;;) {
-      uint8_t start_idx = cx2 + cy;
-      uint8_t num_points = _num_points_per_radius[_max16(abs_x, _abs16(y))];
-      _draw_box_points(start_idx, num_points);
+      DotType dot_type = DOT_GROUND;
+      if (cy < kObjectNumRows && cx >= kDotStartX[cy] && cx <= kDotEndX[cy]) {
+        dot_type = kDotTypes[cy];
+      }
+      if (dot_type == DOT_NOTHING) {
+        if (kObjectX[cy] == cx) {
+          _render_object(kObjectTypes[cy]);
+        }
+      } else {
+        uint8_t start_idx = cx2 + cy;
+        uint8_t num_points = _num_points_per_radius[_max16(abs_x, _abs16(y))];
+        _draw_box_points(start_idx, num_points,
+                         /* is_ground= */ dot_type == DOT_GROUND);
+      }
       if (++y > _grid_radius) {
         break;
       }

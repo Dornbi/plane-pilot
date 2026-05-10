@@ -12,5 +12,6 @@ static const uint8_t kColorBg = 0;         // Black
 static const uint8_t kColorPanelBg = 0;    // Black
 static const uint8_t kColorInstrument = 1; // White
 static const uint8_t kColorSun = 7;        // Yellow
+static const uint8_t kColorWater = 6;      // Blue
 
 #endif /* COLOR_H */
