@@ -5,7 +5,7 @@
 
 // Start of range with 16 characters used to draw single pixels.
 static const uint8_t kSinglePointCharStart = 128;
-static const uint8_t kQuadCharStart = 144;
+static const uint8_t kQuadCharStart = 160;
 
 // Init the fixed characters.
 void gfx_init_chars(void);
