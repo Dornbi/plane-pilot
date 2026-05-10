@@ -50,6 +50,10 @@ POLYDEMO_SRC = \
 		benchmark.cc \
 		bool.h \
 		cia.h \
+		fmath.h \
+		fmath.cc \
+		gfx.h \
+		gfx.cc \
 		keys.h \
 		mem.h \
 		mem.cc \
