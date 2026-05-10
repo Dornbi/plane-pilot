@@ -47,6 +47,7 @@ static __zeropage int8_t _step_x;
 static __zeropage int8_t _step_y;
 static __zeropage uint8_t _start_cx;
 static __zeropage uint8_t _start_cy;
+static vec3_t _dx4[4], _dy4[4];
 
 // Mitchell's Best-Candidate algorithm to maximize distance between points
 // while maintaining an organic, non-linear distribution.
@@ -106,11 +107,10 @@ static void _init_start_dx_dy() {
   // Pre-calculate delta vectors for step in X and step in Y
   // The order is such that when _vec_v.x becomes < 0, we can break the loop
   // along both axes.
-  vec3_t dx4[4], dy4[4];
   _dx_vec.x = model_cam.front.x;
   _dx_vec.y = model_cam.left.x;
   _dx_vec.z = model_cam.up.x;
-  _split_vec(&_dx_vec, dx4);
+  _split_vec(&_dx_vec, _dx4);
   if (model_cam.front.x > 0) {
     _dx_vec.x = -_dx_vec.x;
     _dx_vec.y = -_dx_vec.y;
@@ -122,7 +122,7 @@ static void _init_start_dx_dy() {
   _dy_vec.x = model_cam.front.y;
   _dy_vec.y = model_cam.left.y;
   _dy_vec.z = model_cam.up.y;
-  _split_vec(&_dy_vec, dy4);
+  _split_vec(&_dy_vec, _dy4);
   if (model_cam.front.y > 0) {
     _dy_vec.x = -_dy_vec.x;
     _dy_vec.y = -_dy_vec.y;
@@ -136,9 +136,9 @@ static void _init_start_dx_dy() {
   for (uint8_t i = 0; i < 16; ++i) {
     uint8_t mx = kMitchellPointsX[i];
     uint8_t my = kMitchellPointsY[i];
-    _mitch_x[i] = dx4[mx].x + dy4[my].x;
-    _mitch_y[i] = dx4[mx].y + dy4[my].y;
-    _mitch_z[i] = dx4[mx].z + dy4[my].z;
+    _mitch_x[i] = _dx4[mx].x + _dy4[my].x;
+    _mitch_y[i] = _dx4[mx].y + _dy4[my].y;
+    _mitch_z[i] = _dx4[mx].z + _dy4[my].z;
   }
 
   uint16_t mx = _down_shift(model_eye_x);
