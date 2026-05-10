@@ -58,8 +58,8 @@ struct sprite_xy_t {
 static sprite_xy_t _sprite_terrain_xy[8];
 static uint8_t _sprite_terrain_idx[8];
 
-static sprite_xy_t _sprite_instrument_xy[8];
-static uint8_t _sprite_instrument_idx[8];
+static volatile sprite_xy_t _sprite_instrument_xy[8];
+static volatile uint8_t _sprite_instrument_idx[8];
 
 static void _set_instrument_sprite(uint8_t idx, const sprite_meta_t *meta_array,
                                    uint8_t dir, uint8_t pivot_x,
