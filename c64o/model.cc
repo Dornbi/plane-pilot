@@ -31,7 +31,7 @@ static const int32_t kStallSpeed = 0x0400;
 static const int32_t kMaxSpeed = 0x0F00;
 static const uint8_t kMinThrottle = 0x00;
 static const uint8_t kMaxThrottle = 0x18;
-static const int16_t kMoveForwardBackwardSpeed = 0x1000;
+static const int16_t kMoveForwardBackwardSpeed = 0x4000;
 
 static const mat3_t _m_init = {
     {256, 0, 0},
