@@ -14,10 +14,13 @@ enum model_input_t {
   MODEL_INPUT_YAW_RIGHT,
   MODEL_INPUT_THROTTLE_UP,
   MODEL_INPUT_THROTTLE_DOWN,
+  MODEL_INPUT_MOVE_FORWARD,
+  MODEL_INPUT_MOVE_BACKWARD,
 };
 
 // View matrix.
 extern mat3_t model_cam;
+extern bool model_paused;
 
 // Roughly 24.8 fixed point in meters
 extern int32_t model_eye_x;
@@ -29,7 +32,6 @@ void model_init_alt();
 void model_reset_fuel();
 void model_input(enum model_input_t input);
 void model_update();
-void model_toggle_paused();
 
 #pragma compile("model.cc")
 

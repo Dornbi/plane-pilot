@@ -12,7 +12,7 @@
 #include "vec.h"
 
 // Stop motion disables the plane movement and physics.
-static bool _paused = false;
+bool model_paused = false;
 
 mat3_t model_cam;
 int32_t model_eye_x;
@@ -31,6 +31,7 @@ static const int32_t kStallSpeed = 0x0400;
 static const int32_t kMaxSpeed = 0x0F00;
 static const uint8_t kMinThrottle = 0x00;
 static const uint8_t kMaxThrottle = 0x18;
+static const int16_t kMoveForwardBackwardSpeed = 0x1000;
 
 static const mat3_t _m_init = {
     {256, 0, 0},
@@ -67,8 +68,6 @@ void model_init_alt() {
 }
 
 inline void model_reset_fuel() { _model_fuel = 0x21FFF; }
-
-inline void model_toggle_paused() { _paused = !_paused; }
 
 static const uint8_t kRollAngleLut[65] = {
     0,  0,  0,  0,  1,  1,  1,  1,  2,  2,  2,  2,  3,  3,  3,  3,  4,
@@ -213,9 +212,18 @@ static void _model_stall() {
   _model_need_normalize = true;
 }
 
+static void _move_forward(int16_t fspeed, int16_t vspeed) {
+  model_eye_x += vec_fastmul8p8(model_cam.front.x, fspeed);
+  model_eye_y += vec_fastmul8p8(model_cam.front.y, fspeed);
+  model_eye_z += vspeed;
+  if (model_eye_z < kMinEyeZ) {
+    model_eye_z = kMinEyeZ;
+  }
+}
+
 void model_update() {
   int16_t vspeed = 0;
-  if (!_paused) {
+  if (!model_paused) {
     // Speed: Air resistance, gravity, trhottle
     _model_speed -= vec_fastsqr8p8(_model_speed) >> 10;
     _model_speed -= model_cam.front.z >> 3;
@@ -228,16 +236,9 @@ void model_update() {
       _model_speed = kMaxSpeed;
     }
 
-    // Vspeed
-    vspeed = vec_fastmul8p8(model_cam.front.z, _model_speed);
-
     // Motion
-    model_eye_x += vec_fastmul8p8(model_cam.front.x, _model_speed << 1);
-    model_eye_y += vec_fastmul8p8(model_cam.front.y, _model_speed << 1);
-    model_eye_z += vspeed;
-    if (model_eye_z < kMinEyeZ) {
-      model_eye_z = kMinEyeZ;
-    }
+    vspeed = vec_fastmul8p8(model_cam.front.z, _model_speed);
+    _move_forward(_model_speed, vspeed);
 
     // Fuel
     uint8_t fuel_consumption = _model_throttle;
@@ -324,6 +325,16 @@ void model_input(enum model_input_t input) {
   case MODEL_INPUT_THROTTLE_DOWN:
     if (_model_throttle > kMinThrottle) {
       _model_throttle -= 1;
+    }
+    break;
+  case MODEL_INPUT_MOVE_BACKWARD:
+  case MODEL_INPUT_MOVE_FORWARD:
+    if (model_paused) {
+      int16_t speed = input == MODEL_INPUT_MOVE_FORWARD
+                          ? kMoveForwardBackwardSpeed
+                          : -kMoveForwardBackwardSpeed;
+      int16_t vspeed = vec_fastmul8p8(model_cam.front.z, speed);
+      _move_forward(speed, vspeed);
     }
     break;
   default:

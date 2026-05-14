@@ -45,7 +45,7 @@ int main(void) {
       mem_switch_debug(!mem_debug_enabled);
     }
     if (key_pressed(KSCAN_P)) {
-      model_toggle_paused();
+      model_paused = !model_paused;
     }
     if (key_pressed(KSCAN_J)) {
       model_input(MODEL_INPUT_ROLL_LEFT);
@@ -64,6 +64,12 @@ int main(void) {
     }
     if (key_pressed(KSCAN_S)) {
       model_input(MODEL_INPUT_YAW_RIGHT);
+    }
+    if (key_pressed(KSCAN_Z)) {
+      model_input(MODEL_INPUT_MOVE_FORWARD);
+    }
+    if (key_pressed(KSCAN_X)) {
+      model_input(MODEL_INPUT_MOVE_BACKWARD);
     }
     if (key_pressed(KSCAN_PLUS)) {
       model_input(MODEL_INPUT_THROTTLE_UP);
