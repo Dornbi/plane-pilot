@@ -44,6 +44,9 @@ int main(void) {
     if (key_pressed(KSCAN_D)) {
       mem_switch_debug(!mem_debug_enabled);
     }
+    if (key_pressed(KSCAN_P)) {
+      model_toggle_paused();
+    }
     if (key_pressed(KSCAN_J)) {
       model_input(MODEL_INPUT_ROLL_LEFT);
     }

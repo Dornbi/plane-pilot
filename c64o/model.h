@@ -29,6 +29,7 @@ void model_init_alt();
 void model_reset_fuel();
 void model_input(enum model_input_t input);
 void model_update();
+void model_toggle_paused();
 
 #pragma compile("model.cc")
 

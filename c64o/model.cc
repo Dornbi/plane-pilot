@@ -11,8 +11,8 @@
 #include "sprites.h"
 #include "vec.h"
 
-// Simple mode disables all the 3D logic for debugging.
-const bool kSimpleMode = false;
+// Stop motion disables the plane movement and physics.
+static bool _paused = false;
 
 mat3_t model_cam;
 int32_t model_eye_x;
@@ -45,20 +45,14 @@ static const mat3_t _m_init_alt = {
 };
 
 void model_init() {
-  if (kSimpleMode) {
-    render_cx_pixels = 129;
-    render_cy_pixels = -12;
-    roll_angle = 52;
-  } else {
-    model_cam = _m_init;
-    model_eye_x = 0;
-    model_eye_y = 0;
-    model_eye_z = 0x8800;
-    _model_speed = 0x860;
-    _model_throttle = 0x14;
-    _model_need_normalize = false;
-    model_reset_fuel();
-  }
+  model_cam = _m_init;
+  model_eye_x = 0;
+  model_eye_y = 0;
+  model_eye_z = 0x8800;
+  _model_speed = 0x860;
+  _model_throttle = 0x14;
+  _model_need_normalize = false;
+  model_reset_fuel();
 }
 
 void model_init_alt() {
@@ -72,7 +66,9 @@ void model_init_alt() {
   model_reset_fuel();
 }
 
-void model_reset_fuel() { _model_fuel = 0x21FFF; }
+inline void model_reset_fuel() { _model_fuel = 0x21FFF; }
+
+inline void model_toggle_paused() { _paused = !_paused; }
 
 static const uint8_t kRollAngleLut[65] = {
     0,  0,  0,  0,  1,  1,  1,  1,  2,  2,  2,  2,  3,  3,  3,  3,  4,
@@ -218,9 +214,8 @@ static void _model_stall() {
 }
 
 void model_update() {
-  if (kSimpleMode) {
-    roll_update_state();
-  } else {
+  int16_t vspeed = 0;
+  if (!_paused) {
     // Speed: Air resistance, gravity, trhottle
     _model_speed -= vec_fastsqr8p8(_model_speed) >> 10;
     _model_speed -= model_cam.front.z >> 3;
@@ -234,7 +229,7 @@ void model_update() {
     }
 
     // Vspeed
-    int16_t vspeed = vec_fastmul8p8(model_cam.front.z, _model_speed);
+    vspeed = vec_fastmul8p8(model_cam.front.z, _model_speed);
 
     // Motion
     model_eye_x += vec_fastmul8p8(model_cam.front.x, _model_speed << 1);
@@ -261,31 +256,31 @@ void model_update() {
       vec_transform3_inv(&mat3_rot, &model_cam);
       _model_need_normalize = true;
     }
-
-    if (_model_need_normalize) {
-      vec_orthonormalize(&model_cam);
-      _model_need_normalize = false;
-    }
-
-    _update_roll_render_state();
-    sprites_set_speed(_model_speed >> 6);
-    sprites_set_alt(model_eye_z >> 8);
-    sprites_set_vspeed(vspeed);
-    sprites_set_roll(roll_angle);
-    sprites_set_pitch(model_cam.front.z >> 2);
-    sprites_set_throttle(_model_throttle);
-    sprites_set_fuel(_model_fuel);
-    uint8_t heading = _get_heading();
-    sprites_set_heading_bitmap(heading);
-    _update_sun_render_state();
-#ifdef __DEBUG_MODEL__
-    if (mem_debug_enabled) {
-      print_labeled_signed_bcd(960, SCREEN_STR("SPD:"), _model_speed, 4);
-      print_labeled_signed_bcd(970, SCREEN_STR("VSP:"), vspeed, 4);
-      print_labeled_signed_bcd(980, SCREEN_STR("HDG:"), heading, 4);
-    }
-#endif
   }
+
+  if (_model_need_normalize) {
+    vec_orthonormalize(&model_cam);
+    _model_need_normalize = false;
+  }
+
+  _update_roll_render_state();
+  sprites_set_speed(_model_speed >> 6);
+  sprites_set_alt(model_eye_z >> 8);
+  sprites_set_vspeed(vspeed);
+  sprites_set_roll(roll_angle);
+  sprites_set_pitch(model_cam.front.z >> 2);
+  sprites_set_throttle(_model_throttle);
+  sprites_set_fuel(_model_fuel);
+  uint8_t heading = _get_heading();
+  sprites_set_heading_bitmap(heading);
+  _update_sun_render_state();
+#ifdef __DEBUG_MODEL__
+  if (mem_debug_enabled) {
+    print_labeled_signed_bcd(960, SCREEN_STR("SPD:"), _model_speed, 4);
+    print_labeled_signed_bcd(970, SCREEN_STR("VSP:"), vspeed, 4);
+    print_labeled_signed_bcd(980, SCREEN_STR("HDG:"), heading, 4);
+  }
+#endif
 #ifdef __DEBUG_MODEL__
   if (mem_debug_enabled) {
     print_labeled_signed_bcd(850, SCREEN_STR("ROL:"), roll_angle, 4);
@@ -296,75 +291,42 @@ void model_update() {
 }
 
 void model_input(enum model_input_t input) {
-  if (kSimpleMode) {
-    switch (input) {
-    case MODEL_INPUT_ROLL_LEFT:
-      if (roll_angle > 0) {
-        --roll_angle;
-      } else {
-        roll_angle = kRollMax - 1;
-      }
-      break;
-    case MODEL_INPUT_ROLL_RIGHT:
-      if (roll_angle < kRollMax - 1) {
-        ++roll_angle;
-      } else {
-        roll_angle = 0;
-      }
-      break;
-    case MODEL_INPUT_PITCH_UP:
-      --render_cy_pixels;
-      break;
-    case MODEL_INPUT_PITCH_DOWN:
-      ++render_cy_pixels;
-      break;
-    case MODEL_INPUT_YAW_LEFT:
-      --render_cx_pixels;
-      break;
-    case MODEL_INPUT_YAW_RIGHT:
-      ++render_cx_pixels;
-      break;
-    default:
-      break;
+  switch (input) {
+  case MODEL_INPUT_ROLL_LEFT:
+    vec_transform3(&kVecRollLeft, &model_cam);
+    _model_need_normalize = true;
+    break;
+  case MODEL_INPUT_ROLL_RIGHT:
+    vec_transform3(&kVecRollRight, &model_cam);
+    _model_need_normalize = true;
+    break;
+  case MODEL_INPUT_PITCH_UP:
+    vec_transform3(&kVecPitchUp, &model_cam);
+    _model_need_normalize = true;
+    break;
+  case MODEL_INPUT_PITCH_DOWN:
+    vec_transform3(&kVecPitchDown, &model_cam);
+    _model_need_normalize = true;
+    break;
+  case MODEL_INPUT_YAW_LEFT:
+    vec_transform3(&kVecYawLeft, &model_cam);
+    _model_need_normalize = true;
+    break;
+  case MODEL_INPUT_YAW_RIGHT:
+    vec_transform3(&kVecYawRight, &model_cam);
+    _model_need_normalize = true;
+    break;
+  case MODEL_INPUT_THROTTLE_UP:
+    if (_model_throttle < kMaxThrottle) {
+      _model_throttle += 1;
     }
-  } else {
-    switch (input) {
-    case MODEL_INPUT_ROLL_LEFT:
-      vec_transform3(&kVecRollLeft, &model_cam);
-      _model_need_normalize = true;
-      break;
-    case MODEL_INPUT_ROLL_RIGHT:
-      vec_transform3(&kVecRollRight, &model_cam);
-      _model_need_normalize = true;
-      break;
-    case MODEL_INPUT_PITCH_UP:
-      vec_transform3(&kVecPitchUp, &model_cam);
-      _model_need_normalize = true;
-      break;
-    case MODEL_INPUT_PITCH_DOWN:
-      vec_transform3(&kVecPitchDown, &model_cam);
-      _model_need_normalize = true;
-      break;
-    case MODEL_INPUT_YAW_LEFT:
-      vec_transform3(&kVecYawLeft, &model_cam);
-      _model_need_normalize = true;
-      break;
-    case MODEL_INPUT_YAW_RIGHT:
-      vec_transform3(&kVecYawRight, &model_cam);
-      _model_need_normalize = true;
-      break;
-    case MODEL_INPUT_THROTTLE_UP:
-      if (_model_throttle < kMaxThrottle) {
-        _model_throttle += 1;
-      }
-      break;
-    case MODEL_INPUT_THROTTLE_DOWN:
-      if (_model_throttle > kMinThrottle) {
-        _model_throttle -= 1;
-      }
-      break;
-    default:
-      break;
+    break;
+  case MODEL_INPUT_THROTTLE_DOWN:
+    if (_model_throttle > kMinThrottle) {
+      _model_throttle -= 1;
     }
+    break;
+  default:
+    break;
   }
 }
