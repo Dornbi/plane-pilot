@@ -39,6 +39,7 @@ uint16_t _unused_vec_fastsqr8p8(int16_t a) {
 
 extern const uint8_t vec_sqr_lo[];
 extern const uint8_t vec_sqr_hi[];
+extern const uint8_t vec_recip_lut[];
 
 static inline uint16_t _get_sqr_div4(uint16_t x) {
   return ((uint16_t)vec_sqr_hi[x] << 8) | vec_sqr_lo[x];
@@ -215,6 +216,71 @@ int16_t vec_fastmul8p8(int16_t a, int16_t b) {
     }
   }
   return _vec_fastmul8p8(a, b);
+}
+
+int16_t vec_div8p8(int16_t a, int16_t b) {
+  if (a == 0)
+    return 0;
+
+  int8_t sign = 1;
+  uint16_t ua, ub;
+  if (a < 0) {
+    ua = -a;
+    sign = -sign;
+  } else {
+    ua = a;
+  }
+  if (b < 0) {
+    ub = -b;
+    sign = -sign;
+  } else {
+    ub = b;
+  }
+
+  while (ub > 255) {
+    ua >>= 1;
+    ub >>= 1;
+  }
+
+  if (ub == 0)
+    return sign > 0 ? 32767 : -32767;
+
+  uint8_t shift = 0;
+  while (ub < 128) {
+    ub <<= 1;
+    shift++;
+  }
+
+  uint16_t b_recip = 0x100 + vec_recip_lut[ub - 128];
+
+  ua <<= shift;
+
+  // Scale ua down to prevent internal overflow in vec_fastmul8p8
+  // Max safe value for ua to prevent sum overflow (ua + b_recip < 4096) is:
+  // since b_recip is up to 512, ua must be < 3584. We use 3072 for headroom.
+  uint8_t scale = 0;
+  while (ua >= 3072) {
+    ua >>= 1;
+    scale++;
+  }
+
+  int16_t res = vec_fastmul8p8(ua, b_recip);
+
+  uint32_t final_val = (uint32_t)res;
+  if (scale > 0) {
+    // Check for overflow before shifting left
+    if (final_val > (32767 >> scale)) {
+      return sign > 0 ? 32767 : -32767;
+    }
+    final_val <<= scale;
+  }
+
+  if (final_val > 32767) {
+    return sign > 0 ? 32767 : -32767;
+  }
+
+  int16_t final_res = (int16_t)final_val;
+  return sign > 0 ? final_res : -final_res;
 }
 
 static bool _unused_vec_project(const vec3_t *v) {

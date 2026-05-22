@@ -13,6 +13,9 @@ int16_t vec_fastmul8p8(int16_t a, int16_t b);
 // Both input and output use 8.8 fixed-point semantics.
 uint16_t vec_fastsqr8p8(int16_t a);
 
+// Divides a by b using 8.8 fixed point semantics. Equivalent to (a << 8) / b.
+int16_t vec_div8p8(int16_t a, int16_t b);
+
 // 16-bit signed 3D vector.
 struct vec3_t {
   int16_t x;
@@ -51,6 +54,10 @@ void vec_negate(vec3_t *v);
 // @result vec_sx, vec_sy: screen coordinates
 // Returns true on success, false on failure.
 bool vec_project();
+
+// Similar to vec_project, but does not cull based on the screen boundaries.
+// It will only return false if the point is behind the camera (x <= 8).
+bool vec_project_nocull();
 
 // Normalizes vector with 8.8 fixed point arithmetic.
 void vec_normalize(vec3_t *v);
