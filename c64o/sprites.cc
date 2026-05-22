@@ -143,6 +143,10 @@ inline void sprites_set_sun_position(int16_t x, int16_t y) {
   } else {
     x += kSpriteOffsetX - kSpriteDefSun.pivot_x;
     y += kSpriteOffsetY - kSpriteDefSun.pivot_y;
+    if (y >= kRasterScreenYStart + kViewportEndYPixels) {
+      x = 0;
+      y = 0;
+    }
   }
   _sun_x = (uint8_t)x;
   _sun_y = (uint8_t)y;
