@@ -5,21 +5,23 @@
 #include "gfx.h"
 #include "mem.h"
 #include "model.h"
+#include "poly.h"
 #include "vec.h"
 
 // Objects represent grid positions where there is something else
 // than the default dots. One object per row is allowed.
 enum DotType { DOT_NOTHING = 0, DOT_GROUND = 1, DOT_WATER = 2 };
 
-static const uint8_t kObjectNumRows = 4;
+static const uint8_t kObjectNumRows = 5;
 static const uint8_t kDotStartX[kObjectNumRows] = {2, 2, 2, 2};
 static const uint8_t kDotEndX[kObjectNumRows] = {6, 6, 6, 6};
-static const DotType kDotTypes[kObjectNumRows] = {DOT_WATER, DOT_WATER,
-                                                  DOT_WATER, DOT_GROUND};
+static const DotType kDotTypes[kObjectNumRows] = {
+    DOT_WATER, DOT_NOTHING, DOT_NOTHING, DOT_NOTHING, DOT_WATER};
 enum ObjectType { OBJECT_NOTHING = 0, OBJECT_RUNWAY = 1 };
 static const uint8_t kObjectX[kObjectNumRows] = {2, 2, 2, 2};
 static const ObjectType kObjectTypes[kObjectNumRows] = {
-    OBJECT_NOTHING, OBJECT_NOTHING, OBJECT_NOTHING, OBJECT_NOTHING};
+    OBJECT_NOTHING, OBJECT_NOTHING, OBJECT_RUNWAY, OBJECT_NOTHING,
+    OBJECT_NOTHING};
 
 // PERF: optimize(3) -> bytes: negligible cycles: -1000
 #pragma optimize(3)
@@ -163,7 +165,24 @@ static void _init_start_dx_dy() {
 
 static inline void _render_object(ObjectType object_type) {
   if (object_type == OBJECT_RUNWAY) {
-    vec_v = _vec_v;
+    static vec3_t poly_verts[4];
+    poly_verts[0] = _vec_v;
+    vec_add(&poly_verts[0], &_dx4[0]);
+    vec_add(&poly_verts[0], &_dy4[1]);
+
+    poly_verts[1] = _vec_v;
+    vec_add(&poly_verts[1], &_dx4[3]);
+    vec_add(&poly_verts[1], &_dy4[1]);
+
+    poly_verts[2] = _vec_v;
+    vec_add(&poly_verts[2], &_dx4[3]);
+    vec_add(&poly_verts[2], &_dy4[2]);
+
+    poly_verts[3] = _vec_v;
+    vec_add(&poly_verts[3], &_dx4[0]);
+    vec_add(&poly_verts[3], &_dy4[2]);
+
+    poly_draw_3d(poly_verts, 4, kQuadCharStart);
   }
 }
 

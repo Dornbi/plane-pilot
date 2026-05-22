@@ -25,6 +25,8 @@ PPILOT_SRC = \
 		panel.cc \
 		panel.koa \
 		ppilot.cc \
+		poly.h \
+		poly.cc \
 		render.h \
 		render.cc \
 		roll.h \

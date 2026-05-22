@@ -156,3 +156,14 @@ inline bool vec_project() {
   _vec_project_internal();
   return true;
 }
+
+inline bool vec_project_nocull() {
+  if (vec_v.x < 8) {
+    return false;
+  }
+
+  vec_sx = vec_div8p8(vec_v.y, vec_v.x);
+  vec_sy = vec_div8p8(vec_v.z, vec_v.x);
+  return true;
+}
+

@@ -40,10 +40,10 @@ int main() {
 
   while (1) {
     _clear_screen();
-    fill_poly(polys[idx], 4, kQuadCharStart);
+    poly_fill(polys[idx], 4, kQuadCharStart);
     mem_switch_buffer();
     _clear_screen();
-    fill_poly(polys[idx], 4, kQuadCharStart);
+    poly_fill(polys[idx], 4, kQuadCharStart);
     mem_switch_buffer();
 
     keyb_poll();

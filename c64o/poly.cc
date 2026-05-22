@@ -4,7 +4,12 @@
 #include "fmath.h"
 #include "mem.h"
 #include "print.h"
+#include "vec.h"
 #include <stdint.h>
+
+struct vertex16_t {
+  int16_t x, y;
+};
 
 // Buffers to store the left-most and right-most X bounds for each scanline
 static uint8_t _min_x[2 * kViewportHeight];
@@ -17,24 +22,6 @@ static inline void _clear_buffers() {
     _min_x[i] = kScreenWidth * 2; // Set to out-of-bounds max
     _max_x[i] = 0;                // Set to out-of-bounds min
   }
-}
-
-extern const uint8_t vec_recip_lut[128];
-
-static inline uint16_t _div(uint8_t a, uint8_t b) {
-  if (a == 0) {
-    return 0;
-  }
-
-  uint8_t b_norm = b;
-  uint8_t shift = 0;
-  while (b_norm < 128) {
-    b_norm <<= 1;
-    shift++;
-  }
-  uint16_t b_recip = 0x100 + vec_recip_lut[b_norm - 128];
-  uint16_t p = (uint16_t)a * b_recip;
-  return p >> (8 - shift);
 }
 
 static void _trace_edge_dda(int8_t x1, uint8_t y1, int8_t x2, uint8_t y2) {
@@ -56,7 +43,7 @@ static void _trace_edge_dda(int8_t x1, uint8_t y1, int8_t x2, uint8_t y2) {
   uint8_t dy = y2 - y1;
   int8_t dx = x2 - x1;
   uint8_t abs_dx = _abs8(dx);
-  int16_t dx_fp = _div(abs_dx, dy);
+  int16_t dx_fp = vec_div8p8(abs_dx, dy);
 
   if (dx < 0) {
     dx_fp = -dx_fp;
@@ -301,17 +288,17 @@ void _scan_lines2(uint8_t fill_char_start_idx) {
     // covered. A pixel is fully covered by a sub-row if min <= px*2 and max >=
     // px*2+1. This translates to a solid pixel span starting at (min + 1)/2 and
     // ending at (max - 1)/2.
-    uint8_t overlap_start = kViewportWidth;
-    uint8_t overlap_end = 0;
+    int8_t overlap_start = kViewportWidth;
+    int8_t overlap_end = -1;
 
     if (t_valid && b_valid) {
-      uint8_t t_solid_start = (t_min + 1) >> 1;
-      uint8_t t_solid_end = (t_max - 1) >> 1;
-      uint8_t b_solid_start = (b_min + 1) >> 1;
-      uint8_t b_solid_end = (b_max - 1) >> 1;
+      int8_t t_solid_start = ((int16_t)t_min + 1) >> 1;
+      int8_t t_solid_end = ((int16_t)t_max - 1) >> 1;
+      int8_t b_solid_start = ((int16_t)b_min + 1) >> 1;
+      int8_t b_solid_end = ((int16_t)b_max - 1) >> 1;
 
-      overlap_start = _max8(t_solid_start, b_solid_start);
-      overlap_end = _min8(t_solid_end, b_solid_end);
+      overlap_start = t_solid_start > b_solid_start ? t_solid_start : b_solid_start;
+      overlap_end = t_solid_end < b_solid_end ? t_solid_end : b_solid_end;
     }
 
     // If the spans don't overlap or the polygon is too narrow, default to
@@ -355,7 +342,8 @@ void _scan_lines2(uint8_t fill_char_start_idx) {
     }
 
     // 5. Process the Right Fringe (pixels after the solid core)
-    for (uint8_t px = _max8(overlap_end + 1, min_px); px <= max_px; ++px) {
+    int8_t start_px = (overlap_end + 1) > (int8_t)min_px ? (overlap_end + 1) : (int8_t)min_px;
+    for (uint8_t px = start_px; px <= max_px; ++px) {
       uint8_t mask = 0;
       uint8_t sx_left = px << 1;
       uint8_t sx_right = (px << 1) + 1;
@@ -391,7 +379,7 @@ void _scan_lines2(uint8_t fill_char_start_idx) {
 }
 
 // Fill the polygon using the traced edges
-void fill_poly(const vertex_t *vertices, uint8_t num_vertices,
+void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
                uint8_t fill_char_start_idx) {
   if (num_vertices < 3) {
     return; // A polygon needs at least 3 vertices
@@ -417,4 +405,139 @@ void fill_poly(const vertex_t *vertices, uint8_t num_vertices,
   bm_start();
   _scan_lines2(fill_char_start_idx);
   bm_end(960, SCREEN_STR("SCN:"));
+}
+
+// 3D near clip
+static uint8_t _clip_near(const vec3_t *in, uint8_t num_in, vec3_t *out) {
+  uint8_t num_out = 0;
+  const vec3_t *prev = &in[num_in - 1];
+  bool prev_inside = prev->x >= 8;
+
+  for (uint8_t i = 0; i < num_in; ++i) {
+    const vec3_t *curr = &in[i];
+    bool curr_inside = curr->x >= 8;
+
+    if (curr_inside != prev_inside) {
+      // compute intersection. t = (8 - prev.x) * 256 / (curr.x - prev.x)
+      int16_t dx = curr->x - prev->x;
+      int16_t t = vec_div8p8(8 - prev->x, dx);
+      vec3_t *dest = &out[num_out++];
+      dest->x = 8;
+      dest->y = prev->y + vec_fastmul8p8(t, curr->y - prev->y);
+      dest->z = prev->z + vec_fastmul8p8(t, curr->z - prev->z);
+    }
+    if (curr_inside) {
+      out[num_out++] = *curr;
+    }
+    prev = curr;
+    prev_inside = curr_inside;
+  }
+  return num_out;
+}
+
+// 2D screen clip
+enum ClipEdge { EDGE_LEFT, EDGE_RIGHT, EDGE_TOP, EDGE_BOTTOM };
+
+static uint8_t _clip_2d(const vertex16_t *in, uint8_t num_in, vertex16_t *out,
+                        ClipEdge edge) {
+  uint8_t num_out = 0;
+  const vertex16_t *prev = &in[num_in - 1];
+  int16_t limit;
+  if (edge == EDGE_LEFT)
+    limit = 0;
+  else if (edge == EDGE_RIGHT)
+    limit = 79;
+  else if (edge == EDGE_TOP)
+    limit = 0;
+  else
+    limit = 27;
+
+  bool prev_inside;
+  if (edge == EDGE_LEFT)
+    prev_inside = prev->x >= limit;
+  else if (edge == EDGE_RIGHT)
+    prev_inside = prev->x <= limit;
+  else if (edge == EDGE_TOP)
+    prev_inside = prev->y >= limit;
+  else
+    prev_inside = prev->y <= limit;
+
+  for (uint8_t i = 0; i < num_in; ++i) {
+    const vertex16_t *curr = &in[i];
+    bool curr_inside;
+    if (edge == EDGE_LEFT)
+      curr_inside = curr->x >= limit;
+    else if (edge == EDGE_RIGHT)
+      curr_inside = curr->x <= limit;
+    else if (edge == EDGE_TOP)
+      curr_inside = curr->y >= limit;
+    else
+      curr_inside = curr->y <= limit;
+
+    if (curr_inside != prev_inside) {
+      vertex16_t *dest = &out[num_out++];
+      if (edge == EDGE_LEFT || edge == EDGE_RIGHT) {
+        dest->x = limit;
+        int16_t dy = curr->y - prev->y;
+        int16_t t = vec_div8p8(limit - prev->x, curr->x - prev->x);
+        dest->y = prev->y + vec_fastmul8p8(t, dy);
+      } else {
+        dest->y = limit;
+        int16_t dx = curr->x - prev->x;
+        int16_t t = vec_div8p8(limit - prev->y, curr->y - prev->y);
+        dest->x = prev->x + vec_fastmul8p8(t, dx);
+      }
+    }
+    if (curr_inside) {
+      out[num_out++] = *curr;
+    }
+    prev = curr;
+    prev_inside = curr_inside;
+  }
+  return num_out;
+}
+
+void poly_draw_3d(vec3_t *vertices, uint8_t num_vertices,
+                  uint8_t fill_char_start_idx) {
+  vec3_t clip3_buf[8]; // max 5 vertices after 1 plane clip, 8 is safe
+  uint8_t num_clip3 = _clip_near(vertices, num_vertices, clip3_buf);
+  if (num_clip3 < 3)
+    return;
+
+  vertex16_t proj_buf[8];
+  for (uint8_t i = 0; i < num_clip3; ++i) {
+    vec_v = clip3_buf[i];
+    if (vec_project_nocull()) {
+      proj_buf[i].x = 40 - (vec_sx / 4);
+      proj_buf[i].y = 14 - (vec_sy / 4);
+    } else {
+      proj_buf[i].x = 40;
+      proj_buf[i].y = 14;
+    }
+  }
+
+  vertex16_t clip2_buf1[12];
+  vertex16_t clip2_buf2[12];
+  uint8_t n = num_clip3;
+
+  n = _clip_2d(proj_buf, n, clip2_buf1, EDGE_LEFT);
+  if (n < 3)
+    return;
+  n = _clip_2d(clip2_buf1, n, clip2_buf2, EDGE_RIGHT);
+  if (n < 3)
+    return;
+  n = _clip_2d(clip2_buf2, n, clip2_buf1, EDGE_TOP);
+  if (n < 3)
+    return;
+  n = _clip_2d(clip2_buf1, n, clip2_buf2, EDGE_BOTTOM);
+  if (n < 3)
+    return;
+
+  vertex_t final_verts[12];
+  for (uint8_t i = 0; i < n; ++i) {
+    final_verts[i].x = (int8_t)clip2_buf2[i].x;
+    final_verts[i].y = (int8_t)clip2_buf2[i].y;
+  }
+
+  poly_fill(final_verts, n, fill_char_start_idx);
 }
