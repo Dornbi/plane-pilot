@@ -18,6 +18,9 @@ void print_labeled_bcd(uint16_t pos, const char *label, uint32_t value,
                        uint8_t num_digits = 5);
 void print_labeled_signed_bcd(uint16_t pos, const char *label, int32_t value,
                               uint8_t num_digits = 5);
+void print_hex(uint16_t pos, uint32_t value, uint8_t num_digits = 4);
+void print_labeled_hex(uint16_t pos, const char *label, uint32_t value,
+                       uint8_t num_digits = 4);
 
 #pragma compile("print.cc")
 

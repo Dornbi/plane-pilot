@@ -236,10 +236,10 @@ void world_render_grid() {
     }
   }
 
-  bm_model_end(900, SCREEN_STR("GRD:"));
+  bm_model_end(910, SCREEN_STR("GRD:"));
 #ifdef __DEBUG_MODEL__
   if (mem_debug_enabled) {
-    print_labeled_signed_bcd(840, SCREEN_STR("GRD:"), _grid_radius, 4);
+    print_labeled_bcd(760, SCREEN_STR("GRD:  "), _grid_radius, 3);
   }
 #endif
 }

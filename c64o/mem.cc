@@ -163,7 +163,7 @@ void mem_switch_buffer(void) {
 
   bm_horiz_start();
   _copy_color_ram();
-  bm_horiz_end(910, SCREEN_STR("COL:"));
+  bm_horiz_end(830, SCREEN_STR("COL:"));
 
   __asm {
     sei;

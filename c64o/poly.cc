@@ -297,7 +297,8 @@ void _scan_lines2(uint8_t fill_char_start_idx) {
       int8_t b_solid_start = ((int16_t)b_min + 1) >> 1;
       int8_t b_solid_end = ((int16_t)b_max - 1) >> 1;
 
-      overlap_start = t_solid_start > b_solid_start ? t_solid_start : b_solid_start;
+      overlap_start =
+          t_solid_start > b_solid_start ? t_solid_start : b_solid_start;
       overlap_end = t_solid_end < b_solid_end ? t_solid_end : b_solid_end;
     }
 
@@ -342,7 +343,8 @@ void _scan_lines2(uint8_t fill_char_start_idx) {
     }
 
     // 5. Process the Right Fringe (pixels after the solid core)
-    int8_t start_px = (overlap_end + 1) > (int8_t)min_px ? (overlap_end + 1) : (int8_t)min_px;
+    int8_t start_px =
+        (overlap_end + 1) > (int8_t)min_px ? (overlap_end + 1) : (int8_t)min_px;
     for (uint8_t px = start_px; px <= max_px; ++px) {
       uint8_t mask = 0;
       uint8_t sx_left = px << 1;
@@ -369,10 +371,10 @@ void _scan_lines2(uint8_t fill_char_start_idx) {
     }
 #ifdef __DEBUG_POLY__
     if (py < 10) {
-      print_labeled_bcd(610 + py * 40, SCREEN_STR("1:"), t_min, 2);
-      print_labeled_bcd(615 + py * 40, SCREEN_STR("2:"), b_min, 2);
-      print_labeled_bcd(625 + py * 40, SCREEN_STR("1:"), t_max, 2);
-      print_labeled_bcd(630 + py * 40, SCREEN_STR("2:"), b_max, 2);
+      print_labeled_bcd(615 + py * 40, SCREEN_STR("1:"), t_min, 2);
+      print_labeled_bcd(620 + py * 40, SCREEN_STR("2:"), b_min, 2);
+      print_labeled_bcd(630 + py * 40, SCREEN_STR("1:"), t_max, 2);
+      print_labeled_bcd(635 + py * 40, SCREEN_STR("2:"), b_max, 2);
     }
 #endif
   }
@@ -385,12 +387,12 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
     return; // A polygon needs at least 3 vertices
   }
 
-  bm_start();
+  bm_poly_start();
   _clear_buffers();
-  bm_end(880, SCREEN_STR("CLR:"));
+  bm_poly_end(840, SCREEN_STR("CLR:"));
 
   // 1. Trace all edges
-  bm_start();
+  bm_poly_start();
   for (uint8_t i = 0; i < num_vertices; i++) {
     uint8_t next = (i + 1);
     if (next == num_vertices) {
@@ -399,12 +401,12 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
     _trace_edge_bresenham(vertices[i].x, vertices[i].y, vertices[next].x,
                           vertices[next].y);
   }
-  bm_end(920, SCREEN_STR("TRC:"));
+  bm_poly_end(880, SCREEN_STR("TRC:"));
 
   // 2. Draw the scanlines directly to Screen RAM
-  bm_start();
+  bm_poly_start();
   _scan_lines2(fill_char_start_idx);
-  bm_end(960, SCREEN_STR("SCN:"));
+  bm_poly_end(920, SCREEN_STR("SCN:"));
 }
 
 // 3D near clip
@@ -443,24 +445,26 @@ static uint8_t _clip_2d(const vertex16_t *in, uint8_t num_in, vertex16_t *out,
   uint8_t num_out = 0;
   const vertex16_t *prev = &in[num_in - 1];
   int16_t limit;
-  if (edge == EDGE_LEFT)
+  if (edge == EDGE_LEFT) {
     limit = 0;
-  else if (edge == EDGE_RIGHT)
+  } else if (edge == EDGE_RIGHT) {
     limit = 79;
-  else if (edge == EDGE_TOP)
+  } else if (edge == EDGE_TOP) {
     limit = 0;
-  else
+  } else {
     limit = 27;
+  }
 
   bool prev_inside;
-  if (edge == EDGE_LEFT)
+  if (edge == EDGE_LEFT) {
     prev_inside = prev->x >= limit;
-  else if (edge == EDGE_RIGHT)
+  } else if (edge == EDGE_RIGHT) {
     prev_inside = prev->x <= limit;
-  else if (edge == EDGE_TOP)
+  } else if (edge == EDGE_TOP) {
     prev_inside = prev->y >= limit;
-  else
+  } else {
     prev_inside = prev->y <= limit;
+  }
 
   for (uint8_t i = 0; i < num_in; ++i) {
     const vertex16_t *curr = &in[i];
@@ -499,12 +503,13 @@ static uint8_t _clip_2d(const vertex16_t *in, uint8_t num_in, vertex16_t *out,
 
 void poly_draw_3d(vec3_t *vertices, uint8_t num_vertices,
                   uint8_t fill_char_start_idx) {
-  vec3_t clip3_buf[8]; // max 5 vertices after 1 plane clip, 8 is safe
+  static vec3_t clip3_buf[8]; // max 5 vertices after 1 plane clip, 8 is safe
   uint8_t num_clip3 = _clip_near(vertices, num_vertices, clip3_buf);
-  if (num_clip3 < 3)
+  if (num_clip3 < 3) {
     return;
+  }
 
-  vertex16_t proj_buf[8];
+  static vertex16_t proj_buf[8];
   for (uint8_t i = 0; i < num_clip3; ++i) {
     vec_v = clip3_buf[i];
     if (vec_project_nocull()) {
@@ -516,24 +521,28 @@ void poly_draw_3d(vec3_t *vertices, uint8_t num_vertices,
     }
   }
 
-  vertex16_t clip2_buf1[12];
-  vertex16_t clip2_buf2[12];
+  static vertex16_t clip2_buf1[12];
+  static vertex16_t clip2_buf2[12];
   uint8_t n = num_clip3;
 
   n = _clip_2d(proj_buf, n, clip2_buf1, EDGE_LEFT);
-  if (n < 3)
+  if (n < 3) {
     return;
+  }
   n = _clip_2d(clip2_buf1, n, clip2_buf2, EDGE_RIGHT);
-  if (n < 3)
+  if (n < 3) {
     return;
+  }
   n = _clip_2d(clip2_buf2, n, clip2_buf1, EDGE_TOP);
-  if (n < 3)
+  if (n < 3) {
     return;
+  }
   n = _clip_2d(clip2_buf1, n, clip2_buf2, EDGE_BOTTOM);
-  if (n < 3)
+  if (n < 3) {
     return;
+  }
 
-  vertex_t final_verts[12];
+  static vertex_t final_verts[12];
   for (uint8_t i = 0; i < n; ++i) {
     final_verts[i].x = (int8_t)clip2_buf2[i].x;
     final_verts[i].y = (int8_t)clip2_buf2[i].y;

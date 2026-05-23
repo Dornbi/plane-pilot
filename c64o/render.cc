@@ -112,7 +112,7 @@ void render_snap_center_chars() {
           (int8_t)((render_py_pixels - render_alt_shift_y + 4) >> 3);
       render_alt_box = true;
     }
-    bm_horiz_end(710, SCREEN_STR("SNP:"));
+    bm_horiz_end(630, SCREEN_STR("SNP:"));
     return;
   }
 
@@ -129,7 +129,7 @@ void render_snap_center_chars() {
     px += roll_dx;
     py += roll_dy;
   }
-  bm_horiz_end(710, SCREEN_STR("SNP:"));
+  bm_horiz_end(630, SCREEN_STR("SNP:"));
 }
 
 static void _fill_line(uint8_t *dst, uint8_t val) {
@@ -348,5 +348,5 @@ void render_fill_sky_ground() {
     _fill_sky_ground_no_skip();
   }
 
-  bm_horiz_end(750, SCREEN_STR("BGR:"));
+  bm_horiz_end(670, SCREEN_STR("BGR:"));
 }

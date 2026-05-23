@@ -93,3 +93,27 @@ void print_labeled_signed_bcd(uint16_t pos, const char *label, int32_t value,
   memcpy(mem_screen_ram + pos, label, len);
   print_signed_bcd(pos + len, value, num_digits);
 }
+
+void print_hex(uint16_t pos, uint32_t value, uint8_t num_digits) {
+  if (num_digits > 8) {
+    num_digits = 8;
+  }
+  uint8_t *dst = mem_screen_ram + pos + num_digits;
+  for (uint8_t i = 0; i < num_digits; ++i) {
+    uint8_t digit = value & 0x0f;
+    --dst;
+    if (digit < 10) {
+      *dst = digit + '0';
+    } else {
+      *dst = digit - 10 + 'A';
+    }
+    value >>= 4;
+  }
+}
+
+void print_labeled_hex(uint16_t pos, const char *label, uint32_t value,
+                       uint8_t num_digits) {
+  const uint8_t len = strlen(label);
+  memcpy(mem_screen_ram + pos, label, len);
+  print_hex(pos + len, value, num_digits);
+}

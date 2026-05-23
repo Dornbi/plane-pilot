@@ -34,7 +34,7 @@ void box_prepare(void) {
       break;
     }
   }
-  bm_horiz_end(790, SCREEN_STR("CHR:"));
+  bm_horiz_end(710, SCREEN_STR("CHR:"));
 
   // Populate box_chars and box_colors mapping
   bm_horiz_start();
@@ -66,7 +66,7 @@ void box_prepare(void) {
       }
     }
   }
-  bm_horiz_end(830, SCREEN_STR("PRP:"));
+  bm_horiz_end(750, SCREEN_STR("PRP:"));
 }
 
 static void _draw_one_box(int8_t cx, int8_t cy) {
@@ -179,5 +179,5 @@ void box_draw(void) {
     }
   }
 
-  bm_horiz_end(870, SCREEN_STR("DRW:"));
+  bm_horiz_end(790, SCREEN_STR("DRW:"));
 }

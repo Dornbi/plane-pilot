@@ -160,21 +160,21 @@ static void _update_roll_render_state() {
     }
   }
   roll_update_state();
-  bm_model_end(860, SCREEN_STR("MDL:"));
+  bm_model_end(870, SCREEN_STR("MDL:"));
 #ifdef __DEBUG_MODEL__
   if (mem_debug_enabled) {
-    print_labeled_signed_bcd(680, SCREEN_STR("FX: "), model_cam.front.x, 4);
-    print_labeled_signed_bcd(690, SCREEN_STR("FY: "), model_cam.front.y, 4);
-    print_labeled_signed_bcd(700, SCREEN_STR("FZ: "), model_cam.front.z, 4);
-    print_labeled_signed_bcd(720, SCREEN_STR("LX: "), model_cam.left.x, 4);
-    print_labeled_signed_bcd(730, SCREEN_STR("LY: "), model_cam.left.y, 4);
-    print_labeled_signed_bcd(740, SCREEN_STR("LZ: "), model_cam.left.z, 4);
-    print_labeled_signed_bcd(760, SCREEN_STR("UX: "), model_cam.up.x, 4);
-    print_labeled_signed_bcd(770, SCREEN_STR("UY: "), model_cam.up.y, 4);
-    print_labeled_signed_bcd(780, SCREEN_STR("UZ: "), model_cam.up.z, 4);
-    print_labeled_bcd(800, SCREEN_STR("EX: "), (model_eye_x >> 8) & 0xffff);
-    print_labeled_bcd(810, SCREEN_STR("EY: "), (model_eye_y >> 8) & 0xffff);
-    print_labeled_bcd(820, SCREEN_STR("EZ: "), (model_eye_z >> 8) & 0xffff);
+    print_labeled_signed_bcd(600, SCREEN_STR("FX: "), model_cam.front.x, 4);
+    print_labeled_signed_bcd(610, SCREEN_STR("FY: "), model_cam.front.y, 4);
+    print_labeled_signed_bcd(620, SCREEN_STR("FZ: "), model_cam.front.z, 4);
+    print_labeled_signed_bcd(640, SCREEN_STR("LX: "), model_cam.left.x, 4);
+    print_labeled_signed_bcd(650, SCREEN_STR("LY: "), model_cam.left.y, 4);
+    print_labeled_signed_bcd(660, SCREEN_STR("LZ: "), model_cam.left.z, 4);
+    print_labeled_signed_bcd(680, SCREEN_STR("UX: "), model_cam.up.x, 4);
+    print_labeled_signed_bcd(690, SCREEN_STR("UY: "), model_cam.up.y, 4);
+    print_labeled_signed_bcd(700, SCREEN_STR("UZ: "), model_cam.up.z, 4);
+    print_labeled_hex(770, SCREEN_STR("EX:"), model_eye_x, 8);
+    print_labeled_hex(810, SCREEN_STR("EY:"), model_eye_y, 8);
+    print_labeled_hex(850, SCREEN_STR("EZ:"), model_eye_z, 8);
   }
 #endif
 }
@@ -222,7 +222,7 @@ static void _move_forward(int16_t fspeed, int16_t vspeed) {
 }
 
 void model_update() {
-  int16_t vspeed = 0;
+  int16_t vspeed = vec_fastmul8p8(model_cam.front.z, _model_speed);
   if (!model_paused) {
     // Speed: Air resistance, gravity, trhottle
     _model_speed -= vec_fastsqr8p8(_model_speed) >> 10;
@@ -237,7 +237,6 @@ void model_update() {
     }
 
     // Motion
-    vspeed = vec_fastmul8p8(model_cam.front.z, _model_speed);
     _move_forward(_model_speed, vspeed);
 
     // Fuel
@@ -277,16 +276,12 @@ void model_update() {
   _update_sun_render_state();
 #ifdef __DEBUG_MODEL__
   if (mem_debug_enabled) {
-    print_labeled_signed_bcd(960, SCREEN_STR("SPD:"), _model_speed, 4);
-    print_labeled_signed_bcd(970, SCREEN_STR("VSP:"), vspeed, 4);
-    print_labeled_signed_bcd(980, SCREEN_STR("HDG:"), heading, 4);
-  }
-#endif
-#ifdef __DEBUG_MODEL__
-  if (mem_debug_enabled) {
-    print_labeled_signed_bcd(850, SCREEN_STR("ROL:"), roll_angle, 4);
+    print_labeled_bcd(800, SCREEN_STR("ROL:  "), roll_angle, 3);
+    print_labeled_bcd(840, SCREEN_STR("HDG:  "), heading, 3);
     print_labeled_signed_bcd(880, SCREEN_STR("CXP:"), render_cx_pixels, 4);
     print_labeled_signed_bcd(890, SCREEN_STR("CYP:"), render_cy_pixels, 4);
+    print_labeled_signed_bcd(960, SCREEN_STR("SPD:"), _model_speed, 4);
+    print_labeled_signed_bcd(970, SCREEN_STR("VSP:"), vspeed, 4);
   }
 #endif
 }
