@@ -19,6 +19,8 @@ static const vertex_t polys[][4] = {{{20, 2}, {24, 6}, {20, 10}, {16, 6}},
 
 static void _clear_screen() {
   memset(mem_screen_ram, kCharSolidGround, kViewportHeight * kScreenWidth);
+  memset(mem_screen_ram + kViewportHeight * kScreenWidth, kCharSolid11,
+         (kScreenHeight - kViewportHeight) * kScreenWidth);
 }
 
 int main() {
