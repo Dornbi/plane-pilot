@@ -18,14 +18,7 @@ enum model_input_t {
   MODEL_INPUT_MOVE_BACKWARD,
 };
 
-// View matrix.
-extern mat3_t model_cam;
 extern bool model_paused;
-
-// Roughly 24.8 fixed point in meters
-extern int32_t model_eye_x;
-extern int32_t model_eye_y;
-extern int32_t model_eye_z;
 
 void model_init();
 void model_init_alt();

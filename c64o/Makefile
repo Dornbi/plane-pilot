@@ -65,6 +65,8 @@ POLYDEMO_SRC = \
 		poly.cc \
 		vec.h \
 		vec_lut.cc \
+		world.h \
+		world.cc \
 		polydemo.cc
 
 VECDEMO_PROGRAM = vecdemo

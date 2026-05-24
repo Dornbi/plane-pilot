@@ -8,7 +8,8 @@
 #include <stdint.h>
 
 struct vertex16_t {
-  int16_t x, y;
+  int16_t x;
+  int16_t y;
 };
 
 // Buffers to store the left-most and right-most X bounds for each scanline
