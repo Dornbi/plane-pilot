@@ -25,11 +25,10 @@ extern vec3_t _world_dx_vec;
 extern vec3_t _world_dy_vec;
 extern int8_t _world_step_x;
 extern int8_t _world_step_y;
+extern vec3_t _world_vec_v;
 
 extern void _world_init_start_dx_dy();
 extern void _world_render_object(WorldObjectType object_type);
-
-static __zeropage vec3_t _vec_v;
 
 static const vertex_t kPolys[][4] = {{{20, 2}, {24, 6}, {20, 10}, {16, 6}},
                                      {{1, 1}, {38, 1}, {38, 12}, {1, 12}},
@@ -50,6 +49,14 @@ struct viewpoint_t {
 };
 
 static const viewpoint_t vkViewPoints[] = {
+    {{{237, 98, 11}, {-96, 236, -40}, {-25, 33, 254}},
+     0x023820,
+     0x0052C7,
+     0x008FB8},
+    {{{252, 55, 12}, {-42, 219, -128}, {-37, 124, 224}},
+     0x015633,
+     0x000B3C,
+     0x008B14},
     {{{256, -8, -27}, {20, 215, 138}, {18, -140, 215}},
      0x10029C,
      0x088C84,
@@ -94,7 +101,7 @@ static void _stripped_world_render_grid(const viewpoint_t *viewpoint) {
 
   uint8_t cx = _world_start_cx;
   for (int8_t x = -_world_grid_radius;;) {
-    _vec_v = _world_p_start;
+    _world_vec_v = _world_p_start;
     uint8_t abs_x = _abs16(x);
     uint8_t cx2 = cx << 1;
     uint8_t cy = _world_start_cy;
@@ -107,8 +114,8 @@ static void _stripped_world_render_grid(const viewpoint_t *viewpoint) {
       }
       cy += _world_step_y;
       //  Step along Y axis
-      vec_add(&_vec_v, &_world_dy_vec);
-      if (_vec_v.x < 0) {
+      vec_add(&_world_vec_v, &_world_dy_vec);
+      if (_world_vec_v.x < 0) {
         break;
       }
     }
@@ -156,7 +163,7 @@ int main() {
       } else {
         _stripped_world_render_grid(&vkViewPoints[mode - kPolyCount]);
       }
-      print_labeled_bcd(960, SCREEN_STR("MODE:"), mode, 2);
+      print_labeled_bcd(990, SCREEN_STR("MODE:"), mode, 2);
       mem_switch_buffer();
     }
 

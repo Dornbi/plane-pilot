@@ -47,7 +47,7 @@ __zeropage vec3_t _world_dx_vec;
 __zeropage vec3_t _world_dy_vec;
 __zeropage int8_t _world_step_x;
 __zeropage int8_t _world_step_y;
-static __zeropage vec3_t _vec_v;
+__zeropage vec3_t _world_vec_v;
 static int16_t _mitch_x[16];
 static int16_t _mitch_y[16];
 static int16_t _mitch_z[16];
@@ -65,7 +65,7 @@ static inline void _draw_box_points(uint8_t start_idx, uint8_t num_points,
                                     bool is_ground) {
   uint8_t idx = start_idx & 0x0F;
   for (uint8_t i = num_points;;) {
-    vec_v = _vec_v;
+    vec_v = _world_vec_v;
     vec_v.x += _mitch_x[idx];
     vec_v.y += _mitch_y[idx];
     vec_v.z += _mitch_z[idx];
@@ -168,19 +168,19 @@ void _world_init_start_dx_dy() {
 void _world_render_object(WorldObjectType object_type) {
   if (object_type == WORLD_OBJECT_RUNWAY) {
     static vec3_t poly_verts[4];
-    poly_verts[0] = _vec_v;
+    poly_verts[0] = _world_vec_v;
     vec_add(&poly_verts[0], &_dx4[0]);
     vec_add(&poly_verts[0], &_dy4[1]);
 
-    poly_verts[1] = _vec_v;
+    poly_verts[1] = _world_vec_v;
     vec_add(&poly_verts[1], &_dx4[3]);
     vec_add(&poly_verts[1], &_dy4[1]);
 
-    poly_verts[2] = _vec_v;
+    poly_verts[2] = _world_vec_v;
     vec_add(&poly_verts[2], &_dx4[3]);
     vec_add(&poly_verts[2], &_dy4[2]);
 
-    poly_verts[3] = _vec_v;
+    poly_verts[3] = _world_vec_v;
     vec_add(&poly_verts[3], &_dx4[0]);
     vec_add(&poly_verts[3], &_dy4[2]);
 
@@ -194,7 +194,7 @@ void world_render_grid() {
 
   uint8_t cx = _world_start_cx;
   for (int8_t x = -_world_grid_radius;;) {
-    _vec_v = _world_p_start;
+    _world_vec_v = _world_p_start;
     uint8_t abs_x = _abs16(x);
     uint8_t cx2 = cx << 1;
     uint8_t cy = _world_start_cy;
@@ -219,8 +219,8 @@ void world_render_grid() {
       }
       cy += _world_step_y;
       //  Step along Y axis
-      vec_add(&_vec_v, &_world_dy_vec);
-      if (_vec_v.x < 0) {
+      vec_add(&_world_vec_v, &_world_dy_vec);
+      if (_world_vec_v.x < 0) {
         break;
       }
     }
@@ -238,7 +238,7 @@ void world_render_grid() {
   bm_model_end(910, SCREEN_STR("GRD:"));
 #ifdef __DEBUG_MODEL__
   if (mem_debug_enabled) {
-    print_labeled_bcd(760, SCREEN_STR("GRD:  "), _world_grid_radius, 3);
+    print_labeled_bcd(770, SCREEN_STR("GRD:"), _world_grid_radius, 3);
   }
 #endif
 }

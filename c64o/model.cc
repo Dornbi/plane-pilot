@@ -168,9 +168,9 @@ static void _update_roll_render_state() {
     print_labeled_signed_bcd(680, SCREEN_STR("UX: "), world_cam.up.x, 4);
     print_labeled_signed_bcd(690, SCREEN_STR("UY: "), world_cam.up.y, 4);
     print_labeled_signed_bcd(700, SCREEN_STR("UZ: "), world_cam.up.z, 4);
-    print_labeled_hex(770, SCREEN_STR("EX:"), world_eye_x, 8);
-    print_labeled_hex(810, SCREEN_STR("EY:"), world_eye_y, 8);
-    print_labeled_hex(850, SCREEN_STR("EZ:"), world_eye_z, 8);
+    print_labeled_hex(778, SCREEN_STR("EX:"), world_eye_x, 8);
+    print_labeled_hex(818, SCREEN_STR("EY:"), world_eye_y, 8);
+    print_labeled_hex(858, SCREEN_STR("EZ:"), world_eye_z, 8);
   }
 #endif
 }
@@ -189,8 +189,8 @@ static void _update_sun_render_state() {
   sprites_set_sun_position(sx, sy);
 #ifdef __DEBUG_MODEL__
   if (mem_debug_enabled) {
-    print_labeled_signed_bcd(920, SCREEN_STR("SXP:"), sx, 4);
-    print_labeled_signed_bcd(930, SCREEN_STR("SYP:"), sy, 4);
+    print_labeled_signed_bcd(930, SCREEN_STR("SXP:"), sx, 4);
+    print_labeled_signed_bcd(940, SCREEN_STR("SYP:"), sy, 4);
   }
 #endif
 }
@@ -272,12 +272,12 @@ void model_update() {
   _update_sun_render_state();
 #ifdef __DEBUG_MODEL__
   if (mem_debug_enabled) {
-    print_labeled_bcd(800, SCREEN_STR("ROL:  "), roll_angle, 3);
-    print_labeled_bcd(840, SCREEN_STR("HDG:  "), heading, 3);
-    print_labeled_signed_bcd(880, SCREEN_STR("CXP:"), render_cx_pixels, 4);
-    print_labeled_signed_bcd(890, SCREEN_STR("CYP:"), render_cy_pixels, 4);
-    print_labeled_signed_bcd(960, SCREEN_STR("SPD:"), _model_speed, 4);
-    print_labeled_signed_bcd(970, SCREEN_STR("VSP:"), vspeed, 4);
+    print_labeled_bcd(810, SCREEN_STR("ROL:"), roll_angle, 3);
+    print_labeled_bcd(850, SCREEN_STR("HDG:"), heading, 3);
+    print_labeled_signed_bcd(890, SCREEN_STR("CXP:"), render_cx_pixels, 4);
+    print_labeled_signed_bcd(900, SCREEN_STR("CYP:"), render_cy_pixels, 4);
+    print_labeled_signed_bcd(970, SCREEN_STR("SPD:"), _model_speed, 4);
+    print_labeled_signed_bcd(980, SCREEN_STR("VSP:"), vspeed, 4);
   }
 #endif
 }

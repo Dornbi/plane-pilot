@@ -371,11 +371,11 @@ void _scan_lines2(uint8_t fill_char_start_idx) {
       }
     }
 #ifdef __DEBUG_POLY__
-    if (py < 10) {
-      print_labeled_bcd(615 + py * 40, SCREEN_STR("1:"), t_min, 2);
-      print_labeled_bcd(620 + py * 40, SCREEN_STR("2:"), b_min, 2);
-      print_labeled_bcd(630 + py * 40, SCREEN_STR("1:"), t_max, 2);
-      print_labeled_bcd(635 + py * 40, SCREEN_STR("2:"), b_max, 2);
+    if (py >= 3 && py <= 9) {
+      print_labeled_bcd(610 + py * 40, SCREEN_STR("1:"), t_min, 2);
+      print_labeled_bcd(615 + py * 40, SCREEN_STR("2:"), b_min, 2);
+      print_labeled_bcd(620 + py * 40, SCREEN_STR("1:"), t_max, 2);
+      print_labeled_bcd(625 + py * 40, SCREEN_STR("2:"), b_max, 2);
     }
 #endif
   }
@@ -390,7 +390,7 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
 
   bm_poly_start();
   _clear_buffers();
-  bm_poly_end(840, SCREEN_STR("CLR:"));
+  bm_poly_end(790, SCREEN_STR("CLR:"));
 
   // 1. Trace all edges
   bm_poly_start();
@@ -402,12 +402,12 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
     _trace_edge_bresenham(vertices[i].x, vertices[i].y, vertices[next].x,
                           vertices[next].y);
   }
-  bm_poly_end(880, SCREEN_STR("TRC:"));
+  bm_poly_end(830, SCREEN_STR("TRC:"));
 
   // 2. Draw the scanlines directly to Screen RAM
   bm_poly_start();
   _scan_lines2(fill_char_start_idx);
-  bm_poly_end(920, SCREEN_STR("SCN:"));
+  bm_poly_end(870, SCREEN_STR("SCN:"));
 }
 
 // 3D near clip

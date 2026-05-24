@@ -64,6 +64,7 @@ POLYDEMO_SRC = \
 		poly.h \
 		poly.cc \
 		vec.h \
+		vec_asm.cc \
 		vec_lut.cc \
 		world.h \
 		world.cc \
@@ -103,7 +104,7 @@ $(PPILOT_PROGRAM).prg: $(PPILOT_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_HORIZON__ -D__DEBUG_MODEL__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
 
 $(POLYDEMO_PROGRAM).prg: $(POLYDEMO_SRC)
-	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ -D__DEBUG_POLY__  polydemo.cc
+	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ -DD__DEBUG_MODEL__ -D__DEBUG_POLY__  polydemo.cc
 
 $(VECDEMO_PROGRAM).prg: $(VECDEMO_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ vecdemo.cc
