@@ -17,6 +17,7 @@ PPILOT_SRC = \
 		fmath.cc \
 		gfx.h \
 		gfx.cc \
+		gfx_chars.bin \
 		mem.h \
 		mem.cc \
 		model.h \
@@ -36,6 +37,7 @@ PPILOT_SRC = \
 		print.cc \
 		spritedef.h \
 		spritedef.cc \
+		spritedef.bin \
 		sprites.h \
 		sprites.cc \
 		vec.h \
@@ -56,6 +58,7 @@ POLYDEMO_SRC = \
 		fmath.cc \
 		gfx.h \
 		gfx.cc \
+		gfx_chars.bin \
 		keys.h \
 		mem.h \
 		mem.cc \
@@ -104,7 +107,7 @@ $(PPILOT_PROGRAM).prg: $(PPILOT_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_HORIZON__ -D__DEBUG_MODEL__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
 
 $(POLYDEMO_PROGRAM).prg: $(POLYDEMO_SRC)
-	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ -DD__DEBUG_MODEL__ -D__DEBUG_POLY__  polydemo.cc
+	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ -D__DEBUG_POLY__  polydemo.cc
 
 $(VECDEMO_PROGRAM).prg: $(VECDEMO_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ vecdemo.cc
