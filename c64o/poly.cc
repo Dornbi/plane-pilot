@@ -411,7 +411,8 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
 }
 
 // 3D near clip
-static uint8_t _clip_near(const vec3_t *in, uint8_t num_in, vec3_t *out) {
+static inline uint8_t _clip_near(const vec3_t *in, uint8_t num_in,
+                                 vec3_t *out) {
   uint8_t num_out = 0;
   const vec3_t *prev = &in[num_in - 1];
   bool prev_inside = prev->x >= 8;
@@ -515,7 +516,20 @@ static inline uint8_t _project_vertices(const vec3_t *vertices_3d,
   }
 
   static vertex16_t proj_buf[8];
-  for (uint8_t i = 0; i < num_clip3; ++i) {
+  vec_v = clip3_buf[0];
+  if (vec_project_nocull()) {
+    proj_buf[0].x = 40 - (vec_sx / 4);
+    proj_buf[0].y = 14 - (vec_sy / 4);
+  } else {
+    proj_buf[0].x = 40;
+    proj_buf[0].y = 14;
+  }
+  int16_t min_x = proj_buf[0].x;
+  int16_t max_x = proj_buf[0].x;
+  int16_t min_y = proj_buf[0].y;
+  int16_t max_y = proj_buf[0].y;
+
+  for (uint8_t i = 1; i < num_clip3; ++i) {
     vec_v = clip3_buf[i];
     if (vec_project_nocull()) {
       proj_buf[i].x = 40 - (vec_sx / 4);
@@ -524,32 +538,59 @@ static inline uint8_t _project_vertices(const vec3_t *vertices_3d,
       proj_buf[i].x = 40;
       proj_buf[i].y = 14;
     }
+    if (proj_buf[i].x < min_x)
+      min_x = proj_buf[i].x;
+    if (proj_buf[i].x > max_x)
+      max_x = proj_buf[i].x;
+    if (proj_buf[i].y < min_y)
+      min_y = proj_buf[i].y;
+    if (proj_buf[i].y > max_y)
+      max_y = proj_buf[i].y;
+  }
+
+  if (max_x < 0 || min_x > 79 || max_y < 0 || min_y > 27) {
+    return 0;
   }
 
   static vertex16_t clip2_buf1[kMax2dVertices];
   static vertex16_t clip2_buf2[kMax2dVertices];
   uint8_t n = num_clip3;
 
-  n = _clip_2d(proj_buf, n, clip2_buf1, EDGE_LEFT);
-  if (n < 3) {
-    return 0;
+  vertex16_t *src = proj_buf;
+  vertex16_t *dst = clip2_buf1;
+
+  if (min_x < 0) {
+    n = _clip_2d(src, n, dst, EDGE_LEFT);
+    if (n < 3)
+      return 0;
+    src = dst;
+    dst = (src == clip2_buf1) ? clip2_buf2 : clip2_buf1;
   }
-  n = _clip_2d(clip2_buf1, n, clip2_buf2, EDGE_RIGHT);
-  if (n < 3) {
-    return 0;
+  if (max_x > 79) {
+    n = _clip_2d(src, n, dst, EDGE_RIGHT);
+    if (n < 3)
+      return 0;
+    src = dst;
+    dst = (src == clip2_buf1) ? clip2_buf2 : clip2_buf1;
   }
-  n = _clip_2d(clip2_buf2, n, clip2_buf1, EDGE_TOP);
-  if (n < 3) {
-    return 0;
+  if (min_y < 0) {
+    n = _clip_2d(src, n, dst, EDGE_TOP);
+    if (n < 3)
+      return 0;
+    src = dst;
+    dst = (src == clip2_buf1) ? clip2_buf2 : clip2_buf1;
   }
-  n = _clip_2d(clip2_buf1, n, clip2_buf2, EDGE_BOTTOM);
-  if (n < 3) {
-    return 0;
+  if (max_y > 27) {
+    n = _clip_2d(src, n, dst, EDGE_BOTTOM);
+    if (n < 3)
+      return 0;
+    src = dst;
+    dst = (src == clip2_buf1) ? clip2_buf2 : clip2_buf1;
   }
 
   for (uint8_t i = 0; i < n; ++i) {
-    vertices_2d[i].x = (int8_t)clip2_buf2[i].x;
-    vertices_2d[i].y = (int8_t)clip2_buf2[i].y;
+    vertices_2d[i].x = (int8_t)src[i].x;
+    vertices_2d[i].y = (int8_t)src[i].y;
   }
   return n;
 }
