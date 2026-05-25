@@ -29,7 +29,7 @@ static const char *oscar_expand_lzo(char *dp, const char *sp) { return sp; }
 #endif
 
 const char kGfxCharsCompressed[] = {
-#embed 512 lzo "gfx_chars.bin"
+#embed 640 lzo "gfx_chars.bin"
 };
 
 #pragma optimize(push, noasm)
@@ -95,13 +95,13 @@ void gfx_init_raster_irqs(void) {
 }
 
 static inline void _init_solid_chars() {
-  memset(kCharRam + kCharSolidGround * 8, 0x55, 8);
+  // memset(kCharRam + kCharSolidGround * 8, 0x55, 8);
   memset(kCharRam + kCharSolid11 * 8, 0xFF, 8);
 }
 
 void gfx_init_chars(void) {
   _init_solid_chars();
-  oscar_expand_lzo((char *)kCharRam + kGroundPointCharStart * 8,
+  oscar_expand_lzo((char *)kCharRam + kQuadCharGroundSparseStart * 8,
                    kGfxCharsCompressed);
 }
 

@@ -140,7 +140,7 @@ int main() {
     for (uint8_t i = 0; i < 2; ++i) {
       _clear_screen();
       if (mode < kPolyCount) {
-        poly_fill(kPolys[mode], 4, kQuadCharStart);
+        poly_fill(kPolys[mode], 4, kQuadCharGroundSparseStart);
       } else {
         _stripped_world_render_grid(&vkViewPoints[mode - kPolyCount]);
       }

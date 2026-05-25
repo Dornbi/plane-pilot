@@ -52,10 +52,10 @@ static const uint8_t kMitchellPointsY[16] = {0, 0, 3, 1, 2, 3, 0, 1,
                                              3, 2, 2, 0, 1, 1, 2, 3};
 
 // PERF: optimize(3) -> bytes: negligible cycles: -1000
-#pragma optimize(3)
+#pragma optimize(push, 3)
 static inline int16_t _down_shift(uint32_t val) { return (int16_t)(val >> 9); }
 
-static inline void _split_vec(vec3_t *v, vec3_t *half, vec3_t d4[4]) {
+static void _split_vec(vec3_t *v, vec3_t *half, vec3_t d4[4]) {
   if (true) {
     // PERF: bytes: +300 cycles: -2000
     // This version needs half vectors -> more additions and subtractions and
@@ -188,14 +188,16 @@ void _world_init_start_dx_dy() {
 }
 
 void _world_render_object(WorldObjectType object_type) {
+  static vec3_t poly_verts[4];
   if (object_type == WORLD_OBJECT_RUNWAY) {
-    static vec3_t poly_verts[4];
     poly_verts[0] = _world_vec_v;
     vec_add(&poly_verts[0], &_world_dx4[0]);
+    // y position is halfway between [1] and [2], exactly at the grid
     // vec_add(&poly_verts[0], &_world_dy4[1]);
 
     poly_verts[1] = _world_vec_v;
     vec_add(&poly_verts[1], &_world_dx4[3]);
+    // y position is halfway between [1] and [2], exactly at the grid
     // vec_add(&poly_verts[1], &_world_dy4[1]);
 
     poly_verts[2] = _world_vec_v;
@@ -206,7 +208,7 @@ void _world_render_object(WorldObjectType object_type) {
     vec_add(&poly_verts[3], &_world_dx4[0]);
     vec_add(&poly_verts[3], &_world_dy4[2]);
 
-    poly_draw_3d(poly_verts, 4, kQuadCharStart);
+    poly_draw_3d(poly_verts, 4, kQuadCharGroundStart);
   }
 }
 

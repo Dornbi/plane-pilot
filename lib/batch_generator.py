@@ -337,7 +337,7 @@ def generate_chardefs_h_content(global_chars: Dict[bytes, Dict[str, Any]], speci
     content += "#include <stdint.h>\n\n"
     content += f"static const uint16_t kTotalChars = {len(global_chars)};\n\n"
     
-    content += "static const uint8_t kCharSolidGround = 127;\n"
+    content += "static const uint8_t kCharSolidGround = 128;\n"
     content += "static const uint8_t kCharSolidSky = 0;\n"
     content += "static const uint8_t kCharSolidGrad1 = 0;\n"
     content += "static const uint8_t kCharSolid11 = 0;\n"

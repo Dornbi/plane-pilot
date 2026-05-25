@@ -1,6 +1,7 @@
 #include "poly.h"
 
 #include "benchmark.h"
+#include "chardefs.h"
 #include "fmath.h"
 #include "mem.h"
 #include "print.h"
@@ -244,6 +245,9 @@ static inline void _scan_lines(uint8_t fill_char_start_idx) {
 
 static inline void _set_line(uint8_t *dst, uint8_t val, int8_t cnt) {
   for (int8_t i = cnt - 1; i >= 0; --i) {
+    if (dst[i] < kCharSolidGround) {
+      continue;
+    }
     dst[i] = val;
   }
 }
@@ -313,6 +317,11 @@ void _scan_lines2(uint8_t fill_char_start_idx) {
 
     // 3. Process the Left Fringe (pixels before the solid core)
     for (uint8_t px = min_px; px < overlap_start; ++px) {
+      uint8_t *p = row + px;
+      if (*p < kCharSolidGround) {
+        continue;
+      }
+
       uint8_t mask = 0;
       uint8_t sx_left = px << 1;
       uint8_t sx_right = sx_left + 1;
@@ -333,7 +342,7 @@ void _scan_lines2(uint8_t fill_char_start_idx) {
         }
       }
       if (mask) {
-        _set_pixel2(row + px, fill_char_start_idx, mask);
+        _set_pixel2(p, fill_char_start_idx, mask);
       }
     }
 
@@ -347,6 +356,11 @@ void _scan_lines2(uint8_t fill_char_start_idx) {
     int8_t start_px =
         (overlap_end + 1) > (int8_t)min_px ? (overlap_end + 1) : (int8_t)min_px;
     for (uint8_t px = start_px; px <= max_px; ++px) {
+      uint8_t *p = row + px;
+      if (*p < kCharSolidGround) {
+        continue;
+      }
+
       uint8_t mask = 0;
       uint8_t sx_left = px << 1;
       uint8_t sx_right = (px << 1) + 1;
@@ -367,11 +381,11 @@ void _scan_lines2(uint8_t fill_char_start_idx) {
         }
       }
       if (mask) {
-        _set_pixel2(row + px, fill_char_start_idx, mask);
+        _set_pixel2(p, fill_char_start_idx, mask);
       }
     }
 #ifdef __DEBUG_POLY__
-    if (py <= 9) {
+    if (false && py <= 9) {
       print_labeled_bcd(610 + py * 40, SCREEN_STR("1:"), t_min, 2);
       print_labeled_bcd(615 + py * 40, SCREEN_STR("2:"), b_min, 2);
       print_labeled_bcd(620 + py * 40, SCREEN_STR("1:"), t_max, 2);

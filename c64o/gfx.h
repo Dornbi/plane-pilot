@@ -5,9 +5,11 @@
 #include <stdint.h>
 
 // Start of range with 16 characters used to draw single pixels.
-static const uint8_t kGroundPointCharStart = 128;
-static const uint8_t kColorPointCharStart = 144;
-static const uint8_t kQuadCharStart = 160;
+static const uint8_t kQuadCharGroundSparseStart = 128;
+static const uint8_t kQuadCharGroundStart = 144;
+static const uint8_t kQuadChar11Start = 160;
+static const uint8_t kGroundPointCharStart = 176;
+static const uint8_t kColorPointCharStart = 192;
 
 // Init the fixed characters.
 void gfx_init_chars(void);
