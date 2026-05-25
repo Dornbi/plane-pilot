@@ -343,12 +343,9 @@ void vec_normalize(vec3_t *v) {
     return;
   }
 
-  uint16_t val = ((v->x >= 0 ? v->x : -v->x) << 7) / res;
-  v->x = v->x >= 0 ? (int16_t)val : -(int16_t)val;
-  val = ((v->y >= 0 ? v->y : -v->y) << 7) / res;
-  v->y = v->y >= 0 ? (int16_t)val : -(int16_t)val;
-  val = ((v->z >= 0 ? v->z : -v->z) << 7) / res;
-  v->z = v->z >= 0 ? (int16_t)val : -(int16_t)val;
+  v->x = vec_div8p8(v->x, res << 1);
+  v->y = vec_div8p8(v->y, res << 1);
+  v->z = vec_div8p8(v->z, res << 1);
 
   _limit_vec(v);
 }
