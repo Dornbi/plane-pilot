@@ -157,7 +157,7 @@ inline bool vec_project() {
   return true;
 }
 
-inline bool vec_project_nocull() {
+bool vec_project_nocull() {
   if (vec_v.x < 8) {
     return false;
   }
@@ -166,4 +166,3 @@ inline bool vec_project_nocull() {
   vec_sy = vec_div8p8(vec_v.z, vec_v.x);
   return true;
 }
-
