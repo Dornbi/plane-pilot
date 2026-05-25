@@ -450,11 +450,11 @@ static uint8_t _clip_2d(const vertex16_t *in, uint8_t num_in, vertex16_t *out,
   if (edge == EDGE_LEFT) {
     limit = 0;
   } else if (edge == EDGE_RIGHT) {
-    limit = 79;
+    limit = kViewportWidth * 2 - 1;
   } else if (edge == EDGE_TOP) {
     limit = 0;
   } else {
-    limit = 27;
+    limit = kViewportHeight * 2 - 1;
   }
 
   bool prev_inside;
