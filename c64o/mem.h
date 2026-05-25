@@ -6,11 +6,13 @@
 
 #ifndef __OSCAR64__
 #define __memmap
+#define __noinline
 #define __zeropage
 #endif
 
 // We barely use the stack, make it smaller than the default.
 #pragma stacksize(0x100)
+#ifdef __MAX_RAM__
 // Since the screen ram is moved to 0xE800 and 0xEC00, we can
 // use the original location for stack.
 #pragma region( stack, 0x0400, 0x0500, , , {stack} )
@@ -19,6 +21,7 @@
 // but it overlaps with VIC control registers so we would have to
 // switch back and forth.
 #pragma region( main, 0x0860, 0xD000, , , {code, data, bss, heap} )
+#endif
 // Region 0x5F..0xFF should be possible, except that the irq trap
 // handles 0x80. This probably depends on that the irq routines
 // should not touch anything below 0x80.

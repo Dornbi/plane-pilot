@@ -212,7 +212,7 @@ void _world_render_object(WorldObjectType object_type) {
   }
 }
 
-void world_render_grid() {
+__noinline void world_render_grid() {
   bm_model_start();
   _world_init_start_dx_dy();
 
