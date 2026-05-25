@@ -371,7 +371,7 @@ void _scan_lines2(uint8_t fill_char_start_idx) {
       }
     }
 #ifdef __DEBUG_POLY__
-    if (py >= 3 && py <= 9) {
+    if (py <= 9) {
       print_labeled_bcd(610 + py * 40, SCREEN_STR("1:"), t_min, 2);
       print_labeled_bcd(615 + py * 40, SCREEN_STR("2:"), b_min, 2);
       print_labeled_bcd(620 + py * 40, SCREEN_STR("1:"), t_max, 2);
@@ -390,7 +390,7 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
 
   bm_poly_start();
   _clear_buffers();
-  bm_poly_end(790, SCREEN_STR("CLR:"));
+  bm_poly_end(670, SCREEN_STR("CLR:"));
 
   // 1. Trace all edges
   bm_poly_start();
@@ -402,12 +402,12 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
     _trace_edge_bresenham(vertices[i].x, vertices[i].y, vertices[next].x,
                           vertices[next].y);
   }
-  bm_poly_end(830, SCREEN_STR("TRC:"));
+  bm_poly_end(710, SCREEN_STR("TRC:"));
 
   // 2. Draw the scanlines directly to Screen RAM
   bm_poly_start();
   _scan_lines2(fill_char_start_idx);
-  bm_poly_end(870, SCREEN_STR("SCN:"));
+  bm_poly_end(750, SCREEN_STR("SCN:"));
 }
 
 // 3D near clip
@@ -502,12 +502,16 @@ static uint8_t _clip_2d(const vertex16_t *in, uint8_t num_in, vertex16_t *out,
   return num_out;
 }
 
-void poly_draw_3d(vec3_t *vertices, uint8_t num_vertices,
-                  uint8_t fill_char_start_idx) {
+const uint8_t kMax2dVertices = 12;
+
+// Projects 3d vertices to 2d.
+static inline uint8_t _project_vertices(const vec3_t *vertices_3d,
+                                        uint8_t num_vertices,
+                                        vertex_t *vertices_2d) {
   static vec3_t clip3_buf[8]; // max 5 vertices after 1 plane clip, 8 is safe
-  uint8_t num_clip3 = _clip_near(vertices, num_vertices, clip3_buf);
+  uint8_t num_clip3 = _clip_near(vertices_3d, num_vertices, clip3_buf);
   if (num_clip3 < 3) {
-    return;
+    return 0;
   }
 
   static vertex16_t proj_buf[8];
@@ -522,32 +526,42 @@ void poly_draw_3d(vec3_t *vertices, uint8_t num_vertices,
     }
   }
 
-  static vertex16_t clip2_buf1[12];
-  static vertex16_t clip2_buf2[12];
+  static vertex16_t clip2_buf1[kMax2dVertices];
+  static vertex16_t clip2_buf2[kMax2dVertices];
   uint8_t n = num_clip3;
 
   n = _clip_2d(proj_buf, n, clip2_buf1, EDGE_LEFT);
   if (n < 3) {
-    return;
+    return 0;
   }
   n = _clip_2d(clip2_buf1, n, clip2_buf2, EDGE_RIGHT);
   if (n < 3) {
-    return;
+    return 0;
   }
   n = _clip_2d(clip2_buf2, n, clip2_buf1, EDGE_TOP);
   if (n < 3) {
-    return;
+    return 0;
   }
   n = _clip_2d(clip2_buf1, n, clip2_buf2, EDGE_BOTTOM);
   if (n < 3) {
-    return;
+    return 0;
   }
 
-  static vertex_t final_verts[12];
   for (uint8_t i = 0; i < n; ++i) {
-    final_verts[i].x = (int8_t)clip2_buf2[i].x;
-    final_verts[i].y = (int8_t)clip2_buf2[i].y;
+    vertices_2d[i].x = (int8_t)clip2_buf2[i].x;
+    vertices_2d[i].y = (int8_t)clip2_buf2[i].y;
   }
+  return n;
+}
 
-  poly_fill(final_verts, n, fill_char_start_idx);
+void poly_draw_3d(const vec3_t *vertices, uint8_t num_vertices,
+                  uint8_t fill_char_start_idx) {
+  static vertex_t final_verts[kMax2dVertices];
+  bm_poly_start();
+  uint8_t n = _project_vertices(vertices, num_vertices, final_verts);
+  bm_poly_end(630, SCREEN_STR("PRJ:"));
+
+  if (n >= 3) {
+    poly_fill(final_verts, n, fill_char_start_idx);
+  }
 }
