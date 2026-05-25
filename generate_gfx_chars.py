@@ -33,8 +33,8 @@ def generate_4x4_point_chars(alt_lines: list[int]) -> bytearray:
     return data
 
 _QUAD_CHAR_10_SPARSE = [
-    0x59, 0x95, 0x56, 0x65,
-    0x59, 0x95, 0x56, 0x65,
+    0x65, 0x56, 0x95, 0x59,
+    0x65, 0x56, 0x95, 0x59,
 ]
 _QUAD_CHAR_10 = [
     0x99, 0x66, 0x9A, 0xA6,
@@ -81,14 +81,6 @@ def main():
     output_file = os.path.join(output_dir, "gfx_chars.bin")
     
     # Generate character data
-    print("Generating 10 point character data...")
-    point_10_data = generate_4x4_point_chars(_ALT_LINES_10)
-    print(f"Generated {len(point_10_data)} bytes for 16 single point characters.")
-
-    print("Generating 11 point character data...")
-    point_11_data = generate_4x4_point_chars(_ALT_LINES_11)
-    print(f"Generated {len(point_11_data)} bytes for 16 single point characters.")
-
     print("Generating quad 10 sparse character data...")
     quad_10_sparse_data = generate_quad_chars(_QUAD_CHAR_10_SPARSE)
     print(f"Generated {len(quad_10_sparse_data)} bytes for 16 quad characters.")
@@ -100,6 +92,14 @@ def main():
     print("Generating quad 11 character data...")
     quad_11_data = generate_quad_chars(_QUAD_CHAR_11)
     print(f"Generated {len(quad_11_data)} bytes for 16 quad characters.")
+
+    print("Generating 10 point character data...")
+    point_10_data = generate_4x4_point_chars(_ALT_LINES_10)
+    print(f"Generated {len(point_10_data)} bytes for 16 single point characters.")
+
+    print("Generating 11 point character data...")
+    point_11_data = generate_4x4_point_chars(_ALT_LINES_11)
+    print(f"Generated {len(point_11_data)} bytes for 16 single point characters.")
 
     # Combine data
     combined_data = quad_10_sparse_data + quad_10_data + quad_11_data + point_10_data + point_11_data
