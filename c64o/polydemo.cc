@@ -8,6 +8,7 @@
 #include "keys.h"
 #include "mem.h"
 #include "poly.h"
+#include "print.h"
 #include "vec.h"
 #include "world.h"
 
@@ -26,6 +27,8 @@ extern vec3_t _world_dy_vec;
 extern int8_t _world_step_x;
 extern int8_t _world_step_y;
 extern vec3_t _world_vec_v;
+extern vec3_t _world_dx4[4];
+extern vec3_t _world_dy4[4];
 
 extern void _world_init_start_dx_dy();
 extern void _world_render_object(WorldObjectType object_type);
@@ -49,14 +52,6 @@ struct viewpoint_t {
 };
 
 static const viewpoint_t vkViewPoints[] = {
-    {{{237, 98, 11}, {-96, 236, -40}, {-25, 33, 254}},
-     0x023820,
-     0x0052C7,
-     0x008FB8},
-    {{{252, 55, 12}, {-42, 219, -128}, {-37, 124, 224}},
-     0x015633,
-     0x000B3C,
-     0x008B14},
     {{{256, -8, -27}, {20, 215, 138}, {18, -140, 215}},
      0x10029C,
      0x088C84,
@@ -82,22 +77,15 @@ static void _stripped_world_render_grid(const viewpoint_t *viewpoint) {
   world_eye_y = viewpoint->eye_y;
   world_eye_z = viewpoint->eye_z;
 
-  if (true) {
-    print_labeled_signed_bcd(600, SCREEN_STR("FX:"), world_cam.front.x, 3);
-    print_labeled_signed_bcd(608, SCREEN_STR("FY:"), world_cam.front.y, 3);
-    print_labeled_signed_bcd(616, SCREEN_STR("FZ:"), world_cam.front.z, 3);
-    print_labeled_signed_bcd(640, SCREEN_STR("LX:"), world_cam.left.x, 3);
-    print_labeled_signed_bcd(648, SCREEN_STR("LY:"), world_cam.left.y, 3);
-    print_labeled_signed_bcd(656, SCREEN_STR("LZ:"), world_cam.left.z, 3);
-    print_labeled_signed_bcd(680, SCREEN_STR("UX:"), world_cam.up.x, 3);
-    print_labeled_signed_bcd(688, SCREEN_STR("UY:"), world_cam.up.y, 3);
-    print_labeled_signed_bcd(696, SCREEN_STR("UZ:"), world_cam.up.z, 3);
-    print_labeled_hex(629, SCREEN_STR("EX:"), world_eye_x, 8);
-    print_labeled_hex(669, SCREEN_STR("EY:"), world_eye_y, 8);
-    print_labeled_hex(709, SCREEN_STR("EZ:"), world_eye_z, 8);
-  }
-
   _world_init_start_dx_dy();
+  if (mem_debug_enabled && true) {
+    print_labeled_signed_bcd(600, "XX:", _world_dx_vec.x);
+    print_labeled_signed_bcd(640, "XY:", _world_dx_vec.y);
+    print_labeled_signed_bcd(680, "XZ:", _world_dx_vec.z);
+    print_labeled_signed_bcd(720, "YX:", _world_dy_vec.x);
+    print_labeled_signed_bcd(760, "YY:", _world_dy_vec.y);
+    print_labeled_signed_bcd(800, "YZ:", _world_dy_vec.z);
+  }
 
   uint8_t cx = _world_start_cx;
   for (int8_t x = -_world_grid_radius;;) {
@@ -115,7 +103,7 @@ static void _stripped_world_render_grid(const viewpoint_t *viewpoint) {
       cy += _world_step_y;
       //  Step along Y axis
       vec_add(&_world_vec_v, &_world_dy_vec);
-      if (_world_vec_v.x < 0) {
+      if (_world_vec_v.x < _world_dy_vec.x) {
         break;
       }
     }
@@ -125,17 +113,10 @@ static void _stripped_world_render_grid(const viewpoint_t *viewpoint) {
     cx += _world_step_x;
     // Step along X axis
     vec_add(&_world_p_start, &_world_dx_vec);
-    if (_world_p_start.x < 0) {
+    if (_world_p_start.x < _world_dx_vec.x) {
       break;
     }
   }
-
-  bm_model_end(910, SCREEN_STR("GRD:"));
-#ifdef __DEBUG_MODEL__
-  if (mem_debug_enabled) {
-    print_labeled_bcd(760, SCREEN_STR("GRD:  "), _grid_radius, 3);
-  }
-#endif
 }
 
 int main() {
