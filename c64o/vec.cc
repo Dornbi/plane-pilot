@@ -64,7 +64,6 @@ inline void vec_negate(vec3_t *v) {
 }
 
 uint16_t vec_fastsqr8p8u(uint16_t a) {
-
   uint8_t h = _hibyte(a);
   uint8_t l = _lobyte(a);
 
