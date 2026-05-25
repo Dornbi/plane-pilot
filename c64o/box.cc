@@ -4,6 +4,7 @@
 
 #include "benchmark.h"
 #include "boxdefs.h"
+#include "chardefs.h"
 #include "color.h"
 #include "mem.h"
 #include "print.h"
@@ -38,11 +39,11 @@ void box_prepare(void) {
 
   // Populate box_chars and box_colors mapping
   bm_horiz_start();
-  _char_lut[0] = 0;
+  _char_lut[0] = kCharSolidGround;
   _color_lut[0] = kColorGrad1 | 0x08;
-  _char_lut[1] = 1;
+  _char_lut[1] = kCharSolidSky;
   _color_lut[1] = kColorSky | 0x08;
-  _char_lut[2] = 1;
+  _char_lut[2] = kCharSolid11;
   _color_lut[2] = kColorGrad1 | 0x08;
 
   for (int8_t i = boxdef.char_count - 1;;) {

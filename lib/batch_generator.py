@@ -337,8 +337,13 @@ def generate_chardefs_h_content(global_chars: Dict[bytes, Dict[str, Any]], speci
     content += "#include <stdint.h>\n\n"
     content += f"static const uint16_t kTotalChars = {len(global_chars)};\n\n"
     
-    for name, cid in special_ids.items():
-        content += f"static const uint8_t {_to_k_camel_case(name)} = {cid};\n"
+    content += "static const uint8_t kCharSolidGround = 127;\n"
+    content += "static const uint8_t kCharSolidSky = 0;\n"
+    content += "static const uint8_t kCharSolidGrad1 = 0;\n"
+    content += "static const uint8_t kCharSolid11 = 0;\n"
+
+    #for name, cid in special_ids.items():
+    #    content += f"static const uint8_t {_to_k_camel_case(name)} = {cid};\n"
         
     content += "\nextern const uint8_t chardefs[kTotalChars][8];\n\n"
     content += "#pragma compile(\"chardefs.cc\")\n\n"

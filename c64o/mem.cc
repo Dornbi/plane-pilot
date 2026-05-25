@@ -173,14 +173,14 @@ void mem_switch_buffer(void) {
     vic_memptr = kVicMemScreenAlt;
     mem_screen_ram = kScreenRamMain;
     mem_screen_row_ptrs = kScreenRowPtrsMain;
-    mem_box_char_start = 0x02;
+    mem_box_char_start = 0x01;
   }
   else {
     // Switch to alt buffer.
     vic_memptr = kVicMemScreenMain;
     mem_screen_ram = kScreenRamAlt;
     mem_screen_row_ptrs = kScreenRowPtrsAlt;
-    mem_box_char_start = 0x62;
+    mem_box_char_start = 0x61;
   }
   __asm {
     cli;
