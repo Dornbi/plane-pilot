@@ -18,7 +18,7 @@ void test_mul_case(uint16_t pos, int16_t a, int16_t b, const char *label) {
   print_labeled_signed_bcd(pos + 40, SCREEN_STR(" v"), r1);
 
   const int16_t r2 = (int16_t)(((int32_t)a * b) / 256);
-  print_labeled_signed_bcd(pos + 120, SCREEN_STR(" v"), r1);
+  print_labeled_signed_bcd(pos + 120, SCREEN_STR(" v"), r2);
 }
 
 void test_sqr_case(uint16_t pos, int16_t a, const char *label) {
@@ -50,6 +50,24 @@ void test_multiply() {
   test_sqr_case(720, 900, SCREEN_STR("900..2"));
   test_sqr_case(733, -200, SCREEN_STR("-200..2  "));
   test_sqr_case(746, 2896, SCREEN_STR("2896..2  "));
+}
+
+void test_div_case(uint16_t pos, int16_t a, int16_t b, const char *label) {
+  print_label(pos, label);
+
+  bm_start();
+  const int16_t r1 = vec_div8p8(a, b);
+  bm_end(pos + 80, SCREEN_STR("bv:"));
+  print_labeled_signed_bcd(pos + 40, SCREEN_STR(" v"), r1);
+
+  const int16_t r2 = ((int32_t)(a) * 256) / b;
+  print_labeled_signed_bcd(pos + 120, SCREEN_STR(" v"), r2);
+}
+
+void test_division() {
+  print_label(0, SCREEN_STR("fastdiv"));
+  test_div_case(40, 1024, -81, SCREEN_STR("1024/-81"));
+  test_div_case(53, 100, 100, SCREEN_STR("100/100"));
 }
 
 void _transform_reference(const mat3_t *mat, const vec3_t *u, vec3_t *res) {
@@ -314,19 +332,21 @@ int main() {
 
   while (1) {
     if (mode == 0) {
-      test_multiply();
+      test_division();
     } else if (mode == 1) {
-      test_transform();
+      test_multiply();
     } else if (mode == 2) {
-      test_project();
+      test_transform();
     } else if (mode == 3) {
-      test_vecops();
+      test_project();
     } else if (mode == 4) {
+      test_vecops();
+    } else if (mode == 5) {
       test_ortho();
     }
     keyb_poll();
     if (key_pressed(KSCAN_SPACE)) {
-      mode = (mode + 1) % 5;
+      mode = (mode + 1) % 6;
       memset(mem_screen_ram, ' ', 1000);
     }
   };
