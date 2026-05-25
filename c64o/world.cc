@@ -23,7 +23,7 @@ enum WorldDotType { DOT_NOTHING = 0, DOT_GROUND = 1, DOT_WATER = 2 };
 static const uint8_t kDotStartX[kWorldObjectNumRows] = {1, 1, 1, 1};
 static const uint8_t kDotEndX[kWorldObjectNumRows] = {5, 5, 5, 5};
 static const WorldDotType kDotTypes[kWorldObjectNumRows] = {
-    DOT_NOTHING, DOT_NOTHING, DOT_NOTHING, DOT_WATER, DOT_WATER};
+    DOT_GROUND, DOT_NOTHING, DOT_GROUND, DOT_WATER, DOT_WATER};
 
 // PERF: optimize(3) -> bytes: negligible cycles: -1000
 #pragma optimize(3)
@@ -48,10 +48,11 @@ __zeropage vec3_t _world_dy_vec;
 __zeropage int8_t _world_step_x;
 __zeropage int8_t _world_step_y;
 __zeropage vec3_t _world_vec_v;
+vec3_t _world_dx4[4];
+vec3_t _world_dy4[4];
 static int16_t _mitch_x[16];
 static int16_t _mitch_y[16];
 static int16_t _mitch_z[16];
-static vec3_t _dx4[4], _dy4[4];
 
 // Mitchell's Best-Candidate algorithm to maximize distance between points
 // while maintaining an organic, non-linear distribution.
@@ -114,7 +115,7 @@ void _world_init_start_dx_dy() {
   _world_dx_vec.x = world_cam.front.x;
   _world_dx_vec.y = world_cam.left.x;
   _world_dx_vec.z = world_cam.up.x;
-  _split_vec(&_world_dx_vec, _dx4);
+  _split_vec(&_world_dx_vec, _world_dx4);
   if (world_cam.front.x > 0) {
     vec_negate(&_world_dx_vec);
     p_start_world.x = grid_spacing;
@@ -124,7 +125,7 @@ void _world_init_start_dx_dy() {
   _world_dy_vec.x = world_cam.front.y;
   _world_dy_vec.y = world_cam.left.y;
   _world_dy_vec.z = world_cam.up.y;
-  _split_vec(&_world_dy_vec, _dy4);
+  _split_vec(&_world_dy_vec, _world_dy4);
   if (world_cam.front.y > 0) {
     vec_negate(&_world_dy_vec);
     p_start_world.y = grid_spacing;
@@ -136,9 +137,9 @@ void _world_init_start_dx_dy() {
   for (uint8_t i = 0; i < 16; ++i) {
     uint8_t mx = kMitchellPointsX[i];
     uint8_t my = kMitchellPointsY[i];
-    _mitch_x[i] = _dx4[mx].x + _dy4[my].x;
-    _mitch_y[i] = _dx4[mx].y + _dy4[my].y;
-    _mitch_z[i] = _dx4[mx].z + _dy4[my].z;
+    _mitch_x[i] = _world_dx4[mx].x + _world_dy4[my].x;
+    _mitch_y[i] = _world_dx4[mx].y + _world_dy4[my].y;
+    _mitch_z[i] = _world_dx4[mx].z + _world_dy4[my].z;
   }
 
   uint16_t mx = _down_shift(world_eye_x);
@@ -169,20 +170,20 @@ void _world_render_object(WorldObjectType object_type) {
   if (object_type == WORLD_OBJECT_RUNWAY) {
     static vec3_t poly_verts[4];
     poly_verts[0] = _world_vec_v;
-    vec_add(&poly_verts[0], &_dx4[0]);
-    vec_add(&poly_verts[0], &_dy4[1]);
+    vec_add(&poly_verts[0], &_world_dx4[0]);
+    vec_add(&poly_verts[0], &_world_dy4[1]);
 
     poly_verts[1] = _world_vec_v;
-    vec_add(&poly_verts[1], &_dx4[3]);
-    vec_add(&poly_verts[1], &_dy4[1]);
+    vec_add(&poly_verts[1], &_world_dx4[3]);
+    vec_add(&poly_verts[1], &_world_dy4[1]);
 
     poly_verts[2] = _world_vec_v;
-    vec_add(&poly_verts[2], &_dx4[3]);
-    vec_add(&poly_verts[2], &_dy4[2]);
+    vec_add(&poly_verts[2], &_world_dx4[3]);
+    vec_add(&poly_verts[2], &_world_dy4[2]);
 
     poly_verts[3] = _world_vec_v;
-    vec_add(&poly_verts[3], &_dx4[0]);
-    vec_add(&poly_verts[3], &_dy4[2]);
+    vec_add(&poly_verts[3], &_world_dx4[0]);
+    vec_add(&poly_verts[3], &_world_dy4[2]);
 
     poly_draw_3d(poly_verts, 4, kQuadCharStart);
   }
@@ -220,7 +221,7 @@ void world_render_grid() {
       cy += _world_step_y;
       //  Step along Y axis
       vec_add(&_world_vec_v, &_world_dy_vec);
-      if (_world_vec_v.x < 0) {
+      if (_world_vec_v.x < _world_dy_vec.x) {
         break;
       }
     }
@@ -230,7 +231,7 @@ void world_render_grid() {
     cx += _world_step_x;
     // Step along X axis
     vec_add(&_world_p_start, &_world_dx_vec);
-    if (_world_p_start.x < 0) {
+    if (_world_p_start.x < _world_dx_vec.x) {
       break;
     }
   }
