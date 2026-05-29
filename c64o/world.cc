@@ -22,10 +22,8 @@ __zeropage vec3_t _world_dy_vec;
 __zeropage int8_t _world_step_x;
 __zeropage int8_t _world_step_y;
 __zeropage vec3_t _world_vec_v;
-vec3_t _world_dx4[4];
-vec3_t _world_dy4[4];
-static vec3_t _dx_half;
-static vec3_t _dy_half;
+static vec3_t _world_dx4[9];
+static vec3_t _world_dy4[9];
 static int16_t _mitch_x[16];
 static int16_t _mitch_y[16];
 static int16_t _mitch_z[16];
@@ -46,43 +44,41 @@ static const WorldDotType kDotTypes[kWorldObjectNumRows] = {
 // Mitchell's Best-Candidate algorithm to maximize distance between points
 // while maintaining an organic, non-linear distribution.
 // https://gemini.google.com/share/c1bafe545f1f
-static const uint8_t kMitchellPointsX[16] = {0, 3, 0, 1, 3, 1, 2, 0,
-                                             3, 2, 0, 1, 2, 2, 1, 2};
-static const uint8_t kMitchellPointsY[16] = {0, 0, 3, 1, 2, 3, 0, 1,
-                                             3, 2, 2, 0, 1, 1, 2, 3};
+static const uint8_t kMitchellPointsX[16] = {0, 6, 0, 2, 6, 2, 4, 0,
+                                             6, 4, 0, 2, 4, 4, 2, 4};
+static const uint8_t kMitchellPointsY[16] = {0, 0, 6, 2, 4, 6, 0, 2,
+                                             6, 4, 4, 0, 2, 2, 4, 6};
 
 // PERF: optimize(3) -> bytes: negligible cycles: -1000
 #pragma optimize(push, 3)
 static inline int16_t _down_shift(uint32_t val) { return (int16_t)(val >> 9); }
 
-static void _split_vec(vec3_t *v, vec3_t *half, vec3_t d4[4]) {
-  if (true) {
-    // PERF: bytes: +300 cycles: -2000
-    // This version needs half vectors -> more additions and subtractions and
-    // more code. However, this means that dots and objects are closer to the
-    // center of the grid cell which means fewer grid cells are needed.
-    half->x = v->x >> 1;
-    half->y = v->y >> 1;
-    half->z = v->z >> 1;
-    d4[0] = make_vector(-v->x, -v->y, -v->z);
-    vec_sub(&d4[0], half);
-    d4[1] = make_vector(0, 0, 0);
-    vec_sub(&d4[0], half);
-    d4[2] = make_vector(0, 0, 0);
-    vec_add(&d4[2], half);
-    d4[3] = make_vector(v->x, v->y, v->z);
-    vec_add(&d4[3], half);
-  } else {
-    d4[0] = make_vector(-v->x, -v->y, -v->z);
-    d4[1] = make_vector(0, 0, 0);
-    d4[2] = make_vector(v->x, v->y, v->z);
-    d4[3] = make_vector(v->x << 1, v->y << 1, v->z << 1);
-  }
-  v->x <<= 2;
-  v->y <<= 2;
-  v->z <<= 2;
+#define _SPLIT(val, comp, d9)                                                  \
+  dbl = val << 1;                                                              \
+  hlf = val >> 1;                                                              \
+  d9[4].comp = 0;                                                              \
+  d9[6].comp = val;                                                            \
+  d9[2].comp = -val;                                                           \
+  d9[5].comp = hlf;                                                            \
+  d9[3].comp = -hlf;                                                           \
+  d9[1].comp = -val - hlf;                                                     \
+  d9[7].comp = val + hlf;                                                      \
+  d9[8].comp = dbl;                                                            \
+  d9[0].comp = -dbl;
+
+static void _split_vec(vec3_t *v, vec3_t d9[9]) {
+  // This version needs half vectors -> more additions and subtractions and
+  // more code. However, this means that dots and objects are closer to the
+  // center of the grid cell which means fewer grid cells are needed.
+  int16_t hlf;
+  int16_t dbl;
+  _SPLIT(v->x, x, d9);
+  _SPLIT(v->y, y, d9);
+  _SPLIT(v->z, z, d9);
+  *v = make_vector(d9[8].x << 1, d9[8].y << 1, d9[8].z << 1);
 }
 
+#pragma optimize(pop)
 static inline void _draw_box_points(uint8_t start_idx, uint8_t num_points,
                                     bool is_ground) {
   uint8_t idx = start_idx & 0x0F;
@@ -136,7 +132,7 @@ void _world_init_start_dx_dy() {
   _world_dx_vec.x = world_cam.front.x;
   _world_dx_vec.y = world_cam.left.x;
   _world_dx_vec.z = world_cam.up.x;
-  _split_vec(&_world_dx_vec, &_dx_half, _world_dx4);
+  _split_vec(&_world_dx_vec, _world_dx4);
   if (world_cam.front.x > 0) {
     vec_negate(&_world_dx_vec);
     p_start_world.x = grid_spacing;
@@ -146,7 +142,7 @@ void _world_init_start_dx_dy() {
   _world_dy_vec.x = world_cam.front.y;
   _world_dy_vec.y = world_cam.left.y;
   _world_dy_vec.z = world_cam.up.y;
-  _split_vec(&_world_dy_vec, &_dy_half, _world_dy4);
+  _split_vec(&_world_dy_vec, _world_dy4);
   if (world_cam.front.y > 0) {
     vec_negate(&_world_dy_vec);
     p_start_world.y = grid_spacing;
@@ -196,17 +192,17 @@ void _world_render_object(WorldObjectType object_type) {
     // vec_add(&poly_verts[0], &_world_dy4[1]);
 
     poly_verts[1] = _world_vec_v;
-    vec_add(&poly_verts[1], &_world_dx4[3]);
+    vec_add(&poly_verts[1], &_world_dx4[8]);
     // y position is halfway between [1] and [2], exactly at the grid
     // vec_add(&poly_verts[1], &_world_dy4[1]);
 
     poly_verts[2] = _world_vec_v;
-    vec_add(&poly_verts[2], &_world_dx4[3]);
-    vec_add(&poly_verts[2], &_world_dy4[2]);
+    vec_add(&poly_verts[2], &_world_dx4[8]);
+    vec_add(&poly_verts[2], &_world_dy4[3]);
 
     poly_verts[3] = _world_vec_v;
     vec_add(&poly_verts[3], &_world_dx4[0]);
-    vec_add(&poly_verts[3], &_world_dy4[2]);
+    vec_add(&poly_verts[3], &_world_dy4[3]);
 
     poly_draw_3d(poly_verts, 4, kQuadCharGroundStart);
   }
@@ -217,7 +213,7 @@ __noinline void world_render_grid() {
   _world_init_start_dx_dy();
 
   // If the current vec_v.x falls below this value, we can abort.
-  int16_t bailout = -_max16(_abs16(_world_dx4[3].x), _abs16(_world_dy4[3].x));
+  int16_t bailout = -_max16(_abs16(_world_dx4[0].x), _abs16(_world_dy4[0].x));
   uint8_t cx = _world_start_cx;
   for (int8_t x = -_world_grid_radius;;) {
     _world_vec_v = _world_p_start;

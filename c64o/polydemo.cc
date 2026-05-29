@@ -27,8 +27,6 @@ extern vec3_t _world_dy_vec;
 extern int8_t _world_step_x;
 extern int8_t _world_step_y;
 extern vec3_t _world_vec_v;
-extern vec3_t _world_dx4[4];
-extern vec3_t _world_dy4[4];
 
 extern void _world_init_start_dx_dy();
 extern void _world_render_object(WorldObjectType object_type);
