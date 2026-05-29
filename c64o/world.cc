@@ -33,6 +33,19 @@ const WorldObjectType kWorldObjectTypes[kWorldObjectNumRows] = {
     WORLD_OBJECT_NOTHING, WORLD_OBJECT_RUNWAY, WORLD_OBJECT_NOTHING,
     WORLD_OBJECT_NOTHING, WORLD_OBJECT_NOTHING};
 
+struct object_coords_t {
+  uint8_t x[4];
+  uint8_t y[4];
+};
+
+const object_coords_t kObjectCoords[] = {
+    // WORLD_OBJECT_RUNWAY
+    {{0, 8, 8, 0}, {4, 4, 3, 3}}};
+
+const uint8_t kObjectCharStart[] = {
+    // WORLD_OBJECT_RUNWAY
+    kQuadCharGroundSparseStart};
+
 // Objects represent grid positions where there is something else
 // than the default dots. One object per row is allowed.
 enum WorldDotType { DOT_NOTHING = 0, DOT_GROUND = 1, DOT_WATER = 2 };
@@ -185,27 +198,13 @@ void _world_init_start_dx_dy() {
 
 void _world_render_object(WorldObjectType object_type) {
   static vec3_t poly_verts[4];
-  if (object_type == WORLD_OBJECT_RUNWAY) {
-    poly_verts[0] = _world_vec_v;
-    vec_add(&poly_verts[0], &_world_dx4[0]);
-    // y position is halfway between [1] and [2], exactly at the grid
-    // vec_add(&poly_verts[0], &_world_dy4[1]);
-
-    poly_verts[1] = _world_vec_v;
-    vec_add(&poly_verts[1], &_world_dx4[8]);
-    // y position is halfway between [1] and [2], exactly at the grid
-    // vec_add(&poly_verts[1], &_world_dy4[1]);
-
-    poly_verts[2] = _world_vec_v;
-    vec_add(&poly_verts[2], &_world_dx4[8]);
-    vec_add(&poly_verts[2], &_world_dy4[3]);
-
-    poly_verts[3] = _world_vec_v;
-    vec_add(&poly_verts[3], &_world_dx4[0]);
-    vec_add(&poly_verts[3], &_world_dy4[3]);
-
-    poly_draw_3d(poly_verts, 4, kQuadCharGroundStart);
+  const object_coords_t *coords = &kObjectCoords[object_type - 1];
+  for (uint8_t i = 0; i < 4; ++i) {
+    poly_verts[i] = _world_vec_v;
+    vec_add(&poly_verts[i], &_world_dx4[coords->x[i]]);
+    vec_add(&poly_verts[i], &_world_dy4[coords->y[i]]);
   }
+  poly_draw_3d(poly_verts, 4, kObjectCharStart[object_type - 1]);
 }
 
 __noinline void world_render_grid() {
