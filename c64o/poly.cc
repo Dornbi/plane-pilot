@@ -609,8 +609,8 @@ static inline uint8_t _project_vertices(const vec3_t *vertices_3d,
   return n;
 }
 
-void poly_draw_3d(const vec3_t *vertices, uint8_t num_vertices,
-                  uint8_t fill_char_start_idx) {
+__noinline void poly_draw_3d(const vec3_t *vertices, uint8_t num_vertices,
+                             uint8_t fill_char_start_idx) {
   static vertex_t final_verts[kMax2dVertices];
   bm_poly_start();
   uint8_t n = _project_vertices(vertices, num_vertices, final_verts);
