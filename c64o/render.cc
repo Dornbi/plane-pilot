@@ -23,7 +23,7 @@ int8_t render_alt_shift_y;
 
 // Skip so many lines, which will be filled by tiles.
 // PERF: 4 -> cycles: -1000 bytes: +260
-static const int8_t kSkipLines = 0;
+static const int8_t kSkipLines = 4;
 
 static inline int16_t _render_lshift(int16_t x) {
   if (roll_shift_2chars) {
@@ -192,7 +192,11 @@ static inline void _fill_sky_ground_with_skip() {
   } else {
     // 12.4 fixpoint representation of the divider x between sky and ground.
     int16_t dx = (int16_t)roll_dx_div_dy * (kViewportStartY - render_cy_chars) +
-                 ((render_cx_chars - kViewportStartX) << 4) + 8;
+                 ((render_cx_chars - kViewportStartX) << 4);
+    if (roll_dx_div_dy > 0) {
+      // Hack to make sure the boxes always cover the horizon.
+      dx += 8;
+    }
     if (render_alt_box) {
       if (render_alt_shift_x) {
         dx += 8;
@@ -293,7 +297,11 @@ static inline void _fill_sky_ground_no_skip() {
   } else {
     // 12.4 fixpoint representation of the divider x between sky and ground.
     int16_t dx = (int16_t)roll_dx_div_dy * (kViewportStartY - render_cy_chars) +
-                 ((render_cx_chars - kViewportStartX) << 4) + 8;
+                 ((render_cx_chars - kViewportStartX) << 4);
+    if (roll_dx_div_dy > 0) {
+      // Hack to make sure the boxes always cover the horizon.
+      dx += 8;
+    }
     if (render_alt_box) {
       if (render_alt_shift_x) {
         dx += 8;
