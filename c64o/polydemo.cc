@@ -14,9 +14,6 @@
 
 static void (*kForceDummyDep)() = world_render_grid;
 
-extern const uint8_t kWorldObjectX[kWorldObjectNumRows];
-extern const WorldObjectType kWorldObjectTypes[kWorldObjectNumRows];
-
 // Internal vars from world.cc
 extern uint8_t _world_grid_radius;
 extern uint8_t _world_start_cx;
@@ -29,7 +26,7 @@ extern int8_t _world_step_y;
 extern vec3_t _world_vec_v;
 
 extern void _world_init_start_dx_dy();
-extern void _world_render_object(WorldObjectType object_type);
+extern void _world_render_object(WorldMapType object_type);
 
 static const vertex_t kPolys[][4] = {{{20, 2}, {24, 6}, {20, 10}, {16, 6}},
                                      {{1, 1}, {38, 1}, {38, 12}, {1, 12}},
@@ -92,8 +89,9 @@ static void _stripped_world_render_grid(const viewpoint_t *viewpoint) {
     uint8_t cx2 = cx << 1;
     uint8_t cy = _world_start_cy;
     for (int8_t y = -_world_grid_radius;;) {
-      if (kWorldObjectX[cy] == cx) {
-        _world_render_object(kWorldObjectTypes[cy]);
+      WorldMapType map_type = kWorldMap[cx & kWorldMapMask][cy & kWorldMapMask];
+      if (map_type >= kWorldMapObjStart) {
+        _world_render_object(map_type);
       }
       if (++y > _world_grid_radius) {
         break;
@@ -138,7 +136,7 @@ int main() {
     for (uint8_t i = 0; i < 2; ++i) {
       _clear_screen();
       if (mode < kPolyCount) {
-        poly_fill(kPolys[mode], 4, kQuadCharGroundSparseStart);
+        poly_fill(kPolys[mode], 4, kGfxQuadGroundSparse);
       } else {
         _stripped_world_render_grid(&vkViewPoints[mode - kPolyCount]);
       }

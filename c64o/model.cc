@@ -43,9 +43,9 @@ static const mat3_t _m_init_alt = {
 
 void model_init() {
   world_cam = _m_init;
-  world_eye_x = 0;
-  world_eye_y = 0;
-  world_eye_z = 0x8800;
+  world_eye_x = 0x0C0000;
+  world_eye_y = 0x178000;
+  world_eye_z = 0x010000;
   _model_speed = 0x860;
   _model_throttle = 0x14;
   _model_need_normalize = false;

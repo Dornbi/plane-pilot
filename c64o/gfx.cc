@@ -101,8 +101,7 @@ static inline void _init_solid_chars() {
 
 void gfx_init_chars(void) {
   _init_solid_chars();
-  oscar_expand_lzo((char *)kCharRam + kQuadCharGroundSparseStart * 8,
-                   kGfxCharsCompressed);
+  oscar_expand_lzo((char *)kCharRam + kGfxCharStart * 8, kGfxCharsCompressed);
 }
 
 static inline void _draw_ground_point(int16_t px, int16_t py) {
@@ -112,8 +111,7 @@ static inline void _draw_ground_point(int16_t px, int16_t py) {
   if (*p == kCharSolidGround) {
     uint8_t lpx = (uint8_t)px;
     uint8_t lpy = (uint8_t)py;
-    uint8_t ch =
-        kGroundPointCharStart + ((lpx & 0x06) >> 1) + ((lpy & 0x06) << 1);
+    uint8_t ch = kGfxGroundPoints + ((lpx & 0x06) >> 1) + ((lpy & 0x06) << 1);
     *p = ch;
   }
 }
@@ -125,23 +123,22 @@ static inline void _draw_color_point(int16_t px, int16_t py, uint8_t color) {
   if (*p == kCharSolidGround) {
     uint8_t lpx = (uint8_t)px;
     uint8_t lpy = (uint8_t)py;
-    uint8_t ch =
-        kColorPointCharStart + ((lpx & 0x06) >> 1) + ((lpy & 0x06) << 1);
+    uint8_t ch = kGfxColorPoints + ((lpx & 0x06) >> 1) + ((lpy & 0x06) << 1);
     *p = ch;
     *(mem_color_buffer + (int16_t)cy * kViewportWidth + cx) = color;
   }
 }
 
-void gfx_project_and_draw(bool is_ground) {
+void gfx_project_and_draw(uint8_t color) {
   if (vec_project()) {
     int16_t px = kViewportWidthPixels / 2 - vec_sx;
     int16_t py = kViewportHeightPixels / 2 - vec_sy;
     if ((uint16_t)px < (uint16_t)kViewportWidthPixels &&
         (uint16_t)py < (uint16_t)kViewportHeightPixels) {
-      if (is_ground) {
+      if (color >= 8) {
         _draw_ground_point(px, py);
       } else {
-        _draw_color_point(px, py, 0x08 | kColorWater);
+        _draw_color_point(px, py, 0x08 | color);
       }
     }
   }

@@ -1,6 +1,7 @@
 #include "world.h"
 
 #include "benchmark.h"
+#include "color.h"
 #include "fmath.h"
 #include "gfx.h"
 #include "mem.h"
@@ -27,32 +28,6 @@ static vec3_t _world_dy4[9];
 static int16_t _mitch_x[16];
 static int16_t _mitch_y[16];
 static int16_t _mitch_z[16];
-
-const uint8_t kWorldObjectX[kWorldObjectNumRows] = {2, 2, 2, 2};
-const WorldObjectType kWorldObjectTypes[kWorldObjectNumRows] = {
-    WORLD_OBJECT_NOTHING, WORLD_OBJECT_RUNWAY, WORLD_OBJECT_NOTHING,
-    WORLD_OBJECT_NOTHING, WORLD_OBJECT_NOTHING};
-
-struct object_coords_t {
-  uint8_t x[4];
-  uint8_t y[4];
-};
-
-const object_coords_t kObjectCoords[] = {
-    // WORLD_OBJECT_RUNWAY
-    {{0, 8, 8, 0}, {4, 4, 3, 3}}};
-
-const uint8_t kObjectCharStart[] = {
-    // WORLD_OBJECT_RUNWAY
-    kQuadCharGroundSparseStart};
-
-// Objects represent grid positions where there is something else
-// than the default dots. One object per row is allowed.
-enum WorldDotType { DOT_NOTHING = 0, DOT_GROUND = 1, DOT_WATER = 2 };
-static const uint8_t kDotStartX[kWorldObjectNumRows] = {1, 1, 1, 1};
-static const uint8_t kDotEndX[kWorldObjectNumRows] = {5, 5, 5, 5};
-static const WorldDotType kDotTypes[kWorldObjectNumRows] = {
-    DOT_GROUND, DOT_NOTHING, DOT_GROUND, DOT_WATER, DOT_WATER};
 
 // Mitchell's Best-Candidate algorithm to maximize distance between points
 // while maintaining an organic, non-linear distribution.
@@ -93,14 +68,16 @@ static void _split_vec(vec3_t *v, vec3_t d9[9]) {
 
 #pragma optimize(pop)
 static inline void _draw_box_points(uint8_t start_idx, uint8_t num_points,
-                                    bool is_ground) {
+                                    WorldMapType map_type) {
+  static const uint8_t KMapColors[] = {kColorBlack, kColorOrange, kColorBlack,
+                                       kColorBlue, kColorYellow};
   uint8_t idx = start_idx & 0x0F;
   for (uint8_t i = num_points;;) {
     vec_v = _world_vec_v;
     vec_v.x += _mitch_x[idx];
     vec_v.y += _mitch_y[idx];
     vec_v.z += _mitch_z[idx];
-    gfx_project_and_draw(is_ground);
+    gfx_project_and_draw(KMapColors[map_type]);
     if (--i == 0) {
       break;
     }
@@ -196,15 +173,16 @@ void _world_init_start_dx_dy() {
   }
 }
 
-void _world_render_object(WorldObjectType object_type) {
+void _world_render_object(WorldMapType object_type) {
   static vec3_t poly_verts[4];
-  const object_coords_t *coords = &kObjectCoords[object_type - 1];
+  const world_obj_t *obj = &kWorldObjects[object_type - kWorldMapObjStart];
   for (uint8_t i = 0; i < 4; ++i) {
     poly_verts[i] = _world_vec_v;
-    vec_add(&poly_verts[i], &_world_dx4[coords->x[i]]);
-    vec_add(&poly_verts[i], &_world_dy4[coords->y[i]]);
+    vec_add(&poly_verts[i], &_world_dx4[obj->x[i]]);
+    vec_add(&poly_verts[i], &_world_dy4[obj->y[i]]);
   }
-  poly_draw_3d(poly_verts, 4, kObjectCharStart[object_type - 1]);
+  poly_draw_3d(poly_verts, 4,
+               kWorldObjectChars[object_type - kWorldMapObjStart]);
 }
 
 __noinline void world_render_grid() {
@@ -220,20 +198,13 @@ __noinline void world_render_grid() {
     uint8_t cx2 = cx << 1;
     uint8_t cy = _world_start_cy;
     for (int8_t y = -_world_grid_radius;;) {
-      WorldDotType dot_type = DOT_GROUND;
-      if (cy < kWorldObjectNumRows && cx >= kDotStartX[cy] &&
-          cx <= kDotEndX[cy]) {
-        dot_type = kDotTypes[cy];
-      }
-      if (dot_type == DOT_NOTHING) {
-        if (kWorldObjectX[cy] == cx) {
-          _world_render_object(kWorldObjectTypes[cy]);
-        }
-      } else {
+      WorldMapType map_type = kWorldMap[cx & kWorldMapMask][cy & kWorldMapMask];
+      if (map_type >= kWorldMapObjStart) {
+        _world_render_object(map_type);
+      } else if (map_type != MAP_NOTHING) {
         uint8_t start_idx = cx2 + cy;
         uint8_t num_points = _num_points_per_radius[_max16(abs_x, _abs16(y))];
-        _draw_box_points(start_idx, num_points,
-                         /* is_ground= */ dot_type == DOT_GROUND);
+        _draw_box_points(start_idx, num_points, map_type);
       }
       if (++y > _world_grid_radius) {
         break;

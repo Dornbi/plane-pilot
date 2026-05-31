@@ -5,11 +5,13 @@
 #include <stdint.h>
 
 // Start of range with 16 characters used to draw single pixels.
-static const uint8_t kQuadCharGroundSparseStart = 128;
-static const uint8_t kQuadCharGroundStart = 144;
-static const uint8_t kQuadChar11Start = 160;
-static const uint8_t kGroundPointCharStart = 176;
-static const uint8_t kColorPointCharStart = 192;
+static const uint8_t kGfxCharStart = 128;
+
+static const uint8_t kGfxQuadGroundSparse = 128;
+static const uint8_t kGfxQuadGround = 144;
+static const uint8_t kGfxQuad11 = 160;
+static const uint8_t kGfxGroundPoints = 176;
+static const uint8_t kGfxColorPoints = 192;
 
 // Init the fixed characters.
 void gfx_init_chars(void);
@@ -19,7 +21,7 @@ void gfx_init_raster_irqs(void);
 
 // Project and draw a single point using vec_project().
 // @param vec_v
-void gfx_project_and_draw(bool is_ground);
+void gfx_project_and_draw(uint8_t color);
 
 #pragma compile("gfx.cc")
 

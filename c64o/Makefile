@@ -46,7 +46,8 @@ PPILOT_SRC = \
 		vec_lut.cc \
 		vic.h \
 		world.h \
-		world.cc
+		world.cc \
+		world_map.cc
 
 POLYDEMO_PROGRAM = polydemo
 POLYDEMO_SRC = \
@@ -66,12 +67,13 @@ POLYDEMO_SRC = \
 		print.cc \
 		poly.h \
 		poly.cc \
+		polydemo.cc \
 		vec.h \
 		vec_asm.cc \
 		vec_lut.cc \
 		world.h \
 		world.cc \
-		polydemo.cc
+		world_map.cc
 
 VECDEMO_PROGRAM = vecdemo
 VECDEMO_SRC = 	benchmark.h \
