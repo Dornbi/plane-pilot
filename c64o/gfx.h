@@ -20,6 +20,8 @@ void gfx_init_chars(void);
 void gfx_init_raster_irqs(void);
 
 // Project and draw a single point using vec_project().
+// If color < 8, it uses kGfxColorPoints and sets the color ram.
+// Otherwise it uses kGfxGroundPoints.
 // @param vec_v
 void gfx_project_and_draw(uint8_t color);
 
