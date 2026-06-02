@@ -37,6 +37,7 @@ struct world_obj_t {
 static const uint8_t kWorldObjDim = 1;
 extern const world_obj_t kWorldObjects[kWorldObjDim];
 extern const uint8_t kWorldObjectChars[kWorldObjDim];
+extern const uint8_t kWorldObjectColors[kWorldObjDim];
 
 #pragma compile("world.cc")
 #pragma compile("world_map.cc")

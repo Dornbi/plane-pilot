@@ -189,8 +189,8 @@ static void _trace_edge_bresenham(int8_t x1, uint8_t y1, int8_t x2,
   }
 }
 
-static inline void _set_pixel(uint8_t *dst, uint8_t fill_char_start_idx,
-                              uint8_t val) {
+static inline void _set_char(uint8_t *dst, uint8_t fill_char_start_idx,
+                             uint8_t val) {
   dst[0] = fill_char_start_idx | (dst[0] & 0xF) | val;
 }
 
@@ -214,21 +214,21 @@ static inline void _scan_lines(uint8_t fill_char_start_idx) {
     // 1. Handle left edge: if min_x is odd, it only occupies the right half of
     // the pixel
     if (min_x & 1) {
-      _set_pixel(row + (min_x >> 1), fill_char_start_idx, right_mask);
+      _set_char(row + (min_x >> 1), fill_char_start_idx, right_mask);
       ++min_x; // Snap to the next even boundary
     }
 
     // 2. Handle right edge: if max_x is even, it only occupies the left half of
     // the pixel
     if ((max_x & 1) == 0 && max_x >= min_x) {
-      _set_pixel(row + (max_x >> 1), fill_char_start_idx, left_mask);
+      _set_char(row + (max_x >> 1), fill_char_start_idx, left_mask);
       --max_x; // Snap back to previous odd boundary
     }
 
     // 3. Fast bulk fill for everything in between (now guaranteed to be full
     // 2-wide pixels)
     for (uint8_t px = min_x >> 1; px <= max_x >> 1; ++px) {
-      _set_pixel(row + px, fill_char_start_idx, full_mask);
+      _set_char(row + px, fill_char_start_idx, full_mask);
     }
 #ifdef __DEBUG_POLY__
     if (py < 20) {
@@ -252,14 +252,26 @@ static inline void _set_line(uint8_t *dst, uint8_t val, int8_t cnt) {
   }
 }
 
+static inline void _set_color_line(uint8_t *dst, uint8_t val,
+                                   uint8_t *color_dst, uint8_t color,
+                                   int8_t cnt) {
+  for (int8_t i = cnt - 1; i >= 0; --i) {
+    if (dst[i] < kCharSolidGround) {
+      continue;
+    }
+    dst[i] = val;
+    color_dst[i] = color;
+  }
+}
+
 // This version does not take the previous value into account.
-static inline void _set_pixel2(uint8_t *dst, uint8_t fill_char_start_idx,
-                               uint8_t val) {
+static inline void _set_char2(uint8_t *dst, uint8_t fill_char_start_idx,
+                              uint8_t val) {
   dst[0] = fill_char_start_idx + val;
 }
 
 // About 250 bytes more code, faster for large polygons.
-void _scan_lines2(uint8_t fill_char_start_idx) {
+void _scan_lines2(uint8_t fill_char_start_idx, uint8_t color) {
   for (uint8_t py = 0; py < kViewportHeight; ++py) {
     uint8_t t_min, b_min, t_max, b_max;
     t_min = _min_x[py << 1];
@@ -276,6 +288,7 @@ void _scan_lines2(uint8_t fill_char_start_idx) {
     }
 
     uint8_t *row = mem_screen_row_ptrs[py];
+    uint8_t *color_row = mem_color_row_ptrs[py];
 
     // 1. Find the absolute left and right bounds (in pixels) for this row
     uint8_t min_px = kViewportWidth;
@@ -317,8 +330,8 @@ void _scan_lines2(uint8_t fill_char_start_idx) {
 
     // 3. Process the Left Fringe (pixels before the solid core)
     for (uint8_t px = min_px; px < overlap_start; ++px) {
-      uint8_t *p = row + px;
-      if (*p < kCharSolidGround) {
+      uint8_t *dst = row + px;
+      if (*dst < kCharSolidGround) {
         continue;
       }
 
@@ -342,22 +355,31 @@ void _scan_lines2(uint8_t fill_char_start_idx) {
         }
       }
       if (mask) {
-        _set_pixel2(p, fill_char_start_idx, mask);
+        _set_char2(dst, fill_char_start_idx, mask);
+        if (color) {
+          color_row[px] = color;
+        }
       }
     }
 
     // 4. Fast path: Memset the Solid Core (No read-modify-write!)
     if (overlap_end >= overlap_start) {
-      _set_line(row + overlap_start, fill_char_start_idx | 0xF,
-                overlap_end - overlap_start + 1);
+      if (color) {
+        _set_color_line(row + overlap_start, fill_char_start_idx | 0xF,
+                        color_row + overlap_start, color,
+                        overlap_end - overlap_start + 1);
+      } else {
+        _set_line(row + overlap_start, fill_char_start_idx | 0xF,
+                  overlap_end - overlap_start + 1);
+      }
     }
 
     // 5. Process the Right Fringe (pixels after the solid core)
     int8_t start_px =
         (overlap_end + 1) > (int8_t)min_px ? (overlap_end + 1) : (int8_t)min_px;
     for (uint8_t px = start_px; px <= max_px; ++px) {
-      uint8_t *p = row + px;
-      if (*p < kCharSolidGround) {
+      uint8_t *dst = row + px;
+      if (*dst < kCharSolidGround) {
         continue;
       }
 
@@ -381,7 +403,10 @@ void _scan_lines2(uint8_t fill_char_start_idx) {
         }
       }
       if (mask) {
-        _set_pixel2(p, fill_char_start_idx, mask);
+        _set_char2(dst, fill_char_start_idx, mask);
+        if (color) {
+          color_row[px] = color;
+        }
       }
     }
 #ifdef __DEBUG_POLY__
@@ -397,7 +422,7 @@ void _scan_lines2(uint8_t fill_char_start_idx) {
 
 // Fill the polygon using the traced edges
 void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
-               uint8_t fill_char_start_idx) {
+               uint8_t fill_char_start_idx, uint8_t color) {
   if (num_vertices < 3) {
     return; // A polygon needs at least 3 vertices
   }
@@ -419,8 +444,12 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
   bm_poly_end(710, SCREEN_STR("TRC:"));
 
   // 2. Draw the scanlines directly to Screen RAM
+  uint8_t color_val = 0;
+  if (color < 8) {
+    color_val = color | 8;
+  }
   bm_poly_start();
-  _scan_lines2(fill_char_start_idx);
+  _scan_lines2(fill_char_start_idx, color_val);
   bm_poly_end(750, SCREEN_STR("SCN:"));
 }
 
@@ -610,13 +639,13 @@ static inline uint8_t _project_vertices(const vec3_t *vertices_3d,
 }
 
 __noinline void poly_draw_3d(const vec3_t *vertices, uint8_t num_vertices,
-                             uint8_t fill_char_start_idx) {
+                             uint8_t fill_char_start_idx, uint8_t color) {
   static vertex_t final_verts[kMax2dVertices];
   bm_poly_start();
   uint8_t n = _project_vertices(vertices, num_vertices, final_verts);
   bm_poly_end(630, SCREEN_STR("PRJ:"));
 
   if (n >= 3) {
-    poly_fill(final_verts, n, fill_char_start_idx);
+    poly_fill(final_verts, n, fill_char_start_idx, color);
   }
 }

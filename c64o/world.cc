@@ -175,14 +175,15 @@ void _world_init_start_dx_dy() {
 
 void _world_render_object(WorldMapType object_type) {
   static vec3_t poly_verts[4];
-  const world_obj_t *obj = &kWorldObjects[object_type - kWorldMapObjStart];
+  uint8_t obj_idx = object_type - kWorldMapObjStart;
+  const world_obj_t *obj = &kWorldObjects[obj_idx];
   for (uint8_t i = 0; i < 4; ++i) {
     poly_verts[i] = _world_vec_v;
     vec_add(&poly_verts[i], &_world_dx4[obj->x[i]]);
     vec_add(&poly_verts[i], &_world_dy4[obj->y[i]]);
   }
-  poly_draw_3d(poly_verts, 4,
-               kWorldObjectChars[object_type - kWorldMapObjStart]);
+  poly_draw_3d(poly_verts, 4, kWorldObjectChars[obj_idx],
+               kWorldObjectColors[obj_idx]);
 }
 
 __noinline void world_render_grid() {

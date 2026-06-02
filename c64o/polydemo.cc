@@ -3,6 +3,7 @@
 #include "benchmark.h"
 #include "chardefs.h"
 #include "cia.h"
+#include "color.h"
 #include "fmath.h"
 #include "gfx.h"
 #include "keys.h"
@@ -130,34 +131,54 @@ int main() {
   gfx_init_raster_irqs();
 
   uint8_t mode = 0;
+  uint8_t poly = 0;
+
   mem_switch_debug(true);
 
   while (1) {
     for (uint8_t i = 0; i < 2; ++i) {
       _clear_screen();
-      if (mode < kPolyCount) {
-        poly_fill(kPolys[mode], 4, kGfxQuadGroundSparse);
-      } else {
-        _stripped_world_render_grid(&vkViewPoints[mode - kPolyCount]);
+      switch (mode) {
+      case 0:
+        poly_fill(kPolys[poly], 4, kGfxQuadGround, kColorGround);
+        break;
+      case 1:
+        poly_fill(kPolys[poly], 4, kGfxQuadGroundSparse, kColorGround);
+        break;
+      case 2:
+        poly_fill(kPolys[poly], 4, kGfxQuad11, kColorBlack);
+        break;
+      case 3:
+        poly_fill(kPolys[poly], 4, kGfxQuad11Sparse, kColorBlack);
+        break;
+      default:
+        _stripped_world_render_grid(&vkViewPoints[poly]);
+        break;
       }
+      print_labeled_bcd(950, SCREEN_STR("POLY:"), poly, 2);
       print_labeled_bcd(990, SCREEN_STR("MODE:"), mode, 2);
       mem_switch_buffer();
     }
 
     keyb_poll();
     if (key_pressed(KSCAN_M)) {
-      if (mode < kPolyCount) {
-        mode = kPolyCount;
+      if (mode < 5) {
+        ++mode;
       } else {
         mode = 0;
       }
+      poly = 0;
     }
     if (key_pressed(KSCAN_SPACE)) {
-      ++mode;
-      if (mode == kPolyCount) {
-        mode = 0;
-      } else if (mode >= kPolyCount + kViewpointCount) {
-        mode = kPolyCount;
+      ++poly;
+      if (poly < 4) {
+        if (poly >= kPolyCount) {
+          poly = 0;
+        }
+      } else {
+        if (poly >= kViewpointCount) {
+          poly = 0;
+        }
       }
     }
   };
