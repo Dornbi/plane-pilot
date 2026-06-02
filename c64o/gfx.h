@@ -9,9 +9,10 @@ static const uint8_t kGfxCharStart = 128;
 
 static const uint8_t kGfxQuadGroundSparse = 128;
 static const uint8_t kGfxQuadGround = 144;
-static const uint8_t kGfxQuad11 = 160;
-static const uint8_t kGfxGroundPoints = 176;
-static const uint8_t kGfxColorPoints = 192;
+static const uint8_t kGfxQuad11Sparse = 160;
+static const uint8_t kGfxQuad11 = 176;
+static const uint8_t kGfxGroundPoints = 192;
+static const uint8_t kGfxColorPoints = 208;
 
 // Init the fixed characters.
 void gfx_init_chars(void);

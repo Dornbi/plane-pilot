@@ -40,6 +40,10 @@ _QUAD_CHAR_10 = [
     0x99, 0x66, 0x9A, 0xA6,
     0x99, 0x66, 0xA9, 0x66
 ]
+_QUAD_CHAR_11_SPARSE = [
+    0x75, 0x57, 0xD5, 0x5D,
+    0x75, 0x57, 0xD5, 0x5D
+]
 _QUAD_CHAR_11 = [
     0xDD, 0x77, 0xDF, 0xF7,
     0xDD, 0x77, 0xFD, 0x77
@@ -90,6 +94,10 @@ def main():
     print(f"Generated {len(quad_10_data)} bytes for 16 quad characters.")
 
     print("Generating quad 11 character data...")
+    quad_11_sparse_data = generate_quad_chars(_QUAD_CHAR_11_SPARSE)
+    print(f"Generated {len(quad_11_sparse_data)} bytes for 16 quad characters.")
+
+    print("Generating quad 11 character data...")
     quad_11_data = generate_quad_chars(_QUAD_CHAR_11)
     print(f"Generated {len(quad_11_data)} bytes for 16 quad characters.")
 
@@ -102,7 +110,9 @@ def main():
     print(f"Generated {len(point_11_data)} bytes for 16 single point characters.")
 
     # Combine data
-    combined_data = quad_10_sparse_data + quad_10_data + quad_11_data + point_10_data + point_11_data
+    combined_data = (quad_10_sparse_data + quad_10_data +
+                     quad_11_sparse_data + quad_11_data +
+                     point_10_data + point_11_data)
     total_bytes = len(combined_data)
     print(f"Total combined binary size: {total_bytes} bytes ({int(total_bytes/8)} characters).")
     
@@ -134,21 +144,27 @@ def main():
         hex_str = " ".join(f"{b:02X}" for b in quad_10_data[i:i+8])
         print(f"  Char {char_num:03d} (0x{char_num:02X}): {hex_str}")
 
+    print("\nQuad characters with 11 sparse (128 bytes):")
+    for i in range(0, len(quad_11_sparse_data), 8):
+        char_num = 160 + (i // 8)
+        hex_str = " ".join(f"{b:02X}" for b in quad_11_data[i:i+8])
+        print(f"  Char {char_num:03d} (0x{char_num:02X}): {hex_str}")
+
     print("\nQuad characters with 11 (128 bytes):")
     for i in range(0, len(quad_11_data), 8):
-        char_num = 160 + (i // 8)
+        char_num = 176 + (i // 8)
         hex_str = " ".join(f"{b:02X}" for b in quad_11_data[i:i+8])
         print(f"  Char {char_num:03d} (0x{char_num:02X}): {hex_str}")
 
     print("\nSingle point characters with 10 (128 bytes):")
     for i in range(0, len(point_10_data), 8):
-        char_num = 176 + (i // 8)
+        char_num = 192 + (i // 8)
         hex_str = " ".join(f"{b:02X}" for b in point_10_data[i:i+8])
         print(f"  Char {char_num:03d} (0x{char_num:02X}): {hex_str}")
 
     print("\nSingle point characters with 11 (128 bytes):")
     for i in range(0, len(point_11_data), 8):
-        char_num = 192 + (i // 8)
+        char_num = 208 + (i // 8)
         hex_str = " ".join(f"{b:02X}" for b in point_11_data[i:i+8])
         print(f"  Char {char_num:03d} (0x{char_num:02X}): {hex_str}")
 
