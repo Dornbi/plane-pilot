@@ -4,6 +4,8 @@
 #include "vec.h"
 #include <stdint.h>
 
+static const uint8_t kPolyMaxVertices = 6;
+
 // Using signed 8-bit integers for coordinates since the screen is 40x25
 struct vertex_t {
   int8_t x, y;

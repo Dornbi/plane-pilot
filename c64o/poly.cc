@@ -546,19 +546,21 @@ static uint8_t _clip_2d(const vertex16_t *in, uint8_t num_in, vertex16_t *out,
   return num_out;
 }
 
-const uint8_t kMax2dVertices = 12;
+const uint8_t kMax2dVertices =
+    kPolyMaxVertices + 6; // +5 derived, +6 for safety
 
 // Projects 3d vertices to 2d.
 static inline uint8_t _project_vertices(const vec3_t *vertices_3d,
                                         uint8_t num_vertices,
                                         vertex_t *vertices_2d) {
-  static vec3_t clip3_buf[8]; // max 5 vertices after 1 plane clip, 8 is safe
+  static vec3_t clip3_buf[kPolyMaxVertices +
+                          4]; // max 7 vertices after 1 plane clip, 10 is safe
   uint8_t num_clip3 = _clip_near(vertices_3d, num_vertices, clip3_buf);
   if (num_clip3 < 3) {
     return 0;
   }
 
-  static vertex16_t proj_buf[8];
+  static vertex16_t proj_buf[kPolyMaxVertices + 4];
   vec_v = clip3_buf[0];
   if (vec_project_nocull()) {
     proj_buf[0].x = 40 - (vec_sx / 4);
