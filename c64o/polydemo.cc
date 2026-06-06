@@ -29,14 +29,21 @@ extern vec3_t _world_vec_v;
 extern void _world_init_start_dx_dy();
 extern void _world_render_object(WorldMapType object_type);
 
-static const vertex_t kPolys[][4] = {{{20, 2}, {24, 6}, {20, 10}, {16, 6}},
-                                     {{1, 1}, {38, 1}, {38, 12}, {1, 12}},
-                                     {{0, 0}, {39, 0}, {39, 13}, {0, 13}},
-                                     {{18, 3}, {22, 3}, {30, 9}, {10, 9}},
-                                     {{36, 3}, {44, 3}, {70, 17}, {10, 17}},
-                                     {{36, 3}, {44, 3}, {70, 19}, {10, 15}},
-                                     {{20, 2}, {35, 8}, {20, 12}, {5, 6}},
-                                     {{10, 5}, {12, 5}, {12, 7}, {10, 7}}};
+struct demo_poly_t {
+  uint8_t num_vertices;
+  vertex_t vertices[6];
+};
+
+static const demo_poly_t kPolys[] = {
+    {4, {{20, 2}, {24, 6}, {20, 10}, {16, 6}}},
+    {4, {{1, 1}, {38, 1}, {38, 12}, {1, 12}}},
+    {4, {{0, 0}, {39, 0}, {39, 13}, {0, 13}}},
+    {4, {{18, 3}, {22, 3}, {30, 9}, {10, 9}}},
+    {4, {{36, 3}, {44, 3}, {70, 17}, {10, 17}}},
+    {4, {{36, 3}, {44, 3}, {70, 19}, {10, 15}}},
+    {4, {{20, 2}, {35, 8}, {20, 12}, {5, 6}}},
+    {4, {{10, 5}, {12, 5}, {12, 7}, {10, 7}}},
+    {6, {{20, 2}, {26, 4}, {26, 8}, {20, 10}, {14, 8}, {14, 4}}}};
 
 static const uint8_t kPolyCount = sizeof(kPolys) / sizeof(kPolys[0]);
 
@@ -48,14 +55,11 @@ struct viewpoint_t {
 };
 
 static const viewpoint_t vkViewPoints[] = {
-    {{{256, -8, -27}, {20, 215, 138}, {18, -140, 215}},
-     0x10029C,
-     0x088C84,
-     0x00B053},
-    {{{256, -8, -27}, {20, 215, 138}, {18, -140, 215}},
-     0x10429C,
-     0x088A84,
-     0x00A993}};
+    {{{256, 0, -14}, {-4, 238, -97}, {13, 97, 238}},
+     0x105E83,
+     0x17802A,
+     0x00CE79},
+};
 
 static const uint8_t kViewpointCount =
     sizeof(vkViewPoints) / sizeof(vkViewPoints[0]);
@@ -140,16 +144,20 @@ int main() {
       _clear_screen();
       switch (mode) {
       case 0:
-        poly_fill(kPolys[poly], 4, kGfxQuadGround, kColorGround);
+        poly_fill(kPolys[poly].vertices, kPolys[poly].num_vertices,
+                  kGfxQuadGround, kColorGround);
         break;
       case 1:
-        poly_fill(kPolys[poly], 4, kGfxQuadGroundSparse, kColorGround);
+        poly_fill(kPolys[poly].vertices, kPolys[poly].num_vertices,
+                  kGfxQuadGroundSparse, kColorGround);
         break;
       case 2:
-        poly_fill(kPolys[poly], 4, kGfxQuad11, kColorBlack);
+        poly_fill(kPolys[poly].vertices, kPolys[poly].num_vertices, kGfxQuad11,
+                  kColorBlack);
         break;
       case 3:
-        poly_fill(kPolys[poly], 4, kGfxQuad11Sparse, kColorBlack);
+        poly_fill(kPolys[poly].vertices, kPolys[poly].num_vertices,
+                  kGfxQuad11Sparse, kColorBlack);
         break;
       default:
         _stripped_world_render_grid(&vkViewPoints[poly]);
@@ -171,7 +179,7 @@ int main() {
     }
     if (key_pressed(KSCAN_SPACE)) {
       ++poly;
-      if (poly < 4) {
+      if (mode < 4) {
         if (poly >= kPolyCount) {
           poly = 0;
         }

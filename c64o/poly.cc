@@ -410,11 +410,12 @@ void _scan_lines2(uint8_t fill_char_start_idx, uint8_t color) {
       }
     }
 #ifdef __DEBUG_POLY__
-    if (false && py <= 9) {
-      print_labeled_bcd(610 + py * 40, SCREEN_STR("1:"), t_min, 2);
-      print_labeled_bcd(615 + py * 40, SCREEN_STR("2:"), b_min, 2);
-      print_labeled_bcd(620 + py * 40, SCREEN_STR("1:"), t_max, 2);
-      print_labeled_bcd(625 + py * 40, SCREEN_STR("2:"), b_max, 2);
+    if (py >= 6 && py < 14) {
+      uint8_t y = py - 6;
+      print_labeled_bcd(610 + y * 40, SCREEN_STR("1:"), t_min, 2);
+      print_labeled_bcd(615 + y * 40, SCREEN_STR("2:"), b_min, 2);
+      print_labeled_bcd(620 + y * 40, SCREEN_STR("1:"), t_max, 2);
+      print_labeled_bcd(625 + y * 40, SCREEN_STR("2:"), b_max, 2);
     }
 #endif
   }
