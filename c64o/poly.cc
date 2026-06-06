@@ -97,8 +97,8 @@ static void _trace_edge_bresenham(int8_t x1, uint8_t y1, int8_t x2,
   }
 
   uint8_t dy = y2 - y1;
-  uint8_t err = 0; // 0 removes half-pixel offset to prevent wide top lines,
-                   // uint8 prevents overflow
+  uint8_t err =
+      dy >> 1; // dy >> 1 (half-pixel offset) for even line segment distribution
 
   if (x2 > x1) {
     uint8_t dx = x2 - x1;
@@ -410,7 +410,7 @@ void _scan_lines2(uint8_t fill_char_start_idx, uint8_t color) {
       }
     }
 #ifdef __DEBUG_POLY__
-    if (py >= 6 && py < 14) {
+    if (false && py >= 6 && py < 14) {
       uint8_t y = py - 6;
       print_labeled_bcd(610 + y * 40, SCREEN_STR("1:"), t_min, 2);
       print_labeled_bcd(615 + y * 40, SCREEN_STR("2:"), b_min, 2);
@@ -427,6 +427,15 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
   if (num_vertices < 3) {
     return; // A polygon needs at least 3 vertices
   }
+
+#ifdef __DEBUG_POLY__
+  if (true) {
+    for (uint8_t y = 0; y < num_vertices; y++) {
+      print_labeled_bcd(610 + y * 40, SCREEN_STR("X:"), vertices[y].x, 2);
+      print_labeled_bcd(620 + y * 40, SCREEN_STR("Y:"), vertices[y].y, 2);
+    }
+  }
+#endif
 
   bm_poly_start();
   _clear_buffers();
