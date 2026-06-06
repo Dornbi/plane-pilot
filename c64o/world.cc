@@ -1,7 +1,6 @@
 #include "world.h"
 
 #include "benchmark.h"
-#include "color.h"
 #include "fmath.h"
 #include "gfx.h"
 #include "mem.h"
