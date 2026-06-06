@@ -29,7 +29,7 @@ static const char *oscar_expand_lzo(char *dp, const char *sp) { return sp; }
 #endif
 
 const char kGfxCharsCompressed[] = {
-#embed 768 lzo "gfx_chars.bin"
+#embed 1024 lzo "gfx_chars.bin"
 };
 
 #pragma optimize(push, noasm)

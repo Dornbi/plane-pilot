@@ -19,25 +19,38 @@ enum WorldMapType {
   MAP_NOTHING = 0,
   MAP_DOT_GROUND = 1,
   MAP_DOT_BLACK = 2,
-  MAP_DOT_BLUE = 3,
-  MAP_DOT_YELLOW = 4,
+  MAP_DOT_WHITE = 3,
+  MAP_DOT_CYAN = 4,
+  MAP_DOT_BLUE = 5,
+  MAP_DOT_YELLOW = 6,
+  // Polygon objects
   MAP_OBJ_RUNWAY = 16,
+  MAP_OBJ_FIELD = 17,
+  MAP_OBJ_FIELD_SPARSE = 18,
+  MAP_OBJ_FIELD_BLACK = 19,
+  MAP_OBJ_FIELD_BLACK_SPARSE = 20,
+  MAP_OBJ_FIELD_MIXED_BLACK = 21,
+  MAP_OBJ_FIELD_MIXED_BLACK_SPARSE = 22,
+  MAP_OBJ_FIELD_YELLOW = 23,
+  MAP_OBJ_FIELD_YELLOW_SPARSE = 24,
+  MAP_OBJ_POND = 25,
+  MAP_OBJ_LAKE = 26,
 };
 
-static const uint8_t kWorldMapDim = 8;
-static const uint8_t kWorldMapMask = 0x7;
+extern const uint8_t KWorldDotColors[7];
+
+static const uint8_t kWorldMapDim = 16;
+static const uint8_t kWorldMapMask = 0xF;
 extern const WorldMapType kWorldMap[kWorldMapDim][kWorldMapDim];
 static const uint8_t kWorldMapObjStart = MAP_OBJ_RUNWAY;
 
-struct world_obj_t {
-  uint8_t x[4];
-  uint8_t y[4];
-};
-
-static const uint8_t kWorldObjDim = 1;
-extern const world_obj_t kWorldObjects[kWorldObjDim];
-extern const uint8_t kWorldObjectChars[kWorldObjDim];
-extern const uint8_t kWorldObjectColors[kWorldObjDim];
+static const uint8_t kWorldObjDim = 11;
+// kPolyMaxVertices is 6 but we do 8 for easier math.
+extern const uint8_t kWorldObjX[kWorldObjDim][8];
+extern const uint8_t kWorldObjY[kWorldObjDim][8];
+extern const uint8_t kWorldObjNumVerts[kWorldObjDim];
+extern const uint8_t kWorldObjChars[kWorldObjDim];
+extern const uint8_t kWorldObjColors[kWorldObjDim];
 
 #pragma compile("world.cc")
 #pragma compile("world_map.cc")

@@ -36,15 +36,15 @@ static const mat3_t _m_init = {
 };
 
 static const mat3_t _m_init_alt = {
-    {238, 66, -70},
-    {-18, 215, 140},
-    {94, -125, 203},
+    {256, 0, 0},
+    {0, 256, 0},
+    {0, 0, 256},
 };
 
 void model_init() {
   world_cam = _m_init;
-  world_eye_x = 0x0C0000;
-  world_eye_y = 0x178000;
+  world_eye_x = 0x2C0000;
+  world_eye_y = 0x378000;
   world_eye_z = 0x010000;
   _model_speed = 0x860;
   _model_throttle = 0x14;
@@ -54,9 +54,9 @@ void model_init() {
 
 void model_init_alt() {
   world_cam = _m_init_alt;
-  world_eye_x = 0x0C599C;
-  world_eye_y = 0x07E184;
-  world_eye_z = 0x012693;
+  world_eye_x = 0x2C0000;
+  world_eye_y = 0x378000;
+  world_eye_z = 0x060000;
   _model_speed = 0x860;
   _model_throttle = 0x14;
   _model_need_normalize = false;

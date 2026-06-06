@@ -69,15 +69,13 @@ static void _split_vec(vec3_t *v, vec3_t d9[9]) {
 #pragma optimize(pop)
 static inline void _draw_box_points(uint8_t start_idx, uint8_t num_points,
                                     WorldMapType map_type) {
-  static const uint8_t KMapColors[] = {kColorBlack, kColorOrange, kColorBlack,
-                                       kColorBlue, kColorYellow};
   uint8_t idx = start_idx & 0x0F;
   for (uint8_t i = num_points;;) {
     vec_v = _world_vec_v;
     vec_v.x += _mitch_x[idx];
     vec_v.y += _mitch_y[idx];
     vec_v.z += _mitch_z[idx];
-    gfx_project_and_draw(KMapColors[map_type]);
+    gfx_project_and_draw(KWorldDotColors[map_type]);
     if (--i == 0) {
       break;
     }
@@ -174,16 +172,16 @@ void _world_init_start_dx_dy() {
 }
 
 void _world_render_object(WorldMapType object_type) {
-  static vec3_t poly_verts[4];
+  static vec3_t poly_verts[kPolyMaxVertices];
   uint8_t obj_idx = object_type - kWorldMapObjStart;
-  const world_obj_t *obj = &kWorldObjects[obj_idx];
-  for (uint8_t i = 0; i < 4; ++i) {
+  uint8_t num_verts = kWorldObjNumVerts[obj_idx];
+  for (uint8_t i = 0; i < num_verts; ++i) {
     poly_verts[i] = _world_vec_v;
-    vec_add(&poly_verts[i], &_world_dx4[obj->x[i]]);
-    vec_add(&poly_verts[i], &_world_dy4[obj->y[i]]);
+    vec_add(&poly_verts[i], &_world_dx4[kWorldObjX[obj_idx][i]]);
+    vec_add(&poly_verts[i], &_world_dy4[kWorldObjY[obj_idx][i]]);
   }
-  poly_draw_3d(poly_verts, 4, kWorldObjectChars[obj_idx],
-               kWorldObjectColors[obj_idx]);
+  poly_draw_3d(poly_verts, num_verts, kWorldObjChars[obj_idx],
+               kWorldObjColors[obj_idx]);
 }
 
 __noinline void world_render_grid() {
