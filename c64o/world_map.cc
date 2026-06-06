@@ -96,6 +96,8 @@ const uint8_t kWorldObjColors[kWorldObjDim] = {
     kColorBlue,   // MAP_OBJ_LAKE
 };
 
+// The default model starting position is rotated 180 degrees compared
+// to how it looks here. I.e. the plane is starting upside down on this map.
 // clang-format off
 const WorldMapType kWorldMap[kWorldMapDim][kWorldMapDim] = {
     {D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, DY_, D__, D__, D__, D__, D__},
