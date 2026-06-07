@@ -209,8 +209,8 @@ static void _model_stall() {
 }
 
 static void _move_forward(int16_t fspeed, int16_t vspeed) {
-  world_eye_x += vec_fastmul8p8(world_cam.front.x, fspeed);
-  world_eye_y += vec_fastmul8p8(world_cam.front.y, fspeed);
+  world_eye_x += vec_fastmul8p8(world_cam.front.x, fspeed << 1);
+  world_eye_y += vec_fastmul8p8(world_cam.front.y, fspeed << 1);
   world_eye_z += vspeed;
   if (world_eye_z < kMinEyeZ) {
     world_eye_z = kMinEyeZ;
