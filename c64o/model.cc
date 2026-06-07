@@ -5,6 +5,7 @@
 
 #include "benchmark.h"
 #include "fmath.h"
+#include "gfx.h"
 #include "mem.h"
 #include "render.h"
 #include "roll.h"
@@ -20,6 +21,9 @@ static int16_t _model_speed;
 static uint8_t _model_throttle;
 static uint32_t _model_fuel;
 static bool _model_need_normalize;
+static uint8_t _model_nav;
+static uint8_t _model_flap;
+static uint8_t _model_gear;
 static const vec3_t kSunDirWorld = {0, 256, 64};
 
 static const int32_t kMinEyeZ = 0x2000;
@@ -41,6 +45,18 @@ static const mat3_t _m_init_alt = {
     {0, 0, 256},
 };
 
+// Location of navigation waypoints.
+// They match the eye_x and eye_y coordinates >> 8
+// Corresponding the runways in world_map.cc
+static const uint16_t kNavPointX[kGfxNumNavpoints] = {
+    0x6000,
+    0x2000,
+};
+static const uint16_t kNavPointY[kGfxNumNavpoints] = {
+    0xBF80,
+    0x3F80,
+};
+
 void model_init() {
   world_cam = _m_init;
   world_eye_x = 0x140000;
@@ -49,6 +65,9 @@ void model_init() {
   _model_speed = 0x860;
   _model_throttle = 0x14;
   _model_need_normalize = false;
+  _model_flap = false;
+  _model_gear = false;
+  _model_nav = 0;
   model_reset_fuel();
 }
 
@@ -60,70 +79,13 @@ void model_init_alt() {
   _model_speed = 0x860;
   _model_throttle = 0x14;
   _model_need_normalize = false;
+  _model_flap = false;
+  _model_gear = false;
+  _model_nav = 1;
   model_reset_fuel();
 }
 
 inline void model_reset_fuel() { _model_fuel = 0x21FFF; }
-
-static const uint8_t kRollAngleLut[65] = {
-    0,  0,  0,  0,  1,  1,  1,  1,  2,  2,  2,  2,  3,  3,  3,  3,  4,
-    4,  4,  4,  5,  5,  5,  5,  6,  6,  6,  6,  7,  7,  7,  7,  8,  8,
-    8,  8,  9,  9,  9,  9,  10, 10, 10, 10, 11, 11, 11, 11, 12, 12, 12,
-    12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15, 15};
-
-static uint8_t _get_roll_angle() {
-  int16_t y = world_cam.left.z;
-  int16_t x = world_cam.up.z;
-  uint8_t ratio = _get_ratio(x, y);
-  uint8_t angle = kRollAngleLut[ratio];
-  if (x >= 0) {
-    if (y >= 0) {
-      // Q0: 0-15
-      return angle;
-    } else {
-      // Q3: 45-60 (wraps to 0)
-      return angle > 0 ? kRollMax - angle : 0;
-    }
-  } else {
-    if (y >= 0) {
-      // Q1: 15-30
-      return kRollMax / 2 - angle;
-    } else {
-      // Q2: 30-45
-      return kRollMax / 2 + angle;
-    }
-  }
-}
-
-static const uint8_t kHeadingLut[65] = {
-    0,  0,  0,  0,  0,  1,  1,  1,  1,  1,  2,  2,  2,  2, 2, 3, 3,
-    3,  3,  3,  4,  4,  4,  4,  4,  5,  5,  5,  5,  5,  6, 6, 6, 6,
-    6,  7,  7,  7,  7,  7,  8,  8,  8,  8,  8,  9,  9,  9, 9, 9, 10,
-    10, 10, 10, 10, 11, 11, 11, 11, 11, 12, 12, 12, 12, 12};
-
-static uint8_t _get_heading() {
-  int16_t y = world_cam.front.y;
-  int16_t x = world_cam.front.x;
-  uint8_t ratio = _get_ratio(x, y);
-  uint8_t angle = kHeadingLut[ratio];
-  if (x >= 0) {
-    if (y < 0) {
-      // Q0: 0-12
-      return angle;
-    } else {
-      // Q3: 36-48 (wraps to 0)
-      return angle > 0 ? kHeadingMax - angle : 0;
-    }
-  } else {
-    if (y < 0) {
-      // Q1: 12-24
-      return kHeadingMax / 2 - angle;
-    } else {
-      // Q2: 24-36
-      return kHeadingMax / 2 + angle;
-    }
-  }
-}
 
 static void _update_roll_render_state() {
   bm_model_start();
@@ -140,7 +102,7 @@ static void _update_roll_render_state() {
     if (vec_project()) {
       render_cx_pixels = (int16_t)kScreenWidthPixels / 2 - vec_sx;
       render_cy_pixels = (int16_t)kViewportEndYPixels / 2 - vec_sy;
-      roll_angle = _get_roll_angle();
+      roll_angle = _get_roll_angle(world_cam.up.z, world_cam.left.z);
       updated = true;
     }
   }
@@ -267,13 +229,27 @@ void model_update() {
   sprites_set_pitch(world_cam.front.z >> 2);
   sprites_set_throttle(_model_throttle);
   sprites_set_fuel(_model_fuel);
-  uint8_t heading = _get_heading();
-  sprites_set_heading_bitmap(heading);
+  uint8_t true_heading = _get_heading(world_cam.front.x, world_cam.front.y);
+  gfx_update_heading_bitmap(true_heading);
+  int16_t nav_x = kNavPointX[_model_nav] - (world_eye_x >> 8);
+  int16_t nav_y = kNavPointY[_model_nav] - (world_eye_y >> 8);
+  uint8_t nav_heading = _get_heading(nav_x, nav_y) - true_heading;
+  if (nav_heading > kHeadingMax) {
+    nav_heading += kHeadingMax;
+  }
+  gfx_update_nav_heading(nav_heading);
+  gfx_update_nav_toggle(_model_nav);
+  gfx_update_flap(_model_flap);
+  gfx_update_gear(_model_gear);
   _update_sun_render_state();
 #ifdef __DEBUG_MODEL__
   if (mem_debug_enabled) {
+    print_labeled_signed_bcd(760, SCREEN_STR("NX:"), nav_x);
+    print_labeled_signed_bcd(800, SCREEN_STR("NY:"), nav_y);
+    print_labeled_bcd(840, SCREEN_STR("NAV:"), nav_heading);
+
     print_labeled_bcd(810, SCREEN_STR("ROL:"), roll_angle, 3);
-    print_labeled_bcd(850, SCREEN_STR("HDG:"), heading, 3);
+    print_labeled_bcd(850, SCREEN_STR("HDG:"), true_heading, 3);
     print_labeled_signed_bcd(890, SCREEN_STR("CXP:"), render_cx_pixels, 4);
     print_labeled_signed_bcd(900, SCREEN_STR("CYP:"), render_cy_pixels, 4);
     print_labeled_signed_bcd(970, SCREEN_STR("SPD:"), _model_speed, 4);
@@ -317,6 +293,9 @@ void model_input(enum model_input_t input) {
     if (_model_throttle > kMinThrottle) {
       _model_throttle -= 1;
     }
+    break;
+  case MODEL_INPUT_TOGGLE_NAV:
+    _model_nav = 1 - _model_nav;
     break;
   case MODEL_INPUT_MOVE_BACKWARD:
   case MODEL_INPUT_MOVE_FORWARD:

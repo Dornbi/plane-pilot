@@ -21,7 +21,7 @@ static const uint8_t kAltPivotY = 176;
 static const uint8_t kVSpeedPivotX = 224;
 static const uint8_t kVSpeedPivotY = 138;
 static const uint8_t kRollPivotX = 160;
-static const uint8_t kRollPivotY = 168;
+static const uint8_t kRollPivotY = 176;
 static const uint8_t kThrottlePivotX = 8; // 264 & 0xff
 static const uint8_t kThrottlePivotY = 166;
 static const uint8_t kFuelPivotX = 56;
@@ -196,38 +196,4 @@ inline void sprites_show_panel_bottom_sprites() {
   }
   vic.spr_color[kIdxSun] = kColorInstrument;
   vic.spr_msbx = (1 << kIdxThrottle);
-}
-
-static const char *const kHeadingBitmaps[] = {
-    (const char *const)0xF120,
-    (const char *const)0xF0C0,
-    (const char *const)0xF060,
-    (const char *const)0xF000,
-};
-
-static const char *kHeadingDest = (const char *)0xF488;
-
-inline void sprites_set_heading_bitmap(uint8_t heading) {
-  static const uint8_t kHeadingCharMax = kHeadingMax / 4;
-  uint8_t heading_ch = (heading >> 2) + 3;
-  if (heading_ch >= kHeadingCharMax) {
-    heading_ch -= kHeadingCharMax;
-  }
-  const char *src_start = kHeadingBitmaps[heading & 0x03];
-  char *dst = (char *)kHeadingDest;
-  const char *src = src_start + (heading_ch * 8);
-  for (uint8_t i = 6;;) {
-    memcpy(dst, src, 8);
-    ++heading_ch;
-    if (heading_ch >= kHeadingCharMax) {
-      heading_ch = 0;
-      src = src_start;
-    } else {
-      src += 8;
-    }
-    dst += 8;
-    if (--i == 0) {
-      break;
-    }
-  }
 }

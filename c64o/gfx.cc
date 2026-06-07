@@ -2,6 +2,7 @@
 
 #include "chardefs.h"
 #include "color.h"
+#include "fmath.h"
 #include "mem.h"
 #include "sprites.h"
 #include "vec.h"
@@ -141,5 +142,77 @@ void gfx_project_and_draw(uint8_t color) {
         _draw_color_point(px, py, 0x08 | color);
       }
     }
+  }
+}
+
+static const char *const kHeadingBitmaps[] = {
+    (const char *const)0xF120,
+    (const char *const)0xF0C0,
+    (const char *const)0xF060,
+    (const char *const)0xF000,
+};
+static const char *kHeadingDest = (const char *)0xF488;
+
+inline void gfx_update_heading_bitmap(uint8_t heading) {
+  static const uint8_t kHeadingCharMax = kHeadingMax / 4;
+  uint8_t heading_ch = (heading >> 2) + 3;
+  if (heading_ch >= kHeadingCharMax) {
+    heading_ch -= kHeadingCharMax;
+  }
+  const char *src_start = kHeadingBitmaps[heading & 0x03];
+  char *dst = (char *)kHeadingDest;
+  const char *src = src_start + (heading_ch * 8);
+  for (uint8_t i = 6;;) {
+    memcpy(dst, src, 8);
+    ++heading_ch;
+    if (heading_ch >= kHeadingCharMax) {
+      heading_ch = 0;
+      src = src_start;
+    } else {
+      src += 8;
+    }
+    dst += 8;
+    if (--i == 0) {
+      break;
+    }
+  }
+}
+
+static void _set_ptr_color(uint8_t *screen_ptr, bool on) {
+  // Looks like Albert always puts light red as color 10.
+  *screen_ptr =
+      *screen_ptr & 0x0F | (on ? kColorLightRed << 4 : kColorBlack << 4);
+}
+
+void gfx_update_nav_toggle(uint8_t nav) {
+  static uint8_t *const kNavPtrs[kGfxNumNavpoints] = {
+      kScreenRamAlt + 16 * kScreenWidth + 15,
+      kScreenRamAlt + 17 * kScreenWidth + 15,
+  };
+  if (!mem_debug_enabled) {
+    _set_ptr_color(kNavPtrs[0], nav == 0);
+    _set_ptr_color(kNavPtrs[1], nav == 1);
+  }
+}
+
+void gfx_update_nav_heading(uint8_t heading) {
+  static uint8_t *const kHdgPtr = kScreenRamAlt + 18 * kScreenWidth + 21;
+  if (!mem_debug_enabled) {
+    _set_ptr_color(kHdgPtr, heading == 0 || heading > kHeadingMax / 2);
+    _set_ptr_color(kHdgPtr + 1, heading < kHeadingMax / 2);
+  }
+}
+
+void gfx_update_flap(bool flap) {
+  static uint8_t *const kFlapPtr = kScreenRamAlt + 16 * kScreenWidth + 10;
+  if (!mem_debug_enabled) {
+    _set_ptr_color(kFlapPtr, flap);
+  }
+}
+
+void gfx_update_gear(bool gear) {
+  static uint8_t *const kGearPtr = kScreenRamAlt + 17 * kScreenWidth + 10;
+  if (!mem_debug_enabled) {
+    _set_ptr_color(kGearPtr, gear);
   }
 }

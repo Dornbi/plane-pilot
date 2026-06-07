@@ -65,6 +65,9 @@ int main(void) {
     if (key_pressed(KSCAN_S)) {
       model_input(MODEL_INPUT_YAW_RIGHT);
     }
+    if (key_pressed(KSCAN_N)) {
+      model_input(MODEL_INPUT_TOGGLE_NAV);
+    }
     if (key_pressed(KSCAN_Z)) {
       model_input(MODEL_INPUT_MOVE_FORWARD);
     }

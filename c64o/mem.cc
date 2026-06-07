@@ -24,7 +24,6 @@ static const char *oscar_expand_lzo(char *dp, const char *sp) { return sp; }
 #include "sprites.h"
 #include "vic.h"
 
-static uint8_t *const kColorRam = (uint8_t *)0xD800;
 static uint8_t *const kSpriteData = (uint8_t *)0xD7C0;
 
 uint8_t mem_box_char_start;

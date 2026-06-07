@@ -18,6 +18,14 @@ uint8_t _get_msb(uint16_t n);
 // scaled by a factor of 64 to return a value between 0 and 64.
 uint8_t _get_ratio(int16_t x, int16_t y);
 
+// Returns the roll angle up until kRollMax,
+// based on the z (up) values of the left and up vector.
+uint8_t _get_roll_angle(int16_t up_z, int16_t left_z);
+
+// Returns the heading.
+static const uint8_t kHeadingMax = 48;
+uint8_t _get_heading(int16_t x, int16_t y);
+
 #pragma compile("fmath.cc")
 
 #endif

@@ -23,9 +23,6 @@ void sprites_show_panel_top_sprites();
 void sprites_show_panel_bottom_sprites();
 void sprites_set_sun_position(int16_t x, int16_t y);
 
-static const uint8_t kHeadingMax = 48;
-void sprites_set_heading_bitmap(uint8_t heading);
-
 #pragma compile("sprites.cc")
 
 #endif

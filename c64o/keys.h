@@ -16,6 +16,7 @@ enum KeyScanCode {
   KSCAN_K,
   KSCAN_L,
   KSCAN_M,
+  KSCAN_N,
   KSCAN_P,
   KSCAN_R,
   KSCAN_S,

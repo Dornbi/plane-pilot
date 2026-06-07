@@ -48,6 +48,7 @@ static const uint8_t kRasterScreenYStart = 50;
 
 static uint8_t *const kScreenRamMain = (uint8_t *)0xE800;
 static uint8_t *const kScreenRamAlt = (uint8_t *)0xEC00;
+static uint8_t *const kColorRam = (uint8_t *)0xD800;
 
 // Current screen ram.
 extern uint8_t *mem_screen_ram;

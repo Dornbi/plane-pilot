@@ -28,6 +28,16 @@ void gfx_init_raster_irqs(void);
 // @param vec_v
 void gfx_project_and_draw(uint8_t color);
 
+// Update the heading bitmap on the instrument panel.
+void gfx_update_heading_bitmap(uint8_t heading);
+
+// Toggle various indicators;
+static const uint8_t kGfxNumNavpoints = 2;
+void gfx_update_nav_toggle(uint8_t nav);
+void gfx_update_nav_heading(uint8_t heading);
+void gfx_update_flap(bool flap);
+void gfx_update_gear(bool gear);
+
 #pragma compile("gfx.cc")
 
 #endif

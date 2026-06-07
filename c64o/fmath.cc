@@ -25,6 +25,8 @@ uint8_t _get_msb(uint16_t n) {
   return r;
 }
 
+// Calculates the ratio of |y| to |x| + |y|,
+// scaled by a factor of 64 to return a value between 0 and 64.
 uint8_t _get_ratio(int16_t x, int16_t y) {
   uint16_t ay = _abs16(y);
   uint16_t ax = _abs16(x);
@@ -87,4 +89,62 @@ uint8_t _get_ratio(int16_t x, int16_t y) {
     }
   }
   return ratio;
+}
+
+static const uint8_t kHeadingLut[65] = {
+    0,  0,  0,  0,  0,  1,  1,  1,  1,  1,  2,  2,  2,  2, 2, 3, 3,
+    3,  3,  3,  4,  4,  4,  4,  4,  5,  5,  5,  5,  5,  6, 6, 6, 6,
+    6,  7,  7,  7,  7,  7,  8,  8,  8,  8,  8,  9,  9,  9, 9, 9, 10,
+    10, 10, 10, 10, 11, 11, 11, 11, 11, 12, 12, 12, 12, 12};
+
+uint8_t _get_heading(int16_t x, int16_t y) {
+  uint8_t ratio = _get_ratio(x, y);
+  uint8_t angle = kHeadingLut[ratio];
+  if (x >= 0) {
+    if (y < 0) {
+      // Q0: 0-12
+      return angle;
+    } else {
+      // Q3: 36-48 (wraps to 0)
+      return angle > 0 ? kHeadingMax - angle : 0;
+    }
+  } else {
+    if (y < 0) {
+      // Q1: 12-24
+      return kHeadingMax / 2 - angle;
+    } else {
+      // Q2: 24-36
+      return kHeadingMax / 2 + angle;
+    }
+  }
+}
+
+static const uint8_t kRollAngleLut[65] = {
+    0,  0,  0,  0,  1,  1,  1,  1,  2,  2,  2,  2,  3,  3,  3,  3,  4,
+    4,  4,  4,  5,  5,  5,  5,  6,  6,  6,  6,  7,  7,  7,  7,  8,  8,
+    8,  8,  9,  9,  9,  9,  10, 10, 10, 10, 11, 11, 11, 11, 12, 12, 12,
+    12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15, 15};
+
+static const uint8_t kRollMax = 60;
+
+uint8_t _get_roll_angle(int16_t up_z, int16_t left_z) {
+  uint8_t ratio = _get_ratio(up_z, left_z);
+  uint8_t angle = kRollAngleLut[ratio];
+  if (up_z >= 0) {
+    if (left_z >= 0) {
+      // Q0: 0-15
+      return angle;
+    } else {
+      // Q3: 45-60 (wraps to 0)
+      return angle > 0 ? kRollMax - angle : 0;
+    }
+  } else {
+    if (left_z >= 0) {
+      // Q1: 15-30
+      return kRollMax / 2 - angle;
+    } else {
+      // Q2: 30-45
+      return kRollMax / 2 + angle;
+    }
+  }
 }
