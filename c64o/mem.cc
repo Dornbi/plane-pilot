@@ -49,7 +49,7 @@ static uint8_t *const kScreenRowPtrsAlt[kViewportHeight] = {
     kScreenRamAlt + kScreenWidth * 12, kScreenRamAlt + kScreenWidth * 13};
 
 uint8_t *mem_screen_ram;
-uint8_t *const *mem_screen_row_ptrs;
+uint8_t *mem_screen_row_ptrs[kViewportHeight];
 
 uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
 uint8_t *const mem_color_row_ptrs[kViewportHeight] = {
