@@ -53,7 +53,7 @@ static uint8_t *const kColorRam = (uint8_t *)0xD800;
 // Current screen ram.
 extern uint8_t *mem_screen_ram;
 // Multiply by 40 for screen row offset for the viewport.
-extern uint8_t *mem_screen_row_ptrs[kViewportHeight];
+extern uint8_t *const *mem_screen_row_ptrs;
 
 // Color buffer. Unlike the screen ram, this is fixed.
 extern uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
