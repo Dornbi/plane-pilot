@@ -56,7 +56,8 @@ extern uint8_t *mem_screen_ram;
 extern uint8_t *mem_screen_row_ptrs[kViewportHeight];
 
 // Color buffer. Unlike the screen ram, this is fixed.
-extern uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
+// extern uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
+extern uint8_t *const mem_color_buffer;
 extern uint8_t *const mem_color_row_ptrs[kViewportHeight];
 
 // The starting character for the box characters.

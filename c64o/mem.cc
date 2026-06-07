@@ -51,7 +51,9 @@ static uint8_t *const kScreenRowPtrsAlt[kViewportHeight] = {
 uint8_t *mem_screen_ram;
 uint8_t *mem_screen_row_ptrs[kViewportHeight];
 
-uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
+// uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
+// Reuse kSpriteDataCompressed.
+uint8_t *const mem_color_buffer = kSpriteDataCompressed;
 uint8_t *const mem_color_row_ptrs[kViewportHeight] = {
     mem_color_buffer + kViewportWidth * 0,
     mem_color_buffer + kViewportWidth * 1,
@@ -119,7 +121,7 @@ void mem_init(void) {
   }
 
   //  Fill Color buffer with sky color.
-  memset(mem_color_buffer, kColorSky | 0x08, sizeof(mem_color_buffer));
+  memset(mem_color_buffer, kColorSky | 0x08, kViewportWidth * kViewportHeight);
 
   // Fill Color RAM ($D800) with kColorBg.
   // Top part in multicolor mode.

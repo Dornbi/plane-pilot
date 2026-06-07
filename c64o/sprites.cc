@@ -7,7 +7,7 @@
 #include "vic.h"
 #include <string.h>
 
-const char kSpriteDataCompressed[] = {
+char kSpriteDataCompressed[] = {
 #embed 2112 lzo "spritedef.bin"
 };
 

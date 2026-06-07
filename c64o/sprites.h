@@ -4,7 +4,7 @@
 #include "bool.h"
 #include <stdint.h>
 
-extern const char kSpriteDataCompressed[];
+extern char kSpriteDataCompressed[];
 
 void sprites_init(void);
 
