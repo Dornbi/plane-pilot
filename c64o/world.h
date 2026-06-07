@@ -31,17 +31,20 @@ enum WorldMapType {
   MAP_OBJ_FIELD_YELLOW_SPARSE = 20,
   MAP_OBJ_POND = 21,
   MAP_OBJ_LAKE = 22,
-  MAP_OBJ_CITY = 23,
+  MAP_OBJ_TOWN = 23,
+  MAP_OBJ_CITY = 24,
 };
 
 extern const uint8_t KWorldDotColors[7];
 
-static const uint8_t kWorldMapDim = 16;
-static const uint8_t kWorldMapMask = 0xF;
-extern const WorldMapType kWorldMap[kWorldMapDim][kWorldMapDim];
+static const uint8_t kWorldMapWidth = 32;
+static const uint8_t kWorldMapWidthMask = 0x1F;
+static const uint8_t kWorldMapHeight = 16;
+static const uint8_t kWorldMapHeightMask = 0xF;
+extern const WorldMapType kWorldMap[kWorldMapHeight][kWorldMapWidth];
 static const uint8_t kWorldMapObjStart = MAP_OBJ_RUNWAY;
 
-static const uint8_t kWorldObjDim = 8;
+static const uint8_t kWorldObjDim = 9;
 // kPolyMaxVertices is 6 but we do 8 for easier math.
 extern const uint8_t kWorldObjX[kWorldObjDim][8];
 extern const uint8_t kWorldObjY[kWorldObjDim][8];

@@ -94,7 +94,9 @@ static void _stripped_world_render_grid(const viewpoint_t *viewpoint) {
     uint8_t cx2 = cx << 1;
     uint8_t cy = _world_start_cy;
     for (int8_t y = -_world_grid_radius;;) {
-      WorldMapType map_type = kWorldMap[cx & kWorldMapMask][cy & kWorldMapMask];
+      // Note: cx is N and cy is W in this case.
+      WorldMapType map_type =
+          kWorldMap[cx & kWorldMapHeightMask][cy & kWorldMapWidthMask];
       if (map_type >= kWorldMapObjStart) {
         _world_render_object(map_type);
       }

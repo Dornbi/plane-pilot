@@ -43,8 +43,8 @@ static const mat3_t _m_init_alt = {
 
 void model_init() {
   world_cam = _m_init;
-  world_eye_x = 0x2C0000;
-  world_eye_y = 0x378000;
+  world_eye_x = 0x140000;
+  world_eye_y = 0x3F8000;
   world_eye_z = 0x010000;
   _model_speed = 0x860;
   _model_throttle = 0x14;
@@ -54,9 +54,9 @@ void model_init() {
 
 void model_init_alt() {
   world_cam = _m_init_alt;
-  world_eye_x = 0x2C0000;
-  world_eye_y = 0x378000;
-  world_eye_z = 0x060000;
+  world_eye_x = 0x400000;
+  world_eye_y = 0xBF8000;
+  world_eye_z = 0x040000;
   _model_speed = 0x860;
   _model_throttle = 0x14;
   _model_need_normalize = false;
@@ -209,8 +209,8 @@ static void _model_stall() {
 }
 
 static void _move_forward(int16_t fspeed, int16_t vspeed) {
-  world_eye_x += vec_fastmul8p8(world_cam.front.x, fspeed << 1);
-  world_eye_y += vec_fastmul8p8(world_cam.front.y, fspeed << 1);
+  world_eye_x += vec_fastmul8p8(world_cam.front.x, fspeed);
+  world_eye_y += vec_fastmul8p8(world_cam.front.y, fspeed);
   world_eye_z += vspeed;
   if (world_eye_z < kMinEyeZ) {
     world_eye_z = kMinEyeZ;
@@ -233,7 +233,7 @@ void model_update() {
     }
 
     // Motion
-    _move_forward(_model_speed, vspeed);
+    _move_forward(_model_speed << 1, vspeed);
 
     // Fuel
     uint8_t fuel_consumption = _model_throttle;

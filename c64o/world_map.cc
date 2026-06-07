@@ -31,6 +31,7 @@ static const auto FYW = MAP_OBJ_FIELD_YELLOW;
 static const auto FYS = MAP_OBJ_FIELD_YELLOW_SPARSE;
 static const auto PND = MAP_OBJ_POND;
 static const auto LAK = MAP_OBJ_LAKE;
+static const auto TWN = MAP_OBJ_TOWN;
 static const auto CTY = MAP_OBJ_CITY;
 
 const uint8_t kWorldObjX[kWorldObjDim][8] = {
@@ -41,6 +42,7 @@ const uint8_t kWorldObjX[kWorldObjDim][8] = {
     {0, 2, 8, 3},       // MAP_OBJ_FIELD_YELLOW_DENSE
     {1, 5, 7, 6, 2},    // MAP_OBJ_POND
     {0, 2, 6, 8, 5, 2}, // MAP_OBJ_LAKE
+    {0, 2, 8, 3},       // MAP_OBJ_TOWN
     {0, 2, 6, 8, 5, 2}, // MAP_OBJ_CITY
 };
 
@@ -52,12 +54,11 @@ const uint8_t kWorldObjY[kWorldObjDim][8] = {
     {6, 0, 3, 8},       // MAP_OBJ_FIELD_YELLOW_SPARSE
     {3, 1, 4, 6, 7},    // MAP_OBJ_POND
     {3, 0, 1, 4, 7, 8}, // MAP_OBJ_LAKE
+    {6, 0, 3, 8},       // MAP_OBJ_TOWN
     {3, 0, 1, 4, 7, 8}, // MAP_OBJ_CITY
 };
 
-const uint8_t kWorldObjNumVerts[kWorldObjDim] = {
-    4, 4, 4, 4, 4, 4, 5, 6,
-};
+const uint8_t kWorldObjNumVerts[kWorldObjDim] = {4, 4, 4, 4, 4, 5, 6, 4, 6};
 
 const uint8_t kWorldObjChars[kWorldObjDim] = {
     kGfxQuad11,           // MAP_OBJ_RUNWAY
@@ -67,7 +68,8 @@ const uint8_t kWorldObjChars[kWorldObjDim] = {
     kGfxQuad11Sparse,     // MAP_OBJ_FIELD_YELLOW_SPARSE
     kGfxQuad11Sparse,     // MAP_OBJ_POND
     kGfxQuad11,           // MAP_OBJ_LAKE
-    kGfxQuad11Sparse,     // MAP_OBJ_CITY
+    kGfxQuadMixedSparse,  // MAP_OBJ_TOWN
+    kGfxQuadMixed,        // MAP_OBJ_CITY
 };
 
 const uint8_t kWorldObjColors[kWorldObjDim] = {
@@ -78,26 +80,27 @@ const uint8_t kWorldObjColors[kWorldObjDim] = {
     kColorYellow, // MAP_OBJ_FIELD_YELLOW_SPARSE
     kColorBlue,   // MAP_OBJ_POND
     kColorBlue,   // MAP_OBJ_LAKE
+    kColorBlack,  // MAP_OBJ_TOWN
     kColorBlack,  // MAP_OBJ_CITY
 };
 
 // On this map N is down, W is right, S is up and E is left.
 // clang-format off
-const WorldMapType kWorldMap[kWorldMapDim][kWorldMapDim] = {
-    {D__, D__, DY_, D__, D__, DK_, D__, D__, D__, D__, DY_, D__, D__, D__, D__, D__},
-    {D__, DY_, FYW, DY_, D__, D__, D__, D__, D__, D__, D__, D__, DK_, DB_, DB_, DB_},
-    {D__, D__, DY_, D__, D__, D__, FLS, D__, DB_, DB_, DB_, D__, D__, DB_, PND, DB_},
-    {D__, D__, D__, D__, D__, D__, D__, DW_, DB_, PND, DB_, D__, D__, DB_, DB_, DB_},
-    {D__, D__, DK_, DK_, DK_, D__, D__, DW_, DB_, DB_, DB_, DC_, DC_, DC_, D__, D__},
-    {D__, D__, DK_, CTY, DK_, D__, DK_, DW_, D__, D__, DC_, DB_, DB_, DB_, DC_, D__},
-    {D__, D__, DK_, DK_, DK_, D__, D__, D__, D__, D__, DC_, DB_, LAK, DB_, DC_, D__},
-    {DK_, D__, D__, D__, D__, D__, D__, RWY, D__, D__, DC_, DB_, DB_, DB_, DC_, D__},
-    {FLD, DK_, D__, D__, D__, D__, D__, D__, D__, D__, DC_, DC_, DC_, DC_, D__, DK_},
-    {DK_, D__, D__, DY_, DY_, DY_, D__, DW_, D__, DC_, DB_, DB_, DB_, DC_, DB_, D__},
-    {D__, D__, D__, DY_, FYS, DY_, D__, DW_, D__, DC_, DB_, LAK, DB_, DC_, D__, D__},
-    {DC_, DC_, DC_, DY_, DY_, DY_, D__, DW_, D__, DC_, DB_, DB_, DB_, DC_, D__, D__},
-    {DB_, DB_, DB_, DC_, D__, D__, D__, D__, D__, DK_, DC_, DC_, DC_, D__, D__, DC_},
-    {DB_, LAK, DB_, DC_, DY_, DY_, DY_, D__, DK_, FLD, DK_, D__, D__, D__, D__, DC_},
-    {DB_, DB_, DB_, DC_, DY_, FYW, DY_, D__, D__, DK_, D__, D__, D__, FLS, D__, DC_},
-    {DC_, DC_, DC_, D__, DY_, DY_, DY_, D__, D__, D__, D__, D__, D__, D__, DK_, D__},
+const WorldMapType kWorldMap[kWorldMapHeight][kWorldMapWidth] = {
+    {D__, D__, D__, DB_, PND, DB_, D__, D__, DY_, DY_, DY_, D__, D__, DK_, D__, D__, D__, D__, D__, DY_, DY_, DY_, D__, D__, D__, DC_, DC_, DC_, D__, D__, D__, D__},
+    {D__, D__, D__, DB_, DB_, DB_, D__, D__, DW_, D__, D__, D__, DK_, DK_, DK_, D__, D__, D__, D__, DY_, FYS, DY_, D__, D__, DC_, DB_, DB_, DB_, DC_, D__, D__, D__},
+    {D__, D__, D__, D__, D__, D__, D__, D__, DW_, D__, D__, DK_, DK_, CTY, DK_, DK_, D__, D__, D__, DY_, DY_, DY_, D__, D__, DC_, DB_, LAK, DB_, DC_, D__, D__, D__},
+    {D__, D__, D__, D__, D__, D__, D__, D__, DW_, D__, D__, D__, DK_, DK_, DK_, D__, D__, D__, D__, D__, D__, D__, D__, D__, DC_, DB_, DB_, DB_, DC_, D__, D__, D__},
+    {D__, D__, D__, D__, D__, D__, D__, D__, RWY, D__, D__, D__, D__, DK_, DK_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, DC_, DC_, DC_, D__, D__, D__, D__},
+    {D__, D__, DY_, DY_, DY_, D__, D__, D__, DW_, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__},
+    {D__, D__, DY_, FYS, DY_, D__, D__, D__, DW_, D__, D__, D__, D__, D__, DK_, D__, D__, FLS, D__, D__, D__, D__, D__, D__, D__, D__, D__, DC_, DC_, DC_, D__, D__},
+    {D__, D__, DY_, DY_, DY_, D__, D__, DY_, DW_, D__, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, D__, D__, FLD, D__, D__, D__, DC_, DB_, DB_, DB_, DC_, D__},
+    {D__, D__, D__, D__, D__, D__, DY_, DY_, DY_, D__, D__, D__, FLS, D__, D__, DK_, D__, D__, D__, D__, D__, D__, D__, D__, DW_, D__, DC_, DB_, LAK, DB_, DC_, D__},
+    {D__, DC_, DC_, DC_, D__, DY_, DY_, FYW, DY_, DY_, D__, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, D__, D__, D__, DW_, D__, DC_, DB_, DB_, DB_, DC_, D__},
+    {DC_, DB_, DB_, DB_, DC_, D__, DY_, DY_, DY_, D__, D__, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, D__, D__, D__, DW_, D__, D__, DC_, DC_, DC_, D__, D__},
+    {DC_, DB_, LAK, DB_, DC_, D__, D__, DY_, D__, D__, D__, D__, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, DK_, D__, DW_, D__, D__, D__, D__, D__, D__, D__},
+    {DC_, DB_, DB_, DB_, DC_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, DK_, DK_, DK_, DK_, D__, DK_, RWY, D__, D__, D__, D__, D__, D__, D__},
+    {D__, DC_, DC_, DC_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, FLD, D__, D__, D__, DK_, TWN, DK_, D__, D__, D__, DW_, DK_, DK_, D__, DK_, DK_, DK_, D__},
+    {D__, D__, D__, D__, D__, D__, D__, D__, DY_, DY_, DY_, D__, D__, D__, D__, D__, D__, D__, DK_, DK_, DK_, D__, D__, D__, DW_, D__, D__, DK_, DK_, TWN, DK_, D__},
+    {D__, D__, D__, DB_, DB_, DB_, D__, D__, DY_, FYS, DY_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, DW_, D__, D__, D__, DK_, DK_, DK_, D__},
 };
