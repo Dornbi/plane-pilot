@@ -13,6 +13,8 @@ struct vertex16_t {
   int16_t y;
 };
 
+#pragma bss(bss2)
+
 // Buffers to store the left-most and right-most X bounds for each scanline
 static uint8_t _min_x[2 * kViewportHeight];
 static uint8_t _max_x[2 * kViewportHeight];
@@ -422,8 +424,8 @@ void _scan_lines2(uint8_t fill_char_start_idx, uint8_t color) {
 }
 
 // Fill the polygon using the traced edges
-void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
-               uint8_t fill_char_start_idx, uint8_t color) {
+__noinline void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
+                          uint8_t fill_char_start_idx, uint8_t color) {
   if (num_vertices < 3) {
     return; // A polygon needs at least 3 vertices
   }
@@ -556,13 +558,10 @@ static uint8_t _clip_2d(const vertex16_t *in, uint8_t num_in, vertex16_t *out,
   return num_out;
 }
 
-const uint8_t kMax2dVertices =
-    kPolyMaxVertices + 6; // +5 derived, +6 for safety
-
 // Projects 3d vertices to 2d.
-static inline uint8_t _project_vertices(const vec3_t *vertices_3d,
-                                        uint8_t num_vertices,
-                                        vertex_t *vertices_2d) {
+static __noinline uint8_t _project_vertices(const vec3_t *vertices_3d,
+                                            uint8_t num_vertices,
+                                            vertex_t *vertices_2d) {
   static vec3_t clip3_buf[kPolyMaxVertices +
                           4]; // max 7 vertices after 1 plane clip, 10 is safe
   uint8_t num_clip3 = _clip_near(vertices_3d, num_vertices, clip3_buf);
@@ -607,8 +606,8 @@ static inline uint8_t _project_vertices(const vec3_t *vertices_3d,
     return 0;
   }
 
-  static vertex16_t clip2_buf1[kMax2dVertices];
-  static vertex16_t clip2_buf2[kMax2dVertices];
+  static vertex16_t clip2_buf1[kPolyMax2dVertices];
+  static vertex16_t clip2_buf2[kPolyMax2dVertices];
   uint8_t n = num_clip3;
 
   vertex16_t *src = proj_buf;
@@ -652,7 +651,7 @@ static inline uint8_t _project_vertices(const vec3_t *vertices_3d,
 
 __noinline void poly_draw_3d(const vec3_t *vertices, uint8_t num_vertices,
                              uint8_t fill_char_start_idx, uint8_t color) {
-  static vertex_t final_verts[kMax2dVertices];
+  static vertex_t final_verts[kPolyMax2dVertices];
   bm_poly_start();
   uint8_t n = _project_vertices(vertices, num_vertices, final_verts);
   bm_poly_end(630, SCREEN_STR("PRJ:"));

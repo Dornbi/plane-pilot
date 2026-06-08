@@ -50,6 +50,8 @@ inline void sprites_init(void) {
   vic.spr_enable = 0xFF;
 }
 
+#pragma bss(bss2)
+
 struct sprite_xy_t {
   uint8_t x;
   uint8_t y;

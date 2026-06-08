@@ -5,6 +5,8 @@
 #include <stdint.h>
 
 static const uint8_t kPolyMaxVertices = 6;
+static const uint8_t kPolyMax2dVertices =
+    kPolyMaxVertices + 6; // +5 derived, +6 for safety
 
 // Using signed 8-bit integers for coordinates since the screen is 40x25
 struct vertex_t {

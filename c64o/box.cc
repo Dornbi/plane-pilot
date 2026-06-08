@@ -10,6 +10,8 @@
 #include "print.h"
 #include "render.h"
 
+#pragma bss(bss2)
+
 static uint8_t _box_chars[kMaxBoxTotalSize];
 static uint8_t _box_colors[kMaxBoxTotalSize];
 static uint8_t _char_lut[kMaxBoxCharCount];

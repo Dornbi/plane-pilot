@@ -16,6 +16,8 @@
 // Stop motion disables the plane movement and physics.
 bool model_paused = false;
 
+#pragma bss(bss2)
+
 // 0x0800 =~ 50 m/s
 static int16_t _model_speed;
 static uint8_t _model_throttle;

@@ -7,11 +7,6 @@
 #include "poly.h"
 #include "vec.h"
 
-int32_t world_eye_x;
-int32_t world_eye_y;
-int32_t world_eye_z;
-mat3_t world_cam;
-
 // Not static so that polydemo.cc can access them for testing.
 __zeropage uint8_t _world_grid_radius;
 __zeropage uint8_t _world_start_cx;
@@ -22,6 +17,13 @@ __zeropage vec3_t _world_dy_vec;
 __zeropage int8_t _world_step_x;
 __zeropage int8_t _world_step_y;
 __zeropage vec3_t _world_vec_v;
+
+#pragma bss(bss2)
+int32_t world_eye_x;
+int32_t world_eye_y;
+int32_t world_eye_z;
+mat3_t world_cam;
+
 static vec3_t _world_dx4[9];
 static vec3_t _world_dy4[9];
 static int16_t _mitch_x[16];
