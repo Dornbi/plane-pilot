@@ -424,8 +424,8 @@ void _scan_lines2(uint8_t fill_char_start_idx, uint8_t color) {
 }
 
 // Fill the polygon using the traced edges
-__noinline void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
-                          uint8_t fill_char_start_idx, uint8_t color) {
+void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
+               uint8_t fill_char_start_idx, uint8_t color) {
   if (num_vertices < 3) {
     return; // A polygon needs at least 3 vertices
   }
@@ -559,9 +559,8 @@ static uint8_t _clip_2d(const vertex16_t *in, uint8_t num_in, vertex16_t *out,
 }
 
 // Projects 3d vertices to 2d.
-static __noinline uint8_t _project_vertices(const vec3_t *vertices_3d,
-                                            uint8_t num_vertices,
-                                            vertex_t *vertices_2d) {
+static uint8_t _project_vertices(const vec3_t *vertices_3d,
+                                 uint8_t num_vertices, vertex_t *vertices_2d) {
   static vec3_t clip3_buf[kPolyMaxVertices +
                           4]; // max 7 vertices after 1 plane clip, 10 is safe
   uint8_t num_clip3 = _clip_near(vertices_3d, num_vertices, clip3_buf);
