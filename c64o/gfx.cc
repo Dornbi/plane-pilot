@@ -126,7 +126,7 @@ static inline void _draw_color_point(int16_t px, int16_t py, uint8_t color) {
     uint8_t lpy = (uint8_t)py;
     uint8_t ch = kGfxColorPoints + ((lpx & 0x06) >> 1) + ((lpy & 0x06) << 1);
     *p = ch;
-    *(mem_color_buffer + (int16_t)cy * kViewportWidth + cx) = color;
+    mem_color_row_ptrs[cy][cx] = color;
   }
 }
 
