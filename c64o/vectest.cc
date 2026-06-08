@@ -4,9 +4,11 @@
 
 #include "benchmark.h"
 #include "keys.h"
-#include "mem.h"
 #include "print.h"
 #include "vec.h"
+
+uint8_t *mem_screen_ram = (uint8_t *)0x400;
+bool mem_debug_enabled = true;
 
 void test_mul_case(uint16_t pos, int16_t a, int16_t b, const char *label) {
   print_label(pos, label);

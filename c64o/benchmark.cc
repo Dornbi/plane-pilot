@@ -6,8 +6,9 @@
 #include <stdint.h>
 
 #include "cia.h"
-#include "mem.h"
 #include "print.h"
+
+extern bool mem_debug_enabled;
 
 static uint32_t _benchmark_total_cycles;
 static uint32_t _benchmark_start;

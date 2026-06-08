@@ -4,7 +4,6 @@
 #include "benchmark.h"
 #include "cia.h"
 #include "keys.h"
-#include "mem.h"
 #include "print.h"
 #include "vec.h"
 
@@ -15,6 +14,9 @@ const uint16_t kGridSpacing = 1 << kGridShift;
 
 // Camera parameters
 const int16_t kCamAltitude = 128;
+
+uint8_t *mem_screen_ram = (uint8_t *)0x400;
+bool mem_debug_enabled = true;
 
 mat3_t cam;
 
@@ -98,7 +100,6 @@ int main() {
   mem_screen_ram = (uint8_t *)0x0400;
   memset(mem_screen_ram, ' ', 1000);
   bm_init();
-  mem_debug_enabled = true;
 
   while (1) {
     print_vectors();
