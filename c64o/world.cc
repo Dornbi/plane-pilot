@@ -74,12 +74,13 @@ static void _split_vec(vec3_t *v, vec3_t d9[9]) {
 static inline void _draw_box_points(uint8_t start_idx, uint8_t num_points,
                                     WorldMapType map_type) {
   uint8_t idx = start_idx & 0x0F;
+  uint8_t color = KWorldDotColors[map_type];
   for (uint8_t i = num_points;;) {
     vec_v = _world_vec_v;
     vec_v.x += _mitch_x[idx];
     vec_v.y += _mitch_y[idx];
     vec_v.z += _mitch_z[idx];
-    gfx_project_and_draw(KWorldDotColors[map_type]);
+    gfx_project_and_draw(color);
     if (--i == 0) {
       break;
     }
