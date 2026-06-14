@@ -19,10 +19,9 @@ struct vertex16_t {
 static uint8_t _min_x[2 * kViewportHeight];
 static uint8_t _max_x[2 * kViewportHeight];
 
-// Initialize the scanline buffers
-static inline void _clear_buffers() {
-#pragma unroll(full)
-  for (uint8_t i = 0; i < 2 * kViewportHeight; i++) {
+// Initialize the scanline buffers for the sub-rows in [start, end].
+static inline void _clear_buffers(uint8_t start, uint8_t end) {
+  for (uint8_t i = start; i <= end; i++) {
     _min_x[i] = kScreenWidth * 2; // Set to out-of-bounds max
     _max_x[i] = 0;                // Set to out-of-bounds min
   }
@@ -273,8 +272,10 @@ static inline void _set_char2(uint8_t *dst, uint8_t fill_char_start_idx,
 }
 
 // About 250 bytes more code, faster for large polygons.
-void _scan_lines2(uint8_t fill_char_start_idx, uint8_t color) {
-  for (uint8_t py = 0; py < kViewportHeight; ++py) {
+// Only processes char rows in [py_start, py_end] (inclusive).
+void _scan_lines2(uint8_t fill_char_start_idx, uint8_t color, uint8_t py_start,
+                  uint8_t py_end) {
+  for (uint8_t py = py_start; py <= py_end; ++py) {
     uint8_t t_min, b_min, t_max, b_max;
     t_min = _min_x[py << 1];
     t_max = _max_x[py << 1];
@@ -439,8 +440,27 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
   }
 #endif
 
+  // Find the polygon's vertical extent (in sub-rows) so we only clear and
+  // scan the rows the polygon actually touches. Vertex y values are sub-row
+  // indices in [0, 2 * kViewportHeight - 1].
+  uint8_t min_y = vertices[0].y;
+  uint8_t max_y = vertices[0].y;
+  for (uint8_t i = 1; i < num_vertices; i++) {
+    uint8_t vy = vertices[i].y;
+    if (vy < min_y) {
+      min_y = vy;
+    }
+    if (vy > max_y) {
+      max_y = vy;
+    }
+  }
+  // Snap to whole char rows so the clear and scan ranges stay aligned: each
+  // char row py covers sub-rows 2*py and 2*py+1, both read by _scan_lines2.
+  uint8_t py_start = min_y >> 1;
+  uint8_t py_end = max_y >> 1;
+
   bm_poly_start();
-  _clear_buffers();
+  _clear_buffers(py_start << 1, (py_end << 1) + 1);
   bm_poly_end(670, SCREEN_STR("CLR:"));
 
   // 1. Trace all edges
@@ -461,7 +481,7 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
     color_val = color | 8;
   }
   bm_poly_start();
-  _scan_lines2(fill_char_start_idx, color_val);
+  _scan_lines2(fill_char_start_idx, color_val, py_start, py_end);
   bm_poly_end(750, SCREEN_STR("SCN:"));
 }
 
