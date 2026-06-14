@@ -1,5 +1,4 @@
 #include "mem.h"
-#include "panel.h"
 
 #include <string.h>
 
@@ -21,6 +20,7 @@ static const char *oscar_expand_lzo(char *dp, const char *sp) { return sp; }
 #include "benchmark.h"
 #include "chardefs.h"
 #include "color.h"
+#include "panel.h"
 #include "sprites.h"
 #include "vic.h"
 
