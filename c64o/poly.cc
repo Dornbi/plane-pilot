@@ -574,22 +574,13 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
   if (num_clip3 < 3) {
     return 0;
   }
-
   static vertex16_t proj_buf[kPolyMaxVertices + 4];
-  vec_v = clip3_buf[0];
-  if (vec_project_nocull()) {
-    proj_buf[0].x = 40 - (vec_sx / 4);
-    proj_buf[0].y = 14 - (vec_sy / 4);
-  } else {
-    proj_buf[0].x = 40;
-    proj_buf[0].y = 14;
-  }
-  int16_t min_x = proj_buf[0].x;
-  int16_t max_x = proj_buf[0].x;
-  int16_t min_y = proj_buf[0].y;
-  int16_t max_y = proj_buf[0].y;
+  int16_t min_x = 32767;
+  int16_t max_x = -32768;
+  int16_t min_y = 32767;
+  int16_t max_y = -32768;
 
-  for (uint8_t i = 1; i < num_clip3; ++i) {
+  for (uint8_t i = 0; i < num_clip3; ++i) {
     vec_v = clip3_buf[i];
     if (vec_project_nocull()) {
       proj_buf[i].x = 40 - (vec_sx / 4);
