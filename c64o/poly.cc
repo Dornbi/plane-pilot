@@ -489,6 +489,21 @@ static inline uint8_t _clip_near(const vec3_t *in, uint8_t num_in,
 // 2D screen clip
 enum ClipEdge { EDGE_LEFT, EDGE_RIGHT, EDGE_TOP, EDGE_BOTTOM };
 
+// Interpolate base + t * delta, where t is an 8.8 clip parameter in [0, 256]
+// and delta is a difference of two projected screen coordinates.
+//
+// vec_fastmul8p8 cannot be used here: a polygon corner that lands just past the
+// near plane (x ~= 8) with a large lateral/vertical offset projects to a screen
+// coordinate thousands of sub-pixels off-screen, so delta can reach ~16000. The
+// quarter-square multiply overflows once |t| + |delta| exceeds ~4095 (its
+// i*i/256 term no longer fits in 16 bits), which corrupted the clipped vertex
+// and made e.g. the runway lose its rectangular shape when flown over low.
+// A plain 32-bit multiply stays exact: |t * delta| <= 256 * 32767 fits in 24
+// bits, and the >> 8 result fits back in int16.
+static inline int16_t _clip_lerp(int16_t base, int16_t t, int16_t delta) {
+  return base + (int16_t)(((int32_t)t * delta) >> 8);
+}
+
 static uint8_t _clip_2d(const vertex16_t *in, uint8_t num_in, vertex16_t *out,
                         ClipEdge edge) {
   uint8_t num_out = 0;
@@ -533,12 +548,12 @@ static uint8_t _clip_2d(const vertex16_t *in, uint8_t num_in, vertex16_t *out,
         dest->x = limit;
         int16_t dy = curr->y - prev->y;
         int16_t t = vec_div8p8(limit - prev->x, curr->x - prev->x);
-        dest->y = prev->y + vec_fastmul8p8(t, dy);
+        dest->y = _clip_lerp(prev->y, t, dy);
       } else {
         dest->y = limit;
         int16_t dx = curr->x - prev->x;
         int16_t t = vec_div8p8(limit - prev->y, curr->y - prev->y);
-        dest->x = prev->x + vec_fastmul8p8(t, dx);
+        dest->x = _clip_lerp(prev->x, t, dx);
       }
     }
     if (curr_inside) {
