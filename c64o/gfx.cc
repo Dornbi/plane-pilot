@@ -151,7 +151,7 @@ static const char *const kHeadingBitmaps[] = {
     (const char *const)0xF060,
     (const char *const)0xF000,
 };
-static const char *kHeadingDest = (const char *)0xF488;
+static const char *kHeadingDest = (const char *)0xF5C8;
 
 inline void gfx_update_heading_bitmap(uint8_t heading) {
   static const uint8_t kHeadingCharMax = kHeadingMax / 4;
@@ -186,8 +186,8 @@ static void _set_ptr_color(uint8_t *screen_ptr, bool on) {
 
 void gfx_update_nav_toggle(uint8_t nav) {
   static uint8_t *const kNavPtrs[kGfxNumNavpoints] = {
-      kScreenRamAlt + 16 * kScreenWidth + 15,
-      kScreenRamAlt + 17 * kScreenWidth + 15,
+      kScreenRamAlt + 17 * kScreenWidth + 13,
+      kScreenRamAlt + 18 * kScreenWidth + 13,
   };
   if (!mem_debug_enabled) {
     _set_ptr_color(kNavPtrs[0], nav == 0);
@@ -196,7 +196,7 @@ void gfx_update_nav_toggle(uint8_t nav) {
 }
 
 void gfx_update_nav_heading(uint8_t heading) {
-  static uint8_t *const kHdgPtr = kScreenRamAlt + 18 * kScreenWidth + 21;
+  static uint8_t *const kHdgPtr = kScreenRamAlt + 15 * kScreenWidth + 21;
   if (!mem_debug_enabled) {
     _set_ptr_color(kHdgPtr, heading == 0 || heading > kHeadingMax / 2);
     _set_ptr_color(kHdgPtr + 1, heading < kHeadingMax / 2);
@@ -204,14 +204,14 @@ void gfx_update_nav_heading(uint8_t heading) {
 }
 
 void gfx_update_flap(bool flap) {
-  static uint8_t *const kFlapPtr = kScreenRamAlt + 16 * kScreenWidth + 10;
+  static uint8_t *const kFlapPtr = kScreenRamAlt + 15 * kScreenWidth + 13;
   if (!mem_debug_enabled) {
     _set_ptr_color(kFlapPtr, flap);
   }
 }
 
 void gfx_update_gear(bool gear) {
-  static uint8_t *const kGearPtr = kScreenRamAlt + 17 * kScreenWidth + 10;
+  static uint8_t *const kGearPtr = kScreenRamAlt + 16 * kScreenWidth + 13;
   if (!mem_debug_enabled) {
     _set_ptr_color(kGearPtr, gear);
   }
