@@ -25,8 +25,18 @@ extern bool model_paused;
 void model_init();
 void model_init_alt();
 void model_reset_fuel();
+
+// Provides input to the model.
 void model_input(enum model_input_t input);
-void model_update();
+
+// Advances the model simulation.
+void model_advance();
+
+// Updates instruments state.
+void model_update_instruments();
+
+// Prints debug info.
+void model_maybe_print_debug();
 
 #pragma compile("model.cc")
 

@@ -25,7 +25,7 @@ void box_prepare(void) {
   }
 
   // Copy unique characters to kCharRam
-  bm_horiz_start();
+  bm_view_start();
   uint8_t *dst_ram = kCharRam + ((uint16_t)mem_box_char_start << 3);
   const uint8_t **src_ptrs = boxdef.char_addr;
 
@@ -37,10 +37,10 @@ void box_prepare(void) {
       break;
     }
   }
-  bm_horiz_end(710, SCREEN_STR("CHR:"));
+  bm_view_end(790, SCREEN_STR("CHR:"));
 
   // Populate box_chars and box_colors mapping
-  bm_horiz_start();
+  bm_view_start();
   _char_lut[0] = kCharSolidGround;
   _color_lut[0] = kColorGrad1 | 0x08;
   _char_lut[1] = kCharSolidSky;
@@ -69,7 +69,7 @@ void box_prepare(void) {
       }
     }
   }
-  bm_horiz_end(750, SCREEN_STR("PRP:"));
+  bm_view_end(830, SCREEN_STR("PRP:"));
 }
 
 static void _draw_one_box(int8_t cx, int8_t cy) {
@@ -153,7 +153,7 @@ static inline bool _out_of_bounds(int8_t cx, int8_t cy, bool reverse) {
 }
 
 void box_draw(void) {
-  bm_horiz_start();
+  bm_view_start();
   // cx and cy are now relative to the viewport not the screen.
   const int8_t base_cx = render_cx_chars - kViewportStartX + boxdef.rel_x;
   const int8_t base_cy = render_cy_chars - kViewportStartY + boxdef.rel_y;
@@ -182,5 +182,5 @@ void box_draw(void) {
     }
   }
 
-  bm_horiz_end(790, SCREEN_STR("DRW:"));
+  bm_view_end(870, SCREEN_STR("DRW:"));
 }

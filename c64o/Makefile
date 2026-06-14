@@ -45,6 +45,8 @@ PPILOT_SRC = \
 		vec_asm.cc \
 		vec_lut.cc \
 		vic.h \
+		view.h \
+		view.cc \
 		world.h \
 		world.cc \
 		world_map.cc
@@ -106,7 +108,7 @@ OPTFLAGS = -O2 -Op -Oa -Oi -Oz -Op
 all: $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg
 
 $(PPILOT_PROGRAM).prg: $(PPILOT_SRC)
-	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_HORIZON__ -D__DEBUG_MODEL__ -D__MAX_RAM__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
+	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_VIEW__ -D__DEBUG_MODEL__ -D__MAX_RAM__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
 
 $(POLYDEMO_PROGRAM).prg: $(POLYDEMO_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ -D__DEBUG_POLY__ -D__MAX_RAM__ polydemo.cc

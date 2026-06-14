@@ -8,6 +8,9 @@
 #else
 enum KeyScanCode {
   KSCAN_SPACE,
+  KSCAN_1,
+  KSCAN_2,
+  KSCAN_3,
   KSCAN_A,
   KSCAN_D,
   KSCAN_F,

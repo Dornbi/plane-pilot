@@ -15,6 +15,9 @@ extern mat3_t world_cam;
 // Renders the world gird and objects.
 void world_render_grid();
 
+// Updates the roll state.
+void world_update_roll_state();
+
 // Updates the sun position.
 void world_update_sun_pos();
 

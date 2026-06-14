@@ -8,6 +8,7 @@
 #include "print.h"
 #include "render.h"
 #include "sprites.h"
+#include "view.h"
 #include "world.h"
 
 int main(void) {
@@ -29,9 +30,6 @@ int main(void) {
 
   while (1) {
     keyb_poll();
-#ifdef __DEBUG_CYCLES__
-    bm_start();
-#endif
     if (key_pressed(KSCAN_R)) {
       model_init();
     }
@@ -80,22 +78,32 @@ int main(void) {
     if (key_pressed(KSCAN_MINUS)) {
       model_input(MODEL_INPUT_THROTTLE_DOWN);
     }
+    if (key_pressed(KSCAN_1)) {
+      view_state = VIEW_LEFT;
+    }
+    if (key_pressed(KSCAN_2)) {
+      view_state = VIEW_CENTER;
+    }
+    if (key_pressed(KSCAN_3)) {
+      view_state = VIEW_RIGHT;
+    }
 
-    model_update();
+    model_advance();
+
+    bm_start();
+    view_update_cam();
+    world_update_roll_state();
+    world_update_sun_pos();
+    model_update_instruments();
+
+    model_maybe_print_debug();
+
     render_snap_center_chars();
     render_fill_sky_ground();
     box_prepare();
     box_draw();
-    world_cam.front = model_cam.front;
-    world_cam.left = model_cam.left;
-    world_cam.up = model_cam.up;
     world_render_grid();
-    world_update_sun_pos();
-#ifdef __DEBUG_CYCLES__
-    bm_end(990, SCREEN_STR("TOT:"));
-#else
     bm_total(990, SCREEN_STR("TOT:"));
-#endif
     mem_switch_buffer();
   }
 }

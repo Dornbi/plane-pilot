@@ -5,7 +5,7 @@
 #include "print.h"
 #include <stdint.h>
 
-#if defined(__DEBUG_CYCLES__) || defined(__DEBUG_HORIZON__) ||                 \
+#if defined(__DEBUG_CYCLES__) || defined(__DEBUG_VIEW__) ||                    \
     defined(__DEBUG_MODEL__) || defined(__DEBUG_POLY__)
 
 void bm_init(void);
@@ -20,12 +20,12 @@ inline void bm_end(uint16_t pos, const char *label) {}
 inline void bm_total(uint16_t pos, const char *label) {}
 #endif
 
-#ifdef __DEBUG_HORIZON__
-void bm_horiz_start(void);
-void bm_horiz_end(uint16_t pos, const char *label);
+#ifdef __DEBUG_VIEW__
+void bm_view_start(void);
+void bm_view_end(uint16_t pos, const char *label);
 #else
-inline void bm_horiz_start(void) {}
-inline void bm_horiz_end(uint16_t pos, const char *label) {}
+inline void bm_view_start(void) {}
+inline void bm_view_end(uint16_t pos, const char *label) {}
 #endif
 
 #ifdef __DEBUG_MODEL__

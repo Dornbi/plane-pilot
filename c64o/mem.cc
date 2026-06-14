@@ -162,9 +162,9 @@ static void _wait_vsync() {
 void mem_switch_buffer(void) {
   _wait_vsync();
 
-  bm_horiz_start();
+  bm_view_start();
   _copy_color_ram();
-  bm_horiz_end(830, SCREEN_STR("COL:"));
+  bm_view_end(950, SCREEN_STR("COL:"));
 
   __asm {
     sei;

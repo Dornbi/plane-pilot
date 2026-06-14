@@ -1,6 +1,6 @@
 #include "benchmark.h"
 
-#if defined(__DEBUG_CYCLES__) || defined(__DEBUG_HORIZON__) ||                 \
+#if defined(__DEBUG_CYCLES__) || defined(__DEBUG_VIEW__) ||                    \
     defined(__DEBUG_MODEL__) || defined(__DEBUG_POLY__)
 
 #include <stdint.h>
@@ -57,8 +57,8 @@ void bm_total(uint16_t pos, const char *label) {
   _benchmark_total_cycles = 0;
 }
 
-void bm_horiz_start(void) { bm_start(); }
-void bm_horiz_end(uint16_t pos, const char *label) { bm_end(pos, label); }
+void bm_view_start(void) { bm_start(); }
+void bm_view_end(uint16_t pos, const char *label) { bm_end(pos, label); }
 
 void bm_model_start(void) { bm_start(); }
 void bm_model_end(uint16_t pos, const char *label) { bm_end(pos, label); }
