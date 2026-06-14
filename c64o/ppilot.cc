@@ -86,7 +86,11 @@ int main(void) {
     render_fill_sky_ground();
     box_prepare();
     box_draw();
+    world_cam.front = model_cam.front;
+    world_cam.left = model_cam.left;
+    world_cam.up = model_cam.up;
     world_render_grid();
+    world_update_sun_pos();
 #ifdef __DEBUG_CYCLES__
     bm_end(990, SCREEN_STR("TOT:"));
 #else

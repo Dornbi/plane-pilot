@@ -18,6 +18,8 @@ bool model_paused = false;
 
 #pragma bss(bss2)
 
+mat3_t model_cam;
+
 // 0x0800 =~ 50 m/s
 static int16_t _model_speed;
 static uint8_t _model_throttle;
@@ -26,7 +28,6 @@ static bool _model_need_normalize;
 static uint8_t _model_nav;
 static uint8_t _model_flap;
 static uint8_t _model_gear;
-static const vec3_t kSunDirWorld = {0, 256, 64};
 
 static const int32_t kMinEyeZ = 0x2000;
 static const int32_t kStallSpeed = 0x0400;
@@ -60,7 +61,7 @@ static const uint16_t kNavPointY[kGfxNumNavpoints] = {
 };
 
 void model_init() {
-  world_cam = _m_init;
+  model_cam = _m_init;
   world_eye_x = 0x140000;
   world_eye_y = 0x3F8000;
   world_eye_z = 0x010000;
@@ -74,7 +75,7 @@ void model_init() {
 }
 
 void model_init_alt() {
-  world_cam = _m_init_alt;
+  model_cam = _m_init_alt;
   world_eye_x = 0x400000;
   world_eye_y = 0xBF8000;
   world_eye_z = 0x040000;
@@ -93,23 +94,23 @@ static void _update_roll_render_state() {
   bm_model_start();
   bool updated = false;
   // Vector pointing to the distance.
-  vec3_t v = {world_cam.front.x, world_cam.front.y, 0};
+  vec3_t v = {model_cam.front.x, model_cam.front.y, 0};
   static vec3_t t;
   if (v.x != 0 || v.y != 0) {
     // Furthest possible point on the horizon.
     // With <<7 we could already overflow int16_t.
     v.x <<= 6;
     v.y <<= 6;
-    vec_transform_inv(&world_cam, &v, &vec_v);
+    vec_transform_inv(&model_cam, &v, &vec_v);
     if (vec_project()) {
       render_cx_pixels = (int16_t)kScreenWidthPixels / 2 - vec_sx;
       render_cy_pixels = (int16_t)kViewportEndYPixels / 2 - vec_sy;
-      roll_angle = _get_roll_angle(world_cam.up.z, world_cam.left.z);
+      roll_angle = _get_roll_angle(model_cam.up.z, model_cam.left.z);
       updated = true;
     }
   }
   if (!updated) {
-    if (world_cam.front.z > 0) {
+    if (model_cam.front.z > 0) {
       render_cx_pixels = kScreenWidthPixels / 2;
       render_cy_pixels = kViewportEndYPixels + 100;
       roll_angle = 0;
@@ -123,15 +124,15 @@ static void _update_roll_render_state() {
   bm_model_end(870, SCREEN_STR("MDL:"));
 #ifdef __DEBUG_MODEL__
   if (mem_debug_enabled) {
-    print_labeled_signed_bcd(600, SCREEN_STR("FX: "), world_cam.front.x, 4);
-    print_labeled_signed_bcd(610, SCREEN_STR("FY: "), world_cam.front.y, 4);
-    print_labeled_signed_bcd(620, SCREEN_STR("FZ: "), world_cam.front.z, 4);
-    print_labeled_signed_bcd(640, SCREEN_STR("LX: "), world_cam.left.x, 4);
-    print_labeled_signed_bcd(650, SCREEN_STR("LY: "), world_cam.left.y, 4);
-    print_labeled_signed_bcd(660, SCREEN_STR("LZ: "), world_cam.left.z, 4);
-    print_labeled_signed_bcd(680, SCREEN_STR("UX: "), world_cam.up.x, 4);
-    print_labeled_signed_bcd(690, SCREEN_STR("UY: "), world_cam.up.y, 4);
-    print_labeled_signed_bcd(700, SCREEN_STR("UZ: "), world_cam.up.z, 4);
+    print_labeled_signed_bcd(600, SCREEN_STR("FX: "), model_cam.front.x, 4);
+    print_labeled_signed_bcd(610, SCREEN_STR("FY: "), model_cam.front.y, 4);
+    print_labeled_signed_bcd(620, SCREEN_STR("FZ: "), model_cam.front.z, 4);
+    print_labeled_signed_bcd(640, SCREEN_STR("LX: "), model_cam.left.x, 4);
+    print_labeled_signed_bcd(650, SCREEN_STR("LY: "), model_cam.left.y, 4);
+    print_labeled_signed_bcd(660, SCREEN_STR("LZ: "), model_cam.left.z, 4);
+    print_labeled_signed_bcd(680, SCREEN_STR("UX: "), model_cam.up.x, 4);
+    print_labeled_signed_bcd(690, SCREEN_STR("UY: "), model_cam.up.y, 4);
+    print_labeled_signed_bcd(700, SCREEN_STR("UZ: "), model_cam.up.z, 4);
     print_labeled_hex(778, SCREEN_STR("EX:"), world_eye_x, 8);
     print_labeled_hex(818, SCREEN_STR("EY:"), world_eye_y, 8);
     print_labeled_hex(858, SCREEN_STR("EZ:"), world_eye_z, 8);
@@ -139,42 +140,22 @@ static void _update_roll_render_state() {
 #endif
 }
 
-static void _update_sun_render_state() {
-  vec_transform_inv(&world_cam, &kSunDirWorld, &vec_v);
-  int16_t sx;
-  int16_t sy;
-  if (vec_project()) {
-    sx = kScreenWidthPixels / 2 - vec_sx;
-    sy = kViewportEndYPixels / 2 - vec_sy;
-  } else {
-    sx = -100;
-    sy = 0;
-  }
-  sprites_set_sun_position(sx, sy);
-#ifdef __DEBUG_MODEL__
-  if (mem_debug_enabled) {
-    print_labeled_signed_bcd(930, SCREEN_STR("SXP:"), sx, 4);
-    print_labeled_signed_bcd(940, SCREEN_STR("SYP:"), sy, 4);
-  }
-#endif
-}
-
 static void _model_stall() {
   static mat3_t mat_stall;
   mat_stall.up = make_vector(0, 0, 256);
-  vec_cross(&mat_stall.up, &world_cam.front, &mat_stall.left);
+  vec_cross(&mat_stall.up, &model_cam.front, &mat_stall.left);
   vec_normalize(&mat_stall.left);
   vec_cross(&mat_stall.left, &mat_stall.up, &mat_stall.front);
   mat_stall.up.x -= mat_stall.front.x >> 5;
   mat_stall.up.y -= mat_stall.front.y >> 5;
   mat_stall.front.z += 8;
-  vec_transform3_inv(&mat_stall, &world_cam);
+  vec_transform3_inv(&mat_stall, &model_cam);
   _model_need_normalize = true;
 }
 
 static void _move_forward(int16_t fspeed, int16_t vspeed) {
-  world_eye_x += vec_fastmul8p8(world_cam.front.x, fspeed);
-  world_eye_y += vec_fastmul8p8(world_cam.front.y, fspeed);
+  world_eye_x += vec_fastmul8p8(model_cam.front.x, fspeed);
+  world_eye_y += vec_fastmul8p8(model_cam.front.y, fspeed);
   world_eye_z += vspeed;
   if (world_eye_z < kMinEyeZ) {
     world_eye_z = kMinEyeZ;
@@ -182,11 +163,11 @@ static void _move_forward(int16_t fspeed, int16_t vspeed) {
 }
 
 void model_update() {
-  int16_t vspeed = vec_fastmul8p8(world_cam.front.z, _model_speed);
+  int16_t vspeed = vec_fastmul8p8(model_cam.front.z, _model_speed);
   if (!model_paused) {
     // Speed: Air resistance, gravity, trhottle
     _model_speed -= vec_fastsqr8p8(_model_speed) >> 10;
-    _model_speed -= world_cam.front.z >> 3;
+    _model_speed -= model_cam.front.z >> 3;
     _model_speed += _model_throttle;
     if (_model_speed < 0) {
       _model_speed = 0;
@@ -208,18 +189,18 @@ void model_update() {
     }
 
     // Rotation
-    int8_t rot = world_cam.left.z >> 5;
+    int8_t rot = model_cam.left.z >> 5;
     if (rot != 0) {
       static mat3_t mat3_rot = {{256, 0, 0}, {0, 256, 0}, {0, 0, 256}};
       mat3_rot.front.y = rot;
       mat3_rot.left.x = -rot;
-      vec_transform3_inv(&mat3_rot, &world_cam);
+      vec_transform3_inv(&mat3_rot, &model_cam);
       _model_need_normalize = true;
     }
   }
 
   if (_model_need_normalize) {
-    vec_orthonormalize(&world_cam);
+    vec_orthonormalize(&model_cam);
     _model_need_normalize = false;
   }
 
@@ -228,10 +209,10 @@ void model_update() {
   sprites_set_alt(world_eye_z >> 8);
   sprites_set_vspeed(vspeed);
   sprites_set_roll(roll_angle);
-  sprites_set_pitch(world_cam.front.z >> 2);
+  sprites_set_pitch(model_cam.front.z >> 2);
   sprites_set_throttle(_model_throttle);
   sprites_set_fuel(_model_fuel);
-  uint8_t true_heading = _get_heading(world_cam.front.x, world_cam.front.y);
+  uint8_t true_heading = _get_heading(model_cam.front.x, model_cam.front.y);
   gfx_update_heading_bitmap(true_heading);
   int16_t nav_x = kNavPointX[_model_nav] - (world_eye_x >> 8);
   int16_t nav_y = kNavPointY[_model_nav] - (world_eye_y >> 8);
@@ -243,7 +224,6 @@ void model_update() {
   gfx_update_nav_toggle(_model_nav);
   gfx_update_flap(_model_flap);
   gfx_update_gear(_model_gear);
-  _update_sun_render_state();
 #ifdef __DEBUG_MODEL__
   if (mem_debug_enabled) {
     print_labeled_signed_bcd(760, SCREEN_STR("NX:"), nav_x);
@@ -263,27 +243,27 @@ void model_update() {
 void model_input(enum model_input_t input) {
   switch (input) {
   case MODEL_INPUT_ROLL_LEFT:
-    vec_transform3(&kVecRollLeft, &world_cam);
+    vec_transform3(&kVecRollLeft, &model_cam);
     _model_need_normalize = true;
     break;
   case MODEL_INPUT_ROLL_RIGHT:
-    vec_transform3(&kVecRollRight, &world_cam);
+    vec_transform3(&kVecRollRight, &model_cam);
     _model_need_normalize = true;
     break;
   case MODEL_INPUT_PITCH_UP:
-    vec_transform3(&kVecPitchUp, &world_cam);
+    vec_transform3(&kVecPitchUp, &model_cam);
     _model_need_normalize = true;
     break;
   case MODEL_INPUT_PITCH_DOWN:
-    vec_transform3(&kVecPitchDown, &world_cam);
+    vec_transform3(&kVecPitchDown, &model_cam);
     _model_need_normalize = true;
     break;
   case MODEL_INPUT_YAW_LEFT:
-    vec_transform3(&kVecYawLeft, &world_cam);
+    vec_transform3(&kVecYawLeft, &model_cam);
     _model_need_normalize = true;
     break;
   case MODEL_INPUT_YAW_RIGHT:
-    vec_transform3(&kVecYawRight, &world_cam);
+    vec_transform3(&kVecYawRight, &model_cam);
     _model_need_normalize = true;
     break;
   case MODEL_INPUT_THROTTLE_UP:
@@ -305,7 +285,7 @@ void model_input(enum model_input_t input) {
       int16_t speed = input == MODEL_INPUT_MOVE_FORWARD
                           ? kMoveForwardBackwardSpeed
                           : -kMoveForwardBackwardSpeed;
-      int16_t vspeed = vec_fastmul8p8(world_cam.front.z, speed);
+      int16_t vspeed = vec_fastmul8p8(model_cam.front.z, speed);
       _move_forward(speed, vspeed);
     }
     break;

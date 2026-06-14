@@ -19,6 +19,7 @@ enum model_input_t {
   MODEL_INPUT_MOVE_BACKWARD,
 };
 
+extern mat3_t model_cam;
 extern bool model_paused;
 
 void model_init();

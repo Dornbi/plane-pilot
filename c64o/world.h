@@ -15,6 +15,9 @@ extern mat3_t world_cam;
 // Renders the world gird and objects.
 void world_render_grid();
 
+// Updates the sun position.
+void world_update_sun_pos();
+
 enum WorldMapType {
   MAP_NOTHING = 0,
   MAP_DOT_GROUND = 1,

@@ -5,6 +5,7 @@
 #include "gfx.h"
 #include "mem.h"
 #include "poly.h"
+#include "sprites.h"
 #include "vec.h"
 
 // Not static so that polydemo.cc can access them for testing.
@@ -247,6 +248,27 @@ __noinline void world_render_grid() {
 #ifdef __DEBUG_MODEL__
   if (mem_debug_enabled) {
     print_labeled_bcd(770, SCREEN_STR("GRD:"), _world_grid_radius, 3);
+  }
+#endif
+}
+static const vec3_t kSunDirWorld = {0, 256, 64};
+
+void world_update_sun_pos() {
+  vec_transform_inv(&world_cam, &kSunDirWorld, &vec_v);
+  int16_t sx;
+  int16_t sy;
+  if (vec_project()) {
+    sx = kScreenWidthPixels / 2 - vec_sx;
+    sy = kViewportEndYPixels / 2 - vec_sy;
+  } else {
+    sx = -100;
+    sy = 0;
+  }
+  sprites_set_sun_position(sx, sy);
+#ifdef __DEBUG_MODEL__
+  if (mem_debug_enabled) {
+    print_labeled_signed_bcd(930, SCREEN_STR("SXP:"), sx, 4);
+    print_labeled_signed_bcd(940, SCREEN_STR("SYP:"), sy, 4);
   }
 #endif
 }
