@@ -432,18 +432,3 @@ void vec_transform3_inv(const mat3_t *t, mat3_t *m) {
   vec_transform_inv(t, &mc.left, &m->left);
   vec_transform_inv(t, &mc.up, &m->up);
 }
-
-uint8_t vec_cam_roll_angle(const mat3_t *cam) {
-  // Vector pointing to the distance.
-  vec3_t v = {cam->front.x, cam->front.y, 0};
-  static vec3_t t;
-  if (v.x != 0 || v.y != 0) {
-    // Furthest possible point on the horizon.
-    // With <<7 we could already overflow int16_t.
-    v.x <<= 6;
-    v.y <<= 6;
-    vec_transform_inv(cam, &v, &vec_v);
-    return _get_roll_angle(cam->up.z, cam->left.z);
-  }
-  return 0;
-}

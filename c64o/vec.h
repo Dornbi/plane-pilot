@@ -86,9 +86,6 @@ void vec_transform3(const mat3_t *t, mat3_t *m);
 // (Inverted) transforms m by t.
 void vec_transform3_inv(const mat3_t *t, mat3_t *m);
 
-// Get the roll angle.
-uint8_t vec_cam_roll_angle(const mat3_t *cam);
-
 #pragma compile("vec.cc")
 #pragma compile("vec_asm.cc")
 #pragma compile("vec_lut.cc")

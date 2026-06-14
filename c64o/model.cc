@@ -168,9 +168,11 @@ void model_update_instruments() {
   sprites_set_alt(world_eye_z >> 8);
   sprites_set_vspeed(_model_vspeed);
   if (view_state == VIEW_CENTER) {
+    // With centered view, we can reuse the roll angle from the view.
     sprites_set_roll(roll_angle);
   } else {
-    sprites_set_roll(vec_cam_roll_angle(&model_cam));
+    // Otherwise compute it from model_cam.
+    sprites_set_roll(_get_roll_angle(model_cam.up.z, model_cam.left.z));
   }
   sprites_set_pitch(model_cam.front.z >> 2);
   sprites_set_throttle(_model_throttle);
