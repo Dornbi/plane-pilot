@@ -82,9 +82,10 @@ inline void sprites_set_alt(uint16_t alt) {
   _set_instrument_sprite(kIdxAlt1, kSpriteDefMetaLongArm, (alt >> 4) & 0x1f,
                          kSpriteOffsetX + kAltPivotX,
                          kSpriteOffsetY + kAltPivotY);
-  _set_instrument_sprite(
-      kIdxAlt2, kSpriteDefMetaShortArm, (((alt >> 4) * 205) >> 11) & 0x1f,
-      kSpriteOffsetX + kAltPivotX, kSpriteOffsetY + kAltPivotY);
+  _set_instrument_sprite(kIdxAlt2, kSpriteDefMetaShortArm,
+                         (((uint32_t)(alt >> 4) * 205) >> 11) & 0x1f,
+                         kSpriteOffsetX + kAltPivotX,
+                         kSpriteOffsetY + kAltPivotY);
 }
 
 inline void sprites_set_vspeed(int16_t vspeed) {
