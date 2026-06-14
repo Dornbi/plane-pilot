@@ -42,28 +42,28 @@ static const uint8_t kMitchellPointsY[16] = {0, 0, 6, 2, 4, 6, 0, 2,
 #pragma optimize(push, 3)
 static inline int16_t _down_shift(uint32_t val) { return (int16_t)(val >> 9); }
 
-#define _SPLIT(val, comp, d9)                                                  \
-  dbl = val << 1;                                                              \
-  hlf = val >> 1;                                                              \
-  d9[4].comp = 0;                                                              \
-  d9[6].comp = val;                                                            \
-  d9[2].comp = -val;                                                           \
-  d9[5].comp = hlf;                                                            \
-  d9[3].comp = -hlf;                                                           \
-  d9[1].comp = -val - hlf;                                                     \
-  d9[7].comp = val + hlf;                                                      \
-  d9[8].comp = dbl;                                                            \
-  d9[0].comp = -dbl;
-
 static void _split_vec(vec3_t *v, vec3_t d9[9]) {
   // This version needs half vectors -> more additions and subtractions and
   // more code. However, this means that dots and objects are closer to the
   // center of the grid cell which means fewer grid cells are needed.
-  int16_t hlf;
-  int16_t dbl;
-  _SPLIT(v->x, x, d9);
-  _SPLIT(v->y, y, d9);
-  _SPLIT(v->z, z, d9);
+  // vec3_t is three contiguous int16_t, so loop over the components instead
+  // of expanding the split inline three times (saves code size; only called
+  // twice per frame).
+  int16_t *vp = (int16_t *)v;
+  for (uint8_t i = 0; i < 3; ++i) {
+    int16_t val = vp[i];
+    int16_t hlf = val >> 1;
+    int16_t dbl = val << 1;
+    ((int16_t *)&d9[4])[i] = 0;
+    ((int16_t *)&d9[6])[i] = val;
+    ((int16_t *)&d9[2])[i] = -val;
+    ((int16_t *)&d9[5])[i] = hlf;
+    ((int16_t *)&d9[3])[i] = -hlf;
+    ((int16_t *)&d9[1])[i] = -val - hlf;
+    ((int16_t *)&d9[7])[i] = val + hlf;
+    ((int16_t *)&d9[8])[i] = dbl;
+    ((int16_t *)&d9[0])[i] = -dbl;
+  }
   *v = make_vector(d9[8].x << 1, d9[8].y << 1, d9[8].z << 1);
 }
 
