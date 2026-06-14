@@ -331,41 +331,7 @@ void _scan_lines2(uint8_t fill_char_start_idx, uint8_t color, uint8_t py_start,
       overlap_end = max_px;
     }
 
-    // 3. Process the Left Fringe (pixels before the solid core)
-    for (uint8_t px = min_px; px < overlap_start; ++px) {
-      uint8_t *dst = row + px;
-      if (*dst < kCharSolidGround) {
-        continue;
-      }
-
-      uint8_t mask = 0;
-      uint8_t sx_left = px << 1;
-      uint8_t sx_right = sx_left + 1;
-      if (t_valid) {
-        if (sx_left >= t_min && sx_left <= t_max) {
-          mask |= 1;
-        }
-        if (sx_right >= t_min && sx_right <= t_max) {
-          mask |= 2;
-        }
-      }
-      if (b_valid) {
-        if (sx_left >= b_min && sx_left <= b_max) {
-          mask |= 4;
-        }
-        if (sx_right >= b_min && sx_right <= b_max) {
-          mask |= 8;
-        }
-      }
-      if (mask) {
-        _set_char2(dst, fill_char_start_idx, mask);
-        if (color) {
-          color_row[px] = color;
-        }
-      }
-    }
-
-    // 4. Fast path: Memset the Solid Core (No read-modify-write!)
+    // 3. Fast path: Memset the Solid Core (No read-modify-write!)
     if (overlap_end >= overlap_start) {
       if (color) {
         _set_color_line(row + overlap_start, fill_char_start_idx | 0xF,
@@ -377,10 +343,16 @@ void _scan_lines2(uint8_t fill_char_start_idx, uint8_t color, uint8_t py_start,
       }
     }
 
-    // 5. Process the Right Fringe (pixels after the solid core)
-    int8_t start_px =
-        (overlap_end + 1) > (int8_t)min_px ? (overlap_end + 1) : (int8_t)min_px;
-    for (uint8_t px = start_px; px <= max_px; ++px) {
+    // 4. Process the fringe (every pixel outside the solid core). The core,
+    // when present, lies within [min_px, max_px] and was filled above, so we
+    // jump over it here. overlap_start is guaranteed >= min_px; when there is
+    // no core overlap_start is set to max_px + 1, so the skip never triggers
+    // and the whole span is treated as fringe.
+    for (uint8_t px = min_px; px <= max_px; ++px) {
+      if (px == overlap_start) {
+        px = overlap_end; // skip the solid core; ++px lands just past it
+        continue;
+      }
       uint8_t *dst = row + px;
       if (*dst < kCharSolidGround) {
         continue;
@@ -388,7 +360,7 @@ void _scan_lines2(uint8_t fill_char_start_idx, uint8_t color, uint8_t py_start,
 
       uint8_t mask = 0;
       uint8_t sx_left = px << 1;
-      uint8_t sx_right = (px << 1) + 1;
+      uint8_t sx_right = sx_left + 1;
       if (t_valid) {
         if (sx_left >= t_min && sx_left <= t_max) {
           mask |= 1;
