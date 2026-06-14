@@ -155,7 +155,21 @@ void _world_init_start_dx_dy() {
   p_start_world.z = -_down_shift(world_eye_z);
   uint8_t grid_x = mx >> 10;
   uint8_t grid_y = my >> 10;
-  vec_transform_inv(&world_cam, &p_start_world, &_world_p_start);
+  if (_world_grid_radius == 4) {
+    // At radius 4 the start coords reach ~4096, which would overflow the
+    // intermediate quarter-square in vec_fastmul8p8 (|a| + |b| must stay
+    // < 4096). The transform is linear, so halve the inputs and restore the
+    // scale on the result; the 1 LSB lost is sub-pixel after projection.
+    p_start_world.x >>= 1;
+    p_start_world.y >>= 1;
+    p_start_world.z >>= 1;
+    vec_transform_inv(&world_cam, &p_start_world, &_world_p_start);
+    _world_p_start.x <<= 1;
+    _world_p_start.y <<= 1;
+    _world_p_start.z <<= 1;
+  } else {
+    vec_transform_inv(&world_cam, &p_start_world, &_world_p_start);
+  }
 
   _world_step_x = 1;
   _world_start_cx = grid_x - _world_grid_radius;
