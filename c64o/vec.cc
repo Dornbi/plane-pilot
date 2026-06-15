@@ -1,6 +1,5 @@
 #include "vec.h"
 
-#include "fmath.h"
 #include <stdint.h>
 
 static inline uint8_t _lobyte(int16_t a) { return a & 0xff; }
