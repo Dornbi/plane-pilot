@@ -83,6 +83,8 @@ static void _copy_and_fill(bool is_left_view) {
     } else {
       _fill_with_pattern(bmp_fill, (const char *)kFillPattern + row * 8);
     }
+    // For simplicity don't touch color for 01, which is manipulated
+    // when toggling lights on the panel.
     memcpy(screen_dst, screen_src, kCopyWidthChars);
     memset(screen_fill, kColorMedGray, kFillWidthChars);
     memcpy(color_dst, color_src, kCopyWidthChars);
