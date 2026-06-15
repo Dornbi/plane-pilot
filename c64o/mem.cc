@@ -23,6 +23,7 @@ static const char *oscar_expand_lzo(char *dp, const char *sp) { return sp; }
 #include "panel.h"
 #include "sprites.h"
 #include "vic.h"
+#include "view.h"
 
 static uint8_t *const kSpriteData = (uint8_t *)0xD7C0;
 
@@ -131,8 +132,7 @@ void mem_init(void) {
   memset(kScreenRamMain + kViewportHeight * kScreenWidth, kCharSolid11,
          (kScreenHeight - kViewportHeight) * kScreenWidth);
 
-  oscar_expand_lzo((char *)0xF000, kPanelBitmapCompressed);
-  _expand_panel_screen_color();
+  view_refresh_panel();
 
   mem_using_alt_buffer = false;
   mem_debug_enabled = false;
@@ -211,6 +211,7 @@ void mem_clear_screen(void) {
 }
 
 void mem_switch_debug(bool debug) {
+  mem_debug_enabled = debug;
   if (debug) {
     mem_init_mccm();
     memset(kColorRam + kScreenWidth * kViewportEndY, kColorBg,
@@ -218,7 +219,6 @@ void mem_switch_debug(bool debug) {
     memset(kScreenRamAlt + kViewportHeight * kScreenWidth, kCharSolid11,
            (kScreenHeight - kViewportHeight) * kScreenWidth);
   } else {
-    _expand_panel_screen_color();
+    view_refresh_panel();
   }
-  mem_debug_enabled = debug;
 }

@@ -5,7 +5,7 @@
 #include "roll.h"
 #include "spritedef.h"
 #include "vic.h"
-#include <string.h>
+#include "view.h"
 
 char kSpriteDataCompressed[] = {
 #embed 2112 lzo "spritedef.bin"
@@ -183,20 +183,46 @@ inline void sprites_show_panel_top_sprites() {
     vic.spr_pos[i].x = 0;
   }
   vic.spr_msbx = 0;
-  vic.spr_pos[kIdxVSpeed].x = _sprite_instrument_xy[kIdxVSpeed].x;
-  vic.spr_pos[kIdxVSpeed].y = _sprite_instrument_xy[kIdxVSpeed].y;
+  if (view_state == VIEW_CENTER) {
+    vic.spr_pos[kIdxVSpeed].x = _sprite_instrument_xy[kIdxVSpeed].x;
+    vic.spr_pos[kIdxVSpeed].y = _sprite_instrument_xy[kIdxVSpeed].y;
+  } else {
+    vic.spr_pos[7].x = 0;
+  }
   *(kScreenRamMain + 1016 + kIdxVSpeed) = _sprite_instrument_idx[kIdxVSpeed];
   *(kScreenRamAlt + 1016 + kIdxVSpeed) = _sprite_instrument_idx[kIdxVSpeed];
 }
 
 inline void sprites_show_panel_bottom_sprites() {
 #pragma unroll(full)
-  for (uint8_t i = 0; i < 7; i++) {
-    vic.spr_pos[i].x = _sprite_instrument_xy[i].x;
-    vic.spr_pos[i].y = _sprite_instrument_xy[i].y;
-    *(kScreenRamMain + 1016 + i) = _sprite_instrument_idx[i];
-    *(kScreenRamAlt + 1016 + i) = _sprite_instrument_idx[i];
+  if (view_state == VIEW_CENTER) {
+    for (uint8_t i = 0; i < 7; i++) {
+      vic.spr_pos[i].x = _sprite_instrument_xy[i].x;
+      vic.spr_pos[i].y = _sprite_instrument_xy[i].y;
+      *(kScreenRamMain + 1016 + i) = _sprite_instrument_idx[i];
+      *(kScreenRamAlt + 1016 + i) = _sprite_instrument_idx[i];
+    }
+    vic.spr_color[kIdxSun] = kColorInstrument;
+    vic.spr_msbx = (1 << kIdxThrottle);
+  } else if (view_state == VIEW_LEFT) {
+    vic.spr_pos[kIdxFuel].x = _sprite_instrument_xy[kIdxFuel].x;
+    vic.spr_pos[kIdxFuel].y = _sprite_instrument_xy[kIdxFuel].y;
+    *(kScreenRamMain + 1016 + kIdxFuel) = _sprite_instrument_idx[kIdxFuel];
+    *(kScreenRamAlt + 1016 + kIdxFuel) = _sprite_instrument_idx[kIdxFuel];
+    vic.spr_msbx = (1 << kIdxFuel);
+    if (kIdxFuel == kIdxSun) {
+      vic.spr_color[kIdxFuel] = kColorInstrument;
+    }
+  } else {
+    vic.spr_pos[kIdxThrottle].x = _sprite_instrument_xy[kIdxThrottle].x;
+    vic.spr_pos[kIdxThrottle].y = _sprite_instrument_xy[kIdxThrottle].y;
+    *(kScreenRamMain + 1016 + kIdxThrottle) =
+        _sprite_instrument_idx[kIdxThrottle];
+    *(kScreenRamAlt + 1016 + kIdxThrottle) =
+        _sprite_instrument_idx[kIdxThrottle];
+    // Assume vic.spr_msbx is already 0
+    if (kIdxThrottle == kIdxSun) {
+      vic.spr_color[kIdxThrottle] = kColorInstrument;
+    }
   }
-  vic.spr_color[kIdxSun] = kColorInstrument;
-  vic.spr_msbx = (1 << kIdxThrottle);
 }

@@ -7,6 +7,7 @@
 #include "sprites.h"
 #include "vec.h"
 #include "vic.h"
+#include "view.h"
 #include <string.h>
 
 #ifdef __OSCAR64__
@@ -154,6 +155,10 @@ static const char *const kHeadingBitmaps[] = {
 static const char *kHeadingDest = (const char *)0xF5C8;
 
 inline void gfx_update_heading_bitmap(uint8_t heading) {
+  if (mem_debug_enabled || view_state != VIEW_CENTER) {
+    return;
+  }
+
   static const uint8_t kHeadingCharMax = kHeadingMax / 4;
   uint8_t heading_ch = (heading >> 2) + 3;
   if (heading_ch >= kHeadingCharMax) {

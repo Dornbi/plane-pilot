@@ -79,13 +79,13 @@ int main(void) {
       model_input(MODEL_INPUT_THROTTLE_DOWN);
     }
     if (key_pressed(KSCAN_1)) {
-      view_state = VIEW_LEFT;
+      view_update_view(VIEW_LEFT);
     }
     if (key_pressed(KSCAN_2)) {
-      view_state = VIEW_CENTER;
+      view_update_view(VIEW_CENTER);
     }
     if (key_pressed(KSCAN_3)) {
-      view_state = VIEW_RIGHT;
+      view_update_view(VIEW_RIGHT);
     }
 
     model_advance();
