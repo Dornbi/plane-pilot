@@ -154,11 +154,13 @@ void _world_init_start_dx_dy() {
 
   uint16_t mx = _down_shift(world_eye_x);
   uint16_t my = _down_shift(world_eye_y);
-  p_start_world.x -= (mx & kGridMask);
-  p_start_world.y -= (my & kGridMask);
+  uint8_t grid_x = (uint8_t)((mx + 512) >> 10);
+  uint8_t grid_y = (uint8_t)((my + 512) >> 10);
+  int16_t offset_x = (int16_t)(mx - ((uint16_t)grid_x << 10));
+  int16_t offset_y = (int16_t)(my - ((uint16_t)grid_y << 10));
+  p_start_world.x -= offset_x;
+  p_start_world.y -= offset_y;
   p_start_world.z = -_down_shift(world_eye_z);
-  uint8_t grid_x = mx >> 10;
-  uint8_t grid_y = my >> 10;
   if (_world_grid_radius == 4) {
     // At radius 4 the start coords reach ~4096, which would overflow the
     // intermediate quarter-square in vec_fastmul8p8 (|a| + |b| must stay
