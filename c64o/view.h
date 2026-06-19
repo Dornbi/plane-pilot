@@ -6,9 +6,10 @@
 #include "mem.h"
 
 enum view_state_t {
-  VIEW_LEFT = 0,
-  VIEW_CENTER = 1,
-  VIEW_RIGHT = 2,
+  VIEW_UNKNOWN = 0,
+  VIEW_LEFT = 1,
+  VIEW_CENTER = 2,
+  VIEW_RIGHT = 3,
 };
 
 extern view_state_t view_state;

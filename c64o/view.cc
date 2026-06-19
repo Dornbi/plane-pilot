@@ -16,7 +16,8 @@ static inline void oscar_expand_lzo(char *dst, const char *src) {}
 #include "vec.h"
 #include "world.h"
 
-view_state_t view_state = VIEW_CENTER;
+view_state_t view_state = VIEW_UNKNOWN;
+static view_state_t view_bitmap_state = VIEW_UNKNOWN;
 
 void view_update_cam() {
   if (view_state == VIEW_CENTER) {
@@ -107,7 +108,10 @@ void view_refresh_panel() {
   }
   oscar_expand_lzo(kScreenDst, kPanelScreenCompressed);
   oscar_expand_lzo(kColorDst, kPanelColorCompressed);
-  oscar_expand_lzo(kBitmapDst, kPanelBitmapCompressed);
+  if (view_bitmap_state != VIEW_CENTER) {
+    oscar_expand_lzo(kBitmapDst, kPanelBitmapCompressed);
+  }
+  view_bitmap_state = view_state;
   if (view_state == VIEW_CENTER) {
     return;
   }
@@ -122,19 +126,22 @@ void view_update_view(view_state_t new_state) {
   if (new_state == view_state) {
     return;
   }
-  if (!mem_debug_enabled) {
-    if (view_state == VIEW_CENTER) {
-      // Optimization: if the previos state was already center,
-      // don't rebuild it first.
-      if (new_state == VIEW_LEFT) {
-        _copy_and_fill(/*view_left=*/true);
-      } else {
-        _copy_and_fill(/*view_left=*/false);
-      }
-    } else {
-      view_state = new_state;
-      view_refresh_panel();
-    }
+  if (mem_debug_enabled) {
+    view_state = new_state;
+    return;
   }
-  view_state = new_state;
+  if (view_state == VIEW_CENTER) {
+    // Optimization: if the previous state was already center,
+    // don't rebuild it first.
+    if (new_state == VIEW_LEFT) {
+      _copy_and_fill(/*view_left=*/true);
+    } else {
+      _copy_and_fill(/*view_left=*/false);
+    }
+    view_state = new_state;
+    view_bitmap_state = new_state;
+  } else {
+    view_state = new_state;
+    view_refresh_panel();
+  }
 }

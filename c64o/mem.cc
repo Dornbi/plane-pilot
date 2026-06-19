@@ -132,6 +132,7 @@ void mem_init(void) {
   memset(kScreenRamMain + kViewportHeight * kScreenWidth, kCharSolid11,
          (kScreenHeight - kViewportHeight) * kScreenWidth);
 
+  view_state = VIEW_CENTER;
   view_refresh_panel();
 
   mem_using_alt_buffer = false;
