@@ -3,11 +3,13 @@
 #include "cia.h"
 #include "gfx.h"
 #include "keys.h"
+#include "map.h"
 #include "mem.h"
 #include "model.h"
 #include "print.h"
 #include "render.h"
 #include "sprites.h"
+#include "vic.h"
 #include "view.h"
 #include "world.h"
 
@@ -108,23 +110,40 @@ int main(void) {
     if (key_pressed(KSCAN_3)) {
       view_update_view(VIEW_RIGHT);
     }
+    if (key_pressed(KSCAN_M)) {
+      if (map_mode) {
+        map_exit();
+      } else {
+        map_enter();
+      }
+      while (key_pressed(KSCAN_M)) {
+        keyb_poll();
+      }
+    }
 
-    model_advance();
+    if (!map_mode) {
+      model_advance();
 
-    bm_start();
-    view_update_cam();
-    world_update_roll_state();
-    world_update_sun_pos();
-    model_update_instruments();
+      bm_start();
+      view_update_cam();
+      world_update_roll_state();
+      world_update_sun_pos();
+      model_update_instruments();
 
-    model_maybe_print_debug();
+      model_maybe_print_debug();
 
-    render_snap_center_chars();
-    render_fill_sky_ground();
-    box_prepare();
-    box_draw();
-    world_render_grid();
-    bm_total(990, SCREEN_STR("TOT:"));
-    mem_switch_buffer();
+      render_snap_center_chars();
+      render_fill_sky_ground();
+      box_prepare();
+      box_draw();
+      world_render_grid();
+      bm_total(990, SCREEN_STR("TOT:"));
+      mem_switch_buffer();
+    } else {
+      while (vic.raster != 255)
+        ;
+      while (vic.raster == 255)
+        ;
+    }
   }
 }

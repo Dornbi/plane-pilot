@@ -20,6 +20,8 @@ PPILOT_SRC = \
 		gfx_chars.bin \
 		mem.h \
 		mem.cc \
+		map.h \
+		map.cc \
 		model.h \
 		model.cc \
 		panel.h \
