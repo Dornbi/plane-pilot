@@ -487,7 +487,6 @@ static inline uint8_t _clip_near(const vec3_t *in, uint8_t num_in,
 }
 
 // 2D screen clip
-enum ClipEdge { EDGE_LEFT, EDGE_RIGHT, EDGE_TOP, EDGE_BOTTOM };
 
 // Interpolate base + t * delta, where t is an 8.8 clip parameter in [0, 256]
 // and delta is a difference of two projected screen coordinates.
@@ -504,60 +503,32 @@ static inline int16_t _clip_lerp(int16_t base, int16_t t, int16_t delta) {
   return base + (int16_t)(((int32_t)t * delta) >> 8);
 }
 
+// Clips the polygon against one viewport edge. The edge is data: axis is the
+// int16 index of the clipped coordinate within vertex16_t (0 = x, 1 = y),
+// limit is the edge position and keep_greater selects which side survives.
+// One shared body instead of per-edge code keeps this small.
 static uint8_t _clip_2d(const vertex16_t *in, uint8_t num_in, vertex16_t *out,
-                        ClipEdge edge) {
+                        uint8_t axis, int16_t limit, bool keep_greater) {
+  const uint8_t other = axis ^ 1;
   uint8_t num_out = 0;
-  const vertex16_t *prev = &in[num_in - 1];
-  int16_t limit;
-  if (edge == EDGE_LEFT) {
-    limit = 0;
-  } else if (edge == EDGE_RIGHT) {
-    limit = kViewportWidth * 2 - 1;
-  } else if (edge == EDGE_TOP) {
-    limit = 0;
-  } else {
-    limit = kViewportHeight * 2 - 1;
-  }
-
-  bool prev_inside;
-  if (edge == EDGE_LEFT) {
-    prev_inside = prev->x >= limit;
-  } else if (edge == EDGE_RIGHT) {
-    prev_inside = prev->x <= limit;
-  } else if (edge == EDGE_TOP) {
-    prev_inside = prev->y >= limit;
-  } else {
-    prev_inside = prev->y <= limit;
-  }
+  const int16_t *prev = (const int16_t *)&in[num_in - 1];
+  bool prev_inside =
+      keep_greater ? prev[axis] >= limit : prev[axis] <= limit;
 
   for (uint8_t i = 0; i < num_in; ++i) {
-    const vertex16_t *curr = &in[i];
-    bool curr_inside;
-    if (edge == EDGE_LEFT)
-      curr_inside = curr->x >= limit;
-    else if (edge == EDGE_RIGHT)
-      curr_inside = curr->x <= limit;
-    else if (edge == EDGE_TOP)
-      curr_inside = curr->y >= limit;
-    else
-      curr_inside = curr->y <= limit;
+    const int16_t *curr = (const int16_t *)&in[i];
+    bool curr_inside =
+        keep_greater ? curr[axis] >= limit : curr[axis] <= limit;
 
     if (curr_inside != prev_inside) {
-      vertex16_t *dest = &out[num_out++];
-      if (edge == EDGE_LEFT || edge == EDGE_RIGHT) {
-        dest->x = limit;
-        int16_t dy = curr->y - prev->y;
-        int16_t t = vec_div8p8(limit - prev->x, curr->x - prev->x);
-        dest->y = _clip_lerp(prev->y, t, dy);
-      } else {
-        dest->y = limit;
-        int16_t dx = curr->x - prev->x;
-        int16_t t = vec_div8p8(limit - prev->y, curr->y - prev->y);
-        dest->x = _clip_lerp(prev->x, t, dx);
-      }
+      int16_t *dest = (int16_t *)&out[num_out++];
+      int16_t d = curr[other] - prev[other];
+      int16_t t = vec_div8p8(limit - prev[axis], curr[axis] - prev[axis]);
+      dest[axis] = limit;
+      dest[other] = _clip_lerp(prev[other], t, d);
     }
     if (curr_inside) {
-      out[num_out++] = *curr;
+      out[num_out++] = in[i];
     }
     prev = curr;
     prev_inside = curr_inside;
@@ -611,28 +582,30 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
   vertex16_t *dst = clip2_buf1;
 
   if (min_x < 0) {
-    n = _clip_2d(src, n, dst, EDGE_LEFT);
+    n = _clip_2d(src, n, dst, 0, 0, /*keep_greater=*/true);
     if (n < 3)
       return 0;
     src = dst;
     dst = (src == clip2_buf1) ? clip2_buf2 : clip2_buf1;
   }
   if (max_x > 79) {
-    n = _clip_2d(src, n, dst, EDGE_RIGHT);
+    n = _clip_2d(src, n, dst, 0, kViewportWidth * 2 - 1,
+                 /*keep_greater=*/false);
     if (n < 3)
       return 0;
     src = dst;
     dst = (src == clip2_buf1) ? clip2_buf2 : clip2_buf1;
   }
   if (min_y < 0) {
-    n = _clip_2d(src, n, dst, EDGE_TOP);
+    n = _clip_2d(src, n, dst, 1, 0, /*keep_greater=*/true);
     if (n < 3)
       return 0;
     src = dst;
     dst = (src == clip2_buf1) ? clip2_buf2 : clip2_buf1;
   }
   if (max_y > 27) {
-    n = _clip_2d(src, n, dst, EDGE_BOTTOM);
+    n = _clip_2d(src, n, dst, 1, kViewportHeight * 2 - 1,
+                 /*keep_greater=*/false);
     if (n < 3)
       return 0;
     src = dst;
