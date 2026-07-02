@@ -4,6 +4,7 @@
 #include "mem.h"
 #include "roll.h"
 #include "spritedef.h"
+#include "vec.h"
 #include "vic.h"
 #include "view.h"
 
@@ -82,8 +83,11 @@ inline void sprites_set_alt(uint16_t alt) {
   _set_instrument_sprite(kIdxAlt1, kSpriteDefMetaLongArm, (alt >> 4) & 0x1f,
                          kSpriteOffsetX + kAltPivotX,
                          kSpriteOffsetY + kAltPivotY);
+  // ((alt >> 4) * 205) >> 11 needs a 32-bit intermediate; vec_fastmul8p8
+  // returns the exact middle 16 bits ((t * 205) >> 8), so shifting 3 more
+  // is bit-identical without pulling in the mul32 runtime.
   _set_instrument_sprite(kIdxAlt2, kSpriteDefMetaShortArm,
-                         (((uint32_t)(alt >> 4) * 205) >> 11) & 0x1f,
+                         ((uint16_t)vec_fastmul8p8(alt >> 4, 205) >> 3) & 0x1f,
                          kSpriteOffsetX + kAltPivotX,
                          kSpriteOffsetY + kAltPivotY);
 }
