@@ -51,9 +51,10 @@ extern const WorldMapType kWorldMap[kWorldMapHeight][kWorldMapWidth];
 static const uint8_t kWorldMapObjStart = MAP_OBJ_RUNWAY;
 
 static const uint8_t kWorldObjDim = 9;
-// kPolyMaxVertices is 6 but we do 8 for easier math.
-extern const uint8_t kWorldObjX[kWorldObjDim][8];
-extern const uint8_t kWorldObjY[kWorldObjDim][8];
+// Matches kPolyMaxVertices in poly.h.
+static const uint8_t kWorldObjMaxVerts = 6;
+extern const uint8_t kWorldObjX[kWorldObjDim][kWorldObjMaxVerts];
+extern const uint8_t kWorldObjY[kWorldObjDim][kWorldObjMaxVerts];
 extern const uint8_t kWorldObjNumVerts[kWorldObjDim];
 extern const uint8_t kWorldObjChars[kWorldObjDim];
 extern const uint8_t kWorldObjColors[kWorldObjDim];

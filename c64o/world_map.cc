@@ -34,7 +34,7 @@ static const auto LAK = MAP_OBJ_LAKE;
 static const auto TWN = MAP_OBJ_TOWN;
 static const auto CTY = MAP_OBJ_CITY;
 
-const uint8_t kWorldObjX[kWorldObjDim][8] = {
+const uint8_t kWorldObjX[kWorldObjDim][kWorldObjMaxVerts] = {
     {0, 8, 8, 0},       // MAP_OBJ_RUNWAY
     {0, 4, 8, 2},       // MAP_OBJ_FIELD
     {0, 4, 8, 2},       // MAP_OBJ_FIELD_SPARSE
@@ -46,7 +46,7 @@ const uint8_t kWorldObjX[kWorldObjDim][8] = {
     {0, 2, 6, 8, 5, 2}, // MAP_OBJ_CITY
 };
 
-const uint8_t kWorldObjY[kWorldObjDim][8] = {
+const uint8_t kWorldObjY[kWorldObjDim][kWorldObjMaxVerts] = {
     {4, 4, 3, 3},       // MAP_OBJ_RUNWAY
     {2, 0, 5, 8},       // MAP_OBJ_FIELD
     {2, 0, 5, 8},       // MAP_OBJ_FIELD_SPARSE

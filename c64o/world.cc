@@ -262,7 +262,6 @@ void world_update_roll_state() {
   bool updated = false;
   // Vector pointing to the distance.
   vec3_t v = {world_cam.front.x, world_cam.front.y, 0};
-  static vec3_t t;
   if (v.x != 0 || v.y != 0) {
     // Furthest possible point on the horizon.
     // With <<7 we could already overflow int16_t.

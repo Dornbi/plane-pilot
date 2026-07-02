@@ -47,12 +47,6 @@ static const mat3_t _m_init = {
     {0, 0, 256},
 };
 
-static const mat3_t _m_init_alt = {
-    {256, 0, 0},
-    {0, 256, 0},
-    {0, 0, 256},
-};
-
 // Location of navigation waypoints.
 // They match the eye_x and eye_y coordinates >> 8
 // Corresponding the runways in world_map.cc
@@ -80,7 +74,7 @@ void model_init() {
 }
 
 void model_init_alt() {
-  model_cam = _m_init_alt;
+  model_cam = _m_init;
   world_eye_x = 0x400000;
   world_eye_y = 0xBF8000;
   world_eye_z = 0x040000;
