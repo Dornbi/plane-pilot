@@ -28,8 +28,29 @@ int main(void) {
   gfx_init_raster_irqs();
   render_snap_center_chars();
 
+  // Keys that toggle state only act on their rising edge, otherwise
+  // holding the key would flip the state on every loop iteration.
+  static const uint8_t kToggleKeyP = 0x01;
+  static const uint8_t kToggleKeyD = 0x02;
+  static const uint8_t kToggleKeyN = 0x04;
+
+  uint8_t prev_toggles = 0;
   while (1) {
     keyb_poll();
+
+    uint8_t toggles = 0;
+    if (key_pressed(KSCAN_P)) {
+      toggles |= kToggleKeyP;
+    }
+    if (key_pressed(KSCAN_D)) {
+      toggles |= kToggleKeyD;
+    }
+    if (key_pressed(KSCAN_N)) {
+      toggles |= kToggleKeyN;
+    }
+    const uint8_t toggle_edges = toggles & ~prev_toggles;
+    prev_toggles = toggles;
+
     if (key_pressed(KSCAN_R)) {
       model_init();
     }
@@ -39,10 +60,10 @@ int main(void) {
     if (key_pressed(KSCAN_F)) {
       model_reset_fuel();
     }
-    if (key_pressed(KSCAN_D)) {
+    if (toggle_edges & kToggleKeyD) {
       mem_switch_debug(!mem_debug_enabled);
     }
-    if (key_pressed(KSCAN_P)) {
+    if (toggle_edges & kToggleKeyP) {
       model_paused = !model_paused;
     }
     if (key_pressed(KSCAN_J)) {
@@ -63,7 +84,7 @@ int main(void) {
     if (key_pressed(KSCAN_S)) {
       model_input(MODEL_INPUT_YAW_RIGHT);
     }
-    if (key_pressed(KSCAN_N)) {
+    if (toggle_edges & kToggleKeyN) {
       model_input(MODEL_INPUT_TOGGLE_NAV);
     }
     if (key_pressed(KSCAN_Z)) {
