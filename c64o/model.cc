@@ -178,7 +178,7 @@ void model_update_instruments() {
   _model_nav_heading =
       _get_heading(_model_nav_x, _model_nav_y) - _model_true_heading;
   if (_model_nav_heading > kHeadingMax) {
-    _model_nav_heading += kHeadingMax;
+    _model_nav_heading -= kHeadingMax;
   }
   gfx_update_nav_heading(_model_nav_heading);
   gfx_update_nav_toggle(_model_nav);
