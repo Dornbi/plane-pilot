@@ -104,6 +104,7 @@ uint16_t vec_fastsqr8p8(int16_t a) {
 }
 
 // General case for multiplication.
+// Note from Claude: this has up-to-a-few-LSB truncation error.
 static inline int16_t _vec_fastmul8p8(int16_t a, int16_t b) {
   // --- 1. Sign Handling ---
   // Since vec_fastsqr8p8u is unsigned, we work with absolute values
