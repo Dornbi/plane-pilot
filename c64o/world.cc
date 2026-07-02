@@ -41,11 +41,12 @@ static const uint8_t kMitchellPointsX[16] = {0, 6, 0, 2, 6, 2, 4, 0,
 static const uint8_t kMitchellPointsY[16] = {0, 0, 6, 2, 4, 6, 0, 2,
                                              6, 4, 4, 0, 2, 2, 4, 6};
 
-// PERF: optimize(3) -> bytes: negligible cycles: -1000
-#pragma optimize(push, 3)
 static inline int16_t _down_shift(uint32_t val) { return (int16_t)(val >> 9); }
 
-static void _split_vec(vec3_t *v, vec3_t d9[9]) {
+// __noinline keeps this in one copy instead of being expanded into both
+// call sites in _world_init_start_dx_dy. Verified byte-identical codegen
+// with and without optimize(3), so no pragma region is needed here.
+static __noinline void _split_vec(vec3_t *v, vec3_t d9[9]) {
   // This version needs half vectors -> more additions and subtractions and
   // more code. However, this means that dots and objects are closer to the
   // center of the grid cell which means fewer grid cells are needed.
@@ -70,7 +71,6 @@ static void _split_vec(vec3_t *v, vec3_t d9[9]) {
   *v = make_vector(d9[8].x << 1, d9[8].y << 1, d9[8].z << 1);
 }
 
-#pragma optimize(pop)
 static inline void _draw_box_points(uint8_t start_idx, uint8_t num_points,
                                     WorldMapType map_type) {
   uint8_t idx = start_idx & 0x0F;
