@@ -1222,21 +1222,24 @@ const boxdef_t* const alt_boxes[60] = {
 
 boxdef_t boxdef;
 
-void boxdef_set_main() {
+const boxdef_t *boxdef_set_main() {
   if (roll_angle >= kRollMax) {
-    return;
+    return NULL;
   }
-  memcpy(&boxdef, main_boxes[roll_angle], sizeof(boxdef_t));
+  const boxdef_t *src = main_boxes[roll_angle];
+  memcpy(&boxdef, src, sizeof(boxdef_t));
+  return src;
 }
 
-void boxdef_set_alt() {
+const boxdef_t *boxdef_set_alt() {
   if (roll_angle >= kRollMax) {
-    return;
+    return NULL;
   }
-  if (alt_boxes[roll_angle] == NULL) {
-    boxdef_set_main();
-  } else {
-    memcpy(&boxdef, alt_boxes[roll_angle], sizeof(boxdef_t));
+  const boxdef_t *src = alt_boxes[roll_angle];
+  if (src == NULL) {
+    return boxdef_set_main();
   }
+  memcpy(&boxdef, src, sizeof(boxdef_t));
+  return src;
 }
 

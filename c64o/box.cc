@@ -1,5 +1,6 @@
 #include "box.h"
 
+#include <stddef.h>
 #include <string.h>
 
 #include "benchmark.h"
@@ -10,19 +11,48 @@
 #include "print.h"
 #include "render.h"
 
+// The two screen buffers use distinct charset slots (mem_box_char_start
+// 0x01 / 0x61), so everything box_prepare produces is cached per slot and
+// only rebuilt when that slot's box definition changes. These live in the
+// default bss region because bss2 is nearly full.
+static uint8_t _box_chars[2][kMaxBoxTotalSize];
+static uint8_t _box_colors[2][kMaxBoxTotalSize];
+// Which definition each charset slot currently holds.
+static const boxdef_t *_slot_def[2];
+// The current slot's buffers, for box_draw.
+static const uint8_t *_cur_box_chars;
+static const uint8_t *_cur_box_colors;
+
 #pragma bss(bss2)
 
-static uint8_t _box_chars[kMaxBoxTotalSize];
-static uint8_t _box_colors[kMaxBoxTotalSize];
 static uint8_t _char_lut[kMaxBoxCharCount];
 static uint8_t _color_lut[kMaxBoxCharCount];
 
 void box_prepare(void) {
+  const boxdef_t *src_def;
   if (render_alt_box) {
-    boxdef_set_alt();
+    src_def = boxdef_set_alt();
   } else {
-    boxdef_set_main();
+    src_def = boxdef_set_main();
   }
+
+  const uint8_t slot = mem_box_char_start != 0x01;
+  _cur_box_chars = _box_chars[slot];
+  _cur_box_colors = _box_colors[slot];
+  if (src_def != NULL && src_def == _slot_def[slot]) {
+    // This slot already holds this definition (typical when flying
+    // straight); the char RAM and the buffers below are still valid.
+#ifdef __DEBUG_VIEW__
+    // The skipped phases would otherwise leave stale CHR:/PRP: values in
+    // this buffer, flashing against the other buffer's values.
+    if (mem_debug_enabled) {
+      print_labeled_bcd(790, SCREEN_STR("CHR:"), 0, 6);
+      print_labeled_bcd(830, SCREEN_STR("PRP:"), 0, 6);
+    }
+#endif
+    return;
+  }
+  _slot_def[slot] = src_def;
 
   // Copy unique characters to kCharRam
   bm_view_start();
@@ -60,10 +90,12 @@ void box_prepare(void) {
   // Fill box_chars and box_colors with the box definition.
   if (boxdef.total_size > 0) {
     const uint8_t *src = boxdef.box_chars;
+    uint8_t *dst_chars = _box_chars[slot];
+    uint8_t *dst_colors = _box_colors[slot];
     for (int8_t i = boxdef.total_size - 1;;) {
       const uint8_t idx = src[i];
-      _box_chars[i] = _char_lut[idx];
-      _box_colors[i] = _color_lut[idx];
+      dst_chars[i] = _char_lut[idx];
+      dst_colors[i] = _color_lut[idx];
       if (--i < 0) {
         break;
       }
@@ -73,8 +105,8 @@ void box_prepare(void) {
 }
 
 static void _draw_one_box(int8_t cx, int8_t cy) {
-  const uint8_t *src_chr = _box_chars;
-  const uint8_t *src_col = _box_colors;
+  const uint8_t *src_chr = _cur_box_chars;
+  const uint8_t *src_col = _cur_box_colors;
 
   int8_t h = boxdef.h;
   if (cy < 0) {

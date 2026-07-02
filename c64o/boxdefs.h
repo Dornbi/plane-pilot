@@ -34,14 +34,17 @@ struct boxdef_t {
 extern boxdef_t boxdef;
 
 // Updates boxdef based on roll_angle.
+// Returns the definition that was copied into boxdef, which box_prepare
+// uses as a cache identity. Returns NULL if roll_angle is out of range
+// (boxdef is left unchanged).
 // @param roll_angle
 // @result boxdef
-void boxdef_set_main();
+const boxdef_t *boxdef_set_main();
 
-// Updates boxdef based on roll_angle.
+// Same as boxdef_set_main but prefers the alternative (shifted) box.
 // @param roll_angle
 // @result boxdef
-void boxdef_set_alt();
+const boxdef_t *boxdef_set_alt();
 
 #pragma compile("boxdefs.cc")
 
