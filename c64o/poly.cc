@@ -489,18 +489,16 @@ static inline uint8_t _clip_near(const vec3_t *in, uint8_t num_in,
 // 2D screen clip
 
 // Interpolate base + t * delta, where t is an 8.8 clip parameter in [0, 256]
-// and delta is a difference of two projected screen coordinates.
+// and delta is a difference of two projected screen coordinates, which can
+// reach ~16000 sub-pixels for a corner just past the near plane.
 //
-// vec_fastmul8p8 cannot be used here: a polygon corner that lands just past the
-// near plane (x ~= 8) with a large lateral/vertical offset projects to a screen
-// coordinate thousands of sub-pixels off-screen, so delta can reach ~16000. The
-// quarter-square multiply overflows once |t| + |delta| exceeds ~4095 (its
-// i*i/256 term no longer fits in 16 bits), which corrupted the clipped vertex
-// and made e.g. the runway lose its rectangular shape when flown over low.
-// A plain 32-bit multiply stays exact: |t * delta| <= 256 * 32767 fits in 24
-// bits, and the >> 8 result fits back in int16.
+// The assembly vec_fastmul8p8 is exact for all int16 inputs (the old C
+// quarter-square version overflowed once |t| + |delta| exceeded ~4095, which
+// corrupted clipped vertices here). It truncates toward zero where a 32-bit
+// multiply with >> 8 would floor, so a negative t * delta can come out one
+// sub-pixel higher; that is harmless and avoids the mul32 runtime.
 static inline int16_t _clip_lerp(int16_t base, int16_t t, int16_t delta) {
-  return base + (int16_t)(((int32_t)t * delta) >> 8);
+  return base + vec_fastmul8p8(t, delta);
 }
 
 // Clips the polygon against one viewport edge. The edge is data: axis is the
