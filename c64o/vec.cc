@@ -243,15 +243,18 @@ int16_t vec_div8p8(int16_t a, int16_t b) {
   if (ub == 0)
     return sign > 0 ? 32767 : -32767;
 
-  uint8_t shift = 0;
+  // Normalize ub to [128, 255], scaling ua by the same amount. If ua
+  // overflows 16 bits here, the exact quotient is always > 32767 (ub is
+  // still < 128 when it happens), so saturating is the exact result.
   while (ub < 128) {
     ub <<= 1;
-    shift++;
+    if (ua & 0x8000) {
+      return sign > 0 ? 32767 : -32767;
+    }
+    ua <<= 1;
   }
 
   uint16_t b_recip = 0x100 + vec_recip_lut[ub - 128];
-
-  ua <<= shift;
 
   // Scale ua down to prevent internal overflow in vec_fastmul8p8
   // Max safe value for ua to prevent sum overflow (ua + b_recip < 4096) is:
