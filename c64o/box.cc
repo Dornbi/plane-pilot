@@ -39,17 +39,18 @@ void box_prepare(void) {
   const uint8_t slot = mem_box_char_start != 0x01;
   _cur_box_chars = _box_chars[slot];
   _cur_box_colors = _box_colors[slot];
+
   if (src_def != NULL && src_def == _slot_def[slot]) {
     // This slot already holds this definition (typical when flying
     // straight); the char RAM and the buffers below are still valid.
-#ifdef __DEBUG_VIEW__
+
     // The skipped phases would otherwise leave stale CHR:/PRP: values in
     // this buffer, flashing against the other buffer's values.
-    if (mem_debug_enabled) {
-      print_labeled_bcd(790, SCREEN_STR("CHR:"), 0, 6);
-      print_labeled_bcd(830, SCREEN_STR("PRP:"), 0, 6);
-    }
-#endif
+    bm_view_start();
+    bm_view_end(790, SCREEN_STR("CHR:"));
+    bm_view_start();
+    bm_view_end(830, SCREEN_STR("PRP:"));
+
     return;
   }
   _slot_def[slot] = src_def;
