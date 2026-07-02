@@ -33,7 +33,7 @@ static __zeropage int16_t mul_res;
 // computed on |a| and |b| with the sign applied at the end, which matches
 // trunc((a * b) / 256) exactly, wrapping to 16 bits on overflow. Unlike
 // the old C quarter-square path this has no |a| + |b| < 4096 constraint.
-int16_t _unused_asm_vec_fastmul8p8(int16_t a, int16_t b) {
+int16_t vec_fastmul8p8(int16_t a, int16_t b) {
   // clang-format off
   __asm {
         // Sign of the result in bit 7 of tmp1.

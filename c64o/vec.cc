@@ -17,7 +17,7 @@ static inline int16_t _optmul(int8_t a, int16_t b) {
 }
 
 // PERF: using this -> -100 bytes, +1700 cycles (when tilted).
-int16_t _unused_vec_fastmul8p8(int16_t a, int16_t b) {
+int16_t _unused_vec_fastmul8p8_32(int16_t a, int16_t b) {
   // vec_asm.c is faster but also increases code size.
   if (!_lobyte(b)) {
     return _optmul(_hibyte(b), a);
@@ -187,7 +187,7 @@ static int16_t _vec_fastmul8p0(int8_t h, int16_t b) {
   return (sign < 0) ? -res : res;
 }
 
-int16_t vec_fastmul8p8(int16_t a, int16_t b) {
+int16_t _unused_vec_fastmul8p8(int16_t a, int16_t b) {
   // These early exits handle identity properties and zeros.
   if (!_lobyte(a)) {
     int8_t ah = _hibyte(a);
