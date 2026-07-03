@@ -217,6 +217,11 @@ void mem_switch_debug(bool debug) {
     mem_init_mccm();
     memset(kColorRam + kScreenWidth * kViewportEndY, kColorBg,
            kScreenWidth * (kScreenHeight - kViewportEndY));
+    // Reset the bottom rows of both screen buffers: the debug text area
+    // alternates between them, and the map view may have overwritten the
+    // main buffer's rows (originally set by mem_init).
+    memset(kScreenRamMain + kViewportHeight * kScreenWidth, kCharSolid11,
+           (kScreenHeight - kViewportHeight) * kScreenWidth);
     memset(kScreenRamAlt + kViewportHeight * kScreenWidth, kCharSolid11,
            (kScreenHeight - kViewportHeight) * kScreenWidth);
   } else {

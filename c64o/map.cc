@@ -58,8 +58,15 @@ void map_enter() {
 }
 
 void map_exit() {
-  mem_init_mccm();
-  view_refresh_panel();
+  if (mem_debug_enabled) {
+    // view_refresh_panel is a no-op in debug mode, but map_enter wiped the
+    // color RAM and the bottom of the main screen; re-entering debug mode
+    // restores them (and the VIC mode).
+    mem_switch_debug(true);
+  } else {
+    mem_init_mccm();
+    view_refresh_panel();
+  }
   gfx_init_raster_irqs();
   sprites_init();
 
