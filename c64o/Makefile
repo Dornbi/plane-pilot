@@ -105,7 +105,7 @@ VECTEST_SRC = 	benchmark.h \
 
 CC = oscar64
 CFLAGS = -ii=${OSCAR64_INCLUDE} -D__OSCAR64__ -g -xz
-OPTFLAGS = -O2 -Op -Oa -Oi -Oz -Op
+OPTFLAGS = -O2 -Op -Oa -Oi -Oz
 
 all: $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg
 
