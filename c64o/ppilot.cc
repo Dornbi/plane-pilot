@@ -53,53 +53,57 @@ int main(void) {
     const uint8_t toggle_edges = toggles & ~prev_toggles;
     prev_toggles = toggles;
 
-    if (key_pressed(KSCAN_R)) {
-      model_init();
-    }
-    if (key_pressed(KSCAN_T)) {
-      model_init_alt();
-    }
-    if (key_pressed(KSCAN_F)) {
-      model_reset_fuel();
-    }
     if (toggle_edges & kToggleKeyD) {
       mem_switch_debug(!mem_debug_enabled);
     }
     if (toggle_edges & kToggleKeyP) {
       model_paused = !model_paused;
     }
-    if (key_pressed(KSCAN_J)) {
-      model_input(MODEL_INPUT_ROLL_LEFT);
-    }
-    if (key_pressed(KSCAN_L)) {
-      model_input(MODEL_INPUT_ROLL_RIGHT);
-    }
-    if (key_pressed(KSCAN_I)) {
-      model_input(MODEL_INPUT_PITCH_DOWN);
-    }
-    if (key_pressed(KSCAN_K)) {
-      model_input(MODEL_INPUT_PITCH_UP);
-    }
-    if (key_pressed(KSCAN_A)) {
-      model_input(MODEL_INPUT_YAW_LEFT);
-    }
-    if (key_pressed(KSCAN_S)) {
-      model_input(MODEL_INPUT_YAW_RIGHT);
-    }
-    if (toggle_edges & kToggleKeyN) {
-      model_input(MODEL_INPUT_TOGGLE_NAV);
-    }
-    if (key_pressed(KSCAN_Z)) {
-      model_input(MODEL_INPUT_MOVE_FORWARD);
-    }
-    if (key_pressed(KSCAN_X)) {
-      model_input(MODEL_INPUT_MOVE_BACKWARD);
-    }
-    if (key_pressed(KSCAN_PLUS)) {
-      model_input(MODEL_INPUT_THROTTLE_UP);
-    }
-    if (key_pressed(KSCAN_MINUS)) {
-      model_input(MODEL_INPUT_THROTTLE_DOWN);
+    // Flight controls and resets are suspended while the map is open, since
+    // there's no instrument feedback to show the player what they're doing.
+    if (!map_mode) {
+      if (key_pressed(KSCAN_R)) {
+        model_init();
+      }
+      if (key_pressed(KSCAN_T)) {
+        model_init_alt();
+      }
+      if (key_pressed(KSCAN_F)) {
+        model_reset_fuel();
+      }
+      if (key_pressed(KSCAN_J)) {
+        model_input(MODEL_INPUT_ROLL_LEFT);
+      }
+      if (key_pressed(KSCAN_L)) {
+        model_input(MODEL_INPUT_ROLL_RIGHT);
+      }
+      if (key_pressed(KSCAN_I)) {
+        model_input(MODEL_INPUT_PITCH_DOWN);
+      }
+      if (key_pressed(KSCAN_K)) {
+        model_input(MODEL_INPUT_PITCH_UP);
+      }
+      if (key_pressed(KSCAN_A)) {
+        model_input(MODEL_INPUT_YAW_LEFT);
+      }
+      if (key_pressed(KSCAN_S)) {
+        model_input(MODEL_INPUT_YAW_RIGHT);
+      }
+      if (toggle_edges & kToggleKeyN) {
+        model_input(MODEL_INPUT_TOGGLE_NAV);
+      }
+      if (key_pressed(KSCAN_Z)) {
+        model_input(MODEL_INPUT_MOVE_FORWARD);
+      }
+      if (key_pressed(KSCAN_X)) {
+        model_input(MODEL_INPUT_MOVE_BACKWARD);
+      }
+      if (key_pressed(KSCAN_PLUS)) {
+        model_input(MODEL_INPUT_THROTTLE_UP);
+      }
+      if (key_pressed(KSCAN_MINUS)) {
+        model_input(MODEL_INPUT_THROTTLE_DOWN);
+      }
     }
     if (key_pressed(KSCAN_1)) {
       view_update_view(VIEW_LEFT);
