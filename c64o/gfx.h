@@ -29,7 +29,12 @@ void gfx_init_raster_irqs(void);
 void gfx_project_and_draw(uint8_t color);
 
 // Update the heading bitmap on the instrument panel.
+// Skips the copy when the heading is unchanged since the last draw.
 void gfx_update_heading_bitmap(uint8_t heading);
+
+// Forces the next gfx_update_heading_bitmap to redraw. Must be called
+// whenever the panel bitmap is re-expanded over the heading strip.
+void gfx_invalidate_heading_bitmap(void);
 
 // Toggle various indicators;
 static const uint8_t kGfxNumNavpoints = 2;

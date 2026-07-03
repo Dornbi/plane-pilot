@@ -10,6 +10,7 @@ static inline void oscar_expand_lzo(char *dst, const char *src) {}
 #endif
 
 #include "color.h"
+#include "gfx.h"
 #include "mem.h"
 #include "model.h"
 #include "panel.h"
@@ -110,6 +111,8 @@ void view_refresh_panel() {
   oscar_expand_lzo(kColorDst, kPanelColorCompressed);
   if (view_bitmap_state != VIEW_CENTER) {
     oscar_expand_lzo(kBitmapDst, kPanelBitmapCompressed);
+    // The expansion overwrote the heading strip with the default bitmap.
+    gfx_invalidate_heading_bitmap();
   }
   view_bitmap_state = view_state;
   if (view_state == VIEW_CENTER) {

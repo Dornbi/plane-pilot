@@ -154,10 +154,22 @@ static const char *const kHeadingBitmaps[] = {
 };
 static const char *kHeadingDest = (const char *)0xF5C8;
 
+// Last heading drawn into the panel bitmap; 0xFF (not a valid heading)
+// forces a redraw after the bitmap has been re-expanded.
+static uint8_t _heading_bitmap_cache = 0xFF;
+
+void gfx_invalidate_heading_bitmap(void) { _heading_bitmap_cache = 0xFF; }
+
 inline void gfx_update_heading_bitmap(uint8_t heading) {
   if (mem_debug_enabled || view_state != VIEW_CENTER) {
     return;
   }
+  // The heading strip lives in the (single) panel bitmap, so once drawn it
+  // stays valid until the heading changes or the bitmap is re-expanded.
+  if (heading == _heading_bitmap_cache) {
+    return;
+  }
+  _heading_bitmap_cache = heading;
 
   static const uint8_t kHeadingCharMax = kHeadingMax / 4;
   uint8_t heading_ch = (heading >> 2) + 3;
