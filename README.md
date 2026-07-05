@@ -28,6 +28,19 @@ Alternatively, download the [ppilot.prg](bin/ppilot.prg) binary and upload it to
 - https://retrogamecoders.com/c64-emulator/ (online)
 - [VICE](https://vice-emu.sourceforge.io/) (offline)
 
+## Updates
+
+### 2026-07-05
+
+- Added support for polygons: runway, lakes
+- There is a 32x16 basic map now (map view coming)
+- Added support for side views (left and right)
+- Many optimizations and bug fixes
+
+### 2026-04-30
+
+- First release.
+
 ## Features
 
 What you can do in Plane Pilot:
@@ -35,6 +48,7 @@ What you can do in Plane Pilot:
 - Fly around in the world
 - Render the horizon with gradients
 - Basic 3D feel by rendering moving dots on the ground
+- Some objects (runway, lakes, etc.) as polygons
 - Dashboard and basic instrument panel
 - Basic flight model: speed, altitude, movement, roll, pitch, yaw, stall.
 - Keyboard controls
@@ -43,7 +57,7 @@ What you can do in Plane Pilot:
 What you cannot do:
 
 - There are no goals or opponents
-- No objects beyond the dots - no runway, no takeoff, no landing
+- No interaction with the objects - no takeoff, no landing
 - No joystick support
 - No sound
 
@@ -60,6 +74,8 @@ To fly the plane you can use the following keys:
 | `I` `J` `K` `L` | Roll and pitch                         |
 | `A` `S`         | Yaw                                    |
 | `+` `-`         | Throttle up and down                   |
+| `1` `2` `3`     | Look left, forward, right              |
+| `N`             | Toggle Nav point 1 / 2 (runways)       |
 | `D`             | Toggle debug info                      |
 | `R`             | Reset to starting state                |
 | `T`             | Reset to alternate starting state      |
