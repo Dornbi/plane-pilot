@@ -37,6 +37,7 @@ static uint8_t _model_nav_heading;
 static const int32_t kMinEyeZ = 0x2000;
 static const int32_t kStallSpeed = 0x0400;
 static const int32_t kMaxSpeed = 0x0F00;
+static const int16_t kTrimLift = 0x1000;
 static const uint8_t kMinThrottle = 0x00;
 static const uint8_t kMaxThrottle = 0x18;
 static const int16_t kMoveForwardBackwardSpeed = 0x4000;
@@ -89,19 +90,6 @@ void model_init_alt() {
 
 inline void model_reset_fuel() { _model_fuel = 0x21FFF; }
 
-static void _model_stall() {
-  static mat3_t mat_stall;
-  mat_stall.up = make_vector(0, 0, 256);
-  vec_cross(&mat_stall.up, &model_cam.front, &mat_stall.left);
-  vec_normalize(&mat_stall.left);
-  vec_cross(&mat_stall.left, &mat_stall.up, &mat_stall.front);
-  mat_stall.up.x -= mat_stall.front.x >> 5;
-  mat_stall.up.y -= mat_stall.front.y >> 5;
-  mat_stall.front.z += 8;
-  vec_transform3_inv(&mat_stall, &model_cam);
-  _model_need_normalize = true;
-}
-
 static void _move_forward(int16_t fspeed, int16_t vspeed) {
   world_eye_x += vec_fastmul8p8(model_cam.front.x, fspeed);
   world_eye_y += vec_fastmul8p8(model_cam.front.y, fspeed);
@@ -117,13 +105,23 @@ void model_advance() {
   _model_vspeed = vec_fastmul8p8(model_cam.front.z, _model_speed);
   if (!model_paused) {
     // Speed: Air resistance, gravity, trhottle
-    _model_speed -= vec_fastsqr8p8(_model_speed) >> 10;
+    uint16_t speed_sqr = vec_fastsqr8p8(_model_speed);
+    _model_speed -= speed_sqr >> 10;
     _model_speed -= model_cam.front.z >> 3;
     _model_speed += _model_throttle;
+
+    int16_t lift = vec_fastmul8p8((int16_t)(speed_sqr >> 2), model_cam.up.z);
+    int16_t deficit = kTrimLift - lift;
+    if (deficit > 0) {
+      _model_vspeed -= deficit >> 5;
+      _model_speed -= deficit >> 10;
+    }
+
     if (_model_speed < 0) {
       _model_speed = 0;
     } else if (_model_speed < kStallSpeed) {
-      _model_stall();
+      model_cam.front.z -= 8;
+      _model_need_normalize = true;
     } else if (_model_speed > kMaxSpeed) {
       _model_speed = kMaxSpeed;
     }
