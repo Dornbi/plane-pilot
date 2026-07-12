@@ -56,20 +56,20 @@ uint8_t *mem_screen_row_ptrs[kViewportHeight];
 // Reuse kSpriteDataCompressed.
 uint8_t *const mem_color_buffer = kSpriteDataCompressed;
 uint8_t *const mem_color_row_ptrs[kViewportHeight] = {
-    mem_color_buffer + kViewportWidth * 0,
-    mem_color_buffer + kViewportWidth * 1,
-    mem_color_buffer + kViewportWidth * 2,
-    mem_color_buffer + kViewportWidth * 3,
-    mem_color_buffer + kViewportWidth * 4,
-    mem_color_buffer + kViewportWidth * 5,
-    mem_color_buffer + kViewportWidth * 6,
-    mem_color_buffer + kViewportWidth * 7,
-    mem_color_buffer + kViewportWidth * 8,
-    mem_color_buffer + kViewportWidth * 9,
-    mem_color_buffer + kViewportWidth * 10,
-    mem_color_buffer + kViewportWidth * 11,
-    mem_color_buffer + kViewportWidth * 12,
-    mem_color_buffer + kViewportWidth * 13};
+    kSpriteDataCompressed + kViewportWidth * 0,
+    kSpriteDataCompressed + kViewportWidth * 1,
+    kSpriteDataCompressed + kViewportWidth * 2,
+    kSpriteDataCompressed + kViewportWidth * 3,
+    kSpriteDataCompressed + kViewportWidth * 4,
+    kSpriteDataCompressed + kViewportWidth * 5,
+    kSpriteDataCompressed + kViewportWidth * 6,
+    kSpriteDataCompressed + kViewportWidth * 7,
+    kSpriteDataCompressed + kViewportWidth * 8,
+    kSpriteDataCompressed + kViewportWidth * 9,
+    kSpriteDataCompressed + kViewportWidth * 10,
+    kSpriteDataCompressed + kViewportWidth * 11,
+    kSpriteDataCompressed + kViewportWidth * 12,
+    kSpriteDataCompressed + kViewportWidth * 13};
 
 // cia2.pra should be volatile __memmap
 #define cia2_pra (*((volatile __memmap byte *)0xDD00))
