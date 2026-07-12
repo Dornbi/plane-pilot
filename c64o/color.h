@@ -20,7 +20,7 @@ static const uint8_t kColorLightBlue = 14;
 static const uint8_t kColorLightGray = 15;
 
 static const uint8_t kColorGround = kColorGreen;
-static const uint8_t kColorGrndObj = kColorOrange;
+static const uint8_t kColorGrndObj = kColorBrown;
 static const uint8_t kColorSky = kColorBlue;
 static const uint8_t kColorGrad1 = kColorCyan;
 static const uint8_t kColorGrad2 = kColorLightBlue;

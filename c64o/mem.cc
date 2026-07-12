@@ -54,7 +54,7 @@ uint8_t *mem_screen_row_ptrs[kViewportHeight];
 
 // uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
 // Reuse kSpriteDataCompressed.
-uint8_t *const mem_color_buffer = kSpriteDataCompressed;
+uint8_t *const mem_color_buffer = (uint8_t *const)kSpriteDataCompressed;
 uint8_t *const mem_color_row_ptrs[kViewportHeight] = {
     kSpriteDataCompressed + kViewportWidth * 0,
     kSpriteDataCompressed + kViewportWidth * 1,
@@ -108,8 +108,6 @@ void mem_init(void) {
 
   // No BASIC or KERNAL or I/O, but can copy CHAR ROM
   char prev = mmap_set(MMAP_CHAR_ROM);
-  // Copy 2k from ROM ($D000-$D7FF) to RAM ($C000-$C7FF)
-  memcpy(kCharRam, (const uint8_t *)0xD800, 0x0800);
 
   // Expand sprite data to the $D000 range.
   mmap_set(MMAP_RAM);
@@ -215,7 +213,7 @@ void mem_switch_debug(bool debug) {
   mem_debug_enabled = debug;
   if (debug) {
     mem_init_mccm();
-    memset(kColorRam + kScreenWidth * kViewportEndY, kColorBg,
+    memset(kColorRam + kScreenWidth * kViewportEndY, kColorBg | 0x08,
            kScreenWidth * (kScreenHeight - kViewportEndY));
     // Reset the bottom rows of both screen buffers: the debug text area
     // alternates between them, and the map view may have overwritten the

@@ -31,7 +31,7 @@ static const char *oscar_expand_lzo(char *dp, const char *sp) { return sp; }
 #endif
 
 const char kGfxCharsCompressed[] = {
-#embed 1024 lzo "gfx_chars.bin"
+#embed 1792 lzo "gfx_chars.bin"
 };
 
 #pragma optimize(push, noasm)
@@ -97,7 +97,6 @@ void gfx_init_raster_irqs(void) {
 }
 
 static inline void _init_solid_chars() {
-  // memset(kCharRam + kCharSolidGround * 8, 0x55, 8);
   memset(kCharRam + kCharSolid11 * 8, 0xFF, 8);
 }
 
@@ -137,7 +136,7 @@ void gfx_project_and_draw(uint8_t color) {
     int16_t py = kViewportHeightPixels / 2 - vec_sy;
     if ((uint16_t)px < (uint16_t)kViewportWidthPixels &&
         (uint16_t)py < (uint16_t)kViewportHeightPixels) {
-      if (color >= 8) {
+      if (color == kColorGround) {
         _draw_ground_point(px, py);
       } else {
         _draw_color_point(px, py, 0x08 | color);

@@ -4,9 +4,10 @@
 #include "bool.h"
 #include <stdint.h>
 
-// Start of range with 16 characters used to draw single pixels.
-static const uint8_t kGfxCharStart = 128;
+// Start of character range where uncompression starts.
+static const uint8_t kGfxCharStart = 32;
 
+// Start of character range with 16 characters used to draw single pixels.
 static const uint8_t kGfxQuadGroundSparse = 128;
 static const uint8_t kGfxQuadGround = 144;
 static const uint8_t kGfxQuad11Sparse = 160;

@@ -15,7 +15,7 @@ static const auto DY_ = MAP_DOT_YELLOW;
 // clang-format off
 const uint8_t KWorldDotColors[7] = {
     kColorBlack,
-    kColorOrange,
+    kColorGround,
     kColorBlack,
     kColorWhite,
     kColorCyan,
