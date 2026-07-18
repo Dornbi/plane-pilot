@@ -204,7 +204,7 @@ void mem_init_mcbm(void) {
   vic.ctrl2 = 0xd8;
 }
 
-void mem_clear_screen(void) {
+__noinline void mem_clear_screen(void) {
   // Fill Screen RAM with character 66 (Border/Solid)
   memset(mem_screen_ram, kCharSolid11, kViewportHeight * kScreenWidth);
 }
