@@ -70,10 +70,10 @@ void print_bcd(uint16_t pos, uint32_t value, uint8_t num_digits) {
   }
 }
 
-void print_signed_bcd(uint16_t pos, int32_t value, uint8_t num_digits) {
+void print_signed_bcd(uint16_t pos, int16_t value, uint8_t num_digits) {
   if (value < 0) {
     *(mem_screen_ram + pos) = '-';
-    print_bcd(++pos, (uint32_t)-value, num_digits);
+    print_bcd(++pos, (uint32_t)(uint16_t)-value, num_digits);
   } else {
     *(mem_screen_ram + pos) = ' ';
     print_bcd(++pos, value, num_digits);
@@ -87,7 +87,7 @@ void print_labeled_bcd(uint16_t pos, const char *label, uint32_t value,
   print_bcd(pos + len, value, num_digits);
 }
 
-void print_labeled_signed_bcd(uint16_t pos, const char *label, int32_t value,
+void print_labeled_signed_bcd(uint16_t pos, const char *label, int16_t value,
                               uint8_t num_digits) {
   const uint8_t len = strlen(label);
   memcpy(mem_screen_ram + pos, label, len);
