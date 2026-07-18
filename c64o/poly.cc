@@ -4,7 +4,6 @@
 #include "chardefs.h"
 #include "fmath.h"
 #include "mem.h"
-#include "print.h"
 #include "vec.h"
 #include <stdint.h>
 
@@ -237,8 +236,8 @@ static inline void _scan_lines(uint8_t fill_char_start_idx) {
       if (sy & 1) {
         shift += 5;
       }
-      print_labeled_bcd(610 + shift, SCREEN_STR("L:"), min_x, 2);
-      print_labeled_bcd(630 + shift, SCREEN_STR("R:"), max_x, 2);
+      print_labeled_bcd(610 + shift, "L:", min_x, 2);
+      print_labeled_bcd(630 + shift, "R:", max_x, 2);
     }
 #endif
   }
@@ -387,10 +386,10 @@ void _scan_lines2(uint8_t fill_char_start_idx, uint8_t color, uint8_t py_start,
 #ifdef __DEBUG_POLY__
     if (false && py >= 6 && py < 14) {
       uint8_t y = py - 6;
-      print_labeled_bcd(610 + y * 40, SCREEN_STR("1:"), t_min, 2);
-      print_labeled_bcd(615 + y * 40, SCREEN_STR("2:"), b_min, 2);
-      print_labeled_bcd(620 + y * 40, SCREEN_STR("1:"), t_max, 2);
-      print_labeled_bcd(625 + y * 40, SCREEN_STR("2:"), b_max, 2);
+      print_labeled_bcd(610 + y * 40, "1:", t_min, 2);
+      print_labeled_bcd(615 + y * 40, "2:", b_min, 2);
+      print_labeled_bcd(620 + y * 40, "1:", t_max, 2);
+      print_labeled_bcd(625 + y * 40, "2:", b_max, 2);
     }
 #endif
   }
@@ -406,8 +405,8 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
 #ifdef __DEBUG_POLY__
   if (true) {
     for (uint8_t y = 0; y < num_vertices; y++) {
-      print_labeled_bcd(610 + y * 40, SCREEN_STR("X:"), vertices[y].x, 2);
-      print_labeled_bcd(620 + y * 40, SCREEN_STR("Y:"), vertices[y].y, 2);
+      print_labeled_bcd(610 + y * 40, "X:", vertices[y].x, 2);
+      print_labeled_bcd(620 + y * 40, "Y:", vertices[y].y, 2);
     }
   }
 #endif
@@ -433,7 +432,7 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
 
   bm_poly_start();
   _clear_buffers(py_start << 1, (py_end << 1) + 1);
-  bm_poly_end(670, SCREEN_STR("CLR:"));
+  bm_poly_end(670, "CLR:");
 
   // 1. Trace all edges
   bm_poly_start();
@@ -445,7 +444,7 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
     _trace_edge_bresenham(vertices[i].x, vertices[i].y, vertices[next].x,
                           vertices[next].y);
   }
-  bm_poly_end(710, SCREEN_STR("TRC:"));
+  bm_poly_end(710, "TRC:");
 
   // 2. Draw the scanlines directly to Screen RAM
   uint8_t color_val = 0;
@@ -454,7 +453,7 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
   }
   bm_poly_start();
   _scan_lines2(fill_char_start_idx, color_val, py_start, py_end);
-  bm_poly_end(750, SCREEN_STR("SCN:"));
+  bm_poly_end(750, "SCN:");
 }
 
 // 3D near clip
@@ -510,13 +509,11 @@ static uint8_t _clip_2d(const vertex16_t *in, uint8_t num_in, vertex16_t *out,
   const uint8_t other = axis ^ 1;
   uint8_t num_out = 0;
   const int16_t *prev = (const int16_t *)&in[num_in - 1];
-  bool prev_inside =
-      keep_greater ? prev[axis] >= limit : prev[axis] <= limit;
+  bool prev_inside = keep_greater ? prev[axis] >= limit : prev[axis] <= limit;
 
   for (uint8_t i = 0; i < num_in; ++i) {
     const int16_t *curr = (const int16_t *)&in[i];
-    bool curr_inside =
-        keep_greater ? curr[axis] >= limit : curr[axis] <= limit;
+    bool curr_inside = keep_greater ? curr[axis] >= limit : curr[axis] <= limit;
 
     if (curr_inside != prev_inside) {
       int16_t *dest = (int16_t *)&out[num_out++];
@@ -622,7 +619,7 @@ __noinline void poly_draw_3d(const vec3_t *vertices, uint8_t num_vertices,
   static vertex_t final_verts[kPolyMax2dVertices];
   bm_poly_start();
   uint8_t n = _project_vertices(vertices, num_vertices, final_verts);
-  bm_poly_end(630, SCREEN_STR("PRJ:"));
+  bm_poly_end(630, "PRJ:");
 
   if (n >= 3) {
     poly_fill(final_verts, n, fill_char_start_idx, color);

@@ -8,7 +8,6 @@
 #include "chardefs.h"
 #include "color.h"
 #include "mem.h"
-#include "print.h"
 #include "render.h"
 
 // The two screen buffers use distinct charset slots (mem_box_char_start
@@ -47,9 +46,9 @@ void box_prepare(void) {
     // The skipped phases would otherwise leave stale CHR:/PRP: values in
     // this buffer, flashing against the other buffer's values.
     bm_view_start();
-    bm_view_end(790, SCREEN_STR("CHR:"));
+    bm_view_end(790, "CHR:");
     bm_view_start();
-    bm_view_end(830, SCREEN_STR("PRP:"));
+    bm_view_end(830, "PRP:");
 
     return;
   }
@@ -68,7 +67,7 @@ void box_prepare(void) {
       break;
     }
   }
-  bm_view_end(790, SCREEN_STR("CHR:"));
+  bm_view_end(790, "CHR:");
 
   // Populate box_chars and box_colors mapping
   bm_view_start();
@@ -102,7 +101,7 @@ void box_prepare(void) {
       }
     }
   }
-  bm_view_end(830, SCREEN_STR("PRP:"));
+  bm_view_end(830, "PRP:");
 }
 
 static void _draw_one_box(int8_t cx, int8_t cy) {
@@ -215,5 +214,5 @@ void box_draw(void) {
     }
   }
 
-  bm_view_end(870, SCREEN_STR("DRW:"));
+  bm_view_end(870, "DRW:");
 }

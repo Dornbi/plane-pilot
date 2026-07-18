@@ -152,7 +152,7 @@ void model_advance() {
     vec_orthonormalize(&model_cam);
     _model_need_normalize = false;
   }
-  bm_model_end(630, SCREEN_STR("MDL:"));
+  bm_model_end(630, "MDL:");
 }
 
 void model_update_instruments() {
@@ -188,27 +188,27 @@ void model_update_instruments() {
 void model_maybe_print_debug() {
 #ifdef __DEBUG_MODEL__
   if (mem_debug_enabled) {
-    print_labeled_signed_bcd(600, SCREEN_STR("FX: "), model_cam.front.x, 4);
-    print_labeled_signed_bcd(610, SCREEN_STR("FY: "), model_cam.front.y, 4);
-    print_labeled_signed_bcd(620, SCREEN_STR("FZ: "), model_cam.front.z, 4);
-    print_labeled_signed_bcd(640, SCREEN_STR("LX: "), model_cam.left.x, 4);
-    print_labeled_signed_bcd(650, SCREEN_STR("LY: "), model_cam.left.y, 4);
-    print_labeled_signed_bcd(660, SCREEN_STR("LZ: "), model_cam.left.z, 4);
-    print_labeled_signed_bcd(680, SCREEN_STR("UX: "), model_cam.up.x, 4);
-    print_labeled_signed_bcd(690, SCREEN_STR("UY: "), model_cam.up.y, 4);
-    print_labeled_signed_bcd(700, SCREEN_STR("UZ: "), model_cam.up.z, 4);
+    print_labeled_signed_bcd(600, "FX: ", model_cam.front.x, 4);
+    print_labeled_signed_bcd(610, "FY: ", model_cam.front.y, 4);
+    print_labeled_signed_bcd(620, "FZ: ", model_cam.front.z, 4);
+    print_labeled_signed_bcd(640, "LX: ", model_cam.left.x, 4);
+    print_labeled_signed_bcd(650, "LY: ", model_cam.left.y, 4);
+    print_labeled_signed_bcd(660, "LZ: ", model_cam.left.z, 4);
+    print_labeled_signed_bcd(680, "UX: ", model_cam.up.x, 4);
+    print_labeled_signed_bcd(690, "UY: ", model_cam.up.y, 4);
+    print_labeled_signed_bcd(700, "UZ: ", model_cam.up.z, 4);
 
-    print_labeled_hex(778, SCREEN_STR("EX:"), world_eye_x, 8);
-    print_labeled_hex(818, SCREEN_STR("EY:"), world_eye_y, 8);
-    print_labeled_hex(858, SCREEN_STR("EZ:"), world_eye_z, 8);
+    print_labeled_hex(778, "EX:", world_eye_x, 8);
+    print_labeled_hex(818, "EY:", world_eye_y, 8);
+    print_labeled_hex(858, "EZ:", world_eye_z, 8);
 
-    print_labeled_signed_bcd(760, SCREEN_STR("NX:"), _model_nav_x);
-    print_labeled_signed_bcd(800, SCREEN_STR("NY:"), _model_nav_y);
-    print_labeled_bcd(840, SCREEN_STR("NAV:"), _model_nav_heading);
+    print_labeled_signed_bcd(760, "NX:", _model_nav_x);
+    print_labeled_signed_bcd(800, "NY:", _model_nav_y);
+    print_labeled_bcd(840, "NAV:", _model_nav_heading);
 
-    print_labeled_bcd(850, SCREEN_STR("HDG:"), _model_true_heading, 3);
-    print_labeled_signed_bcd(920, SCREEN_STR("SPD:"), _model_speed, 4);
-    print_labeled_signed_bcd(960, SCREEN_STR("VSP:"), _model_vspeed, 4);
+    print_labeled_bcd(850, "HDG:", _model_true_heading, 3);
+    print_labeled_signed_bcd(920, "SPD:", _model_speed, 4);
+    print_labeled_signed_bcd(960, "VSP:", _model_vspeed, 4);
   }
 #endif
 }

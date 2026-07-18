@@ -8,7 +8,6 @@
 #include "color.h"
 #include "fmath.h"
 #include "mem.h"
-#include "print.h"
 #include "roll.h"
 
 int16_t render_cx_pixels;
@@ -112,7 +111,7 @@ void render_snap_center_chars() {
           (int8_t)((render_py_pixels - render_alt_shift_y + 4) >> 3);
       render_alt_box = true;
     }
-    bm_view_end(710, SCREEN_STR("SNP:"));
+    bm_view_end(710, "SNP:");
     return;
   }
 
@@ -129,7 +128,7 @@ void render_snap_center_chars() {
     px += roll_dx;
     py += roll_dy;
   }
-  bm_view_end(710, SCREEN_STR("SNP:"));
+  bm_view_end(710, "SNP:");
 }
 
 static void _fill_line(uint8_t *dst, uint8_t val) {
@@ -356,13 +355,13 @@ void render_fill_sky_ground() {
     _fill_sky_ground_no_skip();
   }
 
-  bm_view_end(750, SCREEN_STR("BGR:"));
+  bm_view_end(750, "BGR:");
 
 #ifdef __DEBUG_VIEW__
   if (mem_debug_enabled) {
-    print_labeled_bcd(810, SCREEN_STR("ROL:"), roll_angle, 3);
-    print_labeled_signed_bcd(930, SCREEN_STR("CXP:"), render_cx_pixels, 4);
-    print_labeled_signed_bcd(940, SCREEN_STR("CYP:"), render_cy_pixels, 4);
+    print_labeled_bcd(810, "ROL:", roll_angle, 3);
+    print_labeled_signed_bcd(930, "CXP:", render_cx_pixels, 4);
+    print_labeled_signed_bcd(940, "CYP:", render_cy_pixels, 4);
   }
 #endif
 }

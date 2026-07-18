@@ -6,7 +6,6 @@
 #include "map.h"
 #include "mem.h"
 #include "model.h"
-#include "print.h"
 #include "render.h"
 #include "sprites.h"
 #include "vic.h"
@@ -141,7 +140,7 @@ int main(void) {
       box_prepare();
       box_draw();
       world_render_grid();
-      bm_total(990, SCREEN_STR("TOT:"));
+      bm_total(990, "TOT:");
       mem_switch_buffer();
     } else {
       while (vic.raster != 255)

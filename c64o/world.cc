@@ -239,11 +239,11 @@ __noinline void world_render_grid() {
     }
   }
 
-  bm_model_end(910, SCREEN_STR("GRD:"));
+  bm_model_end(910, "GRD:");
 
 #ifdef __DEBUG_VIEW__
   if (mem_debug_enabled) {
-    print_labeled_bcd(770, SCREEN_STR("GRD:"), _world_grid_radius, 3);
+    print_labeled_bcd(770, "GRD:", _world_grid_radius, 3);
   }
 #endif
 }
@@ -293,12 +293,12 @@ void world_update_sun_pos() {
     sy = 0;
   }
   sprites_set_sun_position(sx, sy);
-  bm_end(670, SCREEN_STR("UPD:"));
+  bm_end(670, "UPD:");
 
 #ifdef __DEBUG_VIEW__
   if (mem_debug_enabled) {
-    print_labeled_signed_bcd(970, SCREEN_STR("SXP:"), sx, 4);
-    print_labeled_signed_bcd(980, SCREEN_STR("SYP:"), sy, 4);
+    print_labeled_signed_bcd(970, "SXP:", sx, 4);
+    print_labeled_signed_bcd(980, "SYP:", sy, 4);
   }
 #endif
 }

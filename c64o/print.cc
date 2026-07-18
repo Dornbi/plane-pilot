@@ -72,10 +72,10 @@ void print_bcd(uint16_t pos, uint32_t value, uint8_t num_digits) {
 
 void print_signed_bcd(uint16_t pos, int32_t value, uint8_t num_digits) {
   if (value < 0) {
-    *(mem_screen_ram + pos) = SCREEN_STR('-');
+    *(mem_screen_ram + pos) = '-';
     print_bcd(++pos, (uint32_t)-value, num_digits);
   } else {
-    *(mem_screen_ram + pos) = SCREEN_STR(' ');
+    *(mem_screen_ram + pos) = ' ';
     print_bcd(++pos, value, num_digits);
   }
 }

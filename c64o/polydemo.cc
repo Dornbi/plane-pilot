@@ -165,8 +165,8 @@ int main() {
         _stripped_world_render_grid(&vkViewPoints[poly]);
         break;
       }
-      print_labeled_bcd(950, SCREEN_STR("POLY:"), poly, 2);
-      print_labeled_bcd(990, SCREEN_STR("MODE:"), mode, 2);
+      print_labeled_bcd(950, "POLY:", poly, 2);
+      print_labeled_bcd(990, "MODE:", mode, 2);
       mem_switch_buffer();
     }
 
