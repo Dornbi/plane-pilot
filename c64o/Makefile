@@ -18,10 +18,16 @@ PPILOT_SRC = \
 		gfx.h \
 		gfx.cc \
 		gfx_chars.bin \
+		help.h \
+		help.cc \
+		keys.h \
+		keys.cc \
 		mem.h \
 		mem.cc \
 		map.h \
 		map.cc \
+		menu.h \
+		menu.cc \
 		mission.h \
 		mission.cc \
 		model.h \
@@ -39,6 +45,10 @@ PPILOT_SRC = \
 		roll_asm.cc \
 		print.h \
 		print.cc \
+		screen.h \
+		screen.cc \
+		sim.h \
+		sim.cc \
 		spritedef.h \
 		spritedef.cc \
 		spritedef.bin \
@@ -67,6 +77,7 @@ POLYDEMO_SRC = \
 		gfx.cc \
 		gfx_chars.bin \
 		keys.h \
+		keys.cc \
 		mem.h \
 		mem.cc \
 		print.h \

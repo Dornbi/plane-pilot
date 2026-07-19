@@ -99,6 +99,13 @@ void gfx_init_raster_irqs(void) {
 
 inline void gfx_stop_raster_irqs(void) { rirq_stop(); }
 
+inline void gfx_wait_vsync(void) {
+  while (vic.raster != 255)
+    ;
+  while (vic.raster == 255)
+    ;
+}
+
 static inline void _init_solid_chars() {
   memset(kCharRam + kCharSolid11 * 8, 0xFF, 8);
 }

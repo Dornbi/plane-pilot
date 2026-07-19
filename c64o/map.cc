@@ -2,23 +2,16 @@
 #include "color.h"
 #include "gfx.h"
 #include "mem.h"
-#include "sprites.h"
+#include "screen.h"
 #include "vic.h"
-#include "view.h"
 #include "world.h"
 
-#ifdef __OSCAR64__
-#include <c64/rasterirq.h>
-#else
-inline void rirq_stop() {}
-inline void rirq_start() {}
-#endif
 #include <string.h>
 
 bool map_mode = false;
 
 void map_enter() {
-  rirq_stop();
+  gfx_stop_raster_irqs();
 
   // Disable sprites
   vic.spr_enable = 0x00;
@@ -58,17 +51,10 @@ void map_enter() {
 }
 
 void map_exit() {
-  if (mem_debug_enabled) {
-    // view_refresh_panel is a no-op in debug mode, but map_enter wiped the
-    // color RAM and the bottom of the main screen; re-entering debug mode
-    // restores them (and the VIC mode).
-    mem_switch_debug(true);
-  } else {
-    mem_init_mccm();
-    view_refresh_panel();
-  }
-  gfx_init_raster_irqs();
-  sprites_init();
+  // screen_restore_simulation() re-applies the debug or default view's VIC
+  // mode and colors (map_enter wiped the color RAM and the bottom of the
+  // main screen), and restarts sprites and the raster IRQ split.
+  screen_restore_simulation();
 
   map_mode = false;
 }

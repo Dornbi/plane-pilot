@@ -2,6 +2,7 @@
 #define KEYS_H
 
 #include "bool.h"
+#include <stdint.h>
 
 #ifdef __OSCAR64__
 #include <c64/keyboard.h>
@@ -14,6 +15,7 @@ enum KeyScanCode {
   KSCAN_A,
   KSCAN_D,
   KSCAN_F,
+  KSCAN_H,
   KSCAN_I,
   KSCAN_J,
   KSCAN_K,
@@ -35,5 +37,19 @@ enum KeyScanCode {
 inline void keyb_poll() {}
 inline bool key_pressed(enum KeyScanCode key) { return false; }
 #endif
+
+// Returns which bits of `current` were not set in `*prev` (i.e. the keys
+// that transitioned from released to pressed since the last call), and
+// updates `*prev` to `current`. Shared by every screen that has toggle keys
+// (menu selection, pause, debug view, map, help, ...) so they act once per
+// key press instead of once per polled frame while the key is held.
+uint8_t keys_edges(uint8_t current, uint8_t *prev);
+
+// Polls the keyboard until `key` is no longer pressed. Used after handling
+// a momentary key (map, help, quit) so the same press isn't seen again on
+// the next loop iteration.
+void keys_wait_release(enum KeyScanCode key);
+
+#pragma compile("keys.cc")
 
 #endif

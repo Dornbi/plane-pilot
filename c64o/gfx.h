@@ -26,6 +26,12 @@ void gfx_init_raster_irqs(void);
 // Stop raster interrupts.
 void gfx_stop_raster_irqs(void);
 
+// Blocks until one vertical blank has passed: waits for the raster to reach
+// line 255, then waits for it to leave line 255 again. Used to pace screens
+// that don't render every frame (menu, help) and by mem_switch_buffer() to
+// avoid flipping the screen mid-frame.
+void gfx_wait_vsync(void);
+
 // Project and draw a single point using vec_project().
 // If color < 8, it uses kGfxColorPoints and sets the color ram.
 // Otherwise it uses kGfxGroundPoints.

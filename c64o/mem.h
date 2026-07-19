@@ -76,6 +76,11 @@ extern bool mem_using_alt_buffer;
 void mem_switch_buffer(void);
 void mem_use_main_buffer(void);
 
+// Sets the VIC-II control registers for Multicolor Character Mode (MCCM),
+// without touching the background/multi-color registers. Used by screens
+// that want MCCM text but not the simulation's terrain colors (menu, help).
+void mem_set_mccm_mode(void);
+
 // Initializes the VIC-II for Multicolor Character Mode (MCCM).
 // Sets the background and multi-color registers.
 void mem_init_mccm(void);

@@ -20,6 +20,7 @@ static const char *oscar_expand_lzo(char *dp, const char *sp) { return sp; }
 #include "benchmark.h"
 #include "chardefs.h"
 #include "color.h"
+#include "gfx.h"
 #include "panel.h"
 #include "sprites.h"
 #include "vic.h"
@@ -161,17 +162,8 @@ static void _copy_color_ram(void) {
   } while (x--);
 }
 
-static void _wait_vsync() {
-  // Wait for the raster to reach line 255
-  while (vic.raster != 255)
-    ;
-  // Wait for it to leave line 255 to avoid double-triggering
-  while (vic.raster == 255)
-    ;
-}
-
 void mem_switch_buffer(void) {
-  _wait_vsync();
+  gfx_wait_vsync();
 
   bm_view_start();
   _copy_color_ram();
@@ -214,14 +206,18 @@ void mem_use_main_buffer(void) {
   }
 }
 
+inline void mem_set_mccm_mode(void) {
+  // Switch to multicolor character mode
+  vic.ctrl1 = 0x1b;
+  vic.ctrl2 = 0xd8;
+}
+
 void mem_init_mccm(void) {
   vic.color_border = kColorBg;
   vic.color_back = kColorGrad2;
   vic.color_back1 = kColorGround;
   vic.color_back2 = kColorGrndObj;
-  // Switch to multicolor character mode
-  vic.ctrl1 = 0x1b;
-  vic.ctrl2 = 0xd8;
+  mem_set_mccm_mode();
 }
 
 void mem_init_mcbm(void) {
