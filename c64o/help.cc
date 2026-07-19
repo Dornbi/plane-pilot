@@ -17,20 +17,13 @@ static const char *const kHelpKeys[] = {
     "M",       "R",   "T",   "F",   "P",     "Q", "H",
 };
 static const char *const kHelpDesc[] = {
-    "ROLL AND PITCH",
-    "YAW",
-    "THROTTLE UP/DOWN",
-    "MOVE FWD/BACK (WHEN PAUSED)",
-    "LOOK LEFT/CENTER/RIGHT",
-    "TOGGLE NAV POINT",
-    "TOGGLE DEBUG VIEW",
-    "TOGGLE MAP VIEW",
-    "RESTART MISSION",
-    "RESET TO ALT. START",
-    "RESET TO MAX FUEL",
-    "PAUSE / RESUME",
-    "QUIT TO MENU",
-    "SHOW THIS HELP SCREEN",
+    "ROLL AND PITCH",         "YAW",
+    "THROTTLE UP/DOWN",       "MOVE FWD/BACK (WHEN PAUSED)",
+    "LOOK LEFT/CENTER/RIGHT", "TOGGLE NAV POINT",
+    "TOGGLE DEBUG VIEW",      "TOGGLE MAP VIEW",
+    "RESTART MISSION",        "RESET TO ALT. START",
+    "RESET TO MAX FUEL",      "PAUSE / RESUME",
+    "QUIT TO MENU",           "SHOW THIS HELP SCREEN",
 };
 static const uint8_t kHelpCount = sizeof(kHelpKeys) / sizeof(kHelpKeys[0]);
 
@@ -59,12 +52,14 @@ void help_run(void) {
 
   while (1) {
     keyb_poll();
-    if (key_pressed(KSCAN_RETURN) || key_pressed(KSCAN_SPACE)) {
+    if (key_pressed(KSCAN_RETURN) || key_pressed(KSCAN_SPACE) ||
+        key_pressed(KSCAN_Q)) {
       break;
     }
     gfx_wait_vsync();
   }
-  while (key_pressed(KSCAN_RETURN) || key_pressed(KSCAN_SPACE)) {
+  while (key_pressed(KSCAN_RETURN) || key_pressed(KSCAN_SPACE) ||
+         key_pressed(KSCAN_Q)) {
     keyb_poll();
   }
 }
