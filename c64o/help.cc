@@ -12,19 +12,40 @@
 
 // Keep in sync with the key handling in menu.cc and sim.cc, and
 // with the "Controls" table in README.md.
+// clang-format off
 static const char *const kHelpKeys[] = {
-    "I J K L", "A S", "+ -", "Z X", "1 2 3", "N", "D",
-    "M",       "R",   "T",   "F",   "P",     "Q", "H",
+    "I J K L",
+    "A S",
+    "+ -",
+    "Z X",
+    "1 2 3",
+    "N",
+    "D",
+    "M",
+    "R",
+    "T",
+    "F",
+    "P",
+    "Q",
+    "H",
 };
 static const char *const kHelpDesc[] = {
-    "ROLL AND PITCH",         "YAW",
-    "THROTTLE UP/DOWN",       "MOVE FWD/BACK (WHEN PAUSED)",
-    "LOOK LEFT/CENTER/RIGHT", "TOGGLE NAV POINT",
-    "TOGGLE DEBUG VIEW",      "TOGGLE MAP VIEW",
-    "RESTART MISSION",        "RESET TO ALT. START",
-    "RESET TO MAX FUEL",      "PAUSE / RESUME",
-    "QUIT TO MENU",           "SHOW THIS HELP SCREEN",
+    "ROLL AND PITCH",
+    "YAW",
+    "THROTTLE UP/DOWN",
+    "MOVE FWD/BACK (WHEN PAUSED)",
+    "LOOK LEFT/CENTER/RIGHT",
+    "TOGGLE NAV POINT",
+    "TOGGLE DEBUG VIEW",
+    "TOGGLE MAP VIEW",
+    "RESTART MISSION",
+    "RESET TO ALT. START",
+    "RESET TO MAX FUEL",
+    "PAUSE / RESUME",
+    "QUIT TO MENU",
+    "SHOW THIS HELP SCREEN",
 };
+// clang-format on
 static const uint8_t kHelpCount = sizeof(kHelpKeys) / sizeof(kHelpKeys[0]);
 
 static const uint8_t kHelpRowStart = 2;
