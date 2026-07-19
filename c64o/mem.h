@@ -56,7 +56,7 @@ static uint8_t *const kColorRam = (uint8_t *)0xD800;
 // Current screen ram.
 extern uint8_t *mem_screen_ram;
 // Multiply by 40 for screen row offset for the viewport.
-extern uint8_t *mem_screen_row_ptrs[kViewportHeight];
+extern uint8_t *mem_screen_row_ptrs[kScreenHeight];
 
 // Color buffer. Unlike the screen ram, this is fixed.
 // extern uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
@@ -74,6 +74,7 @@ void mem_init(void);
 // @result screen_ram
 extern bool mem_using_alt_buffer;
 void mem_switch_buffer(void);
+void mem_use_main_buffer(void);
 
 // Initializes the VIC-II for Multicolor Character Mode (MCCM).
 // Sets the background and multi-color registers.

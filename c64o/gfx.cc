@@ -26,6 +26,7 @@ static void rirq_call(RIRQCode *ic, uint8_t n, void *addr) {}
 static void rirq_set(uint8_t n, uint8_t raster, RIRQCode *ic) {}
 static void rirq_sort(void) {}
 static void rirq_start(void) {}
+static void rirq_stop(void) {}
 
 static const char *oscar_expand_lzo(char *dp, const char *sp) { return sp; }
 #endif
@@ -95,6 +96,8 @@ void gfx_init_raster_irqs(void) {
   rirq_sort();
   rirq_start();
 }
+
+inline void gfx_stop_raster_irqs(void) { rirq_stop(); }
 
 static inline void _init_solid_chars() {
   memset(kCharRam + kCharSolid11 * 8, 0xFF, 8);

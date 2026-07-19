@@ -1,22 +1,17 @@
 #include "mission.h"
 
+#include "print.h"
+
 const char *const kMissionTitles[] = {
-    "Takeoff",
-    "Landing",
+    "TAKEOFF",
+    "LANDING",
 };
 
 const char *const kMissionDesc[] = {
-    "Hands on the throttle, lift the plane into the air and reach 1000ft!",
-    "You are on final on runway 1. Land safely!",
-};
-
-const char *const kMissionStrings[] = {
-    "Takeoff",
-    "Takeoff from the runway. Hands on the\n"
-    "throttle, lift the plane in the air\n"
-    "and reach an altitude of 1000ft!",
-    "Landing",
-    "You are on final on runway 1. Land safely!",
+    "HANDS ON THE THROTTLE, LIFT THE\n"
+    "PLANE, AND CLIMB TO 1000FT.",
+    "YOU ARE ON FINAL ON RUNWAY 1.\n"
+    "LAND SAFELY!",
 };
 
 const mission_waypoint_t kMissionWaypoints[] = {

@@ -3,7 +3,9 @@
 #include <stdint.h>
 #include <string.h>
 
+// Declare these as external dependency instead
 extern uint8_t *mem_screen_ram;
+extern uint8_t *mem_screen_row_ptrs[25];
 
 static uint8_t _print_bcd_result[4];
 
@@ -51,6 +53,11 @@ void _print_convert_to_bcd(uint32_t value) {
 
 inline void print_label(uint16_t pos, const char *label) {
   memcpy(mem_screen_ram + pos, label, strlen(label));
+}
+
+inline void print_str(uint8_t row, uint8_t col, const char *label,
+                      uint8_t num_chars) {
+  memcpy(mem_screen_row_ptrs[row] + col, label, num_chars);
 }
 
 void print_bcd(uint16_t pos, uint32_t value, uint8_t num_digits) {
@@ -116,4 +123,19 @@ void print_labeled_hex(uint16_t pos, const char *label, uint32_t value,
   const uint8_t len = strlen(label);
   memcpy(mem_screen_ram + pos, label, len);
   print_hex(pos + len, value, num_digits);
+}
+
+uint8_t print_lines(uint8_t row, uint8_t col, const char *text) {
+  uint8_t c = 0;
+  for (;;) {
+    const char *p = strchr(text, '\n');
+    if (p == nullptr) {
+      break;
+    }
+    print_str(row + c, col, text, p - text);
+    ++c;
+    text = p + 1;
+  }
+  print_str(row + c, col, text, strlen(text));
+  return c + 1;
 }

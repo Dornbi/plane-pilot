@@ -23,6 +23,9 @@ void gfx_init_chars(void);
 // Init raster interrupts.
 void gfx_init_raster_irqs(void);
 
+// Stop raster interrupts.
+void gfx_stop_raster_irqs(void);
+
 // Project and draw a single point using vec_project().
 // If color < 8, it uses kGfxColorPoints and sets the color ram.
 // Otherwise it uses kGfxGroundPoints.

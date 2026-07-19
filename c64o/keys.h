@@ -21,6 +21,7 @@ enum KeyScanCode {
   KSCAN_M,
   KSCAN_N,
   KSCAN_P,
+  KSCAN_Q,
   KSCAN_R,
   KSCAN_S,
   KSCAN_T,
@@ -28,6 +29,7 @@ enum KeyScanCode {
   KSCAN_Z,
   KSCAN_PLUS,
   KSCAN_MINUS,
+  KSCAN_RETURN,
 };
 
 inline void keyb_poll() {}

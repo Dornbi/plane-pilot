@@ -1,8 +1,10 @@
 #ifndef MODEL_H
 #define MODEL_H
 
-#include "vec.h"
 #include <stdint.h>
+
+#include "mission.h"
+#include "vec.h"
 
 enum model_input_t {
   MODEL_INPUT_NONE,
@@ -25,6 +27,8 @@ extern bool model_paused;
 void model_init();
 void model_init_alt();
 void model_reset_fuel();
+
+void model_init_from_mission(const mission_t *mission);
 
 // Provides input to the model.
 void model_input(enum model_input_t input);

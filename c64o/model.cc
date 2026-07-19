@@ -88,6 +88,21 @@ void model_init_alt() {
   model_reset_fuel();
 }
 
+void model_init_from_mission(const mission_t *mission) {
+  model_cam = _m_init;
+  world_eye_x = (int32_t)mission->start_x << 16;
+  world_eye_y = ((int32_t)mission->start_y << 16) + 0x8000;
+  world_eye_z = (int32_t)mission->start_z << 16;
+  _model_speed = (int16_t)mission->start_speed << 4;
+  _model_throttle = mission->start_throttle;
+  _model_fuel =
+      mission->start_fuel ? (((uint32_t)mission->start_fuel << 12) - 1) : 0;
+  _model_need_normalize = false;
+  _model_flap = false;
+  _model_gear = false;
+  _model_nav = (mission->start_y >= 0x80) ? 1 : 0;
+}
+
 inline void model_reset_fuel() { _model_fuel = 0x21FFF; }
 
 static void _move_forward(int16_t fspeed, int16_t vspeed) {

@@ -31,26 +31,38 @@ uint8_t mem_box_char_start;
 bool mem_debug_enabled;
 bool mem_using_alt_buffer;
 
-static uint8_t *const kScreenRowPtrsMain[kViewportHeight] = {
+static uint8_t *const kScreenRowPtrsMain[kScreenHeight] = {
     kScreenRamMain + kScreenWidth * 0,  kScreenRamMain + kScreenWidth * 1,
     kScreenRamMain + kScreenWidth * 2,  kScreenRamMain + kScreenWidth * 3,
     kScreenRamMain + kScreenWidth * 4,  kScreenRamMain + kScreenWidth * 5,
     kScreenRamMain + kScreenWidth * 6,  kScreenRamMain + kScreenWidth * 7,
     kScreenRamMain + kScreenWidth * 8,  kScreenRamMain + kScreenWidth * 9,
     kScreenRamMain + kScreenWidth * 10, kScreenRamMain + kScreenWidth * 11,
-    kScreenRamMain + kScreenWidth * 12, kScreenRamMain + kScreenWidth * 13};
+    kScreenRamMain + kScreenWidth * 12, kScreenRamMain + kScreenWidth * 13,
+    kScreenRamMain + kScreenWidth * 14, kScreenRamMain + kScreenWidth * 15,
+    kScreenRamMain + kScreenWidth * 16, kScreenRamMain + kScreenWidth * 17,
+    kScreenRamMain + kScreenWidth * 18, kScreenRamMain + kScreenWidth * 19,
+    kScreenRamMain + kScreenWidth * 20, kScreenRamMain + kScreenWidth * 21,
+    kScreenRamMain + kScreenWidth * 22, kScreenRamMain + kScreenWidth * 23,
+    kScreenRamMain + kScreenWidth * 24};
 
-static uint8_t *const kScreenRowPtrsAlt[kViewportHeight] = {
+static uint8_t *const kScreenRowPtrsAlt[kScreenHeight] = {
     kScreenRamAlt + kScreenWidth * 0,  kScreenRamAlt + kScreenWidth * 1,
     kScreenRamAlt + kScreenWidth * 2,  kScreenRamAlt + kScreenWidth * 3,
     kScreenRamAlt + kScreenWidth * 4,  kScreenRamAlt + kScreenWidth * 5,
     kScreenRamAlt + kScreenWidth * 6,  kScreenRamAlt + kScreenWidth * 7,
     kScreenRamAlt + kScreenWidth * 8,  kScreenRamAlt + kScreenWidth * 9,
     kScreenRamAlt + kScreenWidth * 10, kScreenRamAlt + kScreenWidth * 11,
-    kScreenRamAlt + kScreenWidth * 12, kScreenRamAlt + kScreenWidth * 13};
+    kScreenRamAlt + kScreenWidth * 12, kScreenRamAlt + kScreenWidth * 13,
+    kScreenRamAlt + kScreenWidth * 14, kScreenRamAlt + kScreenWidth * 15,
+    kScreenRamAlt + kScreenWidth * 16, kScreenRamAlt + kScreenWidth * 17,
+    kScreenRamAlt + kScreenWidth * 18, kScreenRamAlt + kScreenWidth * 19,
+    kScreenRamAlt + kScreenWidth * 20, kScreenRamAlt + kScreenWidth * 21,
+    kScreenRamAlt + kScreenWidth * 22, kScreenRamAlt + kScreenWidth * 23,
+    kScreenRamAlt + kScreenWidth * 24};
 
 uint8_t *mem_screen_ram;
-uint8_t *mem_screen_row_ptrs[kViewportHeight];
+uint8_t *mem_screen_row_ptrs[kScreenHeight];
 
 // uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
 // Reuse kSpriteDataCompressed.
@@ -186,6 +198,20 @@ void mem_switch_buffer(void) {
     cli;
   }
   mem_using_alt_buffer = !mem_using_alt_buffer;
+}
+
+void mem_use_main_buffer(void) {
+  __asm {
+    sei;
+  }
+  vic_memptr = kVicMemScreenMain;
+  mem_screen_ram = kScreenRamMain;
+  mem_screen_row_ptrs = kScreenRowPtrsMain;
+  mem_box_char_start = 0x01;
+  mem_using_alt_buffer = false;
+  __asm {
+    cli;
+  }
 }
 
 void mem_init_mccm(void) {

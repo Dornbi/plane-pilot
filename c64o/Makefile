@@ -22,6 +22,8 @@ PPILOT_SRC = \
 		mem.cc \
 		map.h \
 		map.cc \
+		mission.h \
+		mission.cc \
 		model.h \
 		model.cc \
 		panel.h \
