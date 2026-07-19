@@ -12,17 +12,19 @@
 #include "screen.h"
 #include "vic.h"
 
+// The routines below only run on screen transitions (menu, help, map) or at
+// startup, never inside the per-frame simulation loop, so the outliner's
+// size-for-a-JSR trade costs nothing that matters here. It stays off
+// globally so the renderer and the raster IRQ handlers keep their
+// straight-line code.
+#pragma optimize(push, outline)
+
+
 static const uint8_t kMissionRowStart = 4;
 static const uint8_t kMissionRowStep = 4;
 
 static void _enter_menu() {
-  screen_enter_static_mccm();
-
-  vic.color_border = kColorBlack;
-  vic.color_back = kColorWhite;
-
-  memset(kScreenRamMain, 32, 1000);
-  memset(kColorRam, kColorBlack, 1000);
+  screen_begin_text_page();
 
   print_str(0, 14, STRL("PLANE PILOT"));
   print_str(2, 0, STRL("SELECT MISSION:"));
@@ -101,3 +103,5 @@ uint8_t menu_run() {
     gfx_wait_vsync();
   }
 }
+
+#pragma optimize(pop)

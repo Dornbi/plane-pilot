@@ -36,6 +36,10 @@ void view_update_cam() {
   world_cam.up = model_cam.up;
 }
 
+// Panel rebuilding runs only when the view changes (a keypress), never from
+// the per-frame render path, so the outliner's trade is free here.
+#pragma optimize(push, outline)
+
 static char *const kBitmapDst = (char *)0xF000;
 static char *const kScreenDst = (char *)0xEE30;
 static char *const kColorDst = (char *)0xDA30;
@@ -148,3 +152,5 @@ void view_update_view(view_state_t new_state) {
     view_refresh_panel();
   }
 }
+
+#pragma optimize(pop)

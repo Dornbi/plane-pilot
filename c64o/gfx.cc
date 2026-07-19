@@ -81,6 +81,10 @@ static void _switch_to_terrain() {
 
 RIRQCode _rirq_panel_top, _rirq_panel_bottom, _rirq_terrain;
 
+// Raster-IRQ setup and charset loading; one-off, not per frame. The IRQ
+// handlers themselves are above and are deliberately left alone.
+#pragma optimize(push, outline)
+
 void gfx_init_raster_irqs(void) {
   rirq_init(/*kernalIRQ=*/false);
   rirq_build(&_rirq_panel_top, 1);
@@ -114,6 +118,8 @@ void gfx_init_chars(void) {
   _init_solid_chars();
   oscar_expand_lzo((char *)kCharRam + kGfxCharStart * 8, kGfxCharsCompressed);
 }
+
+#pragma optimize(pop)
 
 static inline void _draw_ground_point(int16_t px, int16_t py) {
   uint8_t cx = (uint16_t)px >> 3;

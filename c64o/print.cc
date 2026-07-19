@@ -7,6 +7,11 @@
 extern uint8_t *mem_screen_ram;
 extern uint8_t *mem_screen_row_ptrs[25];
 
+// Only reached on screen transitions and in the debug view, never from the
+// per-frame render path, so the outliner's size-for-a-JSR trade is free here.
+#pragma optimize(push, outline)
+
+
 static uint8_t _print_bcd_result[4];
 
 void _print_convert_to_bcd(uint32_t value) {
@@ -139,3 +144,5 @@ uint8_t print_lines(uint8_t row, uint8_t col, const char *text) {
   print_str(row + c, col, text, strlen(text));
   return c + 1;
 }
+
+#pragma optimize(pop)

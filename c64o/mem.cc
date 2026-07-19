@@ -108,6 +108,9 @@ static void _expand_panel_screen_color() {
   oscar_expand_lzo((char *)0xda30, kPanelColorCompressed);
 }
 
+// Startup and mode-switch helpers; none of these run per frame.
+#pragma optimize(push, outline)
+
 void mem_init(void) {
   mmap_trampoline();
 
@@ -150,6 +153,8 @@ void mem_init(void) {
   mem_debug_enabled = false;
 }
 
+#pragma optimize(pop)
+
 static void _copy_color_ram(void) {
   uint8_t *dst = kColorRam + kViewportStartX;
   const uint8_t *src = mem_color_buffer;
@@ -191,6 +196,9 @@ void mem_switch_buffer(void) {
   }
   mem_using_alt_buffer = !mem_using_alt_buffer;
 }
+
+// Startup and mode-switch helpers; none of these run per frame.
+#pragma optimize(push, outline)
 
 void mem_use_main_buffer(void) {
   __asm {
@@ -245,3 +253,5 @@ void mem_switch_debug(bool debug) {
     view_refresh_panel();
   }
 }
+
+#pragma optimize(pop)

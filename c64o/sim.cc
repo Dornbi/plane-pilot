@@ -18,6 +18,10 @@
 #include "view.h"
 #include "world.h"
 
+// Only reached on screen transitions and in the debug view, never from the
+// per-frame render path, so the outliner's size-for-a-JSR trade is free here.
+#pragma optimize(push, outline)
+
 static void _enter_simulation(uint8_t selected_mission) {
   memset(kScreenRamMain, kCharSolid11, 1000);
   memset(kScreenRamAlt, kCharSolid11, 1000);
@@ -32,6 +36,8 @@ static void _enter_simulation(uint8_t selected_mission) {
   gfx_init_raster_irqs();
   render_snap_center_chars();
 }
+
+#pragma optimize(pop)
 
 void sim_run(uint8_t selected_mission) {
   _enter_simulation(selected_mission);
