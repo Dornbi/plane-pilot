@@ -201,9 +201,6 @@ void mem_use_main_buffer(void) {
   mem_screen_row_ptrs = kScreenRowPtrsMain;
   mem_box_char_start = 0x01;
   mem_using_alt_buffer = false;
-  __asm {
-    cli;
-  }
 }
 
 inline void mem_set_mccm_mode(void) {
