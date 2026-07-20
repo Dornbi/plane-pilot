@@ -7,7 +7,7 @@ const char *const kMissionTitles[] = {
 
 const char *const kMissionDesc[] = {
     "HANDS ON THE THROTTLE, LIFT THE\n"
-    "PLANE, AND CLIMB TO 1000FT.",
+    "PLANE AND CLIMB TO 1000FT.",
     "YOU ARE ON FINAL ON RUNWAY 1.\n"
     "LAND SAFELY!",
 };
