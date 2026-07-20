@@ -26,7 +26,7 @@ static void _enter_menu() {
   screen_begin_text_page();
 
   print_str(0, 14, STRL("PLANE PILOT"));
-  print_str(2, 0, STRL("SELECT MISSION:"));
+  print_str(2, 12, STRL("SELECT MISSION:"));
 
   uint8_t row = kMissionRowStart;
   for (uint8_t i = 0; i < kMissionCount; ++i) {
@@ -34,7 +34,7 @@ static void _enter_menu() {
     print_lines(row + 1, 4, kMissionDesc[i]);
     row += kMissionRowStep;
   }
-  print_str(row + 2, 0, STRL("PRESS H FOR HELP"));
+  print_str(row + 2, 11, STRL("PRESS H FOR HELP"));
 }
 
 static void _draw_mission_cursor(uint8_t selected_mission, bool draw) {

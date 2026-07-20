@@ -19,7 +19,7 @@ const mission_waypoint_t kMissionWaypoints[] = {
 
 const mission_t kMissions[] = {
     // Takeoff mission
-    {0x18, // x
+    {0x1C, // x
      0x3F, // y
      0x00, // z
      0x00, // speed
@@ -30,11 +30,11 @@ const mission_t kMissions[] = {
      1,    // num_waypoints
      {0}},
     // Landing mission
-    {0x14, // x
+    {0x10, // x
      0x3F, // y
-     0x01, // z
-     0x86, // speed
-     0x14, // throttle
+     0x02, // z
+     0x60, // speed
+     0x02, // throttle
      0x22, // fuel
      0x00, // wind_x
      0x00, // wind_y

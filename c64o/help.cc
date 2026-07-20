@@ -13,7 +13,6 @@
 // straight-line code.
 #pragma optimize(push, outline)
 
-
 // Keep in sync with the key handling in menu.cc and sim.cc, and
 // with the "Controls" table in README.md.
 //
@@ -25,16 +24,17 @@ static const char kHelpText[] =
     "I J K L   ROLL AND PITCH\n"
     "A S       YAW\n"
     "+ -       THROTTLE UP/DOWN\n"
-    "Z X       MOVE FWD/BACK (WHEN PAUSED)\n"
     "1 2 3     LOOK LEFT/CENTER/RIGHT\n"
     "N         TOGGLE NAV POINT\n"
-    "D         TOGGLE DEBUG VIEW\n"
     "M         TOGGLE MAP VIEW\n"
-    "R         RESTART MISSION\n"
-    "T         RESET TO ALT. START\n"
-    "F         RESET TO MAX FUEL\n"
     "P         PAUSE / RESUME\n"
+    "R         RESTART MISSION\n"
     "Q         QUIT TO MENU\n"
+    "\n"
+    "D         TOGGLE DEBUG VIEW\n"
+    "Z X       MOVE FWD/BACK (WHEN PAUSED)\n"
+    "F         RESET TO MAX FUEL\n"
+    "\n"
     "H         SHOW THIS HELP SCREEN";
 // clang-format on
 
@@ -46,8 +46,7 @@ void help_run(void) {
 
   print_str(0, 11, STRL("KEYBOARD CONTROLS"));
   const uint8_t rows = print_lines(kHelpRowStart, kHelpKeyCol, kHelpText);
-  print_str(kHelpRowStart + rows + 2, kHelpKeyCol,
-            STRL("RETURN OR SPACE TO GO BACK"));
+  print_str(kHelpRowStart + rows + 2, 7, STRL("RETURN OR SPACE TO GO BACK"));
 
   while (1) {
     keyb_poll();

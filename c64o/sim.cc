@@ -83,9 +83,6 @@ void sim_run(uint8_t selected_mission) {
       if (key_pressed(KSCAN_R)) {
         model_init_from_mission(&kMissions[selected_mission]);
       }
-      if (key_pressed(KSCAN_T)) {
-        model_init_alt();
-      }
       if (key_pressed(KSCAN_F)) {
         model_reset_fuel();
       }

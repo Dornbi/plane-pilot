@@ -24,11 +24,9 @@ enum model_input_t {
 extern mat3_t model_cam;
 extern bool model_paused;
 
-void model_init();
-void model_init_alt();
-void model_reset_fuel();
-
 void model_init_from_mission(const mission_t *mission);
+
+void model_reset_fuel();
 
 // Provides input to the model.
 void model_input(enum model_input_t input);
