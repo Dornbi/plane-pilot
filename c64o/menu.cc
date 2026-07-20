@@ -19,7 +19,6 @@
 // straight-line code.
 #pragma optimize(push, outline)
 
-
 static const uint8_t kMissionRowStart = 4;
 static const uint8_t kMissionRowStep = 4;
 
@@ -35,7 +34,7 @@ static void _enter_menu() {
     print_lines(row + 1, 4, kMissionDesc[i]);
     row += kMissionRowStep;
   }
-  print_str(row + 2, 2, STRL("PRESS H FOR HELP"));
+  print_str(row + 2, 0, STRL("PRESS H FOR HELP"));
 }
 
 static void _draw_mission_cursor(uint8_t selected_mission, bool draw) {
@@ -77,20 +76,22 @@ uint8_t menu_run() {
     }
     const uint8_t menu_edges = keys_edges(menu_toggles, &prev_menu_toggles);
 
+    _draw_mission_cursor(selected_mission, false);
     if (menu_edges & kMenuKeyI) {
       if (selected_mission > 0) {
-        _draw_mission_cursor(selected_mission, false);
         selected_mission--;
-        _draw_mission_cursor(selected_mission, true);
+      } else {
+        selected_mission = kMissionCount - 1;
       }
     }
     if (menu_edges & kMenuKeyK) {
       if (selected_mission < kMissionCount - 1) {
-        _draw_mission_cursor(selected_mission, false);
         selected_mission++;
-        _draw_mission_cursor(selected_mission, true);
+      } else {
+        selected_mission = 0;
       }
     }
+    _draw_mission_cursor(selected_mission, true);
     if (menu_edges & (kMenuKeySpace | kMenuKeyReturn)) {
       return selected_mission;
     }

@@ -1,10 +1,8 @@
 #include "mission.h"
 
-#include "print.h"
-
 const char *const kMissionTitles[] = {
-    "TAKEOFF",
-    "LANDING",
+    "01 TAKEOFF",
+    "02 LANDING",
 };
 
 const char *const kMissionDesc[] = {
