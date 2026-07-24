@@ -47,6 +47,8 @@ void sim_run(uint8_t selected_mission) {
   static const uint8_t kToggleKeyP = 0x01;
   static const uint8_t kToggleKeyD = 0x02;
   static const uint8_t kToggleKeyN = 0x04;
+  static const uint8_t kToggleKeyF = 0x08;
+  static const uint8_t kToggleKeyG = 0x10;
   uint8_t prev_toggles = 0;
 
   while (1) {
@@ -62,6 +64,12 @@ void sim_run(uint8_t selected_mission) {
     }
     if (key_pressed(KSCAN_N)) {
       toggles |= kToggleKeyN;
+    }
+    if (key_pressed(KSCAN_F)) {
+      toggles |= kToggleKeyF;
+    }
+    if (key_pressed(KSCAN_G)) {
+      toggles |= kToggleKeyG;
     }
     const uint8_t toggle_edges = keys_edges(toggles, &prev_toggles);
 
@@ -83,9 +91,6 @@ void sim_run(uint8_t selected_mission) {
       if (key_pressed(KSCAN_R)) {
         model_init_from_mission(&kMissions[selected_mission]);
       }
-      if (key_pressed(KSCAN_F)) {
-        model_reset_fuel();
-      }
       if (key_pressed(KSCAN_J)) {
         model_input(MODEL_INPUT_ROLL_LEFT);
       }
@@ -106,6 +111,12 @@ void sim_run(uint8_t selected_mission) {
       }
       if (toggle_edges & kToggleKeyN) {
         model_input(MODEL_INPUT_TOGGLE_NAV);
+      }
+      if (toggle_edges & kToggleKeyF) {
+        model_input(MODEL_INPUT_TOGGLE_FLAP);
+      }
+      if (toggle_edges & kToggleKeyG) {
+        model_input(MODEL_INPUT_TOGGLE_GEAR);
       }
       if (key_pressed(KSCAN_Z)) {
         model_input(MODEL_INPUT_MOVE_FORWARD);

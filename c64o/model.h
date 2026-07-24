@@ -17,6 +17,8 @@ enum model_input_t {
   MODEL_INPUT_THROTTLE_UP,
   MODEL_INPUT_THROTTLE_DOWN,
   MODEL_INPUT_TOGGLE_NAV,
+  MODEL_INPUT_TOGGLE_FLAP,
+  MODEL_INPUT_TOGGLE_GEAR,
   MODEL_INPUT_MOVE_FORWARD,
   MODEL_INPUT_MOVE_BACKWARD,
 };
@@ -25,8 +27,6 @@ extern mat3_t model_cam;
 extern bool model_paused;
 
 void model_init_from_mission(const mission_t *mission);
-
-void model_reset_fuel();
 
 // Provides input to the model.
 void model_input(enum model_input_t input);

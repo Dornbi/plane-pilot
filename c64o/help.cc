@@ -24,6 +24,9 @@ static const char kHelpText[] =
     "I J K L  ROLL AND PITCH\n"
     "A S      YAW\n"
     "+ -      THROTTLE UP/DOWN\n"
+    "F        TOGGLE FLAPS\n"
+    "G        TOGGLE GEAR\n"
+    "\n"
     "1 2 3    LOOK LEFT/CENTER/RIGHT\n"
     "N        TOGGLE NAV POINT\n"
     "M        TOGGLE MAP VIEW\n"
@@ -33,7 +36,6 @@ static const char kHelpText[] =
     "\n"
     "D        TOGGLE DEBUG VIEW\n"
     "Z X      MOVE FWD/BACK WHEN PAUSED\n"
-    "F        RESET TO MAX FUEL\n"
     "\n"
     "H        SHOW THIS HELP SCREEN";
 // clang-format on

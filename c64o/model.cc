@@ -34,9 +34,10 @@ static int16_t _model_nav_y;
 static uint8_t _model_true_heading;
 static uint8_t _model_nav_heading;
 
-static const int32_t kMinEyeZ = 0x2000;
-static const int32_t kStallSpeed = 0x0400;
-static const int32_t kMaxSpeed = 0x0F00;
+static const uint32_t kMinEyeZ = 0x2000;
+static const uint16_t kStallSpeedWithoutFlaps = 0x0400;
+static const uint16_t kStallSpeedWithFlaps = 0x0340;
+static const uint16_t kMaxSpeed = 0x0F00;
 static const int16_t kTrimLift = 0x1000;
 static const uint8_t kMinThrottle = 0x00;
 static const uint8_t kMaxThrottle = 0x18;
@@ -71,7 +72,7 @@ void model_init() {
   _model_flap = false;
   _model_gear = false;
   _model_nav = 0;
-  model_reset_fuel();
+  _model_fuel = 0x21FFF;
 }
 
 void model_init_alt() {
@@ -85,7 +86,7 @@ void model_init_alt() {
   _model_flap = false;
   _model_gear = false;
   _model_nav = 1;
-  model_reset_fuel();
+  _model_fuel = 0x21FFF;
 }
 
 void model_init_from_mission(const mission_t *mission) {
@@ -102,8 +103,6 @@ void model_init_from_mission(const mission_t *mission) {
   _model_gear = false;
   _model_nav = (mission->start_y >= 0x80) ? 1 : 0;
 }
-
-inline void model_reset_fuel() { _model_fuel = 0x21FFF; }
 
 static void _move_forward(int16_t fspeed, int16_t vspeed) {
   world_eye_x += vec_fastmul8p8(model_cam.front.x, fspeed);
@@ -122,7 +121,13 @@ void model_advance() {
     // Speed: Air resistance, gravity, trhottle
     uint16_t speed_sqr = vec_fastsqr8p8(_model_speed);
     _model_speed -= speed_sqr >> 10;
-    _model_speed -= model_cam.front.z >> 3;
+    if (_model_gear) {
+      _model_speed -= speed_sqr >> 11;
+    }
+    if (_model_flap) {
+      _model_speed -= speed_sqr >> 11;
+    }
+    _model_speed -= model_cam.front.z >> 2;
     _model_speed += _model_throttle;
 
     int16_t lift = vec_fastmul8p8((int16_t)(speed_sqr >> 2), model_cam.up.z);
@@ -132,10 +137,13 @@ void model_advance() {
       _model_speed -= deficit >> 10;
     }
 
+    uint16_t stall_speed =
+        _model_flap ? kStallSpeedWithFlaps : kStallSpeedWithoutFlaps;
     if (_model_speed < 0) {
       _model_speed = 0;
-    } else if (_model_speed < kStallSpeed) {
-      model_cam.front.z -= 8;
+    } else if (_model_speed < stall_speed) {
+      uint8_t s = (stall_speed - _model_speed) >> 1;
+      model_cam.front.z -= s;
       _model_need_normalize = true;
     } else if (_model_speed > kMaxSpeed) {
       _model_speed = kMaxSpeed;
@@ -266,6 +274,12 @@ void model_input(enum model_input_t input) {
     break;
   case MODEL_INPUT_TOGGLE_NAV:
     _model_nav = 1 - _model_nav;
+    break;
+  case MODEL_INPUT_TOGGLE_FLAP:
+    _model_flap = 1 - _model_flap;
+    break;
+  case MODEL_INPUT_TOGGLE_GEAR:
+    _model_gear = 1 - _model_gear;
     break;
   case MODEL_INPUT_MOVE_BACKWARD:
   case MODEL_INPUT_MOVE_FORWARD:

@@ -74,13 +74,14 @@ To fly the plane you can use the following keys:
 | `I` `J` `K` `L` | Roll and pitch                         |
 | `A` `S`         | Yaw                                    |
 | `+` `-`         | Throttle up and down                   |
+| `F`             | Toggle flaps                           |
+| `G`             | Toggle landing gear                    |
 | `1` `2` `3`     | Look left, forward, right              |
 | `N`             | Toggle Nav point 1 / 2 (runways)       |
 | `D`             | Toggle debug info                      |
 | `M`             | Toggle map view                        |
 | `R`             | Reset to starting state                |
 | `T`             | Reset to alternate starting state      |
-| `F`             | Reset to max fuel                      |
 | `P`             | Pause flight (controls still work)     |
 | `X` `Z`         | Move forward and backward(when paused) |
 | `H`             | Show the help screen                   |
