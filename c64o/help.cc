@@ -21,21 +21,21 @@
 // key column is space-padded so the descriptions line up in one column.
 // clang-format off
 static const char kHelpText[] =
-    "I J K L   ROLL AND PITCH\n"
-    "A S       YAW\n"
-    "+ -       THROTTLE UP/DOWN\n"
-    "1 2 3     LOOK LEFT/CENTER/RIGHT\n"
-    "N         TOGGLE NAV POINT\n"
-    "M         TOGGLE MAP VIEW\n"
-    "P         PAUSE / RESUME\n"
-    "R         RESTART MISSION\n"
-    "Q         QUIT TO MENU\n"
+    "I J K L  ROLL AND PITCH\n"
+    "A S      YAW\n"
+    "+ -      THROTTLE UP/DOWN\n"
+    "1 2 3    LOOK LEFT/CENTER/RIGHT\n"
+    "N        TOGGLE NAV POINT\n"
+    "M        TOGGLE MAP VIEW\n"
+    "P        PAUSE / RESUME\n"
+    "R        RESTART MISSION\n"
+    "Q        QUIT TO MENU\n"
     "\n"
-    "D         TOGGLE DEBUG VIEW\n"
-    "Z X       MOVE FWD/BACK (WHEN PAUSED)\n"
-    "F         RESET TO MAX FUEL\n"
+    "D        TOGGLE DEBUG VIEW\n"
+    "Z X      MOVE FWD/BACK WHEN PAUSED\n"
+    "F        RESET TO MAX FUEL\n"
     "\n"
-    "H         SHOW THIS HELP SCREEN";
+    "H        SHOW THIS HELP SCREEN";
 // clang-format on
 
 static const uint8_t kHelpRowStart = 2;
