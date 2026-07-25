@@ -15,10 +15,10 @@
 #ifdef __MAX_RAM__
 // Since the screen ram is moved to 0xE800 and 0xEC00, we can
 // use the original location for stack.
-#pragma region( stack, 0x0400, 0x0480, , , {stack} )
+#pragma region( stack, 0x0200, 0x0280, , , {stack} )
 // Additional bss.
 #pragma section(bss2, 0, , , bss)
-#pragma region( bss2, 0x480, 0x800, , , {bss2} )
+#pragma region( bss2, 0x280, 0x800, , , {bss2} )
 // Startup code is 0x0801 .. 0x0853, use everything before the VIC
 // range as RAM. In theory we could use everything until kSpriteData
 // but it overlaps with VIC control registers so we would have to

@@ -79,6 +79,7 @@ static void _switch_to_terrain() {
 
 #pragma optimize(pop)
 
+#pragma bss(bss2)
 RIRQCode _rirq_panel_top, _rirq_panel_bottom, _rirq_terrain;
 
 // Raster-IRQ setup and charset loading; one-off, not per frame. The IRQ

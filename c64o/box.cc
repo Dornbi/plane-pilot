@@ -10,6 +10,8 @@
 #include "mem.h"
 #include "render.h"
 
+#pragma bss(bss2)
+
 // The two screen buffers use distinct charset slots (mem_box_char_start
 // 0x01 / 0x61), so everything box_prepare produces is cached per slot and
 // only rebuilt when that slot's box definition changes. These live in the
@@ -21,8 +23,6 @@ static const boxdef_t *_slot_def[2];
 // The current slot's buffers, for box_draw.
 static const uint8_t *_cur_box_chars;
 static const uint8_t *_cur_box_colors;
-
-#pragma bss(bss2)
 
 // Indices 0..2 are the three solid characters (ground, sky, 11); the tile's
 // own characters follow at 3..char_count+2. kMaxBoxCharCount counts only the

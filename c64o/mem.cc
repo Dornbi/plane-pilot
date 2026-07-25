@@ -21,11 +21,11 @@ static const char *oscar_expand_lzo(char *dp, const char *sp) { return sp; }
 #include "chardefs.h"
 #include "color.h"
 #include "gfx.h"
-#include "panel.h"
 #include "sprites.h"
 #include "vic.h"
 #include "view.h"
 
+#pragma bss(bss2)
 static uint8_t *const kSpriteData = (uint8_t *)0xD7C0;
 
 uint8_t mem_box_char_start;
@@ -102,7 +102,6 @@ static const uint8_t kVicMemScreenMain = 0xA8;
 // - Screen ram at $3C00 offset from bank start (bits 4..7)
 // static uint8_t *const kScreenRamAlt = (uint8_t *)0xEC00;
 static const uint8_t kVicMemScreenAlt = 0xB8;
-
 
 // Startup and mode-switch helpers; none of these run per frame.
 #pragma optimize(push, outline)
