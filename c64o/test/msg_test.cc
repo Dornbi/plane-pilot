@@ -1,8 +1,9 @@
 #include <assert.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
-#include "msg.h"
+#include "../msg.h"
 
 // Stubs for C64 hardware dependencies when compiling host test
 uint8_t *mem_screen_ram = nullptr;
@@ -47,7 +48,8 @@ int main() {
   // Length 11 -> offset = (40 - 11)/2 = 14
   assert(memcmp(row0 + 14, "YOU CRASHED", 11) == 0);
 
-  // Try overwriting permanent message with a temporary message (should be ignored)
+  // Try overwriting permanent message with a temporary message (should be
+  // ignored)
   msg_show("TEMP MSG", 10, false);
   memset(row0, ' ', sizeof(row0));
   msg_render();
