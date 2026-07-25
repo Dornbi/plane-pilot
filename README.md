@@ -76,6 +76,7 @@ To fly the plane you can use the following keys:
 | `+` `-`         | Throttle up and down                   |
 | `F`             | Toggle flaps                           |
 | `G`             | Toggle landing gear                    |
+| `B`             | Wheel brakes (on ground)               |
 | `1` `2` `3`     | Look left, forward, right              |
 | `N`             | Toggle Nav point 1 / 2 (runways)       |
 | `D`             | Toggle debug info                      |
