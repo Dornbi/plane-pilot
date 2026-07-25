@@ -225,14 +225,14 @@ void gfx_update_nav_heading(uint8_t heading) {
 }
 
 void gfx_update_flap(bool flap) {
-  static uint8_t *const kFlapPtr = kScreenRamAlt + 15 * kScreenWidth + 14;
+  static uint8_t *const kFlapPtr = kScreenRamAlt + 16 * kScreenWidth + 13;
   if (!mem_debug_enabled) {
     _set_ptr_color(kFlapPtr, flap);
   }
 }
 
 void gfx_update_gear(bool gear) {
-  static uint8_t *const kGearPtr = kScreenRamAlt + 16 * kScreenWidth + 14;
+  static uint8_t *const kGearPtr = kScreenRamAlt + 17 * kScreenWidth + 13;
   if (!mem_debug_enabled) {
     _set_ptr_color(kGearPtr, gear);
   }
