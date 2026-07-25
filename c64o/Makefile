@@ -2,6 +2,8 @@ OSCAR64_INCLUDE=../../../oscar64-main/include
 
 PPILOT_PROGRAM = ppilot
 PPILOT_SRC = \
+		bcd.cc \
+		bcd.h \
 		benchmark.h \
 		benchmark.cc \
 		bool.h \
@@ -67,6 +69,8 @@ PPILOT_SRC = \
 
 POLYDEMO_PROGRAM = polydemo
 POLYDEMO_SRC = \
+		bcd.cc \
+		bcd.h \
 		benchmark.h \
 		benchmark.cc \
 		bool.h \
@@ -94,6 +98,8 @@ POLYDEMO_SRC = \
 
 VECDEMO_PROGRAM = vecdemo
 VECDEMO_SRC = 	benchmark.h \
+		bcd.cc \
+		bcd.h \
 		benchmark.cc \
 		bool.h \
 		print.h \
@@ -106,6 +112,8 @@ VECDEMO_SRC = 	benchmark.h \
 
 VECTEST_PROGRAM = vectest
 VECTEST_SRC = 	benchmark.h \
+		bcd.cc \
+		bcd.h \
 		benchmark.cc \
 		bool.h \
 		print.h \
