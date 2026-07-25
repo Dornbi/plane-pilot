@@ -31,7 +31,6 @@ def main():
     parser.add_argument('--proportional-dither', action='store_true', help="Scale dither amount with gradient width")
     parser.add_argument('--include-alternates', action='store_true', help="Include frames with alternate center positions")
     parser.add_argument('--tolerance', type=int, default=2, help="Pixel match tolerance (default: 0)")
-    parser.add_argument('--use-8bit-offsets', action='store_true', help="Use 8-bit offsets instead of 16-bit offsets")
     parser.add_argument('--debug', action='store_true', help="Enable debug output (writes to [output_dir]_debug)")
     parser.add_argument('--output-dir', type=str, default="all_frames", help="Directory to save rendered frames")
     parser.add_argument('--min-box-width', type=int, default=1, help="Minimum box width along major axis")
@@ -153,8 +152,7 @@ def main():
         print(f"Generated {chardefs_h_path}")
         
         # 2. Boxdefs C and H
-        boxdefs_c = lib.find_boxes.generate_boxdefs_c_content(
-            box_defs, total_chars, use_8bit_offsets=args.use_8bit_offsets)
+        boxdefs_c = lib.find_boxes.generate_boxdefs_c_content(box_defs, total_chars)
         boxdefs_c_path = os.path.join(c64_dir, "boxdefs.cc")
         with open(boxdefs_c_path, "w") as f:
             f.write(boxdefs_c)
@@ -172,7 +170,7 @@ def main():
         # --- Verification ---
         print("\nVerifying C files...")
         lib.verify_defs.verify_chardefs_c(global_chars, chardefs_c_path)
-        lib.verify_defs.verify_boxdefs_c(box_defs, boxdefs_c_path, total_chars, args.use_8bit_offsets)
+        lib.verify_defs.verify_boxdefs_c(box_defs, boxdefs_c_path, total_chars)
         print("C Export Verification PASSED.")
 
     except Exception as e:

@@ -3,6 +3,7 @@ import os
 
 from typing import List, Dict, Any, Tuple, Optional
 
+from . import banner
 from . import c64_converter
 from . import c64_graphics
 from . import find_boxes
@@ -267,7 +268,8 @@ def generate_chardefs_content(global_chars: Dict[bytes, Dict[str, Any]], special
     Returns:
         str: The generated python code content.
     """
-    content = "# Generated Global Character Set\n\n"
+    content = banner.py_banner("lib/batch_generator.py")
+    content += "# Generated Global Character Set\n\n"
     
     # Sort by ID for stability? 
     # Or just iterate.
@@ -316,7 +318,8 @@ def generate_chardefs_c_content(global_chars: Dict[bytes, Dict[str, Any]]) -> st
     """
     sorted_chars = sorted(global_chars.items(), key=lambda item: item[1]['id'])
     
-    content = '#include "chardefs.h"\n\n'
+    content = banner.c_banner("lib/batch_generator.py")
+    content += '#include "chardefs.h"\n\n'
     content += f"const uint8_t chardefs[kTotalChars][8] = {{\n"
     
     items = sorted(global_chars.items(), key=lambda item: item[1]['id'])
@@ -332,7 +335,8 @@ def generate_chardefs_h_content(global_chars: Dict[bytes, Dict[str, Any]], speci
     """
     Generates the C header code for chardefs.h.
     """
-    content = "#ifndef CHARDEFS_H\n"
+    content = banner.c_banner("lib/batch_generator.py")
+    content += "#ifndef CHARDEFS_H\n"
     content += "#define CHARDEFS_H\n\n"
     content += "#include <stdint.h>\n\n"
     content += f"static const uint16_t kTotalChars = {len(global_chars)};\n\n"

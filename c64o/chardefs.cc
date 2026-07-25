@@ -1,3 +1,10 @@
+// --------------------------------------------------------------------------
+// GENERATED FILE - DO NOT EDIT.
+//
+// Regenerate with ./generate_all.sh from the repository root.
+// Produced by generate_all.py via lib/batch_generator.py.
+// --------------------------------------------------------------------------
+
 #include "chardefs.h"
 
 const uint8_t chardefs[kTotalChars][8] = {

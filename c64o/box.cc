@@ -57,15 +57,21 @@ void box_prepare(void) {
   }
   _slot_def[slot] = src_def;
 
-  // Copy unique characters to kCharRam
+  // Copy unique characters to kCharRam.
+  // The definition stores one byte per character, relative to its own
+  // char_offset, so the sum wraps around the end of chardefs at most once.
   bm_view_start();
   uint8_t *dst_ram = kCharRam + ((uint16_t)mem_box_char_start << 3);
-  const uint8_t **src_ptrs = boxdef.char_addr;
+  const uint8_t *src_idx = boxdef.char_idx;
+  const uint16_t char_offset = boxdef.char_offset;
 
   for (int8_t i = boxdef.char_count - 1;;) {
-    memcpy(dst_ram, *src_ptrs, 8);
+    uint16_t ch = char_offset + *src_idx++;
+    if (ch >= kTotalChars) {
+      ch -= kTotalChars;
+    }
+    memcpy(dst_ram, chardefs[ch], 8);
     dst_ram += 8;
-    src_ptrs++;
     if (--i < 0) {
       break;
     }

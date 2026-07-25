@@ -1,3 +1,10 @@
+# --------------------------------------------------------------------------
+# GENERATED FILE - DO NOT EDIT.
+#
+# Regenerate with ./generate_all.sh from the repository root.
+# Produced by generate_all.py via lib/batch_generator.py.
+# --------------------------------------------------------------------------
+
 # Generated Global Character Set
 
 # Used in (69): CHAR_SOLID_GROUND, c160_100_00_r8, c160_100_08_r8u8, c160_100_22_l8u8, c160_100_30_l8, c160_100_3...

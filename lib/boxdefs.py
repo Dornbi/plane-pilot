@@ -1,3 +1,10 @@
+# --------------------------------------------------------------------------
+# GENERATED FILE - DO NOT EDIT.
+#
+# Regenerate with ./generate_all.sh from the repository root.
+# Produced by generate_all.py via lib/find_boxes.py.
+# --------------------------------------------------------------------------
+
 # Generated Box Definitions
 
 BOX_R8 = (

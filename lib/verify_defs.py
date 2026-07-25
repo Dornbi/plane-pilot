@@ -42,11 +42,16 @@ def verify_chardefs_c(global_chars: Dict[bytes, Dict[str, Any]], c_file_path: st
 
 def verify_boxdefs_c(box_defs: Dict[str, Dict[str, Any]],
                      c_file_path: str,
-                     total_chars: int,
-                     use_8bit_offsets: bool):
+                     total_chars: int):
     """
-    Parses boxdefs.c and verifies its contents against box_defs.
+    Parses boxdefs.cc and verifies its contents against box_defs.
+
+    Characters are stored as single bytes relative to the box's char_offset,
+    so the check reconstructs (char_offset + char_idx[i]) % kTotalChars and
+    compares it against the global chardefs id the box actually needs.
     """
+    from . import find_boxes
+
     if not os.path.exists(c_file_path):
         raise FileNotFoundError(f"Verification failed: {c_file_path} not found")
 
@@ -55,7 +60,8 @@ def verify_boxdefs_c(box_defs: Dict[str, Dict[str, Any]],
 
     for name, expected in box_defs.items():
         cname = name.lower()
-        
+        layout = find_boxes.compute_box_layout(name, expected, total_chars)
+
         # Verify boxdef_t struct fields
         # static const boxdef_t box_r8_def = { 1, 1, 1, 8, 0, 0, 0, 0, 0, r8_idx, r8_chars };
         # The fields are: w, h, total, step_x, step_y, rel_x, rel_y, char_count, char_offset, idx, chars
@@ -76,47 +82,35 @@ def verify_boxdefs_c(box_defs: Dict[str, Dict[str, Any]],
              raise ValueError(f"Verification failed: Could not find chars array for {name} in boxdefs.c")
         actual_chars = [int(x.strip()) for x in chars_match.group(1).split(",") if x.strip()]
 
-        if use_8bit_offsets:
-            # Expected fields: w, h, total, sx, sy, rx, ry, g1_start, cnt, off, idx_ptr, chars_ptr
-            if len(clean_fields) != 12:
-                raise ValueError(f"Verification failed: {name} struct has {len(clean_fields)} fields, expected 12")
-            
-            # Parse fields needed for array verification
-            grad1_start = int(clean_fields[7])
-            char_count = int(clean_fields[8])
-            char_offset = int(clean_fields[9])
-            idx_match = re.search(rf"(?:static\s+)?(?:const\s+)?uint8_t\s+{cname}_idx\s*\[\s*\]\s*=\s*\{{(.*?)\}};", content)
-            if not idx_match:
-                raise ValueError(f"Verification failed: Could not find idx array for {name} in boxdefs.c")
-            actual_idx = [(int(x.strip()) + char_offset) % total_chars
-                          for x in idx_match.group(1).split(",") if x.strip()]
-        else:
-            # Expected fields: w, h, total, sx, sy, rx, ry, g1_start, cnt, addr_ptr, chars_ptr
-            if len(clean_fields) != 11:
-                raise ValueError(f"Verification failed: {name} struct has {len(clean_fields)} fields, expected 11")
-            
-            # Parse fields needed for array verification
-            grad1_start = int(clean_fields[7])
-            char_count = int(clean_fields[8])
-            addr_match = re.search(rf"(?:static\s+)?(?:const\s+)?uint8_t\s*\*\s*{cname}_addr\s*\[\s*\]\s*=\s*\{{(.*?)\}};", content)
-            if not addr_match:
-                raise ValueError(f"Verification failed: Could not find addr array for {name} in boxdefs.c")
-            
-            # Reconstruct indices from (uint16_t)chardefs[N]
-            parts = addr_match.group(1).split(",")
-            actual_idx = []
-            for part in parts:
-                part = part.strip()
-                if not part or part == "0": continue
-                m = re.search(r"chardefs\[(\d+)\]", part)
-                if m:
-                    actual_idx.append(int(m.group(1)))
-        
-        # We won't re-calculate the expected arrays in the verifier here because 
-        # it requires the color_ram info which we don't have easily in the verifier 
-        # (unless we pass it). 
-        # Instead, we'll just verify the struct fields consistency for now.
-        
+        # Expected fields: w, h, total, sx, sy, rx, ry, g1_start, cnt, off, idx_ptr, chars_ptr
+        if len(clean_fields) != 12:
+            raise ValueError(f"Verification failed: {name} struct has {len(clean_fields)} fields, expected 12")
+
+        # Parse fields needed for array verification
+        grad1_start = int(clean_fields[7])
+        char_count = int(clean_fields[8])
+        char_offset = int(clean_fields[9])
+        idx_match = re.search(rf"(?:static\s+)?(?:const\s+)?uint8_t\s+{cname}_idx\s*\[\s*\]\s*=\s*\{{(.*?)\}};", content)
+        if not idx_match:
+            raise ValueError(f"Verification failed: Could not find idx array for {name} in boxdefs.c")
+        raw_idx = [int(x.strip()) for x in idx_match.group(1).split(",") if x.strip()]
+        if any(x > 255 for x in raw_idx):
+            raise ValueError(f"Verification failed: {name} has a relative char index above 255")
+        # The character each entry resolves to on the C64.
+        actual_idx = [(x + char_offset) % total_chars for x in raw_idx]
+
+        # Verify the resolved characters and the cell grid against the box.
+        if char_offset != layout['char_offset']:
+            raise ValueError(f"{name} char_offset mismatch: {char_offset} != {layout['char_offset']}")
+        if actual_idx != layout['char_ids']:
+            raise ValueError(f"Verification failed: {name} resolves to characters {actual_idx}, expected {layout['char_ids']}")
+        if actual_chars != layout['grid']:
+            raise ValueError(f"Verification failed: {name} box_chars mismatch")
+        if grad1_start != layout['grad1_start']:
+            raise ValueError(f"{name} grad1_color_start mismatch")
+        if char_count != layout['char_count']:
+            raise ValueError(f"{name} char_count mismatch")
+
         # Verify Struct Fields
         if int(clean_fields[0]) != expected['w']: raise ValueError(f"{name} w mismatch")
         if int(clean_fields[1]) != expected['h']: raise ValueError(f"{name} h mismatch")
@@ -126,7 +120,5 @@ def verify_boxdefs_c(box_defs: Dict[str, Dict[str, Any]],
         if int(clean_fields[5]) != expected['rel_x']: raise ValueError(f"{name} rel_x mismatch")
         if int(clean_fields[6]) != expected['rel_y']: raise ValueError(f"{name} rel_y mismatch")
         if char_count != len(actual_idx): raise ValueError(f"{name} char_count vs idx array length mismatch")
-        # char_offset is parsed from the struct itself, so verifying it against itself is redundant 
-        # but we can verify it's the one we used.
 
     print(f"Successfully verified {c_file_path} against box definitions.")

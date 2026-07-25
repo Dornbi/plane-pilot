@@ -1,5 +1,6 @@
 from typing import List, Dict, Any, Union, Optional
 
+from . import banner
 from . import roll_angle
 
 def find_box(screen_ram: Union[List[int], bytes],
@@ -253,7 +254,8 @@ def generate_boxdefs_content(box_defs: Dict[str, Dict[str, Any]]) -> str:
     Returns:
         str: The generated python code content.
     """
-    content = "# Generated Box Definitions\n\n"
+    content = banner.py_banner("lib/find_boxes.py")
+    content += "# Generated Box Definitions\n\n"
     for key, data in box_defs.items():
         raw_entries = data['chars']
         
@@ -305,22 +307,126 @@ def generate_boxdefs_content(box_defs: Dict[str, Dict[str, Any]]) -> str:
     return content
 
 
+def compute_box_layout(name: str,
+                       data: Dict[str, Any],
+                       total_chars: int) -> Dict[str, Any]:
+    """
+    Reduces one box definition to the form boxdefs.cc needs.
+
+    The box's unique characters are collected in the order the C code copies
+    them into character RAM (sky-coloured ones first, then Grad1-coloured),
+    and each is stored as a single byte relative to the box's char_offset,
+    modulo total_chars. Choosing char_offset at the start of the largest gap
+    in the (circular) character id space keeps every relative index inside a
+    byte, which is what lets boxdefs.cc hold indices instead of 2-byte
+    pointers. box_prepare folds char_offset + index back with one compare and
+    subtract.
+
+    Returns a dict with:
+        grid          local char index per cell (0..2 are the solid chars)
+        char_idx      relative index per unique character
+        char_ids      the corresponding global chardefs ids
+        char_offset   base the relative indices are measured from
+        char_count    number of unique characters
+        grad1_start   first local index that uses the Grad1 colour
+    """
+    raw_entries = data['chars'] # List of (char_id, is_grad1)
+
+    # Separate entries by color usage
+    # unique_entries: (char_id, is_grad1) -> local_index
+    dynamic_entries = [] # List of (char_id, is_grad1)
+    seen_entries = {}
+
+    # Build raw grid using (global_id, is_grad1)
+    grid = []
+    for entry in raw_entries:
+        char_id, is_grad1 = entry if isinstance(entry, tuple) else (entry, False)
+        if char_id == 0:
+            grid.append(0)  # Ground
+        elif char_id == 1 and not is_grad1:
+            grid.append(1)  # Sky
+        elif char_id == 1 and is_grad1:
+            grid.append(2)  # Solid Grad1
+        else:
+             if (char_id, is_grad1) not in seen_entries:
+                 seen_entries[(char_id, is_grad1)] = len(dynamic_entries)
+                 dynamic_entries.append((char_id, is_grad1))
+             grid.append(3 + seen_entries[(char_id, is_grad1)])
+
+    # Now sort dynamic_entries so Sky (False) comes first
+    sorted_dynamic = sorted(dynamic_entries, key=lambda x: x[1])
+    grad1_start = 0
+    while grad1_start < len(sorted_dynamic) and not sorted_dynamic[grad1_start][1]:
+        grad1_start += 1
+
+    # Mapping from old unsorted local index to new sorted local index
+    old_to_new = { seen_entries[entry]: new_idx for new_idx, entry in enumerate(sorted_dynamic) }
+
+    # Remap grid
+    mapped_grid = []
+    for val in grid:
+        if val < 3:
+            mapped_grid.append(val)
+        else:
+            mapped_grid.append(3 + old_to_new[val - 3])
+
+    char_count = len(sorted_dynamic)
+    if char_count > 254:
+        raise ValueError(f"Box {name} uses {char_count} dynamic characters, which exceeds limit of 254.")
+
+    # Determine char_offset: find largest gap in circular space
+    dynamic_ids = [e[0] for e in sorted_dynamic]
+    if not dynamic_ids:
+        char_offset = 0
+    else:
+        sorted_unique = sorted(list(set(dynamic_ids)))
+        n_unique = len(sorted_unique)
+        max_gap = -1
+        best_start = sorted_unique[0]
+
+        for i in range(n_unique):
+            c1 = sorted_unique[i]
+            c2 = sorted_unique[(i + 1) % n_unique]
+            gap = (c2 - c1) % total_chars
+            if gap > max_gap:
+                max_gap = gap
+                best_start = c2
+        # char_offset is a uint8_t in boxdef_t; a clamped offset only costs a
+        # larger relative index, which the check below still enforces.
+        char_offset = min(best_start, 255)
+
+    char_idx = []
+    for cid in dynamic_ids:
+        # (cid - char_offset) % total_chars
+        rel = (cid - char_offset) % total_chars
+        if rel > 255:
+             raise ValueError(f"Box {name} has character ID {cid} that cannot be mapped with char_offset {char_offset} into uint8_t relative jump.")
+        char_idx.append(rel)
+
+    return {
+        'grid': mapped_grid,
+        'char_idx': char_idx,
+        'char_ids': dynamic_ids,
+        'char_offset': char_offset,
+        'char_count': char_count,
+        'grad1_start': grad1_start,
+    }
+
+
 def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
-                               total_chars: int,
-                               use_8bit_offsets: bool) -> str:
+                               total_chars: int) -> str:
     """
-    Generates boxdefs.c content with preprocessed boxdef_t structures.
+    Generates boxdefs.cc content with preprocessed boxdef_t structures.
     """
-    import re
-    
-    content = '#include "boxdefs.h"\n'
+    content = banner.c_banner("lib/find_boxes.py")
+    content += '#include "boxdefs.h"\n'
     content += '#include "chardefs.h"\n\n'
     content += '#include <stddef.h>\n'
     content += '#include <string.h>\n\n'
     content += '#include "roll.h"\n\n'
-    
+
     box_names = sorted(box_defs.keys())
-    
+
     # helper to clean name for C identifier
     def clean_name(n):
         return n.lower()
@@ -328,91 +434,15 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
     # Pre-process each box to generate static arrays
     for name in box_names:
         data = box_defs[name]
-        raw_entries = data['chars'] # List of (char_id, is_grad1)
-        
-        # Separate entries by color usage
-        # unique_entries: (char_id, is_grad1) -> local_index
-        dynamic_entries = [] # List of (char_id, is_grad1)
-        seen_entries = {}
-        
-        # Build raw grid using (global_id, is_grad1)
-        grid = []
-        for entry in raw_entries:
-            char_id, is_grad1 = entry if isinstance(entry, tuple) else (entry, False)
-            if char_id == 0:
-                grid.append(0)  # Ground
-            elif char_id == 1 and not is_grad1:
-                grid.append(1)  # Sky
-            elif char_id == 1 and is_grad1:
-                grid.append(2)  # Solid Grad1
-            else:
-                 if (char_id, is_grad1) not in seen_entries:
-                     seen_entries[(char_id, is_grad1)] = len(dynamic_entries)
-                     dynamic_entries.append((char_id, is_grad1))
-                 grid.append(3 + seen_entries[(char_id, is_grad1)])
-
-        # Now sort dynamic_entries so Sky (False) comes first
-        sorted_dynamic = sorted(dynamic_entries, key=lambda x: x[1])
-        grad1_start = 0
-        while grad1_start < len(sorted_dynamic) and not sorted_dynamic[grad1_start][1]:
-            grad1_start += 1
-            
-        # Mapping from old unsorted local index to new sorted local index
-        old_to_new = { seen_entries[entry]: new_idx for new_idx, entry in enumerate(sorted_dynamic) }
-        
-        # Remap grid
-        mapped_grid = []
-        for val in grid:
-            if val < 3:
-                mapped_grid.append(val)
-            else:
-                mapped_grid.append(3 + old_to_new[val - 3])
-        
-        char_count = len(sorted_dynamic)
-        if char_count > 254:
-            raise ValueError(f"Box {name} uses {char_count} dynamic characters, which exceeds limit of 254.")
-            
-        # Determine char_offset: find largest gap in circular space
-        dynamic_ids = [e[0] for e in sorted_dynamic]
-        if not dynamic_ids:
-            char_offset = 0
-        else:
-            sorted_unique = sorted(list(set(dynamic_ids)))
-            n_unique = len(sorted_unique)
-            max_gap = -1
-            best_start = sorted_unique[0]
-            
-            for i in range(n_unique):
-                c1 = sorted_unique[i]
-                c2 = sorted_unique[(i + 1) % n_unique]
-                gap = (c2 - c1) % total_chars
-                if gap > max_gap:
-                    max_gap = gap
-                    best_start = c2
-            char_offset = min(best_start, 255)
-        
-        char_idx = []
-        for cid, _ in sorted_dynamic:
-            # (cid - char_offset) % total_chars
-            rel = (cid - char_offset) % total_chars
-            if rel > 255:
-                 raise ValueError(f"Box {name} has character ID {cid} that cannot be mapped with char_offset {char_offset} into uint8_t relative jump.")
-            char_idx.append(rel)
+        layout = compute_box_layout(name, data, total_chars)
 
         # Write static arrays
         cname = clean_name(name)
-        
-        if use_8bit_offsets:
-            content += f"static const uint8_t {cname}_idx[] = {{ {', '.join(map(str, char_idx))} }};\n"
-        else:
-            # Generate uint16_t address array
-            addrs = [f"chardefs[{((char_offset + x) % total_chars)}]" for x in char_idx]
-            if not addrs:
-                addrs = ["0"]
-            content += f"static const uint8_t *{cname}_addr[] = {{ {', '.join(addrs)} }};\n"
-            
-        content += f"static const uint8_t {cname}_chars[] = {{ {', '.join(map(str, mapped_grid))} }};\n"
-        
+
+        char_idx = layout['char_idx'] or [0]
+        content += f"static const uint8_t {cname}_idx[] = {{ {', '.join(map(str, char_idx))} }};\n"
+        content += f"static const uint8_t {cname}_chars[] = {{ {', '.join(map(str, layout['grid']))} }};\n"
+
         # Write boxdef_t struct
         content += f"static const boxdef_t {cname}_def = {{\n"
         content += f"    {data['w']}, // w\n"
@@ -422,13 +452,10 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
         content += f"    {data['step_y']}, // step_y\n"
         content += f"    {data['rel_x']}, // rel_x\n"
         content += f"    {data['rel_y']}, // rel_y\n"
-        content += f"    {grad1_start}, // grad1_color_start\n"
-        content += f"    {char_count}, // char_count\n"
-        if use_8bit_offsets:
-            content += f"    {char_offset}, // char_offset\n"
-            content += f"    {cname}_idx, // char_idx\n"
-        else:
-            content += f"    {cname}_addr,\n"
+        content += f"    {layout['grad1_start']}, // grad1_color_start\n"
+        content += f"    {layout['char_count']}, // char_count\n"
+        content += f"    {layout['char_offset']}, // char_offset\n"
+        content += f"    {cname}_idx, // char_idx\n"
         content += f"    {cname}_chars // box_chars\n"
         content += "};\n\n"
 
@@ -495,7 +522,8 @@ def generate_boxdefs_h_content(max_total_size: int,
     """
     Generates boxdefs.h content with the specified constants.
     """
-    content = "#ifndef BOXDEFS_H\n"
+    content = banner.c_banner("lib/find_boxes.py")
+    content += "#ifndef BOXDEFS_H\n"
     content += "#define BOXDEFS_H\n\n"
     content += "#include <stdint.h>\n\n"
     content += f"static const uint8_t kMaxBoxTotalSize = {max_total_size};\n"
@@ -519,8 +547,12 @@ def generate_boxdefs_h_content(max_total_size: int,
     content += "  uint8_t grad1_color_start;\n"
     content += "  // Number of unique characters used by this box (excluding solid 0,1)\n"
     content += "  uint8_t char_count;\n"
-    content += "  // Address of the character data.\n"
-    content += "  const uint8_t **char_addr;\n"
+    content += "  // Base chardefs index the entries in char_idx are relative to.\n"
+    content += "  uint8_t char_offset;\n"
+    content += "  // chardefs index of each character, minus char_offset, modulo\n"
+    content += "  // kTotalChars. The character data is at\n"
+    content += "  // chardefs[char_offset + char_idx[i] (mod kTotalChars)].\n"
+    content += "  const uint8_t *char_idx;\n"
     content += "  // Index of each character in the local char_idx array.\n"
     content += "  const uint8_t *box_chars;\n"
     content += "};\n\n"

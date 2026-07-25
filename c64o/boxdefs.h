@@ -1,10 +1,17 @@
+// --------------------------------------------------------------------------
+// GENERATED FILE - DO NOT EDIT.
+//
+// Regenerate with ./generate_all.sh from the repository root.
+// Produced by generate_all.py via lib/find_boxes.py.
+// --------------------------------------------------------------------------
+
 #ifndef BOXDEFS_H
 #define BOXDEFS_H
 
 #include <stdint.h>
 
 static const uint8_t kMaxBoxTotalSize = 96;
-static const uint8_t kMaxBoxCharCount = 29;
+static const uint8_t kMaxBoxCharCount = 32;
 
 struct boxdef_t {
   // Width of the box in chars.
@@ -25,8 +32,12 @@ struct boxdef_t {
   uint8_t grad1_color_start;
   // Number of unique characters used by this box (excluding solid 0,1)
   uint8_t char_count;
-  // Address of the character data.
-  const uint8_t **char_addr;
+  // Base chardefs index the entries in char_idx are relative to.
+  uint8_t char_offset;
+  // chardefs index of each character, minus char_offset, modulo
+  // kTotalChars. The character data is at
+  // chardefs[char_offset + char_idx[i] (mod kTotalChars)].
+  const uint8_t *char_idx;
   // Index of each character in the local char_idx array.
   const uint8_t *box_chars;
 };

@@ -172,9 +172,17 @@ are about to overwrite them anyway — worth about 1000 cycles for 260 bytes.
 ### `boxdefs.cc` / `box.cc` — tiles
 
 `boxdef_t` is the tile: width, height, the step vector to the next copy, its
-offset relative to the snapped center, the character pointers, and the index
+offset relative to the snapped center, the character indices, and the index
 array. `boxdefs.cc` holds 68 definitions — 60 main (one per angle) and 8 alt —
-looked up through `main_boxes[]` / `alt_boxes[]`.
+looked up through `main_boxes[]` / `alt_boxes[]`. Both files are generated;
+edit the generators under `lib/` and re-run `./generate_all.sh`.
+
+A tile's characters are stored as one byte each, relative to the tile's own
+`char_offset`, rather than as pointers into `chardefs`: the characters a single
+tile uses are clustered, so `char_offset` is placed at the start of the largest
+gap in the (circular) character id space and every relative index then fits in
+a byte. That halves the tables, at the cost of one add and one conditional
+subtract per character in `box_prepare()`.
 
 `box_prepare()` copies the tile's unique characters into the current buffer's
 character slot and builds parallel character/color arrays. It caches per slot:
