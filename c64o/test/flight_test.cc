@@ -22,7 +22,7 @@ static const int16_t kMaxLandingRoll = 32;
 static const int16_t kMinLandingUpZ = 0;
 static const int16_t kMinLandingPitch = -16;
 static const int16_t kMaxLandingPitch = 64;
-static const int16_t kMaxLandingVSpeed = -0x0180;
+static const int16_t kMaxLandingVSpeed = -0x00E0;
 static const uint16_t kMaxLandingSpeed = 0x0A00;
 
 // Holds an attitude for `frames` steps at a fixed throttle, ignoring fuel burn,
@@ -370,11 +370,59 @@ static void _put_on_ground(int16_t speed) {
   flight_init();
   flight_gear = 1;
   flight_throttle = 0;
-  flight_speed = speed;
+  // The contact frame is a touchdown as far as flight_advance is concerned, so
+  // it has to pass the landing envelope. Fly it at kTrimSpeed: there the lift
+  // deficit is exactly zero, so with wings level and no pitch the vertical
+  // speed is zero and no trigger fires, whatever speed the caller actually
+  // wants once the aircraft is on the runway.
+  flight_speed = kTrimSpeed;
   flight_eye_z = kGroundZ;
   flight_advance(); // Trips the ground contact check -> model_on_ground = true
   assert(!flight_crashed);
-  flight_speed = speed; // Undo the frame's drag so callers get what they asked
+  flight_speed = speed;
+}
+
+// Sets up a touchdown frame: places the aircraft one step above the ground
+// with the given attitude and speed, so that a single flight_advance() crosses
+// the ground plane and runs the envelope check. Returns the vertical speed the
+// check will see.
+//
+// The predicted descent has to account for the sink penalty as well as the
+// pitch term, otherwise the aircraft is simply parked below the ground plane
+// and the clamp - not the descent - is what gets tested.
+static int16_t _arm_touchdown(int16_t pitch, int16_t roll, int16_t speed,
+                              uint8_t gear, uint8_t inverted = 0) {
+  flight_init();
+  flight_eye_z = 0x040000;
+  flight_gear = gear;
+  flight_throttle = 0;
+  flight_speed = speed;
+  // Bank has to be seeded through `up`, not `left`: vec_orthonormalize derives
+  // left from up x front, so anything written straight into left.z is
+  // discarded. With front along +x, up = (0, -roll, sqrt(256^2 - roll^2))
+  // comes back out as left.z == roll.
+  int16_t up_z = (int16_t)sqrt(65536.0 - (double)roll * roll);
+  flight_cam.front = make_vector(256, 0, 0);
+  flight_cam.left = make_vector(0, 256, 0);
+  flight_cam.up = make_vector(0, -roll, inverted ? -up_z : up_z);
+  flight_cam.front.z = pitch;
+  vec_orthonormalize(&flight_cam);
+
+  // One free-flight frame at altitude tells us the vertical speed this state
+  // actually produces, including the sink penalty.
+  mat3_t attitude = flight_cam;
+  int16_t saved_speed = flight_speed;
+  flight_advance();
+  int16_t vs = flight_vspeed;
+
+  // Now re-arm the same state exactly one frame's descent above the ground.
+  flight_init();
+  flight_gear = gear;
+  flight_throttle = 0;
+  flight_speed = saved_speed;
+  flight_cam = attitude;
+  flight_eye_z = (int32_t)kGroundZ - vs;
+  return vs;
 }
 
 // 10. Takeoff stall speed gate test.
@@ -432,10 +480,7 @@ static void test_takeoff_stall_speed_gate() {
 static void test_ground_deceleration_friction() {
   printf("Running test_ground_deceleration_friction...\n");
 
-  flight_init();
-  flight_eye_z = 0x2000; // On ground
-  flight_gear = 1;
-  flight_speed = 0x0200;
+  _put_on_ground(0x0200);
   flight_throttle = 0;
 
   for (int i = 0; i < 300; ++i) {
@@ -507,10 +552,7 @@ static void test_inverted_stall_and_nose_recovery() {
 static void test_ground_roll_takeoff_abort() {
   printf("Running test_ground_roll_takeoff_abort...\n");
 
-  flight_init();
-  flight_eye_z = 0x2000; // On ground
-  flight_gear = 1;
-  flight_speed = 0x0300;
+  _put_on_ground(0x0300);
   flight_throttle = 0;
 
   for (int i = 0; i < 450; ++i) {
@@ -611,24 +653,32 @@ static void test_touchdown_exact_boundary_limits() {
   flight_advance();
   assert(flight_crashed);
 
+  // Nose-down boundary, flown at kTrimSpeed rather than 0x0500. At 0x0500 a
+  // front.z = -16 arrival sinks at -234, past kMaxLandingVSpeed, so this pair
+  // would be testing trigger 2 instead of the pitch boundary it is named for.
+  // At kTrimSpeed the lift deficit is zero, so vertical speed is just the
+  // pitch term and stays well inside the sink limit.
+
   // Pitch = -16 (-3.5 deg pitch down) -> PASS
   flight_init();
   flight_gear = 1;
   flight_cam.front.z = -16;
-  flight_speed = 0x0500;
-  vs = vec_fastmul8p8(-16, 0x0500);
+  flight_speed = kTrimSpeed;
+  vs = vec_fastmul8p8(-16, kTrimSpeed);
   flight_eye_z = 0x2000 - vs - 1;
   flight_advance();
+  assert(flight_vspeed >= kMaxLandingVSpeed); // Sink is not the binding check
   assert(!flight_crashed);
 
   // Pitch = -17 -> CRASH
   flight_init();
   flight_gear = 1;
   flight_cam.front.z = -17;
-  flight_speed = 0x0500;
-  vs = vec_fastmul8p8(-17, 0x0500);
+  flight_speed = kTrimSpeed;
+  vs = vec_fastmul8p8(-17, kTrimSpeed);
   flight_eye_z = 0x2000 - vs - 1;
   flight_advance();
+  assert(flight_vspeed >= kMaxLandingVSpeed); // Crashes on pitch, not on sink
   assert(flight_crashed);
 
   printf("  PASS\n\n");
@@ -784,48 +834,6 @@ static void test_rollout_stays_on_ground() {
   printf("  PASS\n\n");
 }
 
-// Sets up a touchdown frame: places the aircraft one step above the ground
-// with the given attitude and speed, so that a single flight_advance() crosses
-// the ground plane and runs the envelope check. Returns the vertical speed the
-// check will see.
-//
-// The predicted descent has to account for the sink penalty as well as the
-// pitch term, otherwise the aircraft is simply parked below the ground plane
-// and the clamp - not the descent - is what gets tested.
-static int16_t _arm_touchdown(int16_t pitch, int16_t roll, int16_t speed,
-                              uint8_t gear, uint8_t inverted = 0) {
-  flight_init();
-  flight_eye_z = 0x040000;
-  flight_gear = gear;
-  flight_throttle = 0;
-  flight_speed = speed;
-  // Bank has to be seeded through `up`, not `left`: vec_orthonormalize derives
-  // left from up x front, so anything written straight into left.z is
-  // discarded. With front along +x, up = (0, -roll, sqrt(256^2 - roll^2))
-  // comes back out as left.z == roll.
-  int16_t up_z = (int16_t)sqrt(65536.0 - (double)roll * roll);
-  flight_cam.front = make_vector(256, 0, 0);
-  flight_cam.left = make_vector(0, 256, 0);
-  flight_cam.up = make_vector(0, -roll, inverted ? -up_z : up_z);
-  flight_cam.front.z = pitch;
-  vec_orthonormalize(&flight_cam);
-
-  // One free-flight frame at altitude tells us the vertical speed this state
-  // actually produces, including the sink penalty.
-  mat3_t attitude = flight_cam;
-  int16_t saved_speed = flight_speed;
-  flight_advance();
-  int16_t vs = flight_vspeed;
-
-  // Now re-arm the same state exactly one frame's descent above the ground.
-  flight_init();
-  flight_gear = gear;
-  flight_throttle = 0;
-  flight_speed = saved_speed;
-  flight_cam = attitude;
-  flight_eye_z = (int32_t)kGroundZ - vs;
-  return vs;
-}
 
 // 26. Landing envelope: excess sink rate (crash trigger 2).
 //
@@ -841,46 +849,67 @@ static int16_t _arm_touchdown(int16_t pitch, int16_t roll, int16_t speed,
 static void test_landing_envelope_sink_rate() {
   printf("Running test_landing_envelope_sink_rate...\n");
 
-  // Upright, at the steepest pitch the envelope allows: inside the limit.
-  int16_t gentle = _arm_touchdown(kMinLandingPitch, 0, 0x0500, 1);
-  printf("  upright at min pitch -> vspeed %d (limit %d)\n", gentle,
+  // Nose down but with plenty of speed: sink stays inside the limit.
+  int16_t fast = _arm_touchdown(kMinLandingPitch, 0, 0x0800, 1);
+  printf("  nose down at speed 0x0800 -> vspeed %d (limit %d)\n", fast,
          kMaxLandingVSpeed);
-  assert(gentle < 0);
-  assert(gentle >= kMaxLandingVSpeed);
+  assert(fast < 0);
+  assert(fast >= kMaxLandingVSpeed);
   flight_advance();
   assert(!flight_crashed);
 
-  // Sweep every upright arrival that passes the other checks and record the
-  // worst sink rate any of them can produce. This pins the property flight.md
-  // 5.3 now documents: trigger 2 is dormant, because the pitch limit and the
-  // stall speed floor between them bound the vertical speed well inside it.
-  // If a change to the model makes it live, this test says so.
-  int16_t worst = 0;
-  int16_t worst_pitch = 0, worst_roll = 0, worst_speed = 0;
-  for (int16_t roll = -kMaxLandingRoll; roll <= kMaxLandingRoll; ++roll) {
+  // Same attitude, slow: the lift deficit drives the sink past the limit while
+  // pitch, roll, speed, gear and up.z are all still legal.
+  int16_t slow = _arm_touchdown(kMinLandingPitch, 0, 0x0450, 1);
+  printf("  nose down at speed 0x0450 -> vspeed %d\n", slow);
+  assert(slow < kMaxLandingVSpeed);                    // Trigger 2 armed
+  assert(_abs16(flight_cam.left.z) <= kMaxLandingRoll); // 3 clear
+  assert(flight_cam.up.z >= kMinLandingUpZ);            // 6 clear
+  assert(flight_speed <= (int16_t)kMaxLandingSpeed);    // 5 clear
+  assert(flight_gear);                                  // 1 clear
+  flight_advance();
+  assert(flight_cam.front.z >= kMinLandingPitch); // 4 clear at the check
+  assert(flight_crashed);
+
+  // Sweep every arrival above stall speed that passes the other five checks.
+  // Two properties matter, and flight.md 5.3 states both:
+  //   - the limit is reachable at all (otherwise trigger 2 is dead code), and
+  //   - a level-or-nose-up flare never trips it.
+  // Arrivals below stall speed are excluded because the stall break has
+  // already driven the nose past kMinLandingPitch, so trigger 4 owns them.
+  bool reachable = false;
+  int16_t worst_flared = 0;
+  int16_t worst = 0, worst_pitch = 0, worst_speed = 0;
+  for (int16_t roll = -kMaxLandingRoll; roll <= kMaxLandingRoll; roll += 4) {
     for (int16_t p = kMinLandingPitch; p <= kMaxLandingPitch; ++p) {
-      for (int16_t s = 100; s <= (int16_t)kMaxLandingSpeed; s += 10) {
+      for (int16_t s = (int16_t)kStallSpeedWithoutFlaps + 6;
+           s <= (int16_t)kMaxLandingSpeed; s += 10) {
         _arm_touchdown(p, roll, s, 1);
-        if (flight_cam.front.z < kMinLandingPitch ||
-            flight_cam.front.z > kMaxLandingPitch ||
+        int16_t pitch = flight_cam.front.z;
+        if (pitch < kMinLandingPitch || pitch > kMaxLandingPitch ||
             _abs16(flight_cam.left.z) > kMaxLandingRoll ||
-            flight_cam.up.z < kMinLandingUpZ) {
-          continue; // Another trigger owns this arrival
+            flight_cam.up.z < kMinLandingUpZ || flight_vspeed >= 0) {
+          continue; // Another trigger owns it, or it is not descending
+        }
+        if (flight_vspeed < kMaxLandingVSpeed) {
+          reachable = true;
         }
         if (flight_vspeed < worst) {
           worst = flight_vspeed;
-          worst_pitch = flight_cam.front.z;
-          worst_roll = flight_cam.left.z;
+          worst_pitch = pitch;
           worst_speed = flight_speed;
+        }
+        if (pitch >= 0 && flight_vspeed < worst_flared) {
+          worst_flared = flight_vspeed;
         }
       }
     }
   }
-  printf("  worst upright sink inside the other checks: %d (limit %d)"
-         " at pitch=%d roll=%d speed=%d\n",
-         worst, kMaxLandingVSpeed, worst_pitch, worst_roll, worst_speed);
-  assert(worst < 0);                  // The sweep found real descents
-  assert(worst >= kMaxLandingVSpeed); // ...none of which trip trigger 2
+  printf("  above stall: worst sink %d at pitch=%d speed=%d;"
+         " worst flared (front.z >= 0) %d; limit %d\n",
+         worst, worst_pitch, worst_speed, worst_flared, kMaxLandingVSpeed);
+  assert(reachable);                       // The limit is live, not dead code
+  assert(worst_flared >= kMaxLandingVSpeed); // A proper flare always survives
 
   printf("  PASS\n\n");
 }

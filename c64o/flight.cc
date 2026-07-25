@@ -84,7 +84,13 @@ static const int16_t kMaxLandingRoll = 32;
 static const int16_t kMinLandingUpZ = 0;
 static const int16_t kMinLandingPitch = -16;
 static const int16_t kMaxLandingPitch = 64;
-static const int16_t kMaxLandingVSpeed = -0x0180;
+// Sink rate limit. Has to sit inside the range reachable ABOVE stall speed to
+// mean anything: a below-stall arrival has already had its nose pushed past
+// kMinLandingPitch by the stall break, so trigger 4 owns it. Above stall the
+// worst sink any legal attitude produces is -251, so the old -0x0180 could
+// never fire. At -0x00E0 a level-or-nose-up flare is always survivable and a
+// nose-down arrival needs speed to survive it.
+static const int16_t kMaxLandingVSpeed = -0x00E0;
 static const uint16_t kMaxLandingSpeed = 0x0A00;
 
 void flight_init() {

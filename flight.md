@@ -173,13 +173,16 @@ Touchdown check triggers when altitude $Z \le Z_{\text{min}}$:
 
 - **Crash Triggers**:
   1. **Gear Retracted**: `flight_gear == 0`.
-  2. **Excess Vertical Speed**: Sink rate exceeds limit ($V_{\text{vspeed}} < - \text{0x0180}$).
+  2. **Excess Vertical Speed**: Sink rate exceeds limit ($V_{\text{vspeed}} < - \text{0x00E0}$).
   3. **Excess Bank Angle**: Roll/bank exceeds threshold ($|\text{left.z}| > 32$, approx > 7°).
   4. **Invalid Touchdown Pitch**: Touchdown with steep nose-down pitch ($\text{front.z} < -16$, > -3.5° nose down) or excessive pitch flare ($\text{front.z} > 64$, > 15° pitch up). Safe landing pitch range is $-16 \le \text{front.z} \le 64$.
   5. **Excess Airspeed**: Touchdown speed exceeds gear threshold ($V > \text{0x0A00}$).
   6. **Belly-Up Arrival**: Touchdown while inverted ($\text{up.z} < 0$). Trigger 3 does not cover this — `left.z` returns to ~0 after a full 180° roll, so a wings-level inverted arrival passes the bank check. The threshold is 0 rather than a tight $\cos(\text{roll})$ bound because `up.z` also falls with nose-up pitch, and a legal flare must not trip it.
 
-- **Note on trigger 2**: with trigger 6 in place, trigger 2 is unreachable in practice. Vertical speed is $\text{front.z} \cdot V / 256 - \text{sink}$, and for an upright arrival both terms are bounded — pitch cannot go below $-16$ without trigger 4 firing, and the sink penalty is bounded by the stall speed floor. The worst sink reachable by any upright attitude that passes the other checks is $-301$, inside the $-\text{0x0180}$ limit. It remains as a dormant safety net; if a hard-landing rule is wanted, the limit needs to be tightened to roughly $-\text{0x0100}$.
+- **Note on trigger 2 — where the limit comes from**: vertical speed at touchdown is $\text{front.z} \cdot V / 256 - \text{sink}$, so sink rate is driven by nose-down pitch *and* by the lift deficit, which grows as speed falls.
+  - The limit has to sit inside the range reachable **above stall speed**. A below-stall arrival has already had its nose driven past $\text{kMinLandingPitch}$ by the stall break (§2.2), so trigger 4 owns it and any sink limit that only bites there is redundant.
+  - Above stall the reachable range is roughly $-251$ (at $\text{front.z} = -16$, just above stall) to $0$. The limit of $-\text{0x00E0} = -224$ sits inside it.
+  - **Resulting rule**: a level-or-nose-up flare ($\text{front.z} \ge 0$) is always survivable — the worst sink it can produce is $-194$. A nose-down arrival needs airspeed: at $\text{front.z} = -16$ the aircraft must be above ~1350 to survive touchdown.
 - **Successful Landing**:
   - If all safety thresholds are satisfied: transition to `model_on_ground = true`, zero out vertical speed, level wings.
 
