@@ -58,6 +58,26 @@ This document specifies the flight dynamics model requirements for the C64 fligh
   - **Lift Decay**: Effective lift scales down: $\text{Lift}_{\text{eff}} = (\text{Lift} \cdot \text{density}) \gg 8$.
   - **Higher Stall Speed at Altitude**: Due to reduced dynamic pressure at high altitude, base stall speed increases proportionally: $V_{\text{stall}}(Z) = V_{\text{stall, base}} + (\text{alt\_penalty} \ll 1)$.
 
+### 2.4. Lift Deficit & Sink Penalty
+
+This is the central mechanism of the model: it is what makes banked turns descend (§3.1), what makes inverted flight expensive (§3.2), and what sets the minimum throttle for level flight.
+
+- **Lift**: $\text{lift} = ((V^2 \gg 2) \cdot \text{up.z} \cdot \text{density}) \gg 16$, with the flap bonus of §4.2 applied afterwards. Note that lift is a function of **airspeed and bank only** — pitch attitude does not enter it.
+- **Trim Lift (weight)**: $\text{kTrimLift} = \text{0x1000}$. This is the lift needed to hold altitude.
+- **Deficit**: $\text{deficit} = \text{kTrimLift} - \text{lift}$, applied **only when positive**.
+- **Sink Penalty**: $\text{sink} = \text{deficit} \gg 4$, subtracted directly from vertical speed:
+  $V_{\text{vspeed}} = (\text{front.z} \cdot V) \gg 8 - \text{sink}$.
+- **Induced Drag from Deficit**: $\Delta V = -(\text{deficit} \gg 10)$. A wing working below its trim point costs airspeed. This single term stands in for induced drag in inverted flight, in banked flight and at low speed, without any regime-specific conditionals.
+
+**Trim Speed.** The deficit reaches zero when $\text{lift} = \text{0x1000}$. Upright, clean, at sea level this is $V_{\text{trim}} = \text{0x0800}$.
+
+**The deficit is one-sided.** Lift in excess of `kTrimLift` produces no upward force — there is no negative sink. The consequences are worth stating explicitly, because they define what "level flight" means in this model:
+
+- Below $V_{\text{trim}}$: the aircraft sinks, and nose-up pitch is what offsets the sink. Lower airspeed needs more nose-up pitch.
+- At or above $V_{\text{trim}}$: sink is zero, and level flight means $\text{front.z} = 0$ **exactly**. Any positive pitch is a climb; there is no faster level trim.
+
+> **Not yet reconciled**: §2.1 describes lift as proportional to angle of attack. The model has no AoA term — see `flight_review.md` §A and §B for the measured consequences (the throttle figures in §2.1, §2.3 and §3.2 and in the §7 matrix are still the un-reviewed originals).
+
 ---
 
 ## 3. Maneuvering Flight & Banked Turns
@@ -106,11 +126,13 @@ This document specifies the flight dynamics model requirements for the C64 fligh
 - **Lift & Drag Modification**:
   - Flaps down (`flight_flap == 1`) increases both Lift Coefficient ($C_L$) and Drag Coefficient ($C_D$).
   - **Drag Increase**: Parasite drag increases by 25% ($\Delta \text{Drag}_{\text{flap}} = \text{speed}^2 \gg 12$).
-  - **Upright Lift & Stall Reduction**: In upright flight ($\text{up.z} \ge 0$), flaps increase $C_L$ by ~30%, lowering stall speed from `0x0400` to `0x0340`.
-  - **Inverted Flap Adverse Camber**: In inverted flight ($\text{up.z} < 0$), flap extension creates adverse camber relative to downward lift, **increasing stall speed from `0x0400` to `0x0480`**.
+  - **Lift Increase**: Flaps raise the magnitude of the lift coefficient by **50%**: $\text{lift} \mathrel{+}= \text{lift} \gg 1$. The multiplier applies to the signed lift, so it acts on both upright and inverted flight.
+  - **Upright Stall Reduction**: In upright flight ($\text{up.z} \ge 0$) the extra lift lowers the stall speed from `0x0400` to `0x0340`. The two numbers describe the same wing: stall speed scales as $1/\sqrt{C_L}$, and $\text{0x0400} / \sqrt{1.5} = \text{0x0343}$.
+  - **Inverted Flap Adverse Camber**: In inverted flight ($\text{up.z} < 0$) lift is already negative, so the same 50% raises the *downward* lift. This is the adverse camber penalty, and it is why the inverted stall speed goes **up**, from `0x0400` to `0x0480`, rather than down.
 - **Equilibrium Impact**:
   - Maintaining equal airspeed requires **more throttle** due to flap drag.
-  - Maintaining level flight at slow speeds requires **less nose-up pitch** compared to clean configuration when upright.
+  - Upright, at speeds below the trim speed (§2.4), flaps reduce the lift deficit and therefore the sink penalty, so **less nose-up pitch** is needed to hold level flight than in clean configuration. Above the trim speed the deficit is already zero and flaps change nothing but drag.
+  - Inverted, flaps make things strictly worse: more drag *and* a larger lift deficit.
 
 ---
 

@@ -5,20 +5,98 @@
 #include <stdlib.h>
 
 #include "../flight.h"
+#include "../fmath.h"
 #include "../vec.h"
 
-// 1. Level cruise equilibrium test
+// Mirrors of the constants inside flight.cc. They are static there, so the
+// tests restate them; if one of these drifts the tests below are wrong rather
+// than merely failing, so keep them in step.
+static const uint16_t kStallSpeedWithoutFlaps = 0x0400;
+static const uint16_t kStallSpeedWithFlaps = 0x0340;
+// Airspeed at which lift reaches kTrimLift upright at sea level, i.e. where the
+// lift deficit and its sink penalty vanish. See flight.md 2.4.
+static const int16_t kTrimSpeed = 0x0800;
+// Landing envelope.
+static const int32_t kGroundZ = 0x2000;
+static const int16_t kMaxLandingRoll = 32;
+static const int16_t kMinLandingPitch = -16;
+static const int16_t kMaxLandingVSpeed = -0x0180;
+static const uint16_t kMaxLandingSpeed = 0x0A00;
+
+// Holds an attitude for `frames` steps at a fixed throttle, ignoring fuel burn,
+// and returns with flight_speed / flight_vspeed at the steady state. Used by
+// the equilibrium tests below, which are about the trim the model settles into
+// rather than about any single frame.
+static void _settle(uint8_t throttle, int16_t pitch, int16_t up_z, int frames,
+                    uint8_t flap = 0) {
+  flight_init();
+  flight_eye_z = 0x040000; // Well clear of both the ground and the ceiling
+  flight_throttle = throttle;
+  flight_fuel = 0x0FFFFFFF;
+  flight_flap = flap;
+  flight_cam.front = make_vector(256, 0, 0);
+  flight_cam.left = make_vector(0, 256, 0);
+  flight_cam.up = make_vector(0, 0, up_z);
+  flight_cam.front.z = pitch;
+  vec_orthonormalize(&flight_cam);
+  int16_t held_pitch = flight_cam.front.z;
+  int16_t held_up_z = flight_cam.up.z;
+  for (int i = 0; i < frames; ++i) {
+    // The pilot holds the attitude; only the scalar state is under test.
+    flight_cam.front.z = held_pitch;
+    flight_cam.up.z = held_up_z;
+    flight_advance();
+    flight_throttle = throttle;
+  }
+}
+
+// 1. Level cruise equilibrium test.
+// "Equilibrium" means the vertical speed settles to zero and the airspeed
+// settles to a value that is stable frame over frame - not merely that the
+// aircraft is still flying.
 static void test_level_cruise_equilibrium() {
   printf("Running test_level_cruise_equilibrium...\n");
-  flight_init();
-  flight_throttle = 0x14; // Cruise throttle (~75%)
 
-  for (int i = 0; i < 200; ++i) {
-    flight_advance();
-  }
+  _settle(0x14, 0, 256, 400); // Cruise throttle, wings level, zero pitch
+  int16_t settled_speed = flight_speed;
+  int32_t settled_z = flight_eye_z;
 
   assert(!flight_crashed);
-  assert(flight_speed > 0x0500);
+  assert(flight_vspeed == 0); // Actually level, not just airborne
+
+  // Airspeed has stopped changing.
+  for (int i = 0; i < 50; ++i) {
+    flight_cam.front.z = 0;
+    flight_advance();
+    flight_throttle = 0x14;
+  }
+  assert(flight_speed == settled_speed);
+  assert(flight_eye_z == settled_z); // Altitude held, not drifting
+  assert(flight_speed > kTrimSpeed);  // Above trim, so the deficit is zero
+
+  printf("  settled speed: %d (0x%04X), vspeed: %d\n", settled_speed,
+         settled_speed, flight_vspeed);
+  printf("  PASS\n\n");
+}
+
+// 1b. Trim speed boundary test.
+// Below the trim speed the lift deficit produces sink; at or above it the
+// deficit is clamped away and level pitch means genuinely level flight.
+static void test_trim_speed_boundary() {
+  printf("Running test_trim_speed_boundary...\n");
+
+  // A throttle that settles above trim speed -> no sink at zero pitch.
+  _settle(0x18, 0, 256, 400);
+  assert(flight_speed > kTrimSpeed);
+  assert(flight_vspeed == 0);
+
+  // A throttle that settles below trim speed -> sink at zero pitch.
+  _settle(0x0A, 0, 256, 400);
+  printf("  low throttle settled speed: %d, vspeed: %d\n", flight_speed,
+         flight_vspeed);
+  assert(flight_speed < kTrimSpeed);
+  assert(flight_vspeed < 0); // Lift deficit sinks the aircraft
+
   printf("  PASS\n\n");
 }
 
@@ -123,19 +201,46 @@ static void test_banked_turns_drag_and_descent() {
   printf("  PASS\n\n");
 }
 
-// 6. Inverted flight drag and pitch test
+// 6. Inverted flight drag and pitch test.
+// Inverted, lift acts downward, so the deficit is kTrimLift + |lift| rather
+// than kTrimLift - lift. That has two measurable consequences, and this test
+// asserts both against an upright baseline at the same throttle: the implicit
+// deficit drag settles the aircraft at a lower speed, and the sink penalty
+// means nose-up pitch is needed just to stay level.
 static void test_inverted_flight_drag_and_pitch() {
   printf("Running test_inverted_flight_drag_and_pitch...\n");
 
-  flight_init();
-  flight_cam.up.z = -256; // Fully inverted
+  _settle(0x14, 0, 256, 400); // Upright baseline
+  int16_t upright_speed = flight_speed;
+  int16_t upright_vspeed = flight_vspeed;
 
-  for (int i = 0; i < 100; ++i) {
-    flight_advance();
+  _settle(0x14, 0, -256, 400); // Same throttle, inverted
+  int16_t inverted_speed = flight_speed;
+  int16_t inverted_vspeed = flight_vspeed;
+
+  printf("  upright:  speed=%d vspeed=%d\n", upright_speed, upright_vspeed);
+  printf("  inverted: speed=%d vspeed=%d\n", inverted_speed, inverted_vspeed);
+
+  // Deficit drag: the inverted trim speed is strictly lower.
+  assert(inverted_speed < upright_speed);
+  // Deficit sink: level pitch is not level flight when inverted.
+  assert(upright_vspeed == 0);
+  assert(inverted_vspeed < 0);
+
+  // Nose-up pitch relative to the horizon is what recovers it. Find the
+  // shallowest pitch that stops the descent and check it is a real climb-out
+  // angle, not a rounding artefact.
+  int16_t level_pitch = -1;
+  for (int16_t p = 0; p <= 140; ++p) {
+    _settle(0x14, p, -256, 400);
+    if (!flight_crashed && flight_vspeed >= 0) {
+      level_pitch = p;
+      break;
+    }
   }
+  printf("  inverted level pitch at throttle 0x14: %d\n", level_pitch);
+  assert(level_pitch > 0); // Nose up vs. the horizon, per flight.md 3.2
 
-  // Negative lift creates large lift deficit -> extra induced drag
-  assert(flight_speed < 0x0800);
   printf("  PASS\n\n");
 }
 
@@ -162,18 +267,62 @@ static void test_gear_drag_penalty() {
   printf("  PASS\n\n");
 }
 
-// 8. Flap drag and stall reduction test
-static void test_flap_drag_and_stall_reduction() {
-  printf("Running test_flap_drag_and_stall_reduction...\n");
+// 8. Flap drag, lift and stall reduction test.
+// Flaps do three separate things (flight.md 4.2) and this asserts each of them
+// rather than just that the flag is set: more parasite drag, 50% more lift,
+// and a lower stall speed.
+static void test_flap_drag_lift_and_stall_reduction() {
+  printf("Running test_flap_drag_lift_and_stall_reduction...\n");
+
+  // (a) Drag: at the same throttle, flaps settle the aircraft slower.
+  _settle(0x14, 0, 256, 400, 0);
+  int16_t clean_speed = flight_speed;
+  _settle(0x14, 0, 256, 400, 1);
+  int16_t flap_speed = flight_speed;
+  printf("  clean speed: %d, flap speed: %d\n", clean_speed, flap_speed);
+  assert(flap_speed < clean_speed);
+
+  // (b) Lift: below the trim speed, flaps reduce the deficit, so the sink rate
+  // at the same airspeed and attitude is smaller.
+  flight_init();
+  flight_eye_z = 0x040000;
+  flight_speed = 0x0600; // Below kTrimSpeed, so a deficit exists
+  flight_throttle = 0;
+  flight_advance();
+  int16_t clean_sink = flight_vspeed;
 
   flight_init();
+  flight_eye_z = 0x040000;
+  flight_speed = 0x0600;
+  flight_throttle = 0;
   flight_flap = 1;
+  flight_advance();
+  int16_t flap_sink = flight_vspeed;
 
-  for (int i = 0; i < 100; ++i) {
-    flight_advance();
-  }
+  printf("  sink at 0x0600: clean %d, flaps %d\n", clean_sink, flap_sink);
+  assert(clean_sink < 0);
+  assert(flap_sink > clean_sink); // Less sink with flaps -> more lift
 
-  assert(flight_flap == 1);
+  // (c) Stall speed: a speed between the two stall constants stalls clean but
+  // not with flaps.
+  int16_t between = (int16_t)((kStallSpeedWithFlaps + kStallSpeedWithoutFlaps) / 2);
+  assert(between > kStallSpeedWithFlaps && between < kStallSpeedWithoutFlaps);
+
+  flight_init();
+  flight_eye_z = 0x040000;
+  flight_speed = between;
+  flight_throttle = 0;
+  flight_advance();
+  assert(flight_cam.front.z < 0); // Clean: stall pitch-down fired
+
+  flight_init();
+  flight_eye_z = 0x040000;
+  flight_speed = between;
+  flight_throttle = 0;
+  flight_flap = 1;
+  flight_advance();
+  assert(flight_cam.front.z == 0); // Flaps: still flying
+
   printf("  PASS\n\n");
 }
 
@@ -592,6 +741,135 @@ static void test_rollout_stays_on_ground() {
   printf("  PASS\n\n");
 }
 
+// Sets up a touchdown frame: places the aircraft one step above the ground
+// with the given attitude and speed, so that a single flight_advance() crosses
+// the ground plane and runs the envelope check. Returns the vertical speed the
+// check will see.
+//
+// The predicted descent has to account for the sink penalty as well as the
+// pitch term, otherwise the aircraft is simply parked below the ground plane
+// and the clamp - not the descent - is what gets tested.
+static int16_t _arm_touchdown(int16_t pitch, int16_t roll, int16_t speed,
+                              uint8_t gear, uint8_t inverted = 0) {
+  flight_init();
+  flight_eye_z = 0x040000;
+  flight_gear = gear;
+  flight_throttle = 0;
+  flight_speed = speed;
+  // Bank has to be seeded through `up`, not `left`: vec_orthonormalize derives
+  // left from up x front, so anything written straight into left.z is
+  // discarded. With front along +x, up = (0, -roll, sqrt(256^2 - roll^2))
+  // comes back out as left.z == roll.
+  int16_t up_z = (int16_t)sqrt(65536.0 - (double)roll * roll);
+  flight_cam.front = make_vector(256, 0, 0);
+  flight_cam.left = make_vector(0, 256, 0);
+  flight_cam.up = make_vector(0, -roll, inverted ? -up_z : up_z);
+  flight_cam.front.z = pitch;
+  vec_orthonormalize(&flight_cam);
+
+  // One free-flight frame at altitude tells us the vertical speed this state
+  // actually produces, including the sink penalty.
+  mat3_t attitude = flight_cam;
+  int16_t saved_speed = flight_speed;
+  flight_advance();
+  int16_t vs = flight_vspeed;
+
+  // Now re-arm the same state exactly one frame's descent above the ground.
+  flight_init();
+  flight_gear = gear;
+  flight_throttle = 0;
+  flight_speed = saved_speed;
+  flight_cam = attitude;
+  flight_eye_z = (int32_t)kGroundZ - vs;
+  return vs;
+}
+
+// 26. Landing envelope: excess sink rate (crash trigger 2).
+//
+// Note what this test documents about the envelope. Vertical speed is
+// front.z * V / 256 - sink_penalty, and both terms are bounded hard for an
+// upright arrival: pitch cannot go below kMinLandingPitch without trigger 4
+// firing first, and the sink penalty is bounded by the stall speed floor. A
+// sweep of every orthonormal attitude that passes the other four checks gives
+// a worst upright sink of -301, inside the -0x0180 limit. So trigger 2 is
+// only reachable inverted - where lift acts downward and the deficit doubles -
+// and it is reachable there precisely because the bank check looks at left.z,
+// which is ~0 after a full 180 degree roll. See flight_review.md C5.
+static void test_landing_envelope_sink_rate() {
+  printf("Running test_landing_envelope_sink_rate...\n");
+
+  // Upright, at the steepest pitch the envelope allows: inside the limit.
+  int16_t gentle = _arm_touchdown(kMinLandingPitch, 0, 0x0500, 1);
+  printf("  upright at min pitch -> vspeed %d (limit %d)\n", gentle,
+         kMaxLandingVSpeed);
+  assert(gentle < 0);
+  assert(gentle >= kMaxLandingVSpeed);
+  flight_advance();
+  assert(!flight_crashed);
+
+  // Inverted arrival: the doubled lift deficit drives the sink rate past the
+  // limit while pitch, roll, speed and gear are all still legal.
+  int16_t steep = _arm_touchdown(kMinLandingPitch, 0, 0x0900, 1, /*inverted=*/1);
+  printf("  inverted at min pitch -> vspeed %d, left.z %d, speed %d\n", steep,
+         flight_cam.left.z, flight_speed);
+  assert(steep < kMaxLandingVSpeed);                       // Trigger 2 armed
+  assert(_abs16(flight_cam.left.z) <= kMaxLandingRoll);    // Trigger 3 clear
+  assert(flight_cam.front.z >= kMinLandingPitch);          // Trigger 4 clear
+  assert(flight_speed <= (int16_t)kMaxLandingSpeed);       // Trigger 5 clear
+  flight_advance();
+  assert(flight_crashed);
+
+  printf("  PASS\n\n");
+}
+
+// 27. Landing envelope: excess bank angle (crash trigger 3).
+static void test_landing_envelope_bank_angle() {
+  printf("Running test_landing_envelope_bank_angle...\n");
+
+  // Wings within kMaxLandingRoll -> lands.
+  _arm_touchdown(0, kMaxLandingRoll, 0x0500, 1);
+  printf("  touchdown left.z: %d (limit %d)\n", flight_cam.left.z,
+         kMaxLandingRoll);
+  assert(_abs16(flight_cam.left.z) <= kMaxLandingRoll);
+  flight_advance();
+  assert(!flight_crashed);
+
+  // A wingtip-down arrival -> crash.
+  _arm_touchdown(0, 120, 0x0500, 1);
+  assert(_abs16(flight_cam.left.z) > kMaxLandingRoll);
+  flight_advance();
+  assert(flight_crashed);
+
+  // Symmetric: the other wing down crashes too.
+  _arm_touchdown(0, -120, 0x0500, 1);
+  assert(_abs16(flight_cam.left.z) > kMaxLandingRoll);
+  flight_advance();
+  assert(flight_crashed);
+
+  printf("  PASS\n\n");
+}
+
+// 28. Landing envelope: excess touchdown speed (crash trigger 5).
+static void test_landing_envelope_touchdown_speed() {
+  printf("Running test_landing_envelope_touchdown_speed...\n");
+
+  // At the limit -> lands.
+  _arm_touchdown(0, 0, (int16_t)kMaxLandingSpeed, 1);
+  assert(flight_speed <= (int16_t)kMaxLandingSpeed);
+  flight_advance();
+  printf("  at limit: speed %d, crashed %d\n", flight_speed, flight_crashed);
+  assert(!flight_crashed);
+
+  // Over the limit -> crash. Drag bleeds a little speed during the frame, so
+  // arrive with enough margin that the check still sees an overspeed.
+  _arm_touchdown(0, 0, (int16_t)kMaxLandingSpeed + 0x0100, 1);
+  flight_advance();
+  printf("  over limit: speed %d, crashed %d\n", flight_speed, flight_crashed);
+  assert(flight_crashed);
+
+  printf("  PASS\n\n");
+}
+
 // Declared in host_vec.cc.
 int host_vec_selfcheck();
 
@@ -610,16 +888,17 @@ static void test_host_multiply_matches_c64() {
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
-  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (26 TESTS) ===\n\n");
+  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (30 TESTS) ===\n\n");
   test_host_multiply_matches_c64();
   test_level_cruise_equilibrium();
+  test_trim_speed_boundary();
   test_power_off_stall_recovery();
   test_no_backward_flight();
   test_climb_at_different_throttles();
   test_banked_turns_drag_and_descent();
   test_inverted_flight_drag_and_pitch();
   test_gear_drag_penalty();
-  test_flap_drag_and_stall_reduction();
+  test_flap_drag_lift_and_stall_reduction();
   test_touchdown_flare_and_crash_envelope();
   test_takeoff_stall_speed_gate();
   test_ground_deceleration_friction();
@@ -637,6 +916,9 @@ int main(int argc, char **argv) {
   test_inverted_flaps_stall_speed_increase();
   test_idle_throttle_glide_slope_speed_decay();
   test_rollout_stays_on_ground();
-  printf("ALL 26 TESTS PASSED SUCCESSFULLY!\n");
+  test_landing_envelope_sink_rate();
+  test_landing_envelope_bank_angle();
+  test_landing_envelope_touchdown_speed();
+  printf("ALL 30 TESTS PASSED SUCCESSFULLY!\n");
   return 0;
 }

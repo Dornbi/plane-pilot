@@ -194,6 +194,15 @@ void flight_advance() {
     if (!model_on_ground) {
       int16_t raw_lift = vec_fastmul8p8((int16_t)(speed_sqr >> 2), flight_cam.up.z);
       int16_t lift = vec_fastmul8p8(raw_lift, density);
+      if (flight_flap) {
+        // Flaps raise |C_L| by half. Upright that is what puts the stall speed
+        // at kStallSpeedWithFlaps: stall speed scales as 1/sqrt(C_L), and
+        // 0x0400 / sqrt(1.5) = 0x0343, so the constant and this multiplier
+        // describe the same wing. Inverted, lift is already negative and the
+        // shift deepens it - that is the adverse camber penalty, and it is why
+        // the inverted stall speed goes up rather than down.
+        lift += lift >> 1;
+      }
       int16_t deficit = kTrimLift - lift;
       if (deficit > 0) {
         sink_penalty = deficit >> 4;
