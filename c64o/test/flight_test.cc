@@ -43,14 +43,23 @@ static void test_no_backward_flight() {
   printf("Running test_no_backward_flight...\n");
   flight_init();
   flight_throttle = 0;
-  flight_cam.front.z = 256; // Straight up
+
+  // Straight up, as a genuine orthonormal frame. Assigning front.z alone
+  // leaves front.x at 256, so the vector is not unit length and normalizes to
+  // a 45 degree climb - which is not the case this test is meant to cover,
+  // and which hides the dead spot at the true vertical entirely.
+  flight_cam.front = make_vector(0, 0, 256);
+  flight_cam.left = make_vector(0, 256, 0);
+  flight_cam.up = make_vector(-256, 0, 0);
 
   for (int i = 0; i < 150; ++i) {
     flight_advance();
     assert(flight_speed >= 0); // Must never be negative
   }
 
-  assert(flight_cam.front.z < 256); // Nose should pitch down toward ground
+  // The nose must actually fall away from the vertical, not merely change.
+  printf("  front.z after 150 frames: %d\n", flight_cam.front.z);
+  assert(flight_cam.front.z < 128); // past 30 degrees of nose drop
   printf("  PASS\n\n");
 }
 
@@ -548,8 +557,26 @@ static void test_idle_throttle_glide_slope_speed_decay() {
   printf("  PASS\n\n");
 }
 
+// Declared in host_vec.cc.
+int host_vec_selfcheck();
+
+// 0. The host multiply must match the 6502 assembly, or nothing below this
+// line says anything about the real target.
+static void test_host_multiply_matches_c64() {
+  printf("Running test_host_multiply_matches_c64...\n");
+  int mismatches = host_vec_selfcheck();
+  if (mismatches) {
+    printf("  %d mismatches against the vec_asm.cc contract\n", mismatches);
+  }
+  assert(mismatches == 0);
+  printf("  PASS\n\n");
+}
+
 int main(int argc, char **argv) {
-  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (24 DYNAMIC TESTS) ===\n\n");
+  (void)argc;
+  (void)argv;
+  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (25 DYNAMIC TESTS) ===\n\n");
+  test_host_multiply_matches_c64();
   test_level_cruise_equilibrium();
   test_power_off_stall_recovery();
   test_no_backward_flight();
@@ -574,6 +601,6 @@ int main(int argc, char **argv) {
   test_high_altitude_stall_speed_increase();
   test_inverted_flaps_stall_speed_increase();
   test_idle_throttle_glide_slope_speed_decay();
-  printf("ALL 24 DYNAMIC TESTS PASSED SUCCESSFULLY!\n");
+  printf("ALL 25 DYNAMIC TESTS PASSED SUCCESSFULLY!\n");
   return 0;
 }

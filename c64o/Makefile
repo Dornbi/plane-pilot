@@ -142,14 +142,21 @@ $(VECDEMO_PROGRAM).prg: $(VECDEMO_SRC)
 $(VECTEST_PROGRAM).prg: $(VECTEST_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ vectest.cc
 
+# Host build of the flight model tests. g++, not oscar64. host_vec.cc checks
+# that the inline vec_fastmul8p8 in vec.h matches the 6502 routine it stands
+# in for; without that the results below say nothing about the real target.
 HOST_CC = g++
 HOST_CFLAGS = -O2 -std=c++17 -Wall -Wno-unknown-pragmas -I.
+FLIGHT_TEST_SRC = test/flight_test.cc test/host_vec.cc flight.cc vec.cc \
+		vec_lut.cc fmath.cc
 
-flight_test: test/flight_test.cc flight.cc vec.cc vec_lut.cc fmath.cc
-	$(HOST_CC) $(HOST_CFLAGS) -o test/flight_test test/flight_test.cc flight.cc vec.cc vec_lut.cc fmath.cc
+flight_test: $(FLIGHT_TEST_SRC) flight.h vec.h fmath.h
+	$(HOST_CC) $(HOST_CFLAGS) -o test/flight_test $(FLIGHT_TEST_SRC)
 
 test: flight_test
 	./test/flight_test
 
 clean:
-	rm -f $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg test/flight_test *.asm *.dbj *.int *.lbl *.map
+	rm -rf $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg test/flight_test test/flight_test.dSYM *.asm *.dbj *.int *.lbl *.map
+
+.PHONY: all test clean

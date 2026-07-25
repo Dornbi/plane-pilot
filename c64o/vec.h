@@ -9,8 +9,17 @@
 // Multiplies vec_mul_a and b (16-bit signed integers). Interprets b as 8.8
 // fixed point, and returns the middle 16-bits of the 32-bit result. Note:
 // optimized for |b| <= 256.
+//
+// Host stand-in for the 6502 routine in vec_asm.cc. That one forms the
+// product from the magnitudes and applies the sign at the end, so it computes
+// trunc(a * b / 256), rounding toward zero. A plain arithmetic shift would
+// floor toward -infinity instead and differ by one on every negative product
+// with a remainder - about half of all products - which would make host test
+// results meaningless for the C64.
 inline int16_t vec_fastmul8p8(int16_t a, int16_t b) {
-  return ((int32_t)a * b) >> 8;
+  int32_t p = (int32_t)a * b;
+  int32_t magnitude = (p < 0 ? -p : p) >> 8;
+  return (int16_t)(p < 0 ? -magnitude : magnitude);
 }
 #else
 int16_t vec_fastmul8p8(int16_t a, int16_t b);

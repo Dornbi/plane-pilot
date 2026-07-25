@@ -74,6 +74,12 @@ static const uint8_t kMinThrottle = 0x00;
 static const uint8_t kMaxThrottle = 0x18;
 static const int16_t kMoveForwardBackwardSpeed = 0x4000;
 
+// Nose attitude above which the stall pitch down has to be done as a rotation
+// instead of by lowering front.z directly. sin(61 deg) * 256; past this the
+// horizontal part of front is small enough that renormalization undoes most
+// of a direct change.
+static const int16_t kMaxStallPitchZ = 224;
+
 // Landing thresholds
 static const int16_t kMaxLandingRoll = 32;
 static const int16_t kMinLandingPitch = -16;
@@ -155,7 +161,6 @@ void flight_advance() {
     return;
   }
 
-  flight_vspeed = vec_fastmul8p8(flight_cam.front.z, flight_speed);
   if (!flight_paused) {
     // Altitude density decay (above Z = 0x080000)
     uint8_t alt_penalty = 0;
@@ -179,8 +184,10 @@ void flight_advance() {
     }
     flight_speed -= flight_cam.front.z >> 3;
     if (flight_fuel > 0) {
-      uint16_t eff_throttle = ((uint16_t)flight_throttle * density) >> 8;
-      flight_speed += eff_throttle;
+      // vec_fastmul8p8 rather than a general 16x16 multiply: density is
+      // already 8.8 with 256 meaning "sea level", which is exactly the
+      // convention this routine expects.
+      flight_speed += vec_fastmul8p8(flight_throttle, density);
     }
 
     int16_t sink_penalty = 0;
@@ -205,11 +212,23 @@ void flight_advance() {
         flight_speed = 0;
       }
       if (flight_speed < stall_speed) {
-        uint8_t s = (stall_speed - flight_speed) >> 5;
-        if (s == 0) s = 1;
-        flight_cam.front.z -= s;
-        if (flight_cam.front.z < -256) {
-          flight_cam.front.z = -256;
+        if (flight_cam.front.z > kMaxStallPitchZ) {
+          // Dead spot. front is a unit vector, so with the nose this high its
+          // horizontal part is almost nothing, and vec_orthonormalize scales
+          // the whole vector back to length 256 at the end of the frame -
+          // putting back nearly all of a direct change to front.z. Pointing
+          // straight up it puts back all of it and the nose never drops.
+          // A body axis rotation is well defined at any attitude, and one
+          // step is enough to tip the nose off the vertical; from there the
+          // cheap path below works again.
+          vec_transform3(&kVecPitchDown, &flight_cam);
+        } else {
+          uint8_t s = (stall_speed - flight_speed) >> 5;
+          if (s == 0) s = 1;
+          flight_cam.front.z -= s;
+          if (flight_cam.front.z < -256) {
+            flight_cam.front.z = -256;
+          }
         }
         model_need_normalize = true;
       } else if (flight_speed > kMaxSpeed) {
@@ -277,6 +296,10 @@ void flight_advance() {
         model_need_normalize = true;
       }
     }
+  } else {
+    // Paused: the physics is frozen, but keep the vertical speed instrument
+    // live so it still reflects any attitude change the pilot makes.
+    flight_vspeed = vec_fastmul8p8(flight_cam.front.z, flight_speed);
   }
 
   if (model_need_normalize) {
