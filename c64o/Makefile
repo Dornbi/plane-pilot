@@ -34,8 +34,6 @@ PPILOT_SRC = \
 		flight.cc \
 		mission.h \
 		mission.cc \
-		model.h \
-		model.cc \
 		panel.h \
 		panel.cc \
 		panel.koa \

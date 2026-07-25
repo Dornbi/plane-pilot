@@ -22,12 +22,42 @@ uint32_t flight_fuel;
 uint8_t flight_flap;
 uint8_t flight_gear;
 
+uint8_t flight_nav = 0;
+int16_t flight_nav_x = 0;
+int16_t flight_nav_y = 0;
+uint8_t flight_true_heading = 0;
+uint8_t flight_nav_heading = 0;
+
 int32_t flight_eye_x;
 int32_t flight_eye_y;
 int32_t flight_eye_z;
 
 static bool model_on_ground = false;
 static bool model_need_normalize;
+
+// Location of navigation waypoints.
+// They match the eye_x and eye_y coordinates >> 8
+// Corresponding to the runways in world_map.cc
+static const uint16_t kNavPointX[2] = {
+    0x6000,
+    0x2000,
+};
+static const uint16_t kNavPointY[2] = {
+    0xBF80,
+    0x3F80,
+};
+
+void flight_update_nav() {
+  flight_true_heading = _get_heading(flight_cam.front.x, flight_cam.front.y);
+  flight_nav_x = kNavPointX[flight_nav] - (flight_eye_x >> 8);
+  flight_nav_y = kNavPointY[flight_nav] - (flight_eye_y >> 8);
+  flight_nav_heading =
+      _get_heading(flight_nav_x, flight_nav_y) - flight_true_heading;
+  if (flight_nav_heading > kHeadingMax) {
+    flight_nav_heading += kHeadingMax;
+  }
+}
+
 
 static const mat3_t _m_init = {
     {256, 0, 0},
@@ -65,6 +95,8 @@ void flight_init() {
   flight_gear = false;
   flight_fuel = 0x21FFF;
   model_on_ground = false;
+  flight_nav = 0;
+  flight_update_nav();
 }
 
 void flight_init_alt() {
@@ -81,6 +113,8 @@ void flight_init_alt() {
   flight_gear = false;
   flight_fuel = 0x21FFF;
   model_on_ground = false;
+  flight_nav = 1;
+  flight_update_nav();
 }
 
 void flight_init_from_mission(const mission_t *mission) {
@@ -103,6 +137,8 @@ void flight_init_from_mission(const mission_t *mission) {
   model_need_normalize = false;
   flight_flap = false;
   flight_gear = model_on_ground;
+  flight_nav = (mission->start_y >= 0x80) ? 1 : 0;
+  flight_update_nav();
 }
 
 static void flight_move_forward(int16_t fspeed, int16_t vspeed) {
@@ -247,9 +283,17 @@ void flight_advance() {
     vec_orthonormalize(&flight_cam);
     model_need_normalize = false;
   }
+
+  flight_update_nav();
 }
 
 void flight_input(enum flight_input_t input) {
+  if (input == FLIGHT_INPUT_TOGGLE_NAV) {
+    flight_nav = 1 - flight_nav;
+    flight_update_nav();
+    return;
+  }
+
   if (flight_crashed) {
     return;
   }

@@ -1,9 +1,12 @@
 #ifndef PANEL_H
 #define PANEL_H
 
-extern const char kPanelBitmapCompressed[];
-extern const char kPanelColorCompressed[];
-extern const char kPanelScreenCompressed[];
+// Updates instruments state.
+void panel_update_instruments();
+
+// Prints debug info.
+void panel_maybe_print_debug();
+
 
 #pragma compile("panel.cc")
 

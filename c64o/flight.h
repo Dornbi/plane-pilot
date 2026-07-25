@@ -19,6 +19,13 @@ extern uint32_t flight_fuel;
 extern uint8_t flight_flap;
 extern uint8_t flight_gear;
 
+// Navigation state
+extern uint8_t flight_nav;
+extern int16_t flight_nav_x;
+extern int16_t flight_nav_y;
+extern uint8_t flight_true_heading;
+extern uint8_t flight_nav_heading;
+
 // Aircraft position in world coordinates (24.8 fixed point)
 extern int32_t flight_eye_x;
 extern int32_t flight_eye_y;
@@ -36,6 +43,7 @@ enum flight_input_t {
   FLIGHT_INPUT_THROTTLE_DOWN,
   FLIGHT_INPUT_TOGGLE_FLAP,
   FLIGHT_INPUT_TOGGLE_GEAR,
+  FLIGHT_INPUT_TOGGLE_NAV,
   FLIGHT_INPUT_MOVE_FORWARD,
   FLIGHT_INPUT_MOVE_BACKWARD,
 };

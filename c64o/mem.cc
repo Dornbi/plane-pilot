@@ -103,10 +103,6 @@ static const uint8_t kVicMemScreenMain = 0xA8;
 // static uint8_t *const kScreenRamAlt = (uint8_t *)0xEC00;
 static const uint8_t kVicMemScreenAlt = 0xB8;
 
-static void _expand_panel_screen_color() {
-  oscar_expand_lzo((char *)0xee30, kPanelScreenCompressed);
-  oscar_expand_lzo((char *)0xda30, kPanelColorCompressed);
-}
 
 // Startup and mode-switch helpers; none of these run per frame.
 #pragma optimize(push, outline)

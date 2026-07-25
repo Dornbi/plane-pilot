@@ -5,13 +5,14 @@
 #include "benchmark.h"
 #include "box.h"
 #include "chardefs.h"
+#include "flight.h"
 #include "gfx.h"
 #include "help.h"
 #include "keys.h"
 #include "map.h"
 #include "mem.h"
 #include "mission.h"
-#include "model.h"
+#include "panel.h"
 #include "render.h"
 #include "screen.h"
 #include "sprites.h"
@@ -26,7 +27,7 @@ static void _enter_simulation(uint8_t selected_mission) {
   memset(kScreenRamMain, kCharSolid11, 1000);
   memset(kScreenRamAlt, kCharSolid11, 1000);
 
-  model_init_from_mission(&kMissions[selected_mission]);
+  flight_init_from_mission(&kMissions[selected_mission]);
 
   mem_init_mccm();
   view_refresh_panel();
@@ -89,7 +90,7 @@ void sim_run(uint8_t selected_mission) {
     // there's no instrument feedback to show the player what they're doing.
     if (!map_mode) {
       if (key_pressed(KSCAN_R)) {
-        model_init_from_mission(&kMissions[selected_mission]);
+        flight_init_from_mission(&kMissions[selected_mission]);
       }
       if (key_pressed(KSCAN_J)) {
         flight_input(FLIGHT_INPUT_ROLL_LEFT);
@@ -128,7 +129,7 @@ void sim_run(uint8_t selected_mission) {
         flight_input(FLIGHT_INPUT_THROTTLE_DOWN);
       }
       if (toggle_edges & kToggleKeyN) {
-        model_input(MODEL_INPUT_TOGGLE_NAV);
+        flight_input(FLIGHT_INPUT_TOGGLE_NAV);
       }
     }
     if (key_pressed(KSCAN_1)) {
@@ -155,15 +156,17 @@ void sim_run(uint8_t selected_mission) {
     }
 
     if (!map_mode) {
-      model_advance();
+      bm_model_start();
+      flight_advance();
+      bm_model_end(630, "MDL:");
 
       bm_start();
       view_update_cam();
       world_update_roll_state();
       world_update_sun_pos();
-      model_update_instruments();
+      panel_update_instruments();
 
-      model_maybe_print_debug();
+      panel_maybe_print_debug();
 
       render_snap_center_chars();
       render_fill_sky_ground();

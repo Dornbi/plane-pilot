@@ -20,6 +20,19 @@ static inline void oscar_expand_lzo(char *dst, const char *src) {}
 view_state_t view_state = VIEW_UNKNOWN;
 static view_state_t view_bitmap_state = VIEW_UNKNOWN;
 
+static const char kPanelBitmapCompressed[] = {
+#embed 3904 4098 lzo "panel.koa"
+};
+
+static const char kPanelScreenCompressed[] = {
+#embed 440 8562 lzo "panel.koa"
+};
+
+static const char kPanelColorCompressed[] = {
+#embed 440 9562 lzo "panel.koa"
+};
+
+
 void view_update_cam() {
   if (view_state == VIEW_CENTER) {
     world_cam.front = flight_cam.front;
