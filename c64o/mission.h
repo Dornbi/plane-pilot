@@ -38,7 +38,7 @@ extern const char *const kMissionDesc[];
 extern const char *const kMissionMsg[];
 extern const mission_waypoint_t kMissionWaypoints[];
 extern const mission_t kMissions[];
-static const uint8_t kMissionCount = 2;
+static const uint8_t kMissionCount = 4;
 
 #pragma compile("mission.cc")
 
