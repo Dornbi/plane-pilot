@@ -77,7 +77,7 @@ void sim_run(uint8_t selected_mission) {
       mem_switch_debug(!mem_debug_enabled);
     }
     if (toggle_edges & kToggleKeyP) {
-      model_paused = !model_paused;
+      flight_paused = !flight_paused;
     }
 
     if (key_pressed(KSCAN_Q)) {
@@ -92,43 +92,43 @@ void sim_run(uint8_t selected_mission) {
         model_init_from_mission(&kMissions[selected_mission]);
       }
       if (key_pressed(KSCAN_J)) {
-        model_input(MODEL_INPUT_ROLL_LEFT);
+        flight_input(FLIGHT_INPUT_ROLL_LEFT);
       }
       if (key_pressed(KSCAN_L)) {
-        model_input(MODEL_INPUT_ROLL_RIGHT);
+        flight_input(FLIGHT_INPUT_ROLL_RIGHT);
       }
       if (key_pressed(KSCAN_I)) {
-        model_input(MODEL_INPUT_PITCH_DOWN);
+        flight_input(FLIGHT_INPUT_PITCH_DOWN);
       }
       if (key_pressed(KSCAN_K)) {
-        model_input(MODEL_INPUT_PITCH_UP);
+        flight_input(FLIGHT_INPUT_PITCH_UP);
       }
       if (key_pressed(KSCAN_A)) {
-        model_input(MODEL_INPUT_YAW_LEFT);
+        flight_input(FLIGHT_INPUT_YAW_LEFT);
       }
       if (key_pressed(KSCAN_S)) {
-        model_input(MODEL_INPUT_YAW_RIGHT);
+        flight_input(FLIGHT_INPUT_YAW_RIGHT);
+      }
+      if (toggle_edges & kToggleKeyF) {
+        flight_input(FLIGHT_INPUT_TOGGLE_FLAP);
+      }
+      if (toggle_edges & kToggleKeyG) {
+        flight_input(FLIGHT_INPUT_TOGGLE_GEAR);
+      }
+      if (key_pressed(KSCAN_Z)) {
+        flight_input(FLIGHT_INPUT_MOVE_FORWARD);
+      }
+      if (key_pressed(KSCAN_X)) {
+        flight_input(FLIGHT_INPUT_MOVE_BACKWARD);
+      }
+      if (key_pressed(KSCAN_PLUS)) {
+        flight_input(FLIGHT_INPUT_THROTTLE_UP);
+      }
+      if (key_pressed(KSCAN_MINUS)) {
+        flight_input(FLIGHT_INPUT_THROTTLE_DOWN);
       }
       if (toggle_edges & kToggleKeyN) {
         model_input(MODEL_INPUT_TOGGLE_NAV);
-      }
-      if (toggle_edges & kToggleKeyF) {
-        model_input(MODEL_INPUT_TOGGLE_FLAP);
-      }
-      if (toggle_edges & kToggleKeyG) {
-        model_input(MODEL_INPUT_TOGGLE_GEAR);
-      }
-      if (key_pressed(KSCAN_Z)) {
-        model_input(MODEL_INPUT_MOVE_FORWARD);
-      }
-      if (key_pressed(KSCAN_X)) {
-        model_input(MODEL_INPUT_MOVE_BACKWARD);
-      }
-      if (key_pressed(KSCAN_PLUS)) {
-        model_input(MODEL_INPUT_THROTTLE_UP);
-      }
-      if (key_pressed(KSCAN_MINUS)) {
-        model_input(MODEL_INPUT_THROTTLE_DOWN);
       }
     }
     if (key_pressed(KSCAN_1)) {

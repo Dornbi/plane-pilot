@@ -11,7 +11,6 @@
 #include "sprites.h"
 #include "vec.h"
 #include "view.h"
-#include "world.h"
 
 #ifdef __OSCAR64__
 #pragma bss(bss2)
@@ -52,30 +51,30 @@ void model_init_from_mission(const mission_t *mission) {
 
 void model_advance() {
   bm_model_start();
-  if (!model_crashed) {
+  if (!flight_crashed) {
     flight_advance();
   }
   bm_model_end(630, "MDL:");
 }
 
 void model_update_instruments() {
-  sprites_set_speed(model_speed >> 6);
-  sprites_set_alt(model_eye_z >> 8);
-  sprites_set_vspeed(model_vspeed);
+  sprites_set_speed(flight_speed >> 6);
+  sprites_set_alt(flight_eye_z >> 8);
+  sprites_set_vspeed(flight_vspeed);
   if (view_state == VIEW_CENTER) {
     // With centered view, we can reuse the roll angle from the view.
     sprites_set_roll(roll_angle);
   } else {
-    // Otherwise compute it from model_cam.
-    sprites_set_roll(_get_roll_angle(model_cam.up.z, model_cam.left.z));
+    // Otherwise compute it from flight_cam.
+    sprites_set_roll(_get_roll_angle(flight_cam.up.z, flight_cam.left.z));
   }
-  sprites_set_pitch(model_cam.front.z >> 2);
-  sprites_set_throttle(model_throttle);
-  sprites_set_fuel(model_fuel);
-  _model_true_heading = _get_heading(model_cam.front.x, model_cam.front.y);
+  sprites_set_pitch(flight_cam.front.z >> 2);
+  sprites_set_throttle(flight_throttle);
+  sprites_set_fuel(flight_fuel);
+  _model_true_heading = _get_heading(flight_cam.front.x, flight_cam.front.y);
   gfx_update_heading_bitmap(_model_true_heading);
-  _model_nav_x = kNavPointX[_model_nav] - (model_eye_x >> 8);
-  _model_nav_y = kNavPointY[_model_nav] - (model_eye_y >> 8);
+  _model_nav_x = kNavPointX[_model_nav] - (flight_eye_x >> 8);
+  _model_nav_y = kNavPointY[_model_nav] - (flight_eye_y >> 8);
   _model_nav_heading =
       _get_heading(_model_nav_x, _model_nav_y) - _model_true_heading;
   if (_model_nav_heading > kHeadingMax) {
@@ -83,34 +82,34 @@ void model_update_instruments() {
     _model_nav_heading += kHeadingMax;
   }
   gfx_update_nav_heading(_model_nav_heading);
-  gfx_update_flap(model_flap);
-  gfx_update_gear(model_gear);
+  gfx_update_flap(flight_flap);
+  gfx_update_gear(flight_gear);
 }
 
 void model_maybe_print_debug() {
 #ifdef __DEBUG_MODEL__
   if (mem_debug_enabled) {
-    print_labeled_signed_bcd(600, "FX: ", model_cam.front.x, 4);
-    print_labeled_signed_bcd(610, "FY: ", model_cam.front.y, 4);
-    print_labeled_signed_bcd(620, "FZ: ", model_cam.front.z, 4);
-    print_labeled_signed_bcd(640, "LX: ", model_cam.left.x, 4);
-    print_labeled_signed_bcd(650, "LY: ", model_cam.left.y, 4);
-    print_labeled_signed_bcd(660, "LZ: ", model_cam.left.z, 4);
-    print_labeled_signed_bcd(680, "UX: ", model_cam.up.x, 4);
-    print_labeled_signed_bcd(690, "UY: ", model_cam.up.y, 4);
-    print_labeled_signed_bcd(700, "UZ: ", model_cam.up.z, 4);
+    print_labeled_signed_bcd(600, "FX: ", flight_cam.front.x, 4);
+    print_labeled_signed_bcd(610, "FY: ", flight_cam.front.y, 4);
+    print_labeled_signed_bcd(620, "FZ: ", flight_cam.front.z, 4);
+    print_labeled_signed_bcd(640, "LX: ", flight_cam.left.x, 4);
+    print_labeled_signed_bcd(650, "LY: ", flight_cam.left.y, 4);
+    print_labeled_signed_bcd(660, "LZ: ", flight_cam.left.z, 4);
+    print_labeled_signed_bcd(680, "UX: ", flight_cam.up.x, 4);
+    print_labeled_signed_bcd(690, "UY: ", flight_cam.up.y, 4);
+    print_labeled_signed_bcd(700, "UZ: ", flight_cam.up.z, 4);
 
-    print_labeled_hex(778, "EX:", model_eye_x, 8);
-    print_labeled_hex(818, "EY:", model_eye_y, 8);
-    print_labeled_hex(858, "EZ:", model_eye_z, 8);
+    print_labeled_hex(778, "EX:", flight_eye_x, 8);
+    print_labeled_hex(818, "EY:", flight_eye_y, 8);
+    print_labeled_hex(858, "EZ:", flight_eye_z, 8);
 
     print_labeled_signed_bcd(760, "NX:", _model_nav_x);
     print_labeled_signed_bcd(800, "NY:", _model_nav_y);
     print_labeled_bcd(840, "NAV:", _model_nav_heading);
 
     print_labeled_bcd(850, "HDG:", _model_true_heading, 3);
-    print_labeled_signed_bcd(920, "SPD:", model_speed, 4);
-    print_labeled_signed_bcd(960, "VSP:", model_vspeed, 4);
+    print_labeled_signed_bcd(920, "SPD:", flight_speed, 4);
+    print_labeled_signed_bcd(960, "VSP:", flight_vspeed, 4);
   }
 #endif
 }
@@ -120,5 +119,4 @@ void model_input(enum model_input_t input) {
     _model_nav = 1 - _model_nav;
     return;
   }
-  flight_input((enum flight_input_t)input);
 }

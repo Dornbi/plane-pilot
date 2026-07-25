@@ -17,7 +17,7 @@ extern view_state_t view_state;
 static const uint8_t kCopyWidthChars = 8;
 static const uint8_t kFillWidthChars = kScreenWidth - kCopyWidthChars;
 
-// Updates world_cam based on model_cam and the view_state.
+// Updates world_cam based on flight_cam and the view_state.
 void view_update_cam();
 
 // Unconditionally updates the bitmap based on the current view.

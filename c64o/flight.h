@@ -1,0 +1,51 @@
+#ifndef FLIGHT_H
+#define FLIGHT_H
+
+#include <stdint.h>
+
+#include "bool.h"
+#include "mission.h"
+#include "vec.h"
+
+extern bool flight_paused;
+extern bool flight_crashed;
+
+extern mat3_t flight_cam;
+
+extern int16_t flight_speed;
+extern int16_t flight_vspeed;
+extern uint8_t flight_throttle;
+extern uint32_t flight_fuel;
+extern uint8_t flight_flap;
+extern uint8_t flight_gear;
+
+// Aircraft position in world coordinates (24.8 fixed point)
+extern int32_t flight_eye_x;
+extern int32_t flight_eye_y;
+extern int32_t flight_eye_z;
+
+enum flight_input_t {
+  FLIGHT_INPUT_NONE,
+  FLIGHT_INPUT_ROLL_LEFT,
+  FLIGHT_INPUT_ROLL_RIGHT,
+  FLIGHT_INPUT_PITCH_UP,
+  FLIGHT_INPUT_PITCH_DOWN,
+  FLIGHT_INPUT_YAW_LEFT,
+  FLIGHT_INPUT_YAW_RIGHT,
+  FLIGHT_INPUT_THROTTLE_UP,
+  FLIGHT_INPUT_THROTTLE_DOWN,
+  FLIGHT_INPUT_TOGGLE_FLAP,
+  FLIGHT_INPUT_TOGGLE_GEAR,
+  FLIGHT_INPUT_MOVE_FORWARD,
+  FLIGHT_INPUT_MOVE_BACKWARD,
+};
+
+void flight_init();
+void flight_init_from_mission(const mission_t *mission);
+
+void flight_advance();
+void flight_input(enum flight_input_t input);
+
+#pragma compile("flight.cc")
+
+#endif // FLIGHT_H

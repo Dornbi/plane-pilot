@@ -1,14 +1,15 @@
 #ifndef WORLD_H
 #define WORLD_H
 
-#include "gfx.h"
-#include "vec.h"
 #include <stdint.h>
 
+#include "gfx.h"
+#include "vec.h"
+
 // Roughly 24.8 fixed point in meters
-extern int32_t model_eye_x;
-extern int32_t model_eye_y;
-extern int32_t model_eye_z;
+extern int32_t flight_eye_x;
+extern int32_t flight_eye_y;
+extern int32_t flight_eye_z;
 // View matrix.
 extern mat3_t world_cam;
 

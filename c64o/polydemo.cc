@@ -73,9 +73,9 @@ static void _clear_screen() {
 // Stripped down version of world_render_grid().
 static void _stripped_world_render_grid(const viewpoint_t *viewpoint) {
   world_cam = viewpoint->cam;
-  model_eye_x = viewpoint->eye_x;
-  model_eye_y = viewpoint->eye_y;
-  model_eye_z = viewpoint->eye_z;
+  flight_eye_x = viewpoint->eye_x;
+  flight_eye_y = viewpoint->eye_y;
+  flight_eye_z = viewpoint->eye_z;
 
   _world_init_start_dx_dy();
   if (mem_debug_enabled && true) {

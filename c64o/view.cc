@@ -10,9 +10,9 @@ static inline void oscar_expand_lzo(char *dst, const char *src) {}
 #endif
 
 #include "color.h"
+#include "flight.h"
 #include "gfx.h"
 #include "mem.h"
-#include "model.h"
 #include "panel.h"
 #include "vec.h"
 #include "world.h"
@@ -22,18 +22,18 @@ static view_state_t view_bitmap_state = VIEW_UNKNOWN;
 
 void view_update_cam() {
   if (view_state == VIEW_CENTER) {
-    world_cam.front = model_cam.front;
-    world_cam.left = model_cam.left;
+    world_cam.front = flight_cam.front;
+    world_cam.left = flight_cam.left;
   } else if (view_state == VIEW_LEFT) {
-    world_cam.front = model_cam.left;
-    world_cam.left = model_cam.front;
+    world_cam.front = flight_cam.left;
+    world_cam.left = flight_cam.front;
     vec_negate(&world_cam.left);
   } else {
-    world_cam.front = model_cam.left;
+    world_cam.front = flight_cam.left;
     vec_negate(&world_cam.front);
-    world_cam.left = model_cam.front;
+    world_cam.left = flight_cam.front;
   }
-  world_cam.up = model_cam.up;
+  world_cam.up = flight_cam.up;
 }
 
 // Panel rebuilding runs only when the view changes (a keypress), never from
