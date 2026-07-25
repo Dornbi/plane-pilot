@@ -92,6 +92,16 @@ static const int16_t kMaxLandingPitch = 64;
 // nose-down arrival needs speed to survive it.
 static const int16_t kMaxLandingVSpeed = -0x00E0;
 static const uint16_t kMaxLandingSpeed = 0x0A00;
+// The envelope check runs every frame the aircraft is at ground level, not
+// just on the touchdown frame, so it also polices taxi and takeoff roll. That
+// is wanted for the gear check - rolling on a retracted gear should fail
+// immediately - but kMaxLandingSpeed is an impact limit and is far too close
+// to the speeds a ground roll legitimately reaches. Full throttle with the
+// gear down settles at 2290, only 270 under it, so any future drag or thrust
+// tweak could turn a normal takeoff run into a crash. Once already rolling the
+// limit is this looser one, which still catches nonsense start states from
+// mission data but leaves the takeoff roll ~45% of headroom.
+static const uint16_t kMaxGroundSpeed = 0x0D00;
 
 void flight_init() {
   flight_paused = false;
@@ -328,12 +338,17 @@ void flight_advance() {
     flight_move_forward(flight_speed << 1, flight_vspeed);
 
     if (flight_eye_z <= kMinEyeZ) {
+      // model_on_ground still holds last frame's value here, so it says
+      // whether this is a touchdown or another frame of an existing ground
+      // roll. Only the speed limit distinguishes the two.
+      uint16_t speed_limit =
+          model_on_ground ? kMaxGroundSpeed : kMaxLandingSpeed;
       if (_abs16(flight_cam.left.z) > kMaxLandingRoll ||
           flight_cam.up.z < kMinLandingUpZ ||
           flight_cam.front.z < kMinLandingPitch ||
           flight_cam.front.z > kMaxLandingPitch ||
-          flight_vspeed < kMaxLandingVSpeed ||
-          flight_speed > kMaxLandingSpeed || !flight_gear) {
+          flight_vspeed < kMaxLandingVSpeed || flight_speed > speed_limit ||
+          !flight_gear) {
         flight_crashed = true;
       }
       model_on_ground = true;

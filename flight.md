@@ -169,7 +169,16 @@ This is the central mechanism of the model: it is what makes banked turns descen
 
 ### 5.3. Touchdown & Crash Envelope Checks
 
-Touchdown check triggers when altitude $Z \le Z_{\text{min}}$:
+The check triggers whenever altitude $Z \le Z_{\text{min}}$ — **every frame the aircraft is at ground level, not only on the touchdown frame**. It therefore also polices taxi and takeoff roll: rolling with the gear retracted, or with the wings or nose out of limits, fails immediately. This is intended.
+
+The one trigger that must not be applied unchanged during a ground roll is the speed limit, which is an *impact* limit. Full throttle with the gear down settles at 2290, only 270 under $\text{kMaxLandingSpeed}$, so a normal takeoff run would sit uncomfortably close to crashing. The limit is therefore split:
+
+| State | Speed limit |
+| :--- | :--- |
+| Touchdown (was airborne last frame) | $\text{kMaxLandingSpeed} = \text{0x0A00}$ |
+| Already rolling | $\text{kMaxGroundSpeed} = \text{0x0D00}$ |
+
+The looser ground limit still rejects nonsense start states from mission data while leaving the takeoff roll ~45% headroom.
 
 - **Crash Triggers**:
   1. **Gear Retracted**: `flight_gear == 0`.

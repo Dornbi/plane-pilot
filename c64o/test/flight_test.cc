@@ -24,6 +24,7 @@ static const int16_t kMinLandingPitch = -16;
 static const int16_t kMaxLandingPitch = 64;
 static const int16_t kMaxLandingVSpeed = -0x00E0;
 static const uint16_t kMaxLandingSpeed = 0x0A00;
+static const uint16_t kMaxGroundSpeed = 0x0D00;
 
 // Holds an attitude for `frames` steps at a fixed throttle, ignoring fuel burn,
 // and returns with flight_speed / flight_vspeed at the steady state. Used by
@@ -50,6 +51,69 @@ static void _settle(uint8_t throttle, int16_t pitch, int16_t up_z, int frames,
     flight_advance();
     flight_throttle = throttle;
   }
+}
+
+// Sets up a touchdown frame: places the aircraft one step above the ground
+// with the given attitude and speed, so that a single flight_advance() crosses
+// the ground plane and runs the envelope check. Returns the vertical speed the
+// check will see.
+//
+// The predicted descent has to account for the sink penalty as well as the
+// pitch term, otherwise the aircraft is simply parked below the ground plane
+// and the clamp - not the descent - is what gets tested.
+static int16_t _arm_touchdown(int16_t pitch, int16_t roll, int16_t speed,
+                              uint8_t gear, uint8_t inverted = 0) {
+  flight_init();
+  flight_eye_z = 0x040000;
+  flight_gear = gear;
+  flight_throttle = 0;
+  flight_speed = speed;
+  // Bank has to be seeded through `up`, not `left`: vec_orthonormalize derives
+  // left from up x front, so anything written straight into left.z is
+  // discarded. With front along +x, up = (0, -roll, sqrt(256^2 - roll^2))
+  // comes back out as left.z == roll.
+  int16_t up_z = (int16_t)sqrt(65536.0 - (double)roll * roll);
+  flight_cam.front = make_vector(256, 0, 0);
+  flight_cam.left = make_vector(0, 256, 0);
+  flight_cam.up = make_vector(0, -roll, inverted ? -up_z : up_z);
+  flight_cam.front.z = pitch;
+  vec_orthonormalize(&flight_cam);
+
+  // One free-flight frame at altitude tells us the vertical speed this state
+  // actually produces, including the sink penalty.
+  mat3_t attitude = flight_cam;
+  int16_t saved_speed = flight_speed;
+  flight_advance();
+  int16_t vs = flight_vspeed;
+
+  // Now re-arm the same state exactly one frame's descent above the ground.
+  flight_init();
+  flight_gear = gear;
+  flight_throttle = 0;
+  flight_speed = saved_speed;
+  flight_cam = attitude;
+  flight_eye_z = (int32_t)kGroundZ - vs;
+  return vs;
+}
+
+// Puts the model genuinely into ground mode. model_on_ground is a static
+// inside flight.cc that flight_init() clears, so setting flight_eye_z alone
+// leaves the model airborne and every flight_input() takes the airborne
+// branch. One advance at ground level is what actually sets the flag.
+static void _put_on_ground(int16_t speed) {
+  flight_init();
+  flight_gear = 1;
+  flight_throttle = 0;
+  // The contact frame is a touchdown as far as flight_advance is concerned, so
+  // it has to pass the landing envelope. Fly it at kTrimSpeed: there the lift
+  // deficit is exactly zero, so with wings level and no pitch the vertical
+  // speed is zero and no trigger fires, whatever speed the caller actually
+  // wants once the aircraft is on the runway.
+  flight_speed = kTrimSpeed;
+  flight_eye_z = kGroundZ;
+  flight_advance(); // Trips the ground contact check -> model_on_ground = true
+  assert(!flight_crashed);
+  flight_speed = speed;
 }
 
 // 1. Level cruise equilibrium test.
@@ -339,91 +403,38 @@ static void test_touchdown_flare_and_crash_envelope() {
   flight_advance();
   assert(flight_crashed);
 
-  // Safe landing flare (front.z = 45, gear down)
-  flight_init();
-  flight_gear = 1;
-  flight_cam.front.z = 45;
-  flight_speed = 0x0500;
-  int16_t vs = vec_fastmul8p8(45, 0x0500);
-  flight_eye_z = 0x2000 - vs - 1;
+  // Both flares below are flown as genuine descents through the ground plane.
+  // That constrains the speed: a nose-up attitude only descends when the lift
+  // deficit outweighs the pitch term, so just above stall the steepest
+  // descending flare is front.z = 51, and a steeper one needs to be below
+  // stall speed.
+
+  // Safe landing flare (front.z = 45, gear down), descending at 1030.
+  int16_t vs = _arm_touchdown(45, 0, 1030, 1);
+  printf("  flare 45 at 1030 -> vspeed %d\n", vs);
+  assert(vs < 0); // Really descending onto the runway
+  assert(vs >= kMaxLandingVSpeed);
   flight_advance();
   assert(!flight_crashed);
 
-  // Excessive landing flare (front.z = 80 > 64) -> crash
-  flight_init();
-  flight_gear = 1;
-  flight_cam.front.z = 80;
-  flight_speed = 0x0500;
-  vs = vec_fastmul8p8(80, 0x0500);
-  flight_eye_z = 0x2000 - vs - 1;
+  // Excessive landing flare (front.z = 80 > 64) -> crash. Held off until the
+  // speed has decayed below stall, which is the only way this attitude can
+  // arrive at the ground - the classic "hold it off too long" stall onto the
+  // runway. The stall break trims the nose down a little on the way in, so
+  // check what the envelope actually saw rather than what was set.
+  vs = _arm_touchdown(80, 0, 700, 1);
+  printf("  flare 80 at 700 -> vspeed %d\n", vs);
+  assert(vs < 0);
   flight_advance();
+  printf("  front.z at the check: %d (limit %d)\n", flight_cam.front.z,
+         kMaxLandingPitch);
+  assert(flight_cam.front.z > kMaxLandingPitch); // Still over the limit
   assert(flight_crashed);
 
   printf("  PASS\n\n");
 }
 
-// Puts the model genuinely into ground mode. model_on_ground is a static
-// inside flight.cc that flight_init() clears, so setting flight_eye_z alone
-// leaves the model airborne and every flight_input() takes the airborne
-// branch. One advance at ground level is what actually sets the flag.
-static void _put_on_ground(int16_t speed) {
-  flight_init();
-  flight_gear = 1;
-  flight_throttle = 0;
-  // The contact frame is a touchdown as far as flight_advance is concerned, so
-  // it has to pass the landing envelope. Fly it at kTrimSpeed: there the lift
-  // deficit is exactly zero, so with wings level and no pitch the vertical
-  // speed is zero and no trigger fires, whatever speed the caller actually
-  // wants once the aircraft is on the runway.
-  flight_speed = kTrimSpeed;
-  flight_eye_z = kGroundZ;
-  flight_advance(); // Trips the ground contact check -> model_on_ground = true
-  assert(!flight_crashed);
-  flight_speed = speed;
-}
 
-// Sets up a touchdown frame: places the aircraft one step above the ground
-// with the given attitude and speed, so that a single flight_advance() crosses
-// the ground plane and runs the envelope check. Returns the vertical speed the
-// check will see.
-//
-// The predicted descent has to account for the sink penalty as well as the
-// pitch term, otherwise the aircraft is simply parked below the ground plane
-// and the clamp - not the descent - is what gets tested.
-static int16_t _arm_touchdown(int16_t pitch, int16_t roll, int16_t speed,
-                              uint8_t gear, uint8_t inverted = 0) {
-  flight_init();
-  flight_eye_z = 0x040000;
-  flight_gear = gear;
-  flight_throttle = 0;
-  flight_speed = speed;
-  // Bank has to be seeded through `up`, not `left`: vec_orthonormalize derives
-  // left from up x front, so anything written straight into left.z is
-  // discarded. With front along +x, up = (0, -roll, sqrt(256^2 - roll^2))
-  // comes back out as left.z == roll.
-  int16_t up_z = (int16_t)sqrt(65536.0 - (double)roll * roll);
-  flight_cam.front = make_vector(256, 0, 0);
-  flight_cam.left = make_vector(0, 256, 0);
-  flight_cam.up = make_vector(0, -roll, inverted ? -up_z : up_z);
-  flight_cam.front.z = pitch;
-  vec_orthonormalize(&flight_cam);
-
-  // One free-flight frame at altitude tells us the vertical speed this state
-  // actually produces, including the sink penalty.
-  mat3_t attitude = flight_cam;
-  int16_t saved_speed = flight_speed;
-  flight_advance();
-  int16_t vs = flight_vspeed;
-
-  // Now re-arm the same state exactly one frame's descent above the ground.
-  flight_init();
-  flight_gear = gear;
-  flight_throttle = 0;
-  flight_speed = saved_speed;
-  flight_cam = attitude;
-  flight_eye_z = (int32_t)kGroundZ - vs;
-  return vs;
-}
 
 // 10. Takeoff stall speed gate test.
 // The gate lives in the on-ground branch of flight_input, so the model has to
@@ -629,7 +640,17 @@ static void test_abrupt_climb_throttle_cut() {
   printf("  PASS\n\n");
 }
 
-// 19. Touchdown exact boundary limits test
+// 19. Touchdown exact boundary limits test.
+//
+// The nose-up pair is set up by parking the aircraft just below the ground
+// plane so the clamp puts it exactly on it and the envelope predicate runs.
+// That is deliberate here: a front.z = 64 attitude cannot produce a descent at
+// any speed above stall (the steepest descending flare just above stall is
+// 51), and below stall the stall break trims the nose, which would move the
+// very value this test is pinning. Evaluating the predicate directly is the
+// only way to isolate the exact boundary. The reachable version of this crash
+// - held off until it stalls onto the runway - is covered as a real descent in
+// test_touchdown_flare_and_crash_envelope.
 static void test_touchdown_exact_boundary_limits() {
   printf("Running test_touchdown_exact_boundary_limits...\n");
 
@@ -1117,6 +1138,188 @@ static void test_optimal_glide_angle() {
   printf("  PASS\n\n");
 }
 
+// Heading in degrees from the forward vector, for the turn tests.
+static double _heading_deg() {
+  return atan2((double)flight_cam.front.y, (double)flight_cam.front.x) * 180.0 /
+         M_PI;
+}
+
+// Holds a bank angle for `frames` frames and returns the heading change in
+// degrees. Bank is seeded through `up` so vec_orthonormalize keeps it.
+static double _turn_over(int16_t roll, int16_t speed, int frames) {
+  int16_t up_z = (int16_t)sqrt(65536.0 - (double)roll * roll);
+  flight_init();
+  flight_eye_z = 0x040000;
+  flight_throttle = 0x14;
+  flight_fuel = 0x0FFFFFFF;
+  flight_speed = speed;
+  flight_cam.front = make_vector(256, 0, 0);
+  flight_cam.left = make_vector(0, 256, 0);
+  flight_cam.up = make_vector(0, -roll, up_z);
+  vec_orthonormalize(&flight_cam);
+  double h0 = _heading_deg();
+  for (int i = 0; i < frames; ++i) {
+    flight_advance();
+    flight_throttle = 0x14;
+    flight_speed = speed; // Hold the speed so only bank varies
+  }
+  return _heading_deg() - h0;
+}
+
+// 32. Turn rate test (flight.md 3.1).
+// Yaw rate is rot = left.z >> 5 - a function of bank angle only. It is
+// explicitly NOT proportional to airspeed; the spec used to claim left.z * V.
+static void test_turn_rate_depends_on_bank_not_speed() {
+  printf("Running test_turn_rate_depends_on_bank_not_speed...\n");
+
+  // Wings level: no turn.
+  double level = _turn_over(0, 1800, 60);
+  printf("  level          -> %+7.2f deg\n", level);
+  assert(level == 0.0);
+
+  // Banked: the aircraft turns, and steeper bank turns faster.
+  double medium = _turn_over(120, 1800, 60);
+  double steep = _turn_over(241, 1800, 60);
+  printf("  left.z=120     -> %+7.2f deg\n", medium);
+  printf("  left.z=241     -> %+7.2f deg\n", steep);
+  assert(medium != 0.0);
+  assert(fabs(steep) > fabs(medium));
+
+  // Same bank at three airspeeds: identical heading change.
+  double slow = _turn_over(181, 1200, 60);
+  double cruise = _turn_over(181, 1800, 60);
+  double fast = _turn_over(181, 2400, 60);
+  printf("  left.z=181 at 1200/1800/2400 -> %+7.2f / %+7.2f / %+7.2f\n", slow,
+         cruise, fast);
+  assert(slow == cruise);
+  assert(cruise == fast);
+  assert(slow != 0.0);
+
+  printf("  PASS\n\n");
+}
+
+// 33. Altitude loss in a banked turn (flight.md 3.1).
+// Banking tilts the lift vector, so up.z falls and the vertical component of
+// lift no longer carries the weight. Without added pitch or throttle the
+// aircraft turns and descends.
+static void test_banked_turn_loses_altitude() {
+  printf("Running test_banked_turn_loses_altitude...\n");
+
+  int32_t dz[3];
+  const int16_t rolls[3] = {0, 181, 241}; // Level, ~45 deg, ~70 deg
+  for (int i = 0; i < 3; ++i) {
+    int16_t up_z = (int16_t)sqrt(65536.0 - (double)rolls[i] * rolls[i]);
+    flight_init();
+    flight_eye_z = 0x040000;
+    flight_throttle = 0x18; // Full throttle, so thrust is not the variable
+    flight_fuel = 0x0FFFFFFF;
+    flight_speed = 0x0900;
+    flight_cam.front = make_vector(256, 0, 0);
+    flight_cam.left = make_vector(0, 256, 0);
+    flight_cam.up = make_vector(0, -rolls[i], up_z);
+    vec_orthonormalize(&flight_cam);
+    int16_t held_roll = flight_cam.left.z;
+    int32_t z0 = flight_eye_z;
+    for (int f = 0; f < 200; ++f) {
+      flight_cam.left.z = held_roll;
+      flight_cam.front.z = 0; // No pitch input to compensate
+      flight_advance();
+      flight_throttle = 0x18;
+    }
+    dz[i] = flight_eye_z - z0;
+    printf("  left.z=%3d -> dz=%8d, speed=%d\n", held_roll, dz[i],
+           flight_speed);
+  }
+
+  assert(dz[0] == 0);      // Wings level at full throttle: holds altitude
+  assert(dz[1] < 0);       // 45 deg bank: descends
+  assert(dz[2] < dz[1]);   // 70 deg bank: descends faster
+
+  printf("  PASS\n\n");
+}
+
+// 34. Ground steering test (flight.md 5.1).
+// On the ground the roll inputs are remapped to nose-wheel steering, and the
+// wings stay locked level.
+static void test_ground_steering() {
+  printf("Running test_ground_steering...\n");
+
+  _put_on_ground(0x0300);
+  double h0 = _heading_deg();
+  for (int i = 0; i < 20; ++i) {
+    flight_input(FLIGHT_INPUT_ROLL_LEFT);
+    flight_advance();
+  }
+  double left_turn = _heading_deg() - h0;
+  printf("  20x ROLL_LEFT  -> %+7.2f deg, left.z=%d\n", left_turn,
+         flight_cam.left.z);
+  assert(left_turn != 0.0);        // It steered
+  assert(flight_cam.left.z == 0);  // ...without banking
+  assert(flight_eye_z == kGroundZ);
+  assert(!flight_crashed);
+
+  _put_on_ground(0x0300);
+  h0 = _heading_deg();
+  for (int i = 0; i < 20; ++i) {
+    flight_input(FLIGHT_INPUT_ROLL_RIGHT);
+    flight_advance();
+  }
+  double right_turn = _heading_deg() - h0;
+  printf("  20x ROLL_RIGHT -> %+7.2f deg, left.z=%d\n", right_turn,
+         flight_cam.left.z);
+  assert(right_turn != 0.0);
+  assert(flight_cam.left.z == 0);
+  assert(!flight_crashed);
+
+  // Opposite directions, and roll input matches the dedicated yaw input.
+  assert((left_turn > 0) != (right_turn > 0));
+
+  _put_on_ground(0x0300);
+  h0 = _heading_deg();
+  for (int i = 0; i < 20; ++i) {
+    flight_input(FLIGHT_INPUT_YAW_LEFT);
+    flight_advance();
+  }
+  printf("  20x YAW_LEFT   -> %+7.2f deg\n", _heading_deg() - h0);
+  assert(_heading_deg() - h0 == left_turn);
+
+  printf("  PASS\n\n");
+}
+
+// 35. Takeoff roll speed margin test.
+// The envelope check runs every frame at ground level, so the touchdown speed
+// limit would also police the takeoff roll. kMaxGroundSpeed exists to keep a
+// full-throttle ground roll clear of it.
+static void test_takeoff_roll_speed_margin() {
+  printf("Running test_takeoff_roll_speed_margin...\n");
+
+  _put_on_ground(0x0100);
+  flight_throttle = 0x18; // Firewall it
+  flight_fuel = 0x0FFFFFFF;
+  int16_t top = 0;
+  for (int i = 0; i < 2000; ++i) {
+    flight_advance();
+    flight_throttle = 0x18;
+    flight_fuel = 0x0FFFFFFF;
+    if (flight_speed > top) {
+      top = flight_speed;
+    }
+    assert(!flight_crashed); // A takeoff roll must never crash by itself
+    assert(flight_eye_z == kGroundZ);
+  }
+  printf("  full throttle ground top speed: %d; landing limit %d,"
+         " ground limit %d\n",
+         top, (int)kMaxLandingSpeed, (int)kMaxGroundSpeed);
+
+  // The roll really does run past the touchdown limit - that is the trap this
+  // guards - and stays well inside the ground limit.
+  assert(top > (int16_t)kMaxLandingSpeed - 400); // Close to it, at least
+  assert(top < (int16_t)kMaxGroundSpeed);
+  assert((int16_t)kMaxGroundSpeed - top > 800); // Real headroom, not 270
+
+  printf("  PASS\n\n");
+}
+
 // Declared in host_vec.cc.
 int host_vec_selfcheck();
 
@@ -1135,7 +1338,7 @@ static void test_host_multiply_matches_c64() {
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
-  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (33 TESTS) ===\n\n");
+  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (37 TESTS) ===\n\n");
   test_host_multiply_matches_c64();
   test_level_cruise_equilibrium();
   test_trim_speed_boundary();
@@ -1169,6 +1372,10 @@ int main(int argc, char **argv) {
   test_landing_envelope_inverted();
   test_inverted_high_nose_stall_breaks_downward();
   test_optimal_glide_angle();
-  printf("ALL 33 TESTS PASSED SUCCESSFULLY!\n");
+  test_turn_rate_depends_on_bank_not_speed();
+  test_banked_turn_loses_altitude();
+  test_ground_steering();
+  test_takeoff_roll_speed_margin();
+  printf("ALL 37 TESTS PASSED SUCCESSFULLY!\n");
   return 0;
 }
