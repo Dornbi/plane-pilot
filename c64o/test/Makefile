@@ -20,7 +20,7 @@ msg_test: $(MSG_TEST_SRC) $(MSG_TEST_HDRS)
 	$(HOST_CC) $(HOST_CFLAGS) -o msg_test $(MSG_TEST_SRC)
 
 test: flight_test msg_test
-	@./flight_test > output.txt && ./msg_test >> output.txt && echo "ALL TESTS PASSED (33 flight tests, msg_test) -> test/output.txt"
+	@./flight_test > output.txt && ./msg_test >> output.txt && echo "ALL TESTS PASSED (37 flight tests, msg_test) -> test/output.txt"
 
 clean:
 	rm -rf flight_test msg_test output.txt *.dSYM
