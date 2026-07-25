@@ -557,6 +557,41 @@ static void test_idle_throttle_glide_slope_speed_decay() {
   printf("  PASS\n\n");
 }
 
+// 25. Rollout after touchdown test.
+// A landing arrives with the flare pitch still set, and ground mode only
+// clamps front.z to >= 0. Before the vspeed lock this fed a positive vertical
+// speed frame after frame and the aircraft climbed back off the runway while
+// still reporting on-ground.
+static void test_rollout_stays_on_ground() {
+  printf("Running test_rollout_stays_on_ground...\n");
+
+  flight_init();
+  flight_gear = 1;
+  flight_cam.front.z = 45; // Flare pitch, inside the landing envelope
+  flight_speed = 0x0500;
+  flight_throttle = 0;
+  int16_t vs = vec_fastmul8p8(45, 0x0500);
+  flight_eye_z = 0x2000 - vs - 1;
+
+  flight_advance();
+  assert(!flight_crashed);
+  assert(flight_eye_z == 0x2000);
+  assert(flight_vspeed == 0); // Vertical speed zeroed on touchdown
+
+  // The rollout must stay pinned to the ground plane.
+  for (int i = 0; i < 600; ++i) {
+    flight_advance();
+    assert(flight_eye_z == 0x2000);
+    assert(flight_vspeed == 0);
+  }
+
+  assert(!flight_crashed);
+  assert(flight_speed == 0); // Wheel friction brings it to a stop
+  printf("  rollout end: z=%d speed=%d front.z=%d\n", flight_eye_z,
+         flight_speed, flight_cam.front.z);
+  printf("  PASS\n\n");
+}
+
 // Declared in host_vec.cc.
 int host_vec_selfcheck();
 
@@ -575,7 +610,7 @@ static void test_host_multiply_matches_c64() {
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
-  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (25 DYNAMIC TESTS) ===\n\n");
+  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (26 TESTS) ===\n\n");
   test_host_multiply_matches_c64();
   test_level_cruise_equilibrium();
   test_power_off_stall_recovery();
@@ -601,6 +636,7 @@ int main(int argc, char **argv) {
   test_high_altitude_stall_speed_increase();
   test_inverted_flaps_stall_speed_increase();
   test_idle_throttle_glide_slope_speed_decay();
-  printf("ALL 25 DYNAMIC TESTS PASSED SUCCESSFULLY!\n");
+  test_rollout_stays_on_ground();
+  printf("ALL 26 TESTS PASSED SUCCESSFULLY!\n");
   return 0;
 }
