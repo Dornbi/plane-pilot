@@ -92,7 +92,9 @@ reads bitmap data, and the bottom never reads characters.
 The two tile slots exist so double buffering works: while one screen buffer is
 displayed, the other's tile characters can be rewritten. `kMaxBoxCharCount` is
 29 — the largest actual tile — which is what keeps slot `$61` clear of
-`kCharSolidGround` at 128.
+`kCharSolidGround` at 128. `box.cc` sizes its lookup tables at
+`kMaxBoxCharCount + 3`, since indices 0–2 are reserved for the solid ground,
+sky and `11` characters.
 
 ### Colors
 

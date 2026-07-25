@@ -24,8 +24,11 @@ static const uint8_t *_cur_box_colors;
 
 #pragma bss(bss2)
 
-static uint8_t _char_lut[kMaxBoxCharCount];
-static uint8_t _color_lut[kMaxBoxCharCount];
+// Indices 0..2 are the three solid characters (ground, sky, 11); the tile's
+// own characters follow at 3..char_count+2. kMaxBoxCharCount counts only the
+// latter, so the tables need three extra slots.
+static uint8_t _char_lut[kMaxBoxCharCount + 3];
+static uint8_t _color_lut[kMaxBoxCharCount + 3];
 
 void box_prepare(void) {
   const boxdef_t *src_def;

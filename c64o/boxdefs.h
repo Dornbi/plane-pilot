@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 static const uint8_t kMaxBoxTotalSize = 96;
-static const uint8_t kMaxBoxCharCount = 32;
+static const uint8_t kMaxBoxCharCount = 29;
 
 struct boxdef_t {
   // Width of the box in chars.

@@ -81,7 +81,6 @@ To fly the plane you can use the following keys:
 | `D`             | Toggle debug info                      |
 | `M`             | Toggle map view                        |
 | `R`             | Reset to starting state                |
-| `T`             | Reset to alternate starting state      |
 | `P`             | Pause flight (controls still work)     |
 | `X` `Z`         | Move forward and backward(when paused) |
 | `H`             | Show the help screen                   |
