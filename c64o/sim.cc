@@ -204,6 +204,7 @@ void sim_run(uint8_t selected_mission) {
       panel_maybe_print_debug();
 
       render_snap_center_chars();
+      msg_restore_color();
       render_fill_sky_ground();
       box_prepare();
       box_draw();

@@ -10,6 +10,13 @@ static const char *msg_text = nullptr;
 static uint16_t msg_duration = 0;
 static bool msg_is_permanent = false;
 
+// Span of the color buffer that the last msg_render() overwrote with the
+// hires text color. Needs to be restored to a multicolor value, because
+// nothing else does: sky and box rendering rewrite the color buffer, but
+// ground rendering leaves it alone (ground uses only background registers).
+static uint8_t msg_color_col = 0;
+static uint8_t msg_color_len = 0;
+
 void msg_clear(void) {
   msg_text = nullptr;
   msg_duration = 0;
@@ -37,6 +44,13 @@ void msg_update(void) {
   }
 }
 
+void msg_restore_color(void) {
+  if (msg_color_len != 0) {
+    memset(mem_color_buffer + msg_color_col, kColorSky | 0x08, msg_color_len);
+    msg_color_len = 0;
+  }
+}
+
 void msg_render(void) {
   if (msg_text == nullptr) {
     return;
@@ -52,4 +66,6 @@ void msg_render(void) {
 
   memcpy(mem_screen_row_ptrs[0] + col, msg_text, len);
   memset(mem_color_buffer + col, kColorBlack, len);
+  msg_color_col = col;
+  msg_color_len = len;
 }

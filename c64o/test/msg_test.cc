@@ -38,8 +38,19 @@ int main() {
   // 5th update expires it
   msg_update();
   memset(row0, ' ', sizeof(row0));
+  msg_restore_color();
   msg_render();
   assert(memcmp(row0 + 18, "    ", 4) == 0);
+  // The color buffer must be back to a multicolor value (bit 3 set), or the
+  // ground chars on row 0 would render as hires.
+  for (int i = 18; i < 22; ++i) {
+    assert(mem_color_buffer[i] == (6 | 0x08));
+  }
+  // Restoring twice is a no-op: the second call must not clobber colors
+  // written by the sky/box rendering.
+  memset(mem_color_buffer + 18, 0xAA, 4);
+  msg_restore_color();
+  assert(mem_color_buffer[18] == 0xAA);
 
   // Test 2: Permanent message overrides temporary message
   msg_show("YOU CRASHED", MSG_FOREVER, true);
