@@ -547,7 +547,7 @@ static void test_ground_braking() {
   int16_t speed_before = flight_speed;
   flight_input(FLIGHT_INPUT_BRAKE);
   assert(flight_speed < speed_before);
-  assert(flight_speed == speed_before - 16);
+  assert(flight_speed == speed_before - 32);
 
   // Continue braking until full stop
   while (flight_speed > 0) {
