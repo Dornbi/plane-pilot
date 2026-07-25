@@ -144,10 +144,11 @@ $(VECDEMO_PROGRAM).prg: $(VECDEMO_SRC)
 $(VECTEST_PROGRAM).prg: $(VECTEST_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ vectest.cc
 
-test: flight_test msg_test
-	@./test/flight_test > test/output.txt && ./test/msg_test >> test/output.txt && echo "ALL TESTS PASSED (33 flight tests, msg_test) -> test/output.txt"
+test flight_test msg_test:
+	$(MAKE) -C test $@
 
 clean:
-	rm -rf $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg test/flight_test test/msg_test test/output.txt test/*.dSYM *.asm *.dbj *.int *.lbl *.map
+	rm -rf $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg *.asm *.dbj *.int *.lbl *.map
+	$(MAKE) -C test clean
 
 .PHONY: all test flight_test msg_test clean
