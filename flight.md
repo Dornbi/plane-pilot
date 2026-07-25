@@ -13,7 +13,10 @@ This document specifies the flight dynamics model requirements for the C64 fligh
 - **No Floating Point / No Runtime Division**:
   - All aerodynamic equations must use integer shifts (`>>`), 8.8 fast multiplications (`vec_fastmul8p8`), and precomputed lookup tables (LUTs).
 - **Execution Budget**:
-  - The frame step computation (`flight_advance()`) must execute within `< 1000` CPU cycles.
+  - A PAL C64 frame at 50 Hz is **19,705 cycles**. `flight_advance()` is one item in a frame that also has to render the 3D view, so its share has to stay small.
+  - The cost splits in two. The scalar path — drag, thrust, lift deficit, the envelope checks — is on the order of **~1,000 cycles**. Re-orthonormalization (`vec_orthonormalize`: 3 × `vec_normalize` + 2 × `vec_cross`) is the dominant term at roughly **~4,500 cycles**, and it runs on any frame where `model_need_normalize` was set — which is most airborne frames, since any control input, any bank, and every ground frame set it.
+  - Working budget: **< 6,000 cycles** for a frame that re-orthonormalizes, **< 1,500** for one that does not. That is ~30% of the frame in the common case, so `model_need_normalize` is worth being stingy with.
+  - **These figures are estimates from operation counts, not measurements.** `benchmark.h` already provides the harness (`__DEBUG_CYCLES__`), and `flight_advance()` should be wrapped in it and measured on target before the budget above is treated as authoritative.
 
 ---
 
@@ -37,7 +40,12 @@ This document specifies the flight dynamics model requirements for the C64 fligh
   - Triggers when airspeed $V < V_{\text{stall}}$ while airborne.
   - Lift generation drops dramatically.
   - An automatic pitch-down moment is applied by directly decreasing `front.z` in world space ($\Delta \text{front.z} \propto (V_{\text{stall}} - V)$), tilting the nose toward the ground regardless of bank or inverted attitude.
-  - Pitch down always happens towards the ground, not relative to the aircraft's canopy/belly.
+  - **Pitch down always happens towards the ground**, not relative to the aircraft's canopy/belly. This holds at every attitude, including inverted.
+- **Near-Vertical Dead Spot** ($\text{front.z} > \text{kMaxStallPitchZ} = 224$, i.e. nose above ~61°):
+  - `front` is a unit vector, so with the nose this high its horizontal component is tiny and the end-of-frame `vec_orthonormalize` scales the vector back to length 256, restoring nearly all of a direct change to `front.z`. Pointing straight up it restores all of it and the nose never drops.
+  - Above the threshold the break is therefore applied as a **body-axis rotation**, which is well defined at any attitude. One step tips the nose off the vertical; from there the direct path works again.
+  - **Direction selection**: a body pitch step moves `front` by $\mp\,\text{up}/16$, so `front.z` changes by $\mp\,\text{up.z}/16$. A "pitch down" rotation therefore *raises* the nose whenever $\text{up.z} < 0$. The rotation is selected by the sign of `up.z` — pitch-up when inverted, pitch-down when upright — so the break still points at the ground.
+  - At $\text{up.z} = 0$ (knife-edge with the nose near vertical) neither rotation changes `front.z` to first order; the rotation still changes `front.x`/`front.y`, and subsequent frames recover.
 - **Stall Recovery**:
   - Pitching downward causes gravity to accelerate the aircraft ($V_{\text{vspeed}} < 0$).
   - When airspeed accelerates back above $V_{\text{stall}}$, lift is restored.
@@ -84,6 +92,8 @@ This is the central mechanism of the model: it is what makes banked turns descen
 
 ### 3.1. Banked Turn Dynamics (Bank Angles: 40%, 80%)
 
+> **Bank percentage convention**: bank is quoted as a percentage of 90°, not as a fraction of `left.z`'s 256 unit range. So 40% bank means 36°, i.e. $\text{left.z} = 256 \sin 36° = 150$; 80% bank means 72°, i.e. $\text{left.z} = 243$.
+
 - **Lift Vector Tilting**:
   - Total Lift vector $L$ aligns with `flight_cam.up`.
   - Vertical lift component: $L_Z = L \cdot \cos(\phi) = L \cdot \text{up.z}$.
@@ -94,7 +104,7 @@ This is the central mechanism of the model: it is what makes banked turns descen
   - **Steep Bank (80%)**: Severe vertical lift loss ($L_Z \approx 30\%$ of total lift). Requires full throttle (100%) and pull-up pitch to maintain level altitude.
 - **Turn Rate & Induced Turn Drag**:
   - **Body-Axis Pitching**: Pitching UP rotates around the aircraft's body pitch axis (`left` vector). In steep banked turns (e.g. 80%), pulling back on the stick tightens the horizontal turn radius; the pilot must reduce bank angle toward level flight to raise the nose relative to the horizon.
-  - Yaw rate is proportional to $\text{left.z} \cdot V$.
+  - Yaw rate is proportional to bank angle alone: $\text{rot} = \text{left.z} \gg 5$. It does **not** scale with airspeed — a slow banked turn and a fast one turn at the same rate.
   - **Induced Drag Penalty**: Banked turns generate extra drag proportional to bank angle ($C_{D,\text{turn}} \propto \text{left.z}^2$). Airspeed bleeds off as turn rate increases.
 
 ### 3.2. Inverted Flight Dynamics (Flying Upside Down)
@@ -145,7 +155,7 @@ This is the central mechanism of the model: it is what makes banked turns descen
   - Pitch attitude is clamped ($\text{front.z} \ge 0$). Negative pitch is prohibited.
   - Wings are locked level ($\text{left.z} = 0$, $\text{up.z} = 256$).
 - **Ground Steering**:
-  - Roll inputs (J/K) are mapped to nose-wheel steering (yaw left/right).
+  - Roll inputs (J/L) are mapped to nose-wheel steering (yaw left/right).
 - **Ground Friction & Braking**:
   - Throttle at 0% applies a constant wheel friction drag, decelerating the aircraft to a full stop.
 
@@ -167,6 +177,9 @@ Touchdown check triggers when altitude $Z \le Z_{\text{min}}$:
   3. **Excess Bank Angle**: Roll/bank exceeds threshold ($|\text{left.z}| > 32$, approx > 7°).
   4. **Invalid Touchdown Pitch**: Touchdown with steep nose-down pitch ($\text{front.z} < -16$, > -3.5° nose down) or excessive pitch flare ($\text{front.z} > 64$, > 15° pitch up). Safe landing pitch range is $-16 \le \text{front.z} \le 64$.
   5. **Excess Airspeed**: Touchdown speed exceeds gear threshold ($V > \text{0x0A00}$).
+  6. **Belly-Up Arrival**: Touchdown while inverted ($\text{up.z} < 0$). Trigger 3 does not cover this — `left.z` returns to ~0 after a full 180° roll, so a wings-level inverted arrival passes the bank check. The threshold is 0 rather than a tight $\cos(\text{roll})$ bound because `up.z` also falls with nose-up pitch, and a legal flare must not trip it.
+
+- **Note on trigger 2**: with trigger 6 in place, trigger 2 is unreachable in practice. Vertical speed is $\text{front.z} \cdot V / 256 - \text{sink}$, and for an upright arrival both terms are bounded — pitch cannot go below $-16$ without trigger 4 firing, and the sink penalty is bounded by the stall speed floor. The worst sink reachable by any upright attitude that passes the other checks is $-301$, inside the $-\text{0x0180}$ limit. It remains as a dormant safety net; if a hard-landing rule is wanted, the limit needs to be tightened to roughly $-\text{0x0100}$.
 - **Successful Landing**:
   - If all safety thresholds are satisfied: transition to `model_on_ground = true`, zero out vertical speed, level wings.
 
@@ -183,14 +196,15 @@ Touchdown check triggers when altitude $Z \le Z_{\text{min}}$:
   - Thrust acts directly against gravity; airspeed rapidly bleeds toward zero.
   - Before speed reaches zero, the nose pitches down into a dive to regain forward airspeed.
 - **Straight Down (-90° Pitch / Vertical Dive)**:
-  - Gravity accelerates the aircraft toward Terminal Velocity ($V_{\text{max\_terminal}}$) where drag balances gravity.
+  - Gravity accelerates the aircraft toward Terminal Velocity ($V_{\text{max\_terminal}}$) where drag balances gravity. At full throttle in a vertical dive this balance lands at ~`0x0EF7`.
+- **Absolute Speed Clamp**: independently of the drag balance, airspeed is hard-clamped to $\text{kMaxSpeed} = \text{0x0F00}$. Terminal velocity sits just under the clamp, so in normal flight the clamp is not what limits the aircraft — but it bounds `flight_speed` for every downstream calculation regardless of attitude or altitude.
 
 ### 6.2. Engine Failure & Gliding Physics
 
 - **Zero Fuel State**:
   - When `flight_fuel == 0`, throttle drops to 0%.
   - Aircraft becomes an unpowered glider.
-  - **Optimal Glide Speed**: Best distance-over-ground ratio achieved at moderate pitch angle (~ -10°). Steeper pitch bleeds altitude fast; flatter pitch stalls.
+  - **Optimal Glide Speed**: Best distance-over-ground ratio is achieved at $\text{front.z} = -50$ (**~ -11°**), giving a glide ratio of **~4.96 : 1**. Steeper pitch bleeds altitude fast (~4.0 : 1 at -100, ~2.9 : 1 at -25); flatter than about -8° the aircraft cannot hold glide speed and stalls. The peak sits on a shelf, since settled glide speed moves in steps.
 
 ---
 

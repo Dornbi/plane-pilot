@@ -19,7 +19,9 @@ static const int16_t kTrimSpeed = 0x0800;
 // Landing envelope.
 static const int32_t kGroundZ = 0x2000;
 static const int16_t kMaxLandingRoll = 32;
+static const int16_t kMinLandingUpZ = 0;
 static const int16_t kMinLandingPitch = -16;
+static const int16_t kMaxLandingPitch = 64;
 static const int16_t kMaxLandingVSpeed = -0x0180;
 static const uint16_t kMaxLandingSpeed = 0x0A00;
 
@@ -360,27 +362,68 @@ static void test_touchdown_flare_and_crash_envelope() {
   printf("  PASS\n\n");
 }
 
-// 10. Takeoff stall speed gate test
+// Puts the model genuinely into ground mode. model_on_ground is a static
+// inside flight.cc that flight_init() clears, so setting flight_eye_z alone
+// leaves the model airborne and every flight_input() takes the airborne
+// branch. One advance at ground level is what actually sets the flag.
+static void _put_on_ground(int16_t speed) {
+  flight_init();
+  flight_gear = 1;
+  flight_throttle = 0;
+  flight_speed = speed;
+  flight_eye_z = kGroundZ;
+  flight_advance(); // Trips the ground contact check -> model_on_ground = true
+  assert(!flight_crashed);
+  flight_speed = speed; // Undo the frame's drag so callers get what they asked
+}
+
+// 10. Takeoff stall speed gate test.
+// The gate lives in the on-ground branch of flight_input, so the model has to
+// actually be in ground mode for this to test anything - see _put_on_ground.
 static void test_takeoff_stall_speed_gate() {
   printf("Running test_takeoff_stall_speed_gate...\n");
 
-  flight_init();
-  flight_eye_z = 0x2000; // On ground
-  flight_gear = 1;
-  flight_speed = 0x0200; // Below stall speed
-
+  // Below stall speed: pitch up is refused outright.
+  _put_on_ground(0x0200);
+  int16_t pitch_before = flight_cam.front.z;
   flight_input(FLIGHT_INPUT_PITCH_UP);
+  assert(flight_cam.front.z == pitch_before); // Rotation refused, not just clamped
   flight_advance();
-  // Should remain on ground
-  assert(flight_eye_z == 0x2000);
+  assert(flight_eye_z == kGroundZ); // Still on the runway
+  assert(flight_vspeed == 0);
 
-  // Above stall speed
-  flight_speed = 0x0800;
-  flight_input(FLIGHT_INPUT_PITCH_UP);
-  flight_input(FLIGHT_INPUT_PITCH_UP);
+  // Just below the gate: still refused.
+  _put_on_ground((int16_t)kStallSpeedWithoutFlaps);
+  pitch_before = flight_cam.front.z;
+  flight_input(FLIGHT_INPUT_PITCH_UP); // Gate is strictly greater than
+  assert(flight_cam.front.z == pitch_before);
   flight_advance();
-  assert(flight_eye_z > 0x2000); // Airborne
+  assert(flight_eye_z == kGroundZ);
+
+  // Above stall speed: rotates and becomes airborne.
+  _put_on_ground(0x0800);
+  flight_input(FLIGHT_INPUT_PITCH_UP);
+  assert(flight_cam.front.z > 0); // Rotation accepted
+  flight_advance();
+  printf("  after rotation: z=%d (ground %d), front.z=%d\n", flight_eye_z,
+         (int)kGroundZ, flight_cam.front.z);
+  assert(flight_eye_z > kGroundZ); // Airborne
   assert(!flight_crashed);
+
+  // Flaps lower the gate: a speed between the two stall constants is enough
+  // with flaps down and not enough clean.
+  int16_t between =
+      (int16_t)((kStallSpeedWithFlaps + kStallSpeedWithoutFlaps) / 2);
+
+  _put_on_ground(between);
+  pitch_before = flight_cam.front.z;
+  flight_input(FLIGHT_INPUT_PITCH_UP);
+  assert(flight_cam.front.z == pitch_before); // Clean: refused
+
+  _put_on_ground(between);
+  flight_flap = 1;
+  flight_input(FLIGHT_INPUT_PITCH_UP);
+  assert(flight_cam.front.z > 0); // Flaps: accepted
 
   printf("  PASS\n\n");
 }
@@ -807,17 +850,37 @@ static void test_landing_envelope_sink_rate() {
   flight_advance();
   assert(!flight_crashed);
 
-  // Inverted arrival: the doubled lift deficit drives the sink rate past the
-  // limit while pitch, roll, speed and gear are all still legal.
-  int16_t steep = _arm_touchdown(kMinLandingPitch, 0, 0x0900, 1, /*inverted=*/1);
-  printf("  inverted at min pitch -> vspeed %d, left.z %d, speed %d\n", steep,
-         flight_cam.left.z, flight_speed);
-  assert(steep < kMaxLandingVSpeed);                       // Trigger 2 armed
-  assert(_abs16(flight_cam.left.z) <= kMaxLandingRoll);    // Trigger 3 clear
-  assert(flight_cam.front.z >= kMinLandingPitch);          // Trigger 4 clear
-  assert(flight_speed <= (int16_t)kMaxLandingSpeed);       // Trigger 5 clear
-  flight_advance();
-  assert(flight_crashed);
+  // Sweep every upright arrival that passes the other checks and record the
+  // worst sink rate any of them can produce. This pins the property flight.md
+  // 5.3 now documents: trigger 2 is dormant, because the pitch limit and the
+  // stall speed floor between them bound the vertical speed well inside it.
+  // If a change to the model makes it live, this test says so.
+  int16_t worst = 0;
+  int16_t worst_pitch = 0, worst_roll = 0, worst_speed = 0;
+  for (int16_t roll = -kMaxLandingRoll; roll <= kMaxLandingRoll; ++roll) {
+    for (int16_t p = kMinLandingPitch; p <= kMaxLandingPitch; ++p) {
+      for (int16_t s = 100; s <= (int16_t)kMaxLandingSpeed; s += 10) {
+        _arm_touchdown(p, roll, s, 1);
+        if (flight_cam.front.z < kMinLandingPitch ||
+            flight_cam.front.z > kMaxLandingPitch ||
+            _abs16(flight_cam.left.z) > kMaxLandingRoll ||
+            flight_cam.up.z < kMinLandingUpZ) {
+          continue; // Another trigger owns this arrival
+        }
+        if (flight_vspeed < worst) {
+          worst = flight_vspeed;
+          worst_pitch = flight_cam.front.z;
+          worst_roll = flight_cam.left.z;
+          worst_speed = flight_speed;
+        }
+      }
+    }
+  }
+  printf("  worst upright sink inside the other checks: %d (limit %d)"
+         " at pitch=%d roll=%d speed=%d\n",
+         worst, kMaxLandingVSpeed, worst_pitch, worst_roll, worst_speed);
+  assert(worst < 0);                  // The sweep found real descents
+  assert(worst >= kMaxLandingVSpeed); // ...none of which trip trigger 2
 
   printf("  PASS\n\n");
 }
@@ -870,6 +933,161 @@ static void test_landing_envelope_touchdown_speed() {
   printf("  PASS\n\n");
 }
 
+// 29. Landing envelope: belly-up arrival (crash trigger 6).
+// left.z returns to ~0 after a full 180 degree roll, so the bank check does
+// not see an inverted arrival. up.z is the attitude the roll limit is really
+// trying to express.
+static void test_landing_envelope_inverted() {
+  printf("Running test_landing_envelope_inverted...\n");
+
+  // Upright reference at the same pitch and speed: lands.
+  _arm_touchdown(0, 0, 0x0500, 1, /*inverted=*/0);
+  flight_advance();
+  assert(!flight_crashed);
+
+  // Same arrival, belly up: crash, and specifically not because of any of the
+  // other five triggers.
+  _arm_touchdown(0, 0, 0x0500, 1, /*inverted=*/1);
+  printf("  inverted arrival: up.z=%d left.z=%d front.z=%d vspeed=%d speed=%d\n",
+         flight_cam.up.z, flight_cam.left.z, flight_cam.front.z, flight_vspeed,
+         flight_speed);
+  assert(flight_cam.up.z < kMinLandingUpZ);
+  assert(_abs16(flight_cam.left.z) <= kMaxLandingRoll); // Trigger 3 blind here
+  assert(flight_cam.front.z >= kMinLandingPitch);
+  assert(flight_cam.front.z <= kMaxLandingPitch);
+  assert(flight_speed <= (int16_t)kMaxLandingSpeed);
+  assert(flight_gear);
+  flight_advance();
+  assert(flight_crashed);
+
+  // A legal nose-up flare must not trip the new check: up.z falls with pitch,
+  // so the threshold has to stay at 0 rather than a tight cos(roll) bound.
+  _arm_touchdown(kMaxLandingPitch, 0, 0x0500, 1, /*inverted=*/0);
+  printf("  max flare: front.z=%d up.z=%d\n", flight_cam.front.z,
+         flight_cam.up.z);
+  assert(flight_cam.up.z < 256);          // Pitch really does reduce up.z
+  assert(flight_cam.up.z >= kMinLandingUpZ);
+  flight_advance();
+  assert(!flight_crashed);
+
+  printf("  PASS\n\n");
+}
+
+// 30. Inverted near-vertical stall break test.
+// Above kMaxStallPitchZ the break is a body-axis rotation. A body "pitch down"
+// moves front.z by -up.z/16, so when inverted it drives the nose further UP.
+// The rotation has to be chosen by the sign of up.z for the nose to fall
+// toward the ground at every attitude, as flight.md 2.2 requires.
+static void test_inverted_high_nose_stall_breaks_downward() {
+  printf("Running test_inverted_high_nose_stall_breaks_downward...\n");
+
+  for (int inverted = 0; inverted < 2; ++inverted) {
+    flight_init();
+    flight_eye_z = 0x0400000;
+    flight_throttle = 0;
+    flight_fuel = 0;
+    flight_speed = 0x0100; // Well below stall -> break fires every frame
+
+    // Nose high, inside the dead spot, with up.z of the requested sign. With
+    // front near vertical up is nearly horizontal, so |up.z| is small - but
+    // its sign is what selects the rotation. Only front and up need seeding;
+    // vec_orthonormalize derives left from up x front.
+    flight_cam.front = make_vector(70, 0, 246);
+    flight_cam.up = inverted ? make_vector(246, 0, -70) : make_vector(-246, 0, 70);
+    flight_cam.left = make_vector(0, 256, 0);
+    vec_orthonormalize(&flight_cam);
+
+    assert(flight_cam.front.z > 224); // In the dead spot
+    assert(inverted ? (flight_cam.up.z < 0) : (flight_cam.up.z > 0));
+    int16_t start_z = flight_cam.front.z;
+
+    for (int i = 0; i < 200; ++i) {
+      flight_advance();
+    }
+
+    printf("  %-8s front.z %d -> %d\n", inverted ? "inverted" : "upright",
+           start_z, flight_cam.front.z);
+    // The nose must fall away from the vertical, whichever way up we started.
+    assert(flight_cam.front.z < start_z);
+    assert(flight_cam.front.z < 128); // Past 30 degrees of nose drop
+  }
+
+  printf("  PASS\n\n");
+}
+
+// Flies a settled glide at the given pitch with the engine out and returns the
+// glide ratio (horizontal distance travelled / altitude lost) scaled by 1000.
+// Returns 0 if the aircraft could not hold the glide.
+static int32_t _glide_ratio_x1000(int16_t pitch) {
+  flight_init();
+  flight_eye_z = 0x0400000; // High enough for a long glide
+  flight_fuel = 0;          // Engine out
+  flight_throttle = 0;
+  flight_cam.front = make_vector(256, 0, 0);
+  flight_cam.left = make_vector(0, 256, 0);
+  flight_cam.up = make_vector(0, 0, 256);
+  flight_cam.front.z = pitch;
+  vec_orthonormalize(&flight_cam);
+  int16_t hp = flight_cam.front.z, hu = flight_cam.up.z;
+
+  for (int i = 0; i < 600; ++i) { // Settle
+    flight_cam.front.z = hp;
+    flight_cam.up.z = hu;
+    flight_advance();
+  }
+  if (flight_crashed) {
+    return 0;
+  }
+  int32_t x0 = flight_eye_x, y0 = flight_eye_y, z0 = flight_eye_z;
+  for (int i = 0; i < 200; ++i) { // Measure
+    flight_cam.front.z = hp;
+    flight_cam.up.z = hu;
+    flight_advance();
+  }
+  double dh = sqrt((double)(flight_eye_x - x0) * (flight_eye_x - x0) +
+                   (double)(flight_eye_y - y0) * (flight_eye_y - y0));
+  int32_t dz = z0 - flight_eye_z;
+  if (dz <= 0) {
+    return 0;
+  }
+  return (int32_t)(dh * 1000.0 / dz);
+}
+
+// 31. Optimal glide angle test (flight.md 6.2).
+static void test_optimal_glide_angle() {
+  printf("Running test_optimal_glide_angle...\n");
+
+  int32_t best = 0;
+  int16_t best_pitch = 0;
+  for (int16_t p = -2; p >= -120; --p) {
+    int32_t r = _glide_ratio_x1000(p);
+    if (r > best) {
+      best = r;
+      best_pitch = p;
+    }
+  }
+  printf("  best glide ratio %d.%03d:1 at front.z=%d\n", best / 1000,
+         best % 1000, best_pitch);
+
+  // The documented optimum is front.z = -49 (~ -11 deg). Allow a band rather
+  // than an exact value: settled glide speed moves in steps, so the peak sits
+  // on a shelf.
+  assert(best_pitch <= -40 && best_pitch >= -60);
+  assert(best > 4500); // Better than 4.5:1
+
+  // And it really is a peak: both a shallower and a steeper glide are worse.
+  int32_t shallow = _glide_ratio_x1000(-25);
+  int32_t steep = _glide_ratio_x1000(-100);
+  printf("  shallow(-25) %d, steep(-100) %d\n", shallow, steep);
+  assert(shallow < best);
+  assert(steep < best);
+
+  // Flatter than about -8 degrees the aircraft cannot hold glide speed.
+  assert(_glide_ratio_x1000(-5) < 1000);
+
+  printf("  PASS\n\n");
+}
+
 // Declared in host_vec.cc.
 int host_vec_selfcheck();
 
@@ -888,7 +1106,7 @@ static void test_host_multiply_matches_c64() {
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
-  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (30 TESTS) ===\n\n");
+  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (33 TESTS) ===\n\n");
   test_host_multiply_matches_c64();
   test_level_cruise_equilibrium();
   test_trim_speed_boundary();
@@ -919,6 +1137,9 @@ int main(int argc, char **argv) {
   test_landing_envelope_sink_rate();
   test_landing_envelope_bank_angle();
   test_landing_envelope_touchdown_speed();
-  printf("ALL 30 TESTS PASSED SUCCESSFULLY!\n");
+  test_landing_envelope_inverted();
+  test_inverted_high_nose_stall_breaks_downward();
+  test_optimal_glide_angle();
+  printf("ALL 33 TESTS PASSED SUCCESSFULLY!\n");
   return 0;
 }

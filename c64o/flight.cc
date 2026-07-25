@@ -76,6 +76,12 @@ static const int16_t kMaxStallPitchZ = 224;
 
 // Landing thresholds
 static const int16_t kMaxLandingRoll = 32;
+// Wings-up check. kMaxLandingRoll alone does not catch an inverted arrival:
+// left.z is back to ~0 after a full 180 degree roll, so a belly-up landing
+// used to pass the bank check. up.z is the attitude the roll limit is really
+// trying to express. Zero rather than a tight cos(roll) bound because up.z
+// also drops with nose-up pitch, and a legal flare must not trip this.
+static const int16_t kMinLandingUpZ = 0;
 static const int16_t kMinLandingPitch = -16;
 static const int16_t kMaxLandingPitch = 64;
 static const int16_t kMaxLandingVSpeed = -0x0180;
@@ -252,7 +258,15 @@ void flight_advance() {
           // A body axis rotation is well defined at any attitude, and one
           // step is enough to tip the nose off the vertical; from there the
           // cheap path below works again.
-          vec_transform3(&kVecPitchDown, &flight_cam);
+          //
+          // Which body rotation drops the nose depends on which way up the
+          // aircraft is. To first order a body pitch step moves the nose by
+          // -/+ up/16, so front.z changes by -/+ up.z/16: pitching "down"
+          // raises the nose whenever up.z is negative. Picking the rotation by
+          // the sign of up.z keeps the stall break pointed at the ground at
+          // any attitude, which is what flight.md 2.2 requires.
+          vec_transform3(flight_cam.up.z < 0 ? &kVecPitchUp : &kVecPitchDown,
+                         &flight_cam);
         } else {
           uint8_t s = (stall_speed - flight_speed) >> 5;
           if (s == 0)
@@ -309,6 +323,7 @@ void flight_advance() {
 
     if (flight_eye_z <= kMinEyeZ) {
       if (_abs16(flight_cam.left.z) > kMaxLandingRoll ||
+          flight_cam.up.z < kMinLandingUpZ ||
           flight_cam.front.z < kMinLandingPitch ||
           flight_cam.front.z > kMaxLandingPitch ||
           flight_vspeed < kMaxLandingVSpeed ||
