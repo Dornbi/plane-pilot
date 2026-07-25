@@ -155,7 +155,9 @@ This is the central mechanism of the model: it is what makes banked turns descen
   - Pitch attitude is clamped ($\text{front.z} \ge 0$). Negative pitch is prohibited.
   - Wings are locked level ($\text{left.z} = 0$, $\text{up.z} = 256$).
 - **Ground Steering**:
-  - Roll inputs (J/L) are mapped to nose-wheel steering (yaw left/right).
+  - Roll inputs (J/L) are mapped to nose-wheel steering (yaw left/right), alongside the dedicated yaw inputs (A/S). All four behave identically on the ground.
+  - **Steering requires the wheels to be turning**: all four steering inputs are ignored when $V = 0$. A parked aircraft cannot pivot on the spot.
+  - **Heading is held, not restored.** The wing-levelling rebuild (`left` from `front`, then `up = front \times left`) runs *only when the wings are actually off level*. Running it every frame slowly turned the aircraft back toward whichever axis it was nearest: the 8.8 cross product loses a little length, `vec_orthonormalize` scales `front` back up, and that scaling truncates — so the dominant component gains a unit before the smaller one does. On the runway that walked a 29° heading back to 0 in about 300 frames. Skipping the no-op case also saves a full re-orthonormalization on every frame of taxi and takeoff roll (§1).
 - **Ground Friction & Braking**:
   - Throttle at 0% applies a constant wheel friction drag, decelerating the aircraft to a full stop.
 

@@ -1274,6 +1274,43 @@ static void test_ground_steering() {
   // Opposite directions, and roll input matches the dedicated yaw input.
   assert((left_turn > 0) != (right_turn > 0));
 
+  // A steered heading must hold. Rebuilding left/up from front every frame
+  // used to ratchet it back toward the nearest axis - vec_normalize truncates
+  // when it scales the vector back to length 256, so the dominant component
+  // gains a unit first. 29 degrees decayed to 0 in ~300 frames.
+  _put_on_ground(0x0300);
+  for (int i = 0; i < 20; ++i) {
+    flight_input(FLIGHT_INPUT_YAW_LEFT);
+    flight_advance();
+  }
+  double steered = _heading_deg();
+  for (int i = 0; i < 400; ++i) {
+    flight_advance(); // Coasting, no further input
+  }
+  printf("  heading held over 400 frames: %+7.2f -> %+7.2f\n", steered,
+         _heading_deg());
+  assert(_heading_deg() == steered);
+  assert(flight_cam.left.z == 0); // Still level while holding heading
+
+  // Steering is nose wheel steering, so it needs the wheels turning.
+  _put_on_ground(0);
+  assert(flight_speed == 0);
+  h0 = _heading_deg();
+  for (int i = 0; i < 20; ++i) {
+    flight_input(FLIGHT_INPUT_YAW_LEFT);
+    flight_input(FLIGHT_INPUT_ROLL_RIGHT);
+    flight_advance();
+  }
+  printf("  stationary: %+7.2f -> %+7.2f\n", h0, _heading_deg());
+  assert(_heading_deg() == h0); // Parked aircraft does not pivot
+
+  // ...and works again as soon as it rolls.
+  _put_on_ground(0x0300);
+  h0 = _heading_deg();
+  flight_input(FLIGHT_INPUT_YAW_LEFT);
+  flight_advance();
+  assert(_heading_deg() != h0);
+
   _put_on_ground(0x0300);
   h0 = _heading_deg();
   for (int i = 0; i < 20; ++i) {

@@ -313,12 +313,24 @@ void flight_advance() {
         model_need_normalize = true;
       }
 
-      // Ground mode: level wings (roll = 0)
-      flight_cam.left.x = -flight_cam.front.y;
-      flight_cam.left.y = flight_cam.front.x;
-      flight_cam.left.z = 0;
-      vec_cross(&flight_cam.front, &flight_cam.left, &flight_cam.up);
-      model_need_normalize = true;
+      // Ground mode: level wings (roll = 0).
+      //
+      // Only rebuild when the wings are actually off level. Doing it every
+      // frame slowly turned the aircraft back to whichever axis it was
+      // nearest: rebuilding left/up from front costs a little length in the
+      // 8.8 cross product, vec_orthonormalize then scales front back up, and
+      // that scaling truncates - so the larger component gains a unit before
+      // the smaller one does and the heading ratchets toward it. Held on the
+      // runway it walked a 29 degree heading back to 0 in ~300 frames.
+      // Skipping the no-op case also saves a full orthonormalize on every
+      // frame of taxi and takeoff roll.
+      if (flight_cam.left.z != 0) {
+        flight_cam.left.x = -flight_cam.front.y;
+        flight_cam.left.y = flight_cam.front.x;
+        flight_cam.left.z = 0;
+        vec_cross(&flight_cam.front, &flight_cam.left, &flight_cam.up);
+        model_need_normalize = true;
+      }
     }
 
     if (model_on_ground) {
@@ -340,9 +352,9 @@ void flight_advance() {
     if (flight_eye_z <= kMinEyeZ) {
       // model_on_ground still holds last frame's value here, so it says
       // whether this is a touchdown or another frame of an existing ground
-      // roll. Only the speed limit distinguishes the two.
-      uint16_t speed_limit =
-          model_on_ground ? kMaxGroundSpeed : kMaxLandingSpeed;
+      // roll.
+      bool was_on_ground = model_on_ground;
+      uint16_t speed_limit = was_on_ground ? kMaxGroundSpeed : kMaxLandingSpeed;
       if (_abs16(flight_cam.left.z) > kMaxLandingRoll ||
           flight_cam.up.z < kMinLandingUpZ ||
           flight_cam.front.z < kMinLandingPitch ||
@@ -411,13 +423,19 @@ void flight_input(enum flight_input_t input) {
     switch (input) {
     case FLIGHT_INPUT_ROLL_LEFT:
     case FLIGHT_INPUT_YAW_LEFT:
-      vec_transform3(&kVecYawLeft, &flight_cam);
-      model_need_normalize = true;
+      // Nose wheel steering, so it needs the wheels to be turning. A parked
+      // aircraft cannot pivot on the spot.
+      if (flight_speed > 0) {
+        vec_transform3(&kVecYawLeft, &flight_cam);
+        model_need_normalize = true;
+      }
       break;
     case FLIGHT_INPUT_ROLL_RIGHT:
     case FLIGHT_INPUT_YAW_RIGHT:
-      vec_transform3(&kVecYawRight, &flight_cam);
-      model_need_normalize = true;
+      if (flight_speed > 0) {
+        vec_transform3(&kVecYawRight, &flight_cam);
+        model_need_normalize = true;
+      }
       break;
     case FLIGHT_INPUT_PITCH_DOWN:
       if (flight_cam.front.z > 0) {
