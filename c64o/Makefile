@@ -30,6 +30,8 @@ PPILOT_SRC = \
 		map.cc \
 		menu.h \
 		menu.cc \
+		flight.h \
+		flight.cc \
 		mission.h \
 		mission.cc \
 		model.h \
@@ -142,5 +144,14 @@ $(VECDEMO_PROGRAM).prg: $(VECDEMO_SRC)
 $(VECTEST_PROGRAM).prg: $(VECTEST_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ vectest.cc
 
+HOST_CC = g++
+HOST_CFLAGS = -O2 -std=c++17 -Wall -Wno-unknown-pragmas -I.
+
+flight_test: test/flight_test.cc flight.cc vec.cc vec_lut.cc fmath.cc
+	$(HOST_CC) $(HOST_CFLAGS) -o test/flight_test test/flight_test.cc flight.cc vec.cc vec_lut.cc fmath.cc
+
+test: flight_test
+	./test/flight_test
+
 clean:
-	rm -f $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg *.asm *.dbj *.int *.lbl *.map
+	rm -f $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg test/flight_test *.asm *.dbj *.int *.lbl *.map

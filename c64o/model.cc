@@ -4,6 +4,7 @@
 #include <stdlib.h>
 
 #include "benchmark.h"
+#include "flight.h"
 #include "fmath.h"
 #include "gfx.h"
 #include "roll.h"
@@ -12,51 +13,15 @@
 #include "view.h"
 #include "world.h"
 
-// Stop motion disables the plane movement and physics.
-bool model_paused = false;
-bool model_crashed = false;
-
+#ifdef __OSCAR64__
 #pragma bss(bss2)
+#endif
 
-mat3_t model_cam;
-
-static bool _model_on_ground = false;
-
-// 0x0800 =~ 50 m/s
-static int16_t _model_speed;
-static int16_t _model_vspeed;
-static uint8_t _model_throttle;
-static uint32_t _model_fuel;
-static bool _model_need_normalize;
 static uint8_t _model_nav;
-static uint8_t _model_flap;
-static uint8_t _model_gear;
-
 static int16_t _model_nav_x;
 static int16_t _model_nav_y;
 static uint8_t _model_true_heading;
 static uint8_t _model_nav_heading;
-
-static const uint32_t kMinEyeZ = 0x2000;
-static const uint16_t kStallSpeedWithoutFlaps = 0x0400;
-static const uint16_t kStallSpeedWithFlaps = 0x0340;
-static const uint16_t kMaxSpeed = 0x0F00;
-static const int16_t kTrimLift = 0x1000;
-static const uint8_t kMinThrottle = 0x00;
-static const uint8_t kMaxThrottle = 0x18;
-static const int16_t kMoveForwardBackwardSpeed = 0x4000;
-
-// Landing thresholds
-static const int16_t kMaxLandingRoll = 32;  // Max roll tilt abs(left.z)
-static const int16_t kMinLandingPitch = 32; // Min pitch front.z (no nose dive)
-static const int16_t kMaxLandingVSpeed = -0x0180; // Max downward vertical speed
-static const uint16_t kMaxLandingSpeed = 0x0A00;  // Max forward speed
-
-static const mat3_t _m_init = {
-    {256, 0, 0},
-    {0, 256, 0},
-    {0, 0, 256},
-};
 
 // Location of navigation waypoints.
 // They match the eye_x and eye_y coordinates >> 8
@@ -71,181 +36,32 @@ static const uint16_t kNavPointY[kGfxNumNavpoints] = {
 };
 
 void model_init() {
-  model_paused = false;
-  model_crashed = false;
-  model_cam = _m_init;
-  world_eye_x = 0x140000;
-  world_eye_y = 0x3F8000;
-  world_eye_z = 0x010000;
-  _model_speed = 0x860;
-  _model_throttle = 0x14;
-  _model_need_normalize = false;
-  _model_flap = false;
-  _model_gear = false;
+  flight_init();
   _model_nav = 0;
-  _model_fuel = 0x21FFF;
-  _model_on_ground = false;
 }
 
 void model_init_alt() {
-  model_paused = false;
-  model_crashed = false;
-  model_cam = _m_init;
-  world_eye_x = 0x400000;
-  world_eye_y = 0xBF8000;
-  world_eye_z = 0x040000;
-  _model_speed = 0x860;
-  _model_throttle = 0x14;
-  _model_need_normalize = false;
-  _model_flap = false;
-  _model_gear = false;
+  flight_init_alt();
   _model_nav = 1;
-  _model_fuel = 0x21FFF;
-  _model_on_ground = false;
 }
 
 void model_init_from_mission(const mission_t *mission) {
-  model_paused = false;
-  model_crashed = false;
-  model_cam = _m_init;
-  world_eye_x = (int32_t)mission->start_x << 16;
-  world_eye_y = ((int32_t)mission->start_y << 16) + 0x8000;
-  world_eye_z = (int32_t)mission->start_z << 16;
-  if (world_eye_z <= kMinEyeZ) {
-    world_eye_z = kMinEyeZ;
-    _model_on_ground = true;
-  } else {
-    _model_on_ground = false;
-  }
-  _model_speed = (int16_t)mission->start_speed << 4;
-  _model_throttle = mission->start_throttle;
-  _model_fuel =
-      mission->start_fuel ? (((uint32_t)mission->start_fuel << 12) - 1) : 0;
-  _model_need_normalize = false;
-  _model_flap = false;
-  _model_gear = _model_on_ground;
+  flight_init_from_mission(mission);
   _model_nav = (mission->start_y >= 0x80) ? 1 : 0;
-}
-
-static void _move_forward(int16_t fspeed, int16_t vspeed) {
-  world_eye_x += vec_fastmul8p8(model_cam.front.x, fspeed);
-  world_eye_y += vec_fastmul8p8(model_cam.front.y, fspeed);
-  world_eye_z += vspeed;
-  if (world_eye_z < kMinEyeZ) {
-    world_eye_z = kMinEyeZ;
-  }
 }
 
 void model_advance() {
   bm_model_start();
-
-  if (model_crashed) {
-    bm_model_end(630, "MDL:");
-    return;
-  }
-
-  _model_vspeed = vec_fastmul8p8(model_cam.front.z, _model_speed);
-  if (!model_paused) {
-    // Speed: Air resistance, gravity, throttle
-    uint16_t speed_sqr = vec_fastsqr8p8(_model_speed);
-    _model_speed -= speed_sqr >> 10;
-    if (_model_gear) {
-      _model_speed -= speed_sqr >> 11;
-    }
-    if (_model_flap) {
-      _model_speed -= speed_sqr >> 11;
-    }
-    _model_speed -= model_cam.front.z >> 2;
-    _model_speed += _model_throttle;
-
-    if (!_model_on_ground) {
-      int16_t lift = vec_fastmul8p8((int16_t)(speed_sqr >> 2), model_cam.up.z);
-      int16_t deficit = kTrimLift - lift;
-      if (deficit > 0) {
-        _model_vspeed -= deficit >> 5;
-        _model_speed -= deficit >> 10;
-      }
-
-      uint16_t stall_speed =
-          _model_flap ? kStallSpeedWithFlaps : kStallSpeedWithoutFlaps;
-      if (_model_speed < 0) {
-        _model_speed = 0;
-      } else if (_model_speed < stall_speed) {
-        uint8_t s = (stall_speed - _model_speed) >> 1;
-        model_cam.front.z -= s;
-        _model_need_normalize = true;
-      } else if (_model_speed > kMaxSpeed) {
-        _model_speed = kMaxSpeed;
-      }
-    } else {
-      // In ground mode: no stall
-      if (_model_speed < 0) {
-        _model_speed = 0;
-      } else if (_model_speed > kMaxSpeed) {
-        _model_speed = kMaxSpeed;
-      }
-
-      // Ground mode: cannot pitch forward (front.z >= 0)
-      if (model_cam.front.z < 0) {
-        model_cam.front.z = 0;
-        _model_need_normalize = true;
-      }
-
-      // Ground mode: level wings (roll = 0)
-      model_cam.left.x = -model_cam.front.y;
-      model_cam.left.y = model_cam.front.x;
-      model_cam.left.z = 0;
-      vec_cross(&model_cam.front, &model_cam.left, &model_cam.up);
-      _model_need_normalize = true;
-    }
-
-    _model_vspeed = vec_fastmul8p8(model_cam.front.z, _model_speed);
-
-    // Motion
-    _move_forward(_model_speed << 1, _model_vspeed);
-
-    if (world_eye_z <= kMinEyeZ) {
-      if (_abs16(model_cam.left.z) > kMaxLandingRoll ||
-          _abs16(model_cam.front.z) > kMinLandingPitch ||
-          _model_vspeed < kMaxLandingVSpeed ||
-          _model_speed > kMaxLandingSpeed || !_model_gear) {
-        model_crashed = true;
-      }
-      _model_on_ground = true;
-    }
-
-    // Fuel
-    uint8_t fuel_consumption = _model_throttle;
-    if (_model_fuel > fuel_consumption) {
-      _model_fuel -= fuel_consumption;
-    } else {
-      _model_fuel = 0;
-    }
-
-    // Rotation (only when airborne)
-    if (!_model_on_ground) {
-      int8_t rot = model_cam.left.z >> 5;
-      if (rot != 0) {
-        static mat3_t mat3_rot = {{256, 0, 0}, {0, 256, 0}, {0, 0, 256}};
-        mat3_rot.front.y = rot;
-        mat3_rot.left.x = -rot;
-        vec_transform3_inv(&mat3_rot, &model_cam);
-        _model_need_normalize = true;
-      }
-    }
-  }
-
-  if (_model_need_normalize) {
-    vec_orthonormalize(&model_cam);
-    _model_need_normalize = false;
+  if (!model_crashed) {
+    flight_advance();
   }
   bm_model_end(630, "MDL:");
 }
 
 void model_update_instruments() {
-  sprites_set_speed(_model_speed >> 6);
-  sprites_set_alt(world_eye_z >> 8);
-  sprites_set_vspeed(_model_vspeed);
+  sprites_set_speed(model_speed >> 6);
+  sprites_set_alt(model_eye_z >> 8);
+  sprites_set_vspeed(model_vspeed);
   if (view_state == VIEW_CENTER) {
     // With centered view, we can reuse the roll angle from the view.
     sprites_set_roll(roll_angle);
@@ -254,12 +70,12 @@ void model_update_instruments() {
     sprites_set_roll(_get_roll_angle(model_cam.up.z, model_cam.left.z));
   }
   sprites_set_pitch(model_cam.front.z >> 2);
-  sprites_set_throttle(_model_throttle);
-  sprites_set_fuel(_model_fuel);
+  sprites_set_throttle(model_throttle);
+  sprites_set_fuel(model_fuel);
   _model_true_heading = _get_heading(model_cam.front.x, model_cam.front.y);
   gfx_update_heading_bitmap(_model_true_heading);
-  _model_nav_x = kNavPointX[_model_nav] - (world_eye_x >> 8);
-  _model_nav_y = kNavPointY[_model_nav] - (world_eye_y >> 8);
+  _model_nav_x = kNavPointX[_model_nav] - (model_eye_x >> 8);
+  _model_nav_y = kNavPointY[_model_nav] - (model_eye_y >> 8);
   _model_nav_heading =
       _get_heading(_model_nav_x, _model_nav_y) - _model_true_heading;
   if (_model_nav_heading > kHeadingMax) {
@@ -267,8 +83,8 @@ void model_update_instruments() {
     _model_nav_heading += kHeadingMax;
   }
   gfx_update_nav_heading(_model_nav_heading);
-  gfx_update_flap(_model_flap);
-  gfx_update_gear(_model_gear);
+  gfx_update_flap(model_flap);
+  gfx_update_gear(model_gear);
 }
 
 void model_maybe_print_debug() {
@@ -284,147 +100,25 @@ void model_maybe_print_debug() {
     print_labeled_signed_bcd(690, "UY: ", model_cam.up.y, 4);
     print_labeled_signed_bcd(700, "UZ: ", model_cam.up.z, 4);
 
-    print_labeled_hex(778, "EX:", world_eye_x, 8);
-    print_labeled_hex(818, "EY:", world_eye_y, 8);
-    print_labeled_hex(858, "EZ:", world_eye_z, 8);
+    print_labeled_hex(778, "EX:", model_eye_x, 8);
+    print_labeled_hex(818, "EY:", model_eye_y, 8);
+    print_labeled_hex(858, "EZ:", model_eye_z, 8);
 
     print_labeled_signed_bcd(760, "NX:", _model_nav_x);
     print_labeled_signed_bcd(800, "NY:", _model_nav_y);
     print_labeled_bcd(840, "NAV:", _model_nav_heading);
 
     print_labeled_bcd(850, "HDG:", _model_true_heading, 3);
-    print_labeled_signed_bcd(920, "SPD:", _model_speed, 4);
-    print_labeled_signed_bcd(960, "VSP:", _model_vspeed, 4);
+    print_labeled_signed_bcd(920, "SPD:", model_speed, 4);
+    print_labeled_signed_bcd(960, "VSP:", model_vspeed, 4);
   }
 #endif
 }
 
 void model_input(enum model_input_t input) {
-  if (model_crashed) {
-    return;
-  }
-
-  if (_model_on_ground) {
-    switch (input) {
-    case MODEL_INPUT_ROLL_LEFT:
-    case MODEL_INPUT_YAW_LEFT:
-      vec_transform3(&kVecYawLeft, &model_cam);
-      _model_need_normalize = true;
-      break;
-    case MODEL_INPUT_ROLL_RIGHT:
-    case MODEL_INPUT_YAW_RIGHT:
-      vec_transform3(&kVecYawRight, &model_cam);
-      _model_need_normalize = true;
-      break;
-    case MODEL_INPUT_PITCH_DOWN:
-      if (model_cam.front.z > 0) {
-        vec_transform3(&kVecPitchDown, &model_cam);
-        if (model_cam.front.z < 0) {
-          model_cam.front.z = 0;
-        }
-        _model_need_normalize = true;
-      }
-      break;
-    case MODEL_INPUT_PITCH_UP: {
-      uint16_t stall_speed =
-          _model_flap ? kStallSpeedWithFlaps : kStallSpeedWithoutFlaps;
-      if (_model_speed > stall_speed) {
-        vec_transform3(&kVecPitchUp, &model_cam);
-        _model_need_normalize = true;
-        _model_on_ground = false;
-      }
-      break;
-    }
-    case MODEL_INPUT_THROTTLE_UP:
-      if (_model_throttle < kMaxThrottle) {
-        _model_throttle += 1;
-      }
-      break;
-    case MODEL_INPUT_THROTTLE_DOWN:
-      if (_model_throttle > kMinThrottle) {
-        _model_throttle -= 1;
-      }
-      break;
-    case MODEL_INPUT_TOGGLE_NAV:
-      _model_nav = 1 - _model_nav;
-      break;
-    case MODEL_INPUT_TOGGLE_FLAP:
-      _model_flap = 1 - _model_flap;
-      break;
-    case MODEL_INPUT_TOGGLE_GEAR:
-      _model_gear = 1 - _model_gear;
-      break;
-    case MODEL_INPUT_MOVE_BACKWARD:
-    case MODEL_INPUT_MOVE_FORWARD:
-      if (model_paused) {
-        int16_t speed = input == MODEL_INPUT_MOVE_FORWARD
-                            ? kMoveForwardBackwardSpeed
-                            : -kMoveForwardBackwardSpeed;
-        int16_t vspeed = vec_fastmul8p8(model_cam.front.z, speed);
-        _move_forward(speed, vspeed);
-      }
-      break;
-    default:
-      break;
-    }
-    return;
-  }
-
-  switch (input) {
-  case MODEL_INPUT_ROLL_LEFT:
-    vec_transform3(&kVecRollLeft, &model_cam);
-    _model_need_normalize = true;
-    break;
-  case MODEL_INPUT_ROLL_RIGHT:
-    vec_transform3(&kVecRollRight, &model_cam);
-    _model_need_normalize = true;
-    break;
-  case MODEL_INPUT_PITCH_UP:
-    vec_transform3(&kVecPitchUp, &model_cam);
-    _model_need_normalize = true;
-    break;
-  case MODEL_INPUT_PITCH_DOWN:
-    vec_transform3(&kVecPitchDown, &model_cam);
-    _model_need_normalize = true;
-    break;
-  case MODEL_INPUT_YAW_LEFT:
-    vec_transform3(&kVecYawLeft, &model_cam);
-    _model_need_normalize = true;
-    break;
-  case MODEL_INPUT_YAW_RIGHT:
-    vec_transform3(&kVecYawRight, &model_cam);
-    _model_need_normalize = true;
-    break;
-  case MODEL_INPUT_THROTTLE_UP:
-    if (_model_throttle < kMaxThrottle) {
-      _model_throttle += 1;
-    }
-    break;
-  case MODEL_INPUT_THROTTLE_DOWN:
-    if (_model_throttle > kMinThrottle) {
-      _model_throttle -= 1;
-    }
-    break;
-  case MODEL_INPUT_TOGGLE_NAV:
+  if (input == MODEL_INPUT_TOGGLE_NAV) {
     _model_nav = 1 - _model_nav;
-    break;
-  case MODEL_INPUT_TOGGLE_FLAP:
-    _model_flap = 1 - _model_flap;
-    break;
-  case MODEL_INPUT_TOGGLE_GEAR:
-    _model_gear = 1 - _model_gear;
-    break;
-  case MODEL_INPUT_MOVE_BACKWARD:
-  case MODEL_INPUT_MOVE_FORWARD:
-    if (model_paused) {
-      int16_t speed = input == MODEL_INPUT_MOVE_FORWARD
-                          ? kMoveForwardBackwardSpeed
-                          : -kMoveForwardBackwardSpeed;
-      int16_t vspeed = vec_fastmul8p8(model_cam.front.z, speed);
-      _move_forward(speed, vspeed);
-    }
-    break;
-  default:
-    break;
+    return;
   }
+  flight_input((enum flight_input_t)input);
 }

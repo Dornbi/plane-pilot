@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#include "flight.h"
 #include "mission.h"
 #include "vec.h"
 
@@ -22,10 +23,6 @@ enum model_input_t {
   MODEL_INPUT_MOVE_FORWARD,
   MODEL_INPUT_MOVE_BACKWARD,
 };
-
-extern mat3_t model_cam;
-extern bool model_paused;
-extern bool model_crashed;
 
 void model_init_from_mission(const mission_t *mission);
 

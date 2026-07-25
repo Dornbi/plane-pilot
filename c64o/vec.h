@@ -4,10 +4,17 @@
 #include "bool.h"
 #include <stdint.h>
 
+#ifndef __OSCAR64__
+#define __zeropage
 // Multiplies vec_mul_a and b (16-bit signed integers). Interprets b as 8.8
 // fixed point, and returns the middle 16-bits of the 32-bit result. Note:
 // optimized for |b| <= 256.
+inline int16_t vec_fastmul8p8(int16_t a, int16_t b) {
+  return ((int32_t)a * b) >> 8;
+}
+#else
 int16_t vec_fastmul8p8(int16_t a, int16_t b);
+#endif
 
 // Squares a 16-bit signed integer and returns a 16-bit unsigned integer.
 // Both input and output use 8.8 fixed-point semantics.

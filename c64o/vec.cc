@@ -1,6 +1,11 @@
 #include "vec.h"
-
 #include <stdint.h>
+
+#ifndef __OSCAR64__
+vec3_t vec_v;
+int16_t vec_sx;
+int16_t vec_sy;
+#endif
 
 static inline uint8_t _lobyte(int16_t a) { return a & 0xff; }
 static inline int8_t _hibyte(int16_t a) { return (a >> 8) & 0xff; }

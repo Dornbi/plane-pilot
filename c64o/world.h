@@ -6,9 +6,9 @@
 #include <stdint.h>
 
 // Roughly 24.8 fixed point in meters
-extern int32_t world_eye_x;
-extern int32_t world_eye_y;
-extern int32_t world_eye_z;
+extern int32_t model_eye_x;
+extern int32_t model_eye_y;
+extern int32_t model_eye_z;
 // View matrix.
 extern mat3_t world_cam;
 
