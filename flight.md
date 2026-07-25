@@ -37,6 +37,7 @@ This document specifies the flight dynamics model requirements for the C64 fligh
   - Triggers when airspeed $V < V_{\text{stall}}$ while airborne.
   - Lift generation drops dramatically.
   - An automatic pitch-down moment is applied to the aircraft orientation matrix ($\Delta \text{pitch} \propto (V_{\text{stall}} - V)$).
+  - Pitch down always happens towards the ground, not on the aircraft's nose.
 - **Stall Recovery**:
   - Pitching downward causes gravity to accelerate the aircraft ($V_{\text{vspeed}} < 0$).
   - When airspeed accelerates back above $V_{\text{stall}}$, lift is restored.
@@ -117,7 +118,7 @@ This document specifies the flight dynamics model requirements for the C64 fligh
 - **Ground Steering**:
   - Roll inputs (J/K) are mapped to nose-wheel steering (yaw left/right).
 - **Ground Friction & Braking**:
-  - Throttle at 0% applies wheel friction drag, decelerating the aircraft to a full stop.
+  - Throttle at 0% applies a constant wheel friction drag, decelerating the aircraft to a full stop.
 
 ### 5.2. Takeoff Requirements
 
@@ -155,31 +156,12 @@ Touchdown check triggers when altitude $Z \le Z_{\text{min}}$:
 - **Straight Down (-90° Pitch / Vertical Dive)**:
   - Gravity accelerates the aircraft toward Terminal Velocity ($V_{\text{max\_terminal}}$) where drag balances gravity.
 
-### 6.2. Sideslip & Rudder Crosswind Coupling
-
-- **Uncoordinated Yaw (Rudder Input)**:
-  - Yawing without banking induces fuselage side drag, causing rapid speed decay.
-  - Secondary Roll Effect: Dihedral effect causes slight roll in the direction of rudder yaw.
-
-### 6.3. Engine Failure & Gliding Physics
+### 6.2. Engine Failure & Gliding Physics
 
 - **Zero Fuel State**:
   - When `flight_fuel == 0`, throttle drops to 0%.
   - Aircraft becomes an unpowered glider.
-  - **Optimal Glide Speed**: Best distance-over-ground ratio achieved at moderate pitch angle (~ -3° to -5°). Steeper pitch bleeds altitude fast; flatter pitch stalls.
-
-### 6.4. Ground Effect Cushion
-
-- **Proximity to Runway ($Z < Z_{\text{ground\_effect}}$)**:
-  - Within 1 wingspan of ground during approach, induced drag drops by 20%.
-  - Creates floating cushion where plane resists sinking, requiring lower pitch/throttle to land.
-
-### 6.5. Spin Entry (Uncoordinated Stall)
-
-- **Spin Condition**:
-  - Stalling while bank angle $> 40\%$ or during full yaw input enters an asymmetrical spin.
-  - High yaw rate coupled with steep pitch down and high sink rate.
-  - Recovery requires neutralizing roll, applying opposite rudder, and pitching down to regain speed.
+  - **Optimal Glide Speed**: Best distance-over-ground ratio achieved at moderate pitch angle (~ -10°). Steeper pitch bleeds altitude fast; flatter pitch stalls.
 
 ---
 
