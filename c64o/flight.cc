@@ -121,6 +121,14 @@ void flight_advance() {
 
   flight_vspeed = vec_fastmul8p8(flight_cam.front.z, flight_speed);
   if (!flight_paused) {
+    // Altitude density decay (above Z = 0x080000)
+    uint8_t alt_penalty = 0;
+    if (flight_eye_z > 0x080000) {
+      uint32_t alt_diff = (flight_eye_z - 0x080000) >> 12;
+      alt_penalty = (alt_diff > 128) ? 128 : (uint8_t)alt_diff;
+    }
+    uint16_t density = 256 - alt_penalty;
+
     // Speed: Air resistance, gravity, throttle
     uint16_t speed_sqr = vec_fastsqr8p8(flight_speed);
     flight_speed -= speed_sqr >> 10;
@@ -133,22 +141,30 @@ void flight_advance() {
     if (!model_on_ground) {
       flight_speed -= vec_fastsqr8p8(flight_cam.left.z) >> 5;
     }
-    flight_speed -= flight_cam.front.z >> 2;
+    flight_speed -= flight_cam.front.z >> 3;
     if (flight_fuel > 0) {
-      flight_speed += flight_throttle;
+      uint16_t eff_throttle = ((uint16_t)flight_throttle * density) >> 8;
+      flight_speed += eff_throttle;
     }
 
     int16_t sink_penalty = 0;
     if (!model_on_ground) {
-      int16_t lift = vec_fastmul8p8((int16_t)(speed_sqr >> 2), flight_cam.up.z);
+      int16_t raw_lift = vec_fastmul8p8((int16_t)(speed_sqr >> 2), flight_cam.up.z);
+      int16_t lift = vec_fastmul8p8(raw_lift, density);
       int16_t deficit = kTrimLift - lift;
       if (deficit > 0) {
         sink_penalty = deficit >> 4;
         flight_speed -= deficit >> 10;
       }
 
-      uint16_t stall_speed =
-          flight_flap ? kStallSpeedWithFlaps : kStallSpeedWithoutFlaps;
+      uint16_t base_stall_speed;
+      if (flight_flap) {
+        base_stall_speed = (flight_cam.up.z >= 0) ? kStallSpeedWithFlaps : 0x0480;
+      } else {
+        base_stall_speed = kStallSpeedWithoutFlaps;
+      }
+      uint16_t stall_speed = base_stall_speed + ((uint16_t)alt_penalty << 1);
+
       if (flight_speed < 0) {
         flight_speed = 0;
       }

@@ -50,8 +50,13 @@ This document specifies the flight dynamics model requirements for the C64 fligh
   - **100% Throttle**: Maximum rate of climb (ROC). Sustained airspeed during climb is slower than level cruise at 100% throttle due to gravity penalty.
   - **75% Throttle**: Moderate rate of climb at lower airspeed.
   - **25% Throttle**: **Zero excess thrust**. Attempting to climb (positive pitch) at 25% throttle bleeds speed rapidly, leading to a stall.
-- **Service Ceiling**:
-  - Air density reduction at high altitude mask-shifts effective thrust and lift, reducing ROC to 0 at service ceiling.
+- **Service Ceiling & Altitude Density Decay**:
+  - Continuous air density decay applies above ceiling threshold altitude ($Z > \text{0x080000}$):
+    $\text{alt\_penalty} = (Z - \text{0x080000}) \gg 12$ (clamped to max 128).
+    $\text{density} = 256 - \text{alt\_penalty}$.
+  - **Thrust Decay**: Effective thrust scales down: $\text{Thrust}_{\text{eff}} = (\text{Thrust} \cdot \text{density}) \gg 8$.
+  - **Lift Decay**: Effective lift scales down: $\text{Lift}_{\text{eff}} = (\text{Lift} \cdot \text{density}) \gg 8$.
+  - **Higher Stall Speed at Altitude**: Due to reduced dynamic pressure at high altitude, base stall speed increases proportionally: $V_{\text{stall}}(Z) = V_{\text{stall, base}} + (\text{alt\_penalty} \ll 1)$.
 
 ---
 
@@ -101,11 +106,11 @@ This document specifies the flight dynamics model requirements for the C64 fligh
 - **Lift & Drag Modification**:
   - Flaps down (`flight_flap == 1`) increases both Lift Coefficient ($C_L$) and Drag Coefficient ($C_D$).
   - **Drag Increase**: Parasite drag increases by 25% ($\Delta \text{Drag}_{\text{flap}} = \text{speed}^2 \gg 12$).
-  - **Lift Increase**: Increases $C_L$ by ~30%, permitting level flight at lower airspeeds.
-  - **Stall Speed Reduction**: Lowers stall speed from `0x0400` to `0x0340`.
+  - **Upright Lift & Stall Reduction**: In upright flight ($\text{up.z} \ge 0$), flaps increase $C_L$ by ~30%, lowering stall speed from `0x0400` to `0x0340`.
+  - **Inverted Flap Adverse Camber**: In inverted flight ($\text{up.z} < 0$), flap extension creates adverse camber relative to downward lift, **increasing stall speed from `0x0400` to `0x0480`**.
 - **Equilibrium Impact**:
   - Maintaining equal airspeed requires **more throttle** due to flap drag.
-  - Maintaining level flight at slow speeds requires **less nose-up pitch** compared to clean configuration.
+  - Maintaining level flight at slow speeds requires **less nose-up pitch** compared to clean configuration when upright.
 
 ---
 
