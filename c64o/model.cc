@@ -51,9 +51,7 @@ void model_init_from_mission(const mission_t *mission) {
 
 void model_advance() {
   bm_model_start();
-  if (!flight_crashed) {
-    flight_advance();
-  }
+  flight_advance();
   bm_model_end(630, "MDL:");
 }
 

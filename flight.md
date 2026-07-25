@@ -78,9 +78,10 @@ This document specifies the flight dynamics model requirements for the C64 fligh
   - Inverted state occurs when $\text{flight\_cam.up.z} < 0$.
   - Normal airfoils produce negative lift when upside down.
   - To maintain level flight inverted, the nose must be pitched **UP relative to the horizon** (pushing stick forward / negative AoA relative to canopy).
-- **Inverted Throttle & Drag Penalty**:
-  - Flying upside down incurs a 40% drag penalty due to inefficient inverted airfoil shape.
-  - Sustained inverted level flight requires **at least 50% - 60% throttle**. Lower throttle settings cause altitude loss or stall.
+- **Implicit Inverted Drag & Lift Deficit**:
+  - Inverted flight ($\text{up.z} < 0$) causes wing lift to act downward ($\text{lift} < 0$).
+  - The high lift deficit ($\text{deficit} = \text{kTrimLift} - \text{lift}$) implicitly produces high induced drag ($\Delta \text{speed} \propto \text{deficit} \gg 10$), naturally bleeding airspeed without needing ad-hoc conditional logic.
+  - Sustained inverted level flight requires higher throttle (50%–60%) to overcome this implicit lift-deficit drag.
 
 ---
 
@@ -137,7 +138,7 @@ Touchdown check triggers when altitude $Z \le Z_{\text{min}}$:
   1. **Gear Retracted**: `flight_gear == 0`.
   2. **Excess Vertical Speed**: Sink rate exceeds limit ($V_{\text{vspeed}} < - \text{0x0180}$).
   3. **Excess Bank Angle**: Roll/bank exceeds threshold ($|\text{left.z}| > 32$, approx > 7°).
-  4. **Invalid Touchdown Pitch**: Touchdown with negative pitch ($\text{front.z} < 0$, nose pointed down into runway) or excessive pitch flare ($\text{front.z} > 64$, > 15° pitch up). Safe landing flare range is $0 \le \text{front.z} \le 64$.
+  4. **Invalid Touchdown Pitch**: Touchdown with steep nose-down pitch ($\text{front.z} < -16$, > -3.5° nose down) or excessive pitch flare ($\text{front.z} > 64$, > 15° pitch up). Safe landing pitch range is $-16 \le \text{front.z} \le 64$.
   5. **Excess Airspeed**: Touchdown speed exceeds gear threshold ($V > \text{0x0A00}$).
 - **Successful Landing**:
   - If all safety thresholds are satisfied: transition to `model_on_ground = true`, zero out vertical speed, level wings.

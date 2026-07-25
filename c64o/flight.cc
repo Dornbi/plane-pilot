@@ -46,7 +46,8 @@ static const int16_t kMoveForwardBackwardSpeed = 0x4000;
 
 // Landing thresholds
 static const int16_t kMaxLandingRoll = 32;
-static const int16_t kMinLandingPitch = 32;
+static const int16_t kMinLandingPitch = -16;
+static const int16_t kMaxLandingPitch = 64;
 static const int16_t kMaxLandingVSpeed = -0x0180;
 static const uint16_t kMaxLandingSpeed = 0x0A00;
 
@@ -124,13 +125,18 @@ void flight_advance() {
     uint16_t speed_sqr = vec_fastsqr8p8(flight_speed);
     flight_speed -= speed_sqr >> 10;
     if (flight_gear) {
-      flight_speed -= speed_sqr >> 11;
+      flight_speed -= speed_sqr >> 12;
     }
     if (flight_flap) {
-      flight_speed -= speed_sqr >> 11;
+      flight_speed -= speed_sqr >> 12;
+    }
+    if (!model_on_ground) {
+      flight_speed -= vec_fastsqr8p8(flight_cam.left.z) >> 5;
     }
     flight_speed -= flight_cam.front.z >> 2;
-    flight_speed += flight_throttle;
+    if (flight_fuel > 0) {
+      flight_speed += flight_throttle;
+    }
 
     int16_t sink_penalty = 0;
     if (!model_on_ground) {
@@ -145,15 +151,23 @@ void flight_advance() {
           flight_flap ? kStallSpeedWithFlaps : kStallSpeedWithoutFlaps;
       if (flight_speed < 0) {
         flight_speed = 0;
-      } else if (flight_speed < stall_speed) {
-        uint8_t s = (stall_speed - flight_speed) >> 1;
+      }
+      if (flight_speed < stall_speed) {
+        uint8_t s = (stall_speed - flight_speed) >> 5;
+        if (s == 0) s = 1;
         flight_cam.front.z -= s;
+        if (flight_cam.front.z < -256) {
+          flight_cam.front.z = -256;
+        }
         model_need_normalize = true;
       } else if (flight_speed > kMaxSpeed) {
         flight_speed = kMaxSpeed;
       }
     } else {
       // In ground mode: no stall
+      if (flight_throttle == 0 && flight_speed > 0) {
+        flight_speed -= 2;
+      }
       if (flight_speed < 0) {
         flight_speed = 0;
       } else if (flight_speed > kMaxSpeed) {
@@ -182,7 +196,8 @@ void flight_advance() {
 
     if (flight_eye_z <= kMinEyeZ) {
       if (_abs16(flight_cam.left.z) > kMaxLandingRoll ||
-          _abs16(flight_cam.front.z) > kMinLandingPitch ||
+          flight_cam.front.z < kMinLandingPitch ||
+          flight_cam.front.z > kMaxLandingPitch ||
           flight_vspeed < kMaxLandingVSpeed ||
           flight_speed > kMaxLandingSpeed || !flight_gear) {
         flight_crashed = true;
@@ -196,6 +211,7 @@ void flight_advance() {
       flight_fuel -= fuel_consumption;
     } else {
       flight_fuel = 0;
+      flight_throttle = 0;
     }
 
     // Rotation (only when airborne)

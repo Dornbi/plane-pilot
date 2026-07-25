@@ -41,6 +41,7 @@ enum flight_input_t {
 };
 
 void flight_init();
+void flight_init_alt();
 void flight_init_from_mission(const mission_t *mission);
 
 void flight_advance();
