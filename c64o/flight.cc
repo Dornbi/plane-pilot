@@ -499,6 +499,13 @@ void flight_input(enum flight_input_t input) {
         flight_move_forward(speed, vspeed);
       }
       break;
+    case FLIGHT_INPUT_BRAKE:
+      if (flight_speed > 32) {
+        flight_speed -= 32;
+      } else {
+        flight_speed = 0;
+      }
+      break;
     default:
       break;
     }

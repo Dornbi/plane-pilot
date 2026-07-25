@@ -25,6 +25,7 @@ static const char kHelpText[] =
     "+ -      THROTTLE UP/DOWN\n"
     "F        TOGGLE FLAPS\n"
     "G        TOGGLE GEAR\n"
+    "B        BRAKE ON GROUND\n"
     "\n"
     "1 2 3    LOOK LEFT/CENTER/RIGHT\n"
     "N        TOGGLE NAV POINT\n"

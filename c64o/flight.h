@@ -57,6 +57,7 @@ enum flight_input_t {
   FLIGHT_INPUT_TOGGLE_NAV,
   FLIGHT_INPUT_MOVE_FORWARD,
   FLIGHT_INPUT_MOVE_BACKWARD,
+  FLIGHT_INPUT_BRAKE,
 };
 
 void flight_init();

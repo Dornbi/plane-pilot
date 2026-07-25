@@ -136,6 +136,9 @@ void sim_run(uint8_t selected_mission) {
       if (toggle_edges & kToggleKeyN) {
         flight_input(FLIGHT_INPUT_TOGGLE_NAV);
       }
+      if (key_pressed(KSCAN_B)) {
+        flight_input(FLIGHT_INPUT_BRAKE);
+      }
     }
     if (key_pressed(KSCAN_1)) {
       view_update_view(VIEW_LEFT);

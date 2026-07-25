@@ -13,6 +13,7 @@ enum KeyScanCode {
   KSCAN_2,
   KSCAN_3,
   KSCAN_A,
+  KSCAN_B,
   KSCAN_D,
   KSCAN_F,
   KSCAN_G,

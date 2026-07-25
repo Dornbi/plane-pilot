@@ -539,6 +539,33 @@ static void test_ground_deceleration_friction() {
   printf("  PASS\n\n");
 }
 
+static void test_ground_braking() {
+  printf("Running test_ground_braking...\n");
+
+  // On ground: FLIGHT_INPUT_BRAKE reduces speed
+  _put_on_ground(0x0200);
+  int16_t speed_before = flight_speed;
+  flight_input(FLIGHT_INPUT_BRAKE);
+  assert(flight_speed < speed_before);
+  assert(flight_speed == speed_before - 16);
+
+  // Continue braking until full stop
+  while (flight_speed > 0) {
+    flight_input(FLIGHT_INPUT_BRAKE);
+  }
+  assert(flight_speed == 0);
+  assert(!flight_crashed);
+
+  // Airborne: FLIGHT_INPUT_BRAKE does nothing
+  flight_init();
+  flight_eye_z = 0x040000;
+  int16_t air_speed_before = flight_speed;
+  flight_input(FLIGHT_INPUT_BRAKE);
+  assert(flight_speed == air_speed_before);
+
+  printf("  PASS\n\n");
+}
+
 // 12. Zero fuel flameout transition test
 static void test_zero_fuel_flameout_transition() {
   printf("Running test_zero_fuel_flameout_transition...\n");
@@ -1437,7 +1464,7 @@ static void test_host_multiply_matches_c64() {
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
-  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (37 TESTS) ===\n\n");
+  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (38 TESTS) ===\n\n");
   test_host_multiply_matches_c64();
   test_level_cruise_equilibrium();
   test_trim_speed_boundary();
@@ -1451,6 +1478,7 @@ int main(int argc, char **argv) {
   test_touchdown_flare_and_crash_envelope();
   test_takeoff_stall_speed_gate();
   test_ground_deceleration_friction();
+  test_ground_braking();
   test_zero_fuel_flameout_transition();
   test_vertical_dive_terminal_velocity_clamping();
   test_inverted_stall_and_nose_recovery();
@@ -1475,6 +1503,6 @@ int main(int argc, char **argv) {
   test_banked_turn_loses_altitude();
   test_ground_steering();
   test_takeoff_roll_speed_margin();
-  printf("ALL 37 TESTS PASSED SUCCESSFULLY!\n");
+  printf("ALL 38 TESTS PASSED SUCCESSFULLY!\n");
   return 0;
 }
