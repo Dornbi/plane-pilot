@@ -53,6 +53,37 @@ static void _settle(uint8_t throttle, int16_t pitch, int16_t up_z, int frames,
   }
 }
 
+// Compass heading, 0..kHeadingMax-1, using the game's own routine. For
+// printing; assertions compare the forward vector directly, which is both
+// exact and finer grained than a 48 step compass.
+static uint8_t _heading() {
+  return _get_heading(flight_cam.front.x, flight_cam.front.y);
+}
+
+// True if the forward vector is bit for bit unchanged.
+static bool _same_heading(int16_t fx, int16_t fy) {
+  return flight_cam.front.x == fx && flight_cam.front.y == fy;
+}
+
+// Banks the aircraft the way the pilot does, by applying roll inputs. Use this
+// where the point is that the attitude is one the game can actually reach;
+// use the `roll` argument of _arm_touchdown where an exact left.z is needed.
+// Steps from wings level, one kVecRollRight each:
+//    1 -> left.z  31 (just inside kMaxLandingRoll)
+//    4 -> left.z 119 (well past it)
+//   26 -> up.z -256, left.z -11 (inverted, and inside the bank limit,
+//         which is exactly the blind spot trigger 6 exists to cover)
+static void _roll_by(int steps) {
+  for (int i = 0; i < steps; ++i) {
+    flight_input(FLIGHT_INPUT_ROLL_RIGHT);
+    vec_orthonormalize(&flight_cam);
+  }
+  for (int i = 0; i > steps; --i) {
+    flight_input(FLIGHT_INPUT_ROLL_LEFT);
+    vec_orthonormalize(&flight_cam);
+  }
+}
+
 // Sets up a touchdown frame: places the aircraft one step above the ground
 // with the given attitude and speed, so that a single flight_advance() crosses
 // the ground plane and runs the envelope check. Returns the vertical speed the
@@ -61,21 +92,24 @@ static void _settle(uint8_t throttle, int16_t pitch, int16_t up_z, int frames,
 // The predicted descent has to account for the sink penalty as well as the
 // pitch term, otherwise the aircraft is simply parked below the ground plane
 // and the clamp - not the descent - is what gets tested.
+// `roll` sets an exact bank: it cannot be written straight into left.z, since
+// vec_orthonormalize derives left from up x front and would discard it, so it
+// is seeded through up = (0, -roll, sqrt(256^2 - roll^2)), which comes back
+// out as left.z == roll. `roll_steps` additionally banks with real roll
+// inputs, for cases where reaching the attitude the way the pilot does is the
+// point - see _roll_by.
 static int16_t _arm_touchdown(int16_t pitch, int16_t roll, int16_t speed,
-                              uint8_t gear, uint8_t inverted = 0) {
+                              uint8_t gear, int roll_steps = 0) {
   flight_init();
   flight_eye_z = 0x040000;
   flight_gear = gear;
   flight_throttle = 0;
   flight_speed = speed;
-  // Bank has to be seeded through `up`, not `left`: vec_orthonormalize derives
-  // left from up x front, so anything written straight into left.z is
-  // discarded. With front along +x, up = (0, -roll, sqrt(256^2 - roll^2))
-  // comes back out as left.z == roll.
   int16_t up_z = (int16_t)sqrt(65536.0 - (double)roll * roll);
   flight_cam.front = make_vector(256, 0, 0);
   flight_cam.left = make_vector(0, 256, 0);
-  flight_cam.up = make_vector(0, -roll, inverted ? -up_z : up_z);
+  flight_cam.up = make_vector(0, -roll, up_z);
+  _roll_by(roll_steps);
   flight_cam.front.z = pitch;
   vec_orthonormalize(&flight_cam);
 
@@ -575,9 +609,10 @@ static void test_ground_roll_takeoff_abort() {
   printf("  PASS\n\n");
 }
 
-static int32_t _vec_length(const vec3_t *v) {
+// Squared length, so the orthonormality check needs no square root.
+static int32_t _vec_length_sqr(const vec3_t *v) {
   int32_t x = v->x, y = v->y, z = v->z;
-  return sqrt(x * x + y * y + z * z);
+  return x * x + y * y + z * z;
 }
 
 // 16. Matrix orthonormality under continuous roll test
@@ -591,17 +626,18 @@ static void test_matrix_orthonormality_under_continuous_roll() {
     flight_advance();
   }
 
-  // Vector lengths should remain near 256
-  int32_t front_len = _vec_length(&flight_cam.front);
-  int32_t left_len = _vec_length(&flight_cam.left);
-  int32_t up_len = _vec_length(&flight_cam.up);
+  // Vector lengths should remain near 256. Compared squared, so no sqrt.
+  const int32_t kMinLenSqr = 250 * 250, kMaxLenSqr = 262 * 262;
+  int32_t front_l2 = _vec_length_sqr(&flight_cam.front);
+  int32_t left_l2 = _vec_length_sqr(&flight_cam.left);
+  int32_t up_l2 = _vec_length_sqr(&flight_cam.up);
 
-  assert(front_len >= 250 && front_len <= 262);
-  assert(left_len >= 250 && left_len <= 262);
-  assert(up_len >= 250 && up_len <= 262);
+  assert(front_l2 >= kMinLenSqr && front_l2 <= kMaxLenSqr);
+  assert(left_l2 >= kMinLenSqr && left_l2 <= kMaxLenSqr);
+  assert(up_l2 >= kMinLenSqr && up_l2 <= kMaxLenSqr);
 
-  printf("  front_len: %d, left_len: %d, up_len: %d\n", front_len, left_len,
-         up_len);
+  printf("  length^2: front %d, left %d, up %d (256^2 = %d)\n", front_l2,
+         left_l2, up_l2, 256 * 256);
   printf("  PASS\n\n");
 }
 
@@ -836,16 +872,25 @@ static void test_rollout_stays_on_ground() {
   int16_t vs = vec_fastmul8p8(45, 0x0500);
   flight_eye_z = 0x2000 - vs - 1;
 
+  // Landing straight ahead, so the whole rollout must stay on front.y == 0.
+  assert(flight_cam.front.y == 0);
+
   flight_advance();
   assert(!flight_crashed);
   assert(flight_eye_z == 0x2000);
-  assert(flight_vspeed == 0); // Vertical speed zeroed on touchdown
+  assert(flight_vspeed == 0);      // Vertical speed zeroed on touchdown
+  assert(flight_cam.front.z == 0); // Nose wheel down, once, at touchdown
+  // The one normalize the nose drop costs must not swing the heading.
+  assert(flight_cam.front.y == 0);
 
-  // The rollout must stay pinned to the ground plane.
+  // The rollout must stay pinned to the ground plane, nose down, and must not
+  // wander off the heading it landed on.
   for (int i = 0; i < 600; ++i) {
     flight_advance();
     assert(flight_eye_z == 0x2000);
     assert(flight_vspeed == 0);
+    assert(flight_cam.front.z == 0);
+    assert(flight_cam.front.y == 0); // Does not wander off the runway heading
   }
 
   assert(!flight_crashed);
@@ -939,13 +984,19 @@ static void test_landing_envelope_sink_rate() {
 static void test_landing_envelope_bank_angle() {
   printf("Running test_landing_envelope_bank_angle...\n");
 
-  // Wings within kMaxLandingRoll -> lands.
+  // Exactly at kMaxLandingRoll -> lands.
   _arm_touchdown(0, kMaxLandingRoll, 0x0500, 1);
   printf("  touchdown left.z: %d (limit %d)\n", flight_cam.left.z,
          kMaxLandingRoll);
   assert(_abs16(flight_cam.left.z) <= kMaxLandingRoll);
   flight_advance();
   assert(!flight_crashed);
+
+  // One unit past the limit -> crash. The boundary is exact.
+  _arm_touchdown(0, kMaxLandingRoll + 1, 0x0500, 1);
+  assert(_abs16(flight_cam.left.z) > kMaxLandingRoll);
+  flight_advance();
+  assert(flight_crashed);
 
   // A wingtip-down arrival -> crash.
   _arm_touchdown(0, 120, 0x0500, 1);
@@ -991,13 +1042,14 @@ static void test_landing_envelope_inverted() {
   printf("Running test_landing_envelope_inverted...\n");
 
   // Upright reference at the same pitch and speed: lands.
-  _arm_touchdown(0, 0, 0x0500, 1, /*inverted=*/0);
+  _arm_touchdown(0, 0, 0x0500, 1);
   flight_advance();
   assert(!flight_crashed);
 
   // Same arrival, belly up: crash, and specifically not because of any of the
-  // other five triggers.
-  _arm_touchdown(0, 0, 0x0500, 1, /*inverted=*/1);
+  // other five triggers. 26 roll steps is a full roll to inverted, which is
+  // also how left.z gets back inside the bank limit.
+  _arm_touchdown(0, 0, 0x0500, 1, /*roll_steps=*/26);
   printf("  inverted arrival: up.z=%d left.z=%d front.z=%d vspeed=%d speed=%d\n",
          flight_cam.up.z, flight_cam.left.z, flight_cam.front.z, flight_vspeed,
          flight_speed);
@@ -1012,7 +1064,7 @@ static void test_landing_envelope_inverted() {
 
   // A legal nose-up flare must not trip the new check: up.z falls with pitch,
   // so the threshold has to stay at 0 rather than a tight cos(roll) bound.
-  _arm_touchdown(kMaxLandingPitch, 0, 0x0500, 1, /*inverted=*/0);
+  _arm_touchdown(kMaxLandingPitch, 0, 0x0500, 1);
   printf("  max flare: front.z=%d up.z=%d\n", flight_cam.front.z,
          flight_cam.up.z);
   assert(flight_cam.up.z < 256);          // Pitch really does reduce up.z
@@ -1094,13 +1146,15 @@ static int32_t _glide_ratio_x1000(int16_t pitch) {
     flight_cam.up.z = hu;
     flight_advance();
   }
-  double dh = sqrt((double)(flight_eye_x - x0) * (flight_eye_x - x0) +
-                   (double)(flight_eye_y - y0) * (flight_eye_y - y0));
+  // The glide is flown straight ahead, so the ground track is along x alone
+  // and no square root is needed for the horizontal distance.
+  assert(flight_eye_y == y0);
+  int32_t dh = flight_eye_x - x0;
   int32_t dz = z0 - flight_eye_z;
-  if (dz <= 0) {
+  if (dz <= 0 || dh <= 0) {
     return 0;
   }
-  return (int32_t)(dh * 1000.0 / dz);
+  return (int32_t)(((int64_t)dh * 1000) / dz);
 }
 
 // 31. Optimal glide angle test (flight.md 6.2).
@@ -1138,16 +1192,12 @@ static void test_optimal_glide_angle() {
   printf("  PASS\n\n");
 }
 
-// Heading in degrees from the forward vector, for the turn tests.
-static double _heading_deg() {
-  return atan2((double)flight_cam.front.y, (double)flight_cam.front.x) * 180.0 /
-         M_PI;
-}
 
-// Holds a bank angle for `frames` frames and returns the heading change in
-// degrees. Bank is seeded through `up` so vec_orthonormalize keeps it.
-static double _turn_over(int16_t roll, int16_t speed, int frames) {
-  int16_t up_z = (int16_t)sqrt(65536.0 - (double)roll * roll);
+// Holds a bank for `frames` frames starting from a due-x heading, and leaves
+// the resulting forward vector in flight_cam. Turn magnitude is read off
+// front.y: the runs below stay inside a quarter turn, where |front.y| grows
+// monotonically with the angle, so no inverse trig is needed.
+static void _turn_over(int roll_steps, int16_t speed, int frames) {
   flight_init();
   flight_eye_z = 0x040000;
   flight_throttle = 0x14;
@@ -1155,15 +1205,13 @@ static double _turn_over(int16_t roll, int16_t speed, int frames) {
   flight_speed = speed;
   flight_cam.front = make_vector(256, 0, 0);
   flight_cam.left = make_vector(0, 256, 0);
-  flight_cam.up = make_vector(0, -roll, up_z);
-  vec_orthonormalize(&flight_cam);
-  double h0 = _heading_deg();
+  flight_cam.up = make_vector(0, 0, 256);
+  _roll_by(roll_steps);
   for (int i = 0; i < frames; ++i) {
     flight_advance();
     flight_throttle = 0x14;
     flight_speed = speed; // Hold the speed so only bank varies
   }
-  return _heading_deg() - h0;
 }
 
 // 32. Turn rate test (flight.md 3.1).
@@ -1172,28 +1220,40 @@ static double _turn_over(int16_t roll, int16_t speed, int frames) {
 static void test_turn_rate_depends_on_bank_not_speed() {
   printf("Running test_turn_rate_depends_on_bank_not_speed...\n");
 
-  // Wings level: no turn.
-  double level = _turn_over(0, 1800, 60);
-  printf("  level          -> %+7.2f deg\n", level);
-  assert(level == 0.0);
+  // Wings level: no turn at all - the forward vector is untouched.
+  _turn_over(0, 1800, 60);
+  printf("  level      -> front=(%4d,%4d) heading %2d/%d\n", flight_cam.front.x,
+         flight_cam.front.y, _heading(), kHeadingMax);
+  assert(_same_heading(256, 0));
 
-  // Banked: the aircraft turns, and steeper bank turns faster.
-  double medium = _turn_over(120, 1800, 60);
-  double steep = _turn_over(241, 1800, 60);
-  printf("  left.z=120     -> %+7.2f deg\n", medium);
-  printf("  left.z=241     -> %+7.2f deg\n", steep);
-  assert(medium != 0.0);
-  assert(fabs(steep) > fabs(medium));
+  // Banked: the aircraft turns, and steeper bank turns faster. Both runs stay
+  // inside a quarter turn, so |front.y| orders them.
+  _turn_over(4, 1800, 60);
+  int16_t medium_y = _abs16(flight_cam.front.y);
+  int16_t medium_x = flight_cam.front.x;
+  printf("  4 steps    -> front=(%4d,%4d) heading %2d/%d\n", flight_cam.front.x,
+         flight_cam.front.y, _heading(), kHeadingMax);
+  assert(medium_y != 0);
+  assert(medium_x > 0); // Still inside the first quarter turn
 
-  // Same bank at three airspeeds: identical heading change.
-  double slow = _turn_over(181, 1200, 60);
-  double cruise = _turn_over(181, 1800, 60);
-  double fast = _turn_over(181, 2400, 60);
-  printf("  left.z=181 at 1200/1800/2400 -> %+7.2f / %+7.2f / %+7.2f\n", slow,
-         cruise, fast);
-  assert(slow == cruise);
-  assert(cruise == fast);
-  assert(slow != 0.0);
+  _turn_over(10, 1800, 60);
+  int16_t steep_y = _abs16(flight_cam.front.y);
+  printf("  10 steps   -> front=(%4d,%4d) heading %2d/%d\n", flight_cam.front.x,
+         flight_cam.front.y, _heading(), kHeadingMax);
+  assert(flight_cam.front.x > 0);
+  assert(steep_y > medium_y);
+
+  // Same bank at three airspeeds: bit for bit identical forward vector.
+  _turn_over(8, 1200, 60);
+  int16_t fx = flight_cam.front.x, fy = flight_cam.front.y;
+  printf("  8 steps at 1200/1800/2400 -> (%d,%d)", fx, fy);
+  assert(fy != 0); // It did turn
+  _turn_over(8, 1800, 60);
+  printf(" (%d,%d)", flight_cam.front.x, flight_cam.front.y);
+  assert(_same_heading(fx, fy));
+  _turn_over(8, 2400, 60);
+  printf(" (%d,%d)\n", flight_cam.front.x, flight_cam.front.y);
+  assert(_same_heading(fx, fy));
 
   printf("  PASS\n\n");
 }
@@ -1206,9 +1266,8 @@ static void test_banked_turn_loses_altitude() {
   printf("Running test_banked_turn_loses_altitude...\n");
 
   int32_t dz[3];
-  const int16_t rolls[3] = {0, 181, 241}; // Level, ~45 deg, ~70 deg
+  const int roll_steps[3] = {0, 6, 10}; // Level, ~left.z 169, ~left.z 239
   for (int i = 0; i < 3; ++i) {
-    int16_t up_z = (int16_t)sqrt(65536.0 - (double)rolls[i] * rolls[i]);
     flight_init();
     flight_eye_z = 0x040000;
     flight_throttle = 0x18; // Full throttle, so thrust is not the variable
@@ -1216,8 +1275,8 @@ static void test_banked_turn_loses_altitude() {
     flight_speed = 0x0900;
     flight_cam.front = make_vector(256, 0, 0);
     flight_cam.left = make_vector(0, 256, 0);
-    flight_cam.up = make_vector(0, -rolls[i], up_z);
-    vec_orthonormalize(&flight_cam);
+    flight_cam.up = make_vector(0, 0, 256);
+    _roll_by(roll_steps[i]);
     int16_t held_roll = flight_cam.left.z;
     int32_t z0 = flight_eye_z;
     for (int f = 0; f < 200; ++f) {
@@ -1245,80 +1304,79 @@ static void test_ground_steering() {
   printf("Running test_ground_steering...\n");
 
   _put_on_ground(0x0300);
-  double h0 = _heading_deg();
   for (int i = 0; i < 20; ++i) {
     flight_input(FLIGHT_INPUT_ROLL_LEFT);
     flight_advance();
   }
-  double left_turn = _heading_deg() - h0;
-  printf("  20x ROLL_LEFT  -> %+7.2f deg, left.z=%d\n", left_turn,
+  int16_t left_y = flight_cam.front.y;
+  printf("  20x ROLL_LEFT  -> front=(%4d,%4d) heading %2d/%d, left.z=%d\n",
+         flight_cam.front.x, left_y, _heading(), kHeadingMax,
          flight_cam.left.z);
-  assert(left_turn != 0.0);        // It steered
-  assert(flight_cam.left.z == 0);  // ...without banking
+  assert(left_y != 0);            // It steered
+  assert(flight_cam.left.z == 0); // ...without banking
   assert(flight_eye_z == kGroundZ);
   assert(!flight_crashed);
 
   _put_on_ground(0x0300);
-  h0 = _heading_deg();
   for (int i = 0; i < 20; ++i) {
     flight_input(FLIGHT_INPUT_ROLL_RIGHT);
     flight_advance();
   }
-  double right_turn = _heading_deg() - h0;
-  printf("  20x ROLL_RIGHT -> %+7.2f deg, left.z=%d\n", right_turn,
+  int16_t right_y = flight_cam.front.y;
+  printf("  20x ROLL_RIGHT -> front=(%4d,%4d) heading %2d/%d, left.z=%d\n",
+         flight_cam.front.x, right_y, _heading(), kHeadingMax,
          flight_cam.left.z);
-  assert(right_turn != 0.0);
+  assert(right_y != 0);
   assert(flight_cam.left.z == 0);
   assert(!flight_crashed);
 
-  // Opposite directions, and roll input matches the dedicated yaw input.
-  assert((left_turn > 0) != (right_turn > 0));
+  // Symmetric: same magnitude, opposite sign.
+  assert((left_y > 0) != (right_y > 0));
+  assert(_abs16(left_y) == _abs16(right_y));
 
-  // A steered heading must hold. Rebuilding left/up from front every frame
-  // used to ratchet it back toward the nearest axis - vec_normalize truncates
-  // when it scales the vector back to length 256, so the dominant component
-  // gains a unit first. 29 degrees decayed to 0 in ~300 frames.
+  // Roll input and the dedicated yaw input do exactly the same thing.
   _put_on_ground(0x0300);
   for (int i = 0; i < 20; ++i) {
     flight_input(FLIGHT_INPUT_YAW_LEFT);
     flight_advance();
   }
-  double steered = _heading_deg();
+  assert(flight_cam.front.y == left_y);
+
+  // A steered heading must hold, bit for bit. Rebuilding left/up from front
+  // every frame used to ratchet it back toward the nearest axis:
+  // vec_normalize truncates when it scales the vector back to length 256, so
+  // the dominant component gains a unit first. 29 degrees decayed to 0 in
+  // ~300 frames.
+  int16_t held_x = flight_cam.front.x, held_y = flight_cam.front.y;
   for (int i = 0; i < 400; ++i) {
     flight_advance(); // Coasting, no further input
   }
-  printf("  heading held over 400 frames: %+7.2f -> %+7.2f\n", steered,
-         _heading_deg());
-  assert(_heading_deg() == steered);
+  printf("  held 400 frames: (%d,%d) -> (%d,%d)\n", held_x, held_y,
+         flight_cam.front.x, flight_cam.front.y);
+  assert(_same_heading(held_x, held_y));
   assert(flight_cam.left.z == 0); // Still level while holding heading
 
   // Steering is nose wheel steering, so it needs the wheels turning.
   _put_on_ground(0);
   assert(flight_speed == 0);
-  h0 = _heading_deg();
+  held_x = flight_cam.front.x;
+  held_y = flight_cam.front.y;
   for (int i = 0; i < 20; ++i) {
     flight_input(FLIGHT_INPUT_YAW_LEFT);
     flight_input(FLIGHT_INPUT_ROLL_RIGHT);
     flight_advance();
   }
-  printf("  stationary: %+7.2f -> %+7.2f\n", h0, _heading_deg());
-  assert(_heading_deg() == h0); // Parked aircraft does not pivot
+  printf("  stationary: (%d,%d) -> (%d,%d)\n", held_x, held_y,
+         flight_cam.front.x, flight_cam.front.y);
+  assert(_same_heading(held_x, held_y)); // Parked aircraft does not pivot
 
   // ...and works again as soon as it rolls.
   _put_on_ground(0x0300);
-  h0 = _heading_deg();
+  held_x = flight_cam.front.x;
+  held_y = flight_cam.front.y;
   flight_input(FLIGHT_INPUT_YAW_LEFT);
   flight_advance();
-  assert(_heading_deg() != h0);
-
-  _put_on_ground(0x0300);
-  h0 = _heading_deg();
-  for (int i = 0; i < 20; ++i) {
-    flight_input(FLIGHT_INPUT_YAW_LEFT);
-    flight_advance();
-  }
-  printf("  20x YAW_LEFT   -> %+7.2f deg\n", _heading_deg() - h0);
-  assert(_heading_deg() - h0 == left_turn);
+  assert(!_same_heading(held_x, held_y));
 
   printf("  PASS\n\n");
 }

@@ -367,6 +367,16 @@ void flight_advance() {
       // Touched down: the descent is over. Zeroed after the envelope check
       // above, which needs the sink rate the aircraft arrived with.
       flight_vspeed = 0;
+
+      if (!was_on_ground && !flight_crashed && flight_cam.front.z != 0) {
+        // Nose wheel comes down. Done once, on the touchdown transition,
+        // rather than eased in over the rollout: easing means touching the
+        // attitude every frame, and vec_normalize truncates when it rescales,
+        // so a per frame nudge would ratchet the heading toward the nearest
+        // axis - the same effect described at the wing levelling above.
+        flight_cam.front.z = 0;
+        model_need_normalize = true;
+      }
     }
 
     // Fuel

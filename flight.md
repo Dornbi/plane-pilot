@@ -195,7 +195,8 @@ The looser ground limit still rejects nonsense start states from mission data wh
   - Above stall the reachable range is roughly $-251$ (at $\text{front.z} = -16$, just above stall) to $0$. The limit of $-\text{0x00E0} = -224$ sits inside it.
   - **Resulting rule**: a level-or-nose-up flare ($\text{front.z} \ge 0$) is always survivable — the worst sink it can produce is $-194$. A nose-down arrival needs airspeed: at $\text{front.z} = -16$ the aircraft must be above ~1350 to survive touchdown.
 - **Successful Landing**:
-  - If all safety thresholds are satisfied: transition to `model_on_ground = true`, zero out vertical speed, level wings.
+  - If all safety thresholds are satisfied: transition to `model_on_ground = true`, zero out vertical speed, level wings, and drop the nose ($\text{front.z} = 0$).
+  - The nose drop happens **once, on the touchdown transition**, not eased in over the rollout. Easing it would mean adjusting the attitude on every frame, and `vec_normalize` truncates when it rescales, so a per-frame nudge would ratchet the heading toward the nearest axis — see §5.1.
 
 ---
 
