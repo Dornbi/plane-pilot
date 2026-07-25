@@ -18,6 +18,7 @@
 #include "sprites.h"
 #include "view.h"
 #include "world.h"
+#include "msg.h"
 
 // Only reached on screen transitions and in the debug view, never from the
 // per-frame render path, so the outliner's size-for-a-JSR trade is free here.
@@ -27,7 +28,9 @@ static void _enter_simulation(uint8_t selected_mission) {
   memset(kScreenRamMain, kCharSolid11, 1000);
   memset(kScreenRamAlt, kCharSolid11, 1000);
 
+  msg_clear();
   flight_init_from_mission(&kMissions[selected_mission]);
+  msg_show(kMissionTitles[selected_mission]);
 
   mem_init_mccm();
   view_refresh_panel();
@@ -90,7 +93,9 @@ void sim_run(uint8_t selected_mission) {
     // there's no instrument feedback to show the player what they're doing.
     if (!map_mode) {
       if (key_pressed(KSCAN_R)) {
+        msg_clear();
         flight_init_from_mission(&kMissions[selected_mission]);
+        msg_show(kMissionTitles[selected_mission]);
       }
       if (key_pressed(KSCAN_J)) {
         flight_input(FLIGHT_INPUT_ROLL_LEFT);
@@ -158,6 +163,10 @@ void sim_run(uint8_t selected_mission) {
     if (!map_mode) {
       bm_model_start();
       flight_advance();
+      if (flight_crashed) {
+        msg_show("YOU CRASHED", MSG_FOREVER, true);
+      }
+      msg_update();
       bm_model_end(630, "MDL:");
 
       bm_start();
@@ -173,6 +182,7 @@ void sim_run(uint8_t selected_mission) {
       box_prepare();
       box_draw();
       world_render_grid();
+      msg_render();
       bm_total(990, "TOT:");
       mem_switch_buffer();
     } else {

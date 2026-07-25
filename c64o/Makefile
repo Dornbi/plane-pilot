@@ -34,6 +34,8 @@ PPILOT_SRC = \
 		flight.cc \
 		mission.h \
 		mission.cc \
+		msg.h \
+		msg.cc \
 		panel.h \
 		panel.cc \
 		panel.koa \
@@ -128,7 +130,7 @@ CC = oscar64
 CFLAGS = -ii=${OSCAR64_INCLUDE} -D__OSCAR64__ -g -xz
 OPTFLAGS = -O2 -Op -Oa -Oi -Oz
 
-all: $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg
+all: $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg test
 
 $(PPILOT_PROGRAM).prg: $(PPILOT_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_VIEW__ -D__DEBUG_MODEL__ -D__MAX_RAM__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
@@ -142,21 +144,11 @@ $(VECDEMO_PROGRAM).prg: $(VECDEMO_SRC)
 $(VECTEST_PROGRAM).prg: $(VECTEST_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ vectest.cc
 
-# Host build of the flight model tests. g++, not oscar64. host_vec.cc checks
-# that the inline vec_fastmul8p8 in vec.h matches the 6502 routine it stands
-# in for; without that the results below say nothing about the real target.
-HOST_CC = g++
-HOST_CFLAGS = -O2 -std=c++17 -Wall -Wno-unknown-pragmas -I.
-FLIGHT_TEST_SRC = test/flight_test.cc test/host_vec.cc flight.cc vec.cc \
-		vec_lut.cc fmath.cc
-
-flight_test: $(FLIGHT_TEST_SRC) flight.h vec.h fmath.h
-	$(HOST_CC) $(HOST_CFLAGS) -o test/flight_test $(FLIGHT_TEST_SRC)
-
-test: flight_test
-	./test/flight_test
+test flight_test msg_test:
+	$(MAKE) -C test $@
 
 clean:
-	rm -rf $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg test/flight_test test/flight_test.dSYM *.asm *.dbj *.int *.lbl *.map
+	rm -rf $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg *.asm *.dbj *.int *.lbl *.map
+	$(MAKE) -C test clean
 
-.PHONY: all test clean
+.PHONY: all test flight_test msg_test clean
