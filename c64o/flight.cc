@@ -36,28 +36,22 @@ static bool model_on_ground = false;
 static bool model_need_normalize;
 
 // Location of navigation waypoints.
-// They match the eye_x and eye_y coordinates >> 8
-// Corresponding to the runways in world_map.cc
-static const uint16_t kNavPointX[2] = {
-    0x6000,
-    0x2000,
-};
-static const uint16_t kNavPointY[2] = {
-    0xBF80,
-    0x3F80,
-};
+static uint16_t flight_nav_point_x[6];
+static uint16_t flight_nav_point_y[6];
+static uint8_t flight_num_nav_points = 0;
 
 void flight_update_nav() {
   flight_true_heading = _get_heading(flight_cam.front.x, flight_cam.front.y);
-  flight_nav_x = kNavPointX[flight_nav] - (flight_eye_x >> 8);
-  flight_nav_y = kNavPointY[flight_nav] - (flight_eye_y >> 8);
-  flight_nav_heading =
-      _get_heading(flight_nav_x, flight_nav_y) - flight_true_heading;
-  if (flight_nav_heading > kHeadingMax) {
-    flight_nav_heading += kHeadingMax;
+  if (flight_num_nav_points > 0) {
+    flight_nav_x = flight_nav_point_x[flight_nav] - (flight_eye_x >> 8);
+    flight_nav_y = flight_nav_point_y[flight_nav] - (flight_eye_y >> 8);
+    flight_nav_heading =
+        _get_heading(flight_nav_x, flight_nav_y) - flight_true_heading;
+    if (flight_nav_heading > kHeadingMax) {
+      flight_nav_heading += kHeadingMax;
+    }
   }
 }
-
 
 static const mat3_t _m_init = {
     {256, 0, 0},
@@ -101,6 +95,11 @@ void flight_init() {
   flight_gear = false;
   flight_fuel = 0x21FFF;
   model_on_ground = false;
+  flight_nav_point_x[0] = 0x2000;
+  flight_nav_point_y[0] = 0x3F80;
+  flight_nav_point_x[1] = 0x6000;
+  flight_nav_point_y[1] = 0xBF80;
+  flight_num_nav_points = 2;
   flight_nav = 0;
   flight_update_nav();
 }
@@ -119,6 +118,11 @@ void flight_init_alt() {
   flight_gear = false;
   flight_fuel = 0x21FFF;
   model_on_ground = false;
+  flight_nav_point_x[0] = 0x2000;
+  flight_nav_point_y[0] = 0x3F80;
+  flight_nav_point_x[1] = 0x6000;
+  flight_nav_point_y[1] = 0xBF80;
+  flight_num_nav_points = 2;
   flight_nav = 1;
   flight_update_nav();
 }
@@ -143,7 +147,23 @@ void flight_init_from_mission(const mission_t *mission) {
   model_need_normalize = false;
   flight_flap = false;
   flight_gear = model_on_ground;
-  flight_nav = (mission->start_y >= 0x80) ? 1 : 0;
+  flight_num_nav_points = 0;
+  for (uint8_t i = 0; i < mission->num_waypoints; ++i) {
+    uint8_t wp_idx = mission->waypoints[i];
+    const mission_waypoint_t *wp = &kMissionWaypoints[wp_idx];
+    if (wp->x != 0 || wp->y != 0) {
+      flight_nav_point_x[flight_num_nav_points] = (uint16_t)wp->x << 8;
+      flight_nav_point_y[flight_num_nav_points] = ((uint16_t)wp->y << 8) + 0x80;
+      flight_num_nav_points++;
+    }
+  }
+  if (flight_num_nav_points == 0) {
+    const mission_waypoint_t *def_wp = &kMissionWaypoints[kWaypointDefault];
+    flight_nav_point_x[0] = (uint16_t)def_wp->x << 8;
+    flight_nav_point_y[0] = ((uint16_t)def_wp->y << 8) + 0x80;
+    flight_num_nav_points = 1;
+  }
+  flight_nav = 0;
   flight_update_nav();
 }
 
@@ -192,7 +212,8 @@ void flight_advance() {
 
     int16_t sink_penalty = 0;
     if (!model_on_ground) {
-      int16_t raw_lift = vec_fastmul8p8((int16_t)(speed_sqr >> 2), flight_cam.up.z);
+      int16_t raw_lift =
+          vec_fastmul8p8((int16_t)(speed_sqr >> 2), flight_cam.up.z);
       int16_t lift = vec_fastmul8p8(raw_lift, density);
       if (flight_flap) {
         // Flaps raise |C_L| by half. Upright that is what puts the stall speed
@@ -211,7 +232,8 @@ void flight_advance() {
 
       uint16_t base_stall_speed;
       if (flight_flap) {
-        base_stall_speed = (flight_cam.up.z >= 0) ? kStallSpeedWithFlaps : 0x0480;
+        base_stall_speed =
+            (flight_cam.up.z >= 0) ? kStallSpeedWithFlaps : 0x0480;
       } else {
         base_stall_speed = kStallSpeedWithoutFlaps;
       }
@@ -233,7 +255,8 @@ void flight_advance() {
           vec_transform3(&kVecPitchDown, &flight_cam);
         } else {
           uint8_t s = (stall_speed - flight_speed) >> 5;
-          if (s == 0) s = 1;
+          if (s == 0)
+            s = 1;
           flight_cam.front.z -= s;
           if (flight_cam.front.z < -256) {
             flight_cam.front.z = -256;
@@ -334,8 +357,13 @@ void flight_advance() {
 
 void flight_input(enum flight_input_t input) {
   if (input == FLIGHT_INPUT_TOGGLE_NAV) {
-    flight_nav = 1 - flight_nav;
-    flight_update_nav();
+    if (flight_num_nav_points > 0) {
+      flight_nav++;
+      if (flight_nav >= flight_num_nav_points) {
+        flight_nav = 0;
+      }
+      flight_update_nav();
+    }
     return;
   }
 
