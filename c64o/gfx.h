@@ -48,7 +48,6 @@ void gfx_invalidate_heading_bitmap(void);
 
 // Toggle various indicators;
 static const uint8_t kGfxNumNavpoints = 2;
-void gfx_update_nav_toggle(uint8_t nav);
 void gfx_update_nav_heading(uint8_t heading);
 void gfx_update_flap(bool flap);
 void gfx_update_gear(bool gear);
