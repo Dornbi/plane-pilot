@@ -7,8 +7,19 @@
 #include "mission.h"
 #include "vec.h"
 
+enum FlightCrashReason {
+  FLIGHT_CRASH_NONE = 0,
+  FLIGHT_CRASH_ROLL,
+  FLIGHT_CRASH_INVERTED,
+  FLIGHT_CRASH_PITCH_LOW,
+  FLIGHT_CRASH_PITCH_HIGH,
+  FLIGHT_CRASH_VSPEED,
+  FLIGHT_CRASH_SPEED,
+  FLIGHT_CRASH_GEAR,
+};
+
 extern bool flight_paused;
-extern bool flight_crashed;
+extern enum FlightCrashReason flight_crashed;
 
 extern mat3_t flight_cam;
 

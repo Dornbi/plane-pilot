@@ -172,7 +172,7 @@ static void test_level_cruise_equilibrium() {
   }
   assert(flight_speed == settled_speed);
   assert(flight_eye_z == settled_z); // Altitude held, not drifting
-  assert(flight_speed > kTrimSpeed);  // Above trim, so the deficit is zero
+  assert(flight_speed > kTrimSpeed); // Above trim, so the deficit is zero
 
   printf("  settled speed: %d (0x%04X), vspeed: %d\n", settled_speed,
          settled_speed, flight_vspeed);
@@ -405,7 +405,8 @@ static void test_flap_drag_lift_and_stall_reduction() {
 
   // (c) Stall speed: a speed between the two stall constants stalls clean but
   // not with flaps.
-  int16_t between = (int16_t)((kStallSpeedWithFlaps + kStallSpeedWithoutFlaps) / 2);
+  int16_t between =
+      (int16_t)((kStallSpeedWithFlaps + kStallSpeedWithoutFlaps) / 2);
   assert(between > kStallSpeedWithFlaps && between < kStallSpeedWithoutFlaps);
 
   flight_init();
@@ -435,7 +436,7 @@ static void test_touchdown_flare_and_crash_envelope() {
   flight_eye_z = 0x2000; // Ground altitude
   flight_gear = 0;
   flight_advance();
-  assert(flight_crashed);
+  assert(flight_crashed == FLIGHT_CRASH_GEAR);
 
   // Both flares below are flown as genuine descents through the ground plane.
   // That constrains the speed: a nose-up attitude only descends when the lift
@@ -463,12 +464,10 @@ static void test_touchdown_flare_and_crash_envelope() {
   printf("  front.z at the check: %d (limit %d)\n", flight_cam.front.z,
          kMaxLandingPitch);
   assert(flight_cam.front.z > kMaxLandingPitch); // Still over the limit
-  assert(flight_crashed);
+  assert(flight_crashed == FLIGHT_CRASH_PITCH_HIGH);
 
   printf("  PASS\n\n");
 }
-
-
 
 // 10. Takeoff stall speed gate test.
 // The gate lives in the on-ground branch of flight_input, so the model has to
@@ -480,7 +479,8 @@ static void test_takeoff_stall_speed_gate() {
   _put_on_ground(0x0200);
   int16_t pitch_before = flight_cam.front.z;
   flight_input(FLIGHT_INPUT_PITCH_UP);
-  assert(flight_cam.front.z == pitch_before); // Rotation refused, not just clamped
+  assert(flight_cam.front.z ==
+         pitch_before); // Rotation refused, not just clamped
   flight_advance();
   assert(flight_eye_z == kGroundZ); // Still on the runway
   assert(flight_vspeed == 0);
@@ -532,7 +532,8 @@ static void test_ground_deceleration_friction() {
     flight_advance();
   }
 
-  printf("  ground decel end speed: %d, crashed: %d\n", flight_speed, flight_crashed);
+  printf("  ground decel end speed: %d, crashed: %d\n", flight_speed,
+         flight_crashed);
   assert(flight_speed == 0); // Came to a full stop
   assert(!flight_crashed);
   printf("  PASS\n\n");
@@ -560,7 +561,7 @@ static void test_vertical_dive_terminal_velocity_clamping() {
   printf("Running test_vertical_dive_terminal_velocity_clamping...\n");
 
   flight_init();
-  flight_eye_z = 0x100000; // High altitude
+  flight_eye_z = 0x100000;   // High altitude
   flight_cam.front.z = -256; // Vertical dive
   flight_throttle = 0x18;
 
@@ -654,7 +655,8 @@ static void test_low_altitude_stall_ground_impact() {
     flight_advance();
   }
 
-  assert(flight_crashed); // Altitude loss during stall should hit ground and crash
+  assert(
+      flight_crashed); // Altitude loss during stall should hit ground and crash
   printf("  PASS\n\n");
 }
 
@@ -800,7 +802,8 @@ static void test_high_altitude_stall_speed_increase() {
 
   flight_init();
   flight_eye_z = 0x0C0000; // Very high altitude
-  flight_speed = 0x0420;   // Above normal stall speed (0x0400), but below high-alt stall speed
+  flight_speed = 0x0420;   // Above normal stall speed (0x0400), but below
+                           // high-alt stall speed
   flight_throttle = 0;
 
   flight_advance();
@@ -841,8 +844,8 @@ static void test_idle_throttle_glide_slope_speed_decay() {
 
   flight_init();
   flight_eye_z = 0x020000;
-  flight_speed = 0x0600;  // Initial Mission 2 speed
-  flight_throttle = 0;    // Cut throttle to 0%
+  flight_speed = 0x0600;    // Initial Mission 2 speed
+  flight_throttle = 0;      // Cut throttle to 0%
   flight_cam.front.z = -16; // Gentle glide slope (~ -3.5 deg)
 
   int16_t start_speed = flight_speed;
@@ -852,7 +855,8 @@ static void test_idle_throttle_glide_slope_speed_decay() {
 
   printf("  glide slope 0%% throttle speed: %d -> %d\n", start_speed,
          flight_speed);
-  assert(flight_speed < start_speed); // Speed MUST NOT increase on gentle glide slope at 0% throttle
+  assert(flight_speed < start_speed); // Speed MUST NOT increase on gentle glide
+                                      // slope at 0% throttle
   printf("  PASS\n\n");
 }
 
@@ -900,7 +904,6 @@ static void test_rollout_stays_on_ground() {
   printf("  PASS\n\n");
 }
 
-
 // 26. Landing envelope: excess sink rate (crash trigger 2).
 //
 // Note what this test documents about the envelope. Vertical speed is
@@ -928,14 +931,14 @@ static void test_landing_envelope_sink_rate() {
   // pitch, roll, speed, gear and up.z are all still legal.
   int16_t slow = _arm_touchdown(kMinLandingPitch, 0, 0x0450, 1);
   printf("  nose down at speed 0x0450 -> vspeed %d\n", slow);
-  assert(slow < kMaxLandingVSpeed);                    // Trigger 2 armed
+  assert(slow < kMaxLandingVSpeed);                     // Trigger 2 armed
   assert(_abs16(flight_cam.left.z) <= kMaxLandingRoll); // 3 clear
   assert(flight_cam.up.z >= kMinLandingUpZ);            // 6 clear
   assert(flight_speed <= (int16_t)kMaxLandingSpeed);    // 5 clear
   assert(flight_gear);                                  // 1 clear
   flight_advance();
   assert(flight_cam.front.z >= kMinLandingPitch); // 4 clear at the check
-  assert(flight_crashed);
+  assert(flight_crashed == FLIGHT_CRASH_VSPEED);
 
   // Sweep every arrival above stall speed that passes the other five checks.
   // Two properties matter, and flight.md 5.3 states both:
@@ -974,7 +977,7 @@ static void test_landing_envelope_sink_rate() {
   printf("  above stall: worst sink %d at pitch=%d speed=%d;"
          " worst flared (front.z >= 0) %d; limit %d\n",
          worst, worst_pitch, worst_speed, worst_flared, kMaxLandingVSpeed);
-  assert(reachable);                       // The limit is live, not dead code
+  assert(reachable);                         // The limit is live, not dead code
   assert(worst_flared >= kMaxLandingVSpeed); // A proper flare always survives
 
   printf("  PASS\n\n");
@@ -996,7 +999,7 @@ static void test_landing_envelope_bank_angle() {
   _arm_touchdown(0, kMaxLandingRoll + 1, 0x0500, 1);
   assert(_abs16(flight_cam.left.z) > kMaxLandingRoll);
   flight_advance();
-  assert(flight_crashed);
+  assert(flight_crashed == FLIGHT_CRASH_ROLL);
 
   // A wingtip-down arrival -> crash.
   _arm_touchdown(0, 120, 0x0500, 1);
@@ -1029,7 +1032,7 @@ static void test_landing_envelope_touchdown_speed() {
   _arm_touchdown(0, 0, (int16_t)kMaxLandingSpeed + 0x0100, 1);
   flight_advance();
   printf("  over limit: speed %d, crashed %d\n", flight_speed, flight_crashed);
-  assert(flight_crashed);
+  assert(flight_crashed == FLIGHT_CRASH_SPEED);
 
   printf("  PASS\n\n");
 }
@@ -1050,9 +1053,10 @@ static void test_landing_envelope_inverted() {
   // other five triggers. 26 roll steps is a full roll to inverted, which is
   // also how left.z gets back inside the bank limit.
   _arm_touchdown(0, 0, 0x0500, 1, /*roll_steps=*/26);
-  printf("  inverted arrival: up.z=%d left.z=%d front.z=%d vspeed=%d speed=%d\n",
-         flight_cam.up.z, flight_cam.left.z, flight_cam.front.z, flight_vspeed,
-         flight_speed);
+  printf(
+      "  inverted arrival: up.z=%d left.z=%d front.z=%d vspeed=%d speed=%d\n",
+      flight_cam.up.z, flight_cam.left.z, flight_cam.front.z, flight_vspeed,
+      flight_speed);
   assert(flight_cam.up.z < kMinLandingUpZ);
   assert(_abs16(flight_cam.left.z) <= kMaxLandingRoll); // Trigger 3 blind here
   assert(flight_cam.front.z >= kMinLandingPitch);
@@ -1060,14 +1064,14 @@ static void test_landing_envelope_inverted() {
   assert(flight_speed <= (int16_t)kMaxLandingSpeed);
   assert(flight_gear);
   flight_advance();
-  assert(flight_crashed);
+  assert(flight_crashed == FLIGHT_CRASH_INVERTED);
 
   // A legal nose-up flare must not trip the new check: up.z falls with pitch,
   // so the threshold has to stay at 0 rather than a tight cos(roll) bound.
   _arm_touchdown(kMaxLandingPitch, 0, 0x0500, 1);
   printf("  max flare: front.z=%d up.z=%d\n", flight_cam.front.z,
          flight_cam.up.z);
-  assert(flight_cam.up.z < 256);          // Pitch really does reduce up.z
+  assert(flight_cam.up.z < 256); // Pitch really does reduce up.z
   assert(flight_cam.up.z >= kMinLandingUpZ);
   flight_advance();
   assert(!flight_crashed);
@@ -1095,7 +1099,8 @@ static void test_inverted_high_nose_stall_breaks_downward() {
     // its sign is what selects the rotation. Only front and up need seeding;
     // vec_orthonormalize derives left from up x front.
     flight_cam.front = make_vector(70, 0, 246);
-    flight_cam.up = inverted ? make_vector(246, 0, -70) : make_vector(-246, 0, 70);
+    flight_cam.up =
+        inverted ? make_vector(246, 0, -70) : make_vector(-246, 0, 70);
     flight_cam.left = make_vector(0, 256, 0);
     vec_orthonormalize(&flight_cam);
 
@@ -1191,7 +1196,6 @@ static void test_optimal_glide_angle() {
 
   printf("  PASS\n\n");
 }
-
 
 // Holds a bank for `frames` frames starting from a due-x heading, and leaves
 // the resulting forward vector in flight_cam. Turn magnitude is read off
@@ -1290,9 +1294,9 @@ static void test_banked_turn_loses_altitude() {
            flight_speed);
   }
 
-  assert(dz[0] == 0);      // Wings level at full throttle: holds altitude
-  assert(dz[1] < 0);       // 45 deg bank: descends
-  assert(dz[2] < dz[1]);   // 70 deg bank: descends faster
+  assert(dz[0] == 0);    // Wings level at full throttle: holds altitude
+  assert(dz[1] < 0);     // 45 deg bank: descends
+  assert(dz[2] < dz[1]); // 70 deg bank: descends faster
 
   printf("  PASS\n\n");
 }

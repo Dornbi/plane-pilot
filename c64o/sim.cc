@@ -12,13 +12,13 @@
 #include "map.h"
 #include "mem.h"
 #include "mission.h"
+#include "msg.h"
 #include "panel.h"
 #include "render.h"
 #include "screen.h"
 #include "sprites.h"
 #include "view.h"
 #include "world.h"
-#include "msg.h"
 
 // Only reached on screen transitions and in the debug view, never from the
 // per-frame render path, so the outliner's size-for-a-JSR trade is free here.
@@ -164,7 +164,33 @@ void sim_run(uint8_t selected_mission) {
       bm_model_start();
       flight_advance();
       if (flight_crashed) {
-        msg_show("YOU CRASHED", MSG_FOREVER, true);
+        const char *msg = "YOU CRASHED";
+        switch (flight_crashed) {
+        case FLIGHT_CRASH_ROLL:
+          msg = "CRASH: BANK ANGLE";
+          break;
+        case FLIGHT_CRASH_INVERTED:
+          msg = "CRASH: INVERTED";
+          break;
+        case FLIGHT_CRASH_PITCH_LOW:
+          msg = "CRASH: PITCH TOO LOW";
+          break;
+        case FLIGHT_CRASH_PITCH_HIGH:
+          msg = "CRASH: PITCH TOO HIGH";
+          break;
+        case FLIGHT_CRASH_VSPEED:
+          msg = "CRASH: HARD LANDING";
+          break;
+        case FLIGHT_CRASH_SPEED:
+          msg = "CRASH: TOO FAST";
+          break;
+        case FLIGHT_CRASH_GEAR:
+          msg = "CRASH: GEAR RETRACTED";
+          break;
+        default:
+          break;
+        }
+        msg_show(msg, MSG_FOREVER, true);
       }
       msg_update();
       bm_model_end(630, "MDL:");

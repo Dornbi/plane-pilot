@@ -7,7 +7,7 @@
 #include "vec.h"
 
 bool flight_paused = false;
-bool flight_crashed = false;
+enum FlightCrashReason flight_crashed = FLIGHT_CRASH_NONE;
 
 #ifdef __OSCAR64__
 #pragma bss(bss2)
@@ -105,7 +105,7 @@ static const uint16_t kMaxGroundSpeed = 0x0D00;
 
 void flight_init() {
   flight_paused = false;
-  flight_crashed = false;
+  flight_crashed = FLIGHT_CRASH_NONE;
   flight_cam = _m_init;
   flight_eye_x = 0x140000;
   flight_eye_y = 0x3F8000;
@@ -128,7 +128,7 @@ void flight_init() {
 
 void flight_init_alt() {
   flight_paused = false;
-  flight_crashed = false;
+  flight_crashed = FLIGHT_CRASH_NONE;
   flight_cam = _m_init;
   flight_eye_x = 0x400000;
   flight_eye_y = 0xBF8000;
@@ -151,7 +151,7 @@ void flight_init_alt() {
 
 void flight_init_from_mission(const mission_t *mission) {
   flight_paused = false;
-  flight_crashed = false;
+  flight_crashed = FLIGHT_CRASH_NONE;
   flight_cam = _m_init;
   flight_eye_x = (int32_t)mission->start_x << 16;
   flight_eye_y = ((int32_t)mission->start_y << 16) + 0x8000;
@@ -355,13 +355,20 @@ void flight_advance() {
       // roll.
       bool was_on_ground = model_on_ground;
       uint16_t speed_limit = was_on_ground ? kMaxGroundSpeed : kMaxLandingSpeed;
-      if (_abs16(flight_cam.left.z) > kMaxLandingRoll ||
-          flight_cam.up.z < kMinLandingUpZ ||
-          flight_cam.front.z < kMinLandingPitch ||
-          flight_cam.front.z > kMaxLandingPitch ||
-          flight_vspeed < kMaxLandingVSpeed || flight_speed > speed_limit ||
-          !flight_gear) {
-        flight_crashed = true;
+      if (_abs16(flight_cam.left.z) > kMaxLandingRoll) {
+        flight_crashed = FLIGHT_CRASH_ROLL;
+      } else if (flight_cam.up.z < kMinLandingUpZ) {
+        flight_crashed = FLIGHT_CRASH_INVERTED;
+      } else if (flight_cam.front.z < kMinLandingPitch) {
+        flight_crashed = FLIGHT_CRASH_PITCH_LOW;
+      } else if (flight_cam.front.z > kMaxLandingPitch) {
+        flight_crashed = FLIGHT_CRASH_PITCH_HIGH;
+      } else if (flight_vspeed < kMaxLandingVSpeed) {
+        flight_crashed = FLIGHT_CRASH_VSPEED;
+      } else if (flight_speed > speed_limit) {
+        flight_crashed = FLIGHT_CRASH_SPEED;
+      } else if (!flight_gear) {
+        flight_crashed = FLIGHT_CRASH_GEAR;
       }
       model_on_ground = true;
       // Touched down: the descent is over. Zeroed after the envelope check
