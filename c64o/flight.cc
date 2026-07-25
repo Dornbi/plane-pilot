@@ -259,8 +259,18 @@ void flight_advance() {
       model_need_normalize = true;
     }
 
-    flight_vspeed =
-        vec_fastmul8p8(flight_cam.front.z, flight_speed) - sink_penalty;
+    if (model_on_ground) {
+      // The wheels are on the runway, so altitude is locked to the ground
+      // plane whatever the nose is doing. Without this the flare pitch a
+      // landing arrives with (front.z is not reset on touchdown, and ground
+      // mode only clamps it to >= 0) keeps feeding a positive vertical speed
+      // and the aircraft balloons back off the runway while still in ground
+      // mode.
+      flight_vspeed = 0;
+    } else {
+      flight_vspeed =
+          vec_fastmul8p8(flight_cam.front.z, flight_speed) - sink_penalty;
+    }
 
     // Motion
     flight_move_forward(flight_speed << 1, flight_vspeed);
@@ -274,6 +284,9 @@ void flight_advance() {
         flight_crashed = true;
       }
       model_on_ground = true;
+      // Touched down: the descent is over. Zeroed after the envelope check
+      // above, which needs the sink rate the aircraft arrived with.
+      flight_vspeed = 0;
     }
 
     // Fuel
