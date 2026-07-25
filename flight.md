@@ -36,8 +36,8 @@ This document specifies the flight dynamics model requirements for the C64 fligh
 - **Stall Onset**:
   - Triggers when airspeed $V < V_{\text{stall}}$ while airborne.
   - Lift generation drops dramatically.
-  - An automatic pitch-down moment is applied to the aircraft orientation matrix ($\Delta \text{pitch} \propto (V_{\text{stall}} - V)$).
-  - Pitch down always happens towards the ground, not on the aircraft's nose.
+  - An automatic pitch-down moment is applied by directly decreasing `front.z` in world space ($\Delta \text{front.z} \propto (V_{\text{stall}} - V)$), tilting the nose toward the ground regardless of bank or inverted attitude.
+  - Pitch down always happens towards the ground, not relative to the aircraft's canopy/belly.
 - **Stall Recovery**:
   - Pitching downward causes gravity to accelerate the aircraft ($V_{\text{vspeed}} < 0$).
   - When airspeed accelerates back above $V_{\text{stall}}$, lift is restored.
@@ -68,6 +68,7 @@ This document specifies the flight dynamics model requirements for the C64 fligh
   - Without increasing pitch or throttle, the plane **turns and loses altitude** ($V_{\text{vspeed}} < 0$).
   - **Steep Bank (80%)**: Severe vertical lift loss ($L_Z \approx 30\%$ of total lift). Requires full throttle (100%) and pull-up pitch to maintain level altitude.
 - **Turn Rate & Induced Turn Drag**:
+  - **Body-Axis Pitching**: Pitching UP rotates around the aircraft's body pitch axis (`left` vector). In steep banked turns (e.g. 80%), pulling back on the stick tightens the horizontal turn radius; the pilot must reduce bank angle toward level flight to raise the nose relative to the horizon.
   - Yaw rate is proportional to $\text{left.z} \cdot V$.
   - **Induced Drag Penalty**: Banked turns generate extra drag proportional to bank angle ($C_{D,\text{turn}} \propto \text{left.z}^2$). Airspeed bleeds off as turn rate increases.
 
@@ -88,7 +89,7 @@ This document specifies the flight dynamics model requirements for the C64 fligh
 ### 4.1. Landing Gear Dynamics
 
 - **Parasite Drag Increase**:
-  - Gear down (`flight_gear == 1`) increases total parasite drag by **25%** ($\Delta \text{Drag}_{\text{gear}} = \text{speed}^2 \gg 11$).
+  - Gear down (`flight_gear == 1`) increases total parasite drag by **25%** ($\Delta \text{Drag}_{\text{gear}} = \text{speed}^2 \gg 12$).
 - **Performance Impact**:
   - Reduces top level speed.
   - Increases glide descent angle at idle throttle.
@@ -98,7 +99,7 @@ This document specifies the flight dynamics model requirements for the C64 fligh
 
 - **Lift & Drag Modification**:
   - Flaps down (`flight_flap == 1`) increases both Lift Coefficient ($C_L$) and Drag Coefficient ($C_D$).
-  - **Drag Increase**: Parasite drag increases by 25% ($\Delta \text{Drag}_{\text{flap}} = \text{speed}^2 \gg 11$).
+  - **Drag Increase**: Parasite drag increases by 25% ($\Delta \text{Drag}_{\text{flap}} = \text{speed}^2 \gg 12$).
   - **Lift Increase**: Increases $C_L$ by ~30%, permitting level flight at lower airspeeds.
   - **Stall Speed Reduction**: Lowers stall speed from `0x0400` to `0x0340`.
 - **Equilibrium Impact**:
@@ -136,7 +137,7 @@ Touchdown check triggers when altitude $Z \le Z_{\text{min}}$:
   1. **Gear Retracted**: `flight_gear == 0`.
   2. **Excess Vertical Speed**: Sink rate exceeds limit ($V_{\text{vspeed}} < - \text{0x0180}$).
   3. **Excess Bank Angle**: Roll/bank exceeds threshold ($|\text{left.z}| > 32$, approx > 7°).
-  4. **Excess Pitch Angle**: Pitch exceeds safe range ($|\text{front.z}| > 32$).
+  4. **Invalid Touchdown Pitch**: Touchdown with negative pitch ($\text{front.z} < 0$, nose pointed down into runway) or excessive pitch flare ($\text{front.z} > 64$, > 15° pitch up). Safe landing flare range is $0 \le \text{front.z} \le 64$.
   5. **Excess Airspeed**: Touchdown speed exceeds gear threshold ($V > \text{0x0A00}$).
 - **Successful Landing**:
   - If all safety thresholds are satisfied: transition to `model_on_ground = true`, zero out vertical speed, level wings.
