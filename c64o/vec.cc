@@ -290,6 +290,7 @@ int16_t vec_div8p8(int16_t a, int16_t b) {
   return sign > 0 ? final_res : -final_res;
 }
 
+#ifdef __OSCAR64__
 static bool _unused_vec_project(const vec3_t *v) {
   if (v->x <= 8) {
     return false;
@@ -301,6 +302,7 @@ static bool _unused_vec_project(const vec3_t *v) {
   vec_sy = (int16_t)(((int32_t)v->z * 256) / v->x);
   return true;
 }
+#endif
 
 // PERF: inline -> cycles: ~0 bytes: -140
 static void _limit_vec(vec3_t *v) {
