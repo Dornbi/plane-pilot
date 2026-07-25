@@ -25,6 +25,7 @@ enum model_input_t {
 
 extern mat3_t model_cam;
 extern bool model_paused;
+extern bool model_crashed;
 
 void model_init_from_mission(const mission_t *mission);
 

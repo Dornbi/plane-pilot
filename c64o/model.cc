@@ -14,12 +14,12 @@
 
 // Stop motion disables the plane movement and physics.
 bool model_paused = false;
+bool model_crashed = false;
 
 #pragma bss(bss2)
 
 mat3_t model_cam;
 
-static bool _model_crashed = false;
 static bool _model_on_ground = false;
 
 // 0x0800 =~ 50 m/s
@@ -72,6 +72,7 @@ static const uint16_t kNavPointY[kGfxNumNavpoints] = {
 
 void model_init() {
   model_paused = false;
+  model_crashed = false;
   model_cam = _m_init;
   world_eye_x = 0x140000;
   world_eye_y = 0x3F8000;
@@ -83,12 +84,12 @@ void model_init() {
   _model_gear = false;
   _model_nav = 0;
   _model_fuel = 0x21FFF;
-  _model_crashed = false;
   _model_on_ground = false;
 }
 
 void model_init_alt() {
   model_paused = false;
+  model_crashed = false;
   model_cam = _m_init;
   world_eye_x = 0x400000;
   world_eye_y = 0xBF8000;
@@ -100,12 +101,12 @@ void model_init_alt() {
   _model_gear = false;
   _model_nav = 1;
   _model_fuel = 0x21FFF;
-  _model_crashed = false;
   _model_on_ground = false;
 }
 
 void model_init_from_mission(const mission_t *mission) {
   model_paused = false;
+  model_crashed = false;
   model_cam = _m_init;
   world_eye_x = (int32_t)mission->start_x << 16;
   world_eye_y = ((int32_t)mission->start_y << 16) + 0x8000;
@@ -116,7 +117,6 @@ void model_init_from_mission(const mission_t *mission) {
   } else {
     _model_on_ground = false;
   }
-  _model_crashed = false;
   _model_speed = (int16_t)mission->start_speed << 4;
   _model_throttle = mission->start_throttle;
   _model_fuel =
@@ -139,7 +139,7 @@ static void _move_forward(int16_t fspeed, int16_t vspeed) {
 void model_advance() {
   bm_model_start();
 
-  if (_model_crashed) {
+  if (model_crashed) {
     bm_model_end(630, "MDL:");
     return;
   }
@@ -209,7 +209,7 @@ void model_advance() {
           _abs16(model_cam.front.z) > kMinLandingPitch ||
           _model_vspeed < kMaxLandingVSpeed ||
           _model_speed > kMaxLandingSpeed || !_model_gear) {
-        _model_crashed = true;
+        model_crashed = true;
       }
       _model_on_ground = true;
     }
@@ -300,7 +300,7 @@ void model_maybe_print_debug() {
 }
 
 void model_input(enum model_input_t input) {
-  if (_model_crashed) {
+  if (model_crashed) {
     return;
   }
 
