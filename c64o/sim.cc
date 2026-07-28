@@ -83,6 +83,11 @@ void sim_run(uint8_t selected_mission) {
     }
     if (toggle_edges & kToggleKeyP) {
       flight_paused = !flight_paused;
+      if (flight_paused) {
+        msg_show("PAUSED", MSG_FOREVER, true);
+      } else {
+        msg_clear();
+      }
     }
 
     if (key_pressed(KSCAN_Q)) {
