@@ -93,6 +93,8 @@ extern const mat3_t kVecYawLeft;
 extern const mat3_t kVecYawRight;
 
 // Transforms u by vec_mat and stores the result in res.
+// Column-major counterpart of vec_transform_inv. ppilot no longer calls it
+// (see vec_transform3), so it only ends up in vectest and the host tests.
 void vec_transform(const mat3_t *mat, const vec3_t *u, vec3_t *res);
 // (Inverted) transforms u by vec_mat and stores the result in res.
 void vec_transform_inv(const mat3_t *mat, const vec3_t *u, vec3_t *res);

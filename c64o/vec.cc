@@ -401,6 +401,12 @@ const mat3_t kVecYawRight = {
   {   0,    0,  256}};
 // clang-format on
 
+// vec_transform() and vec_transform_inv() are the same nine multiplies, read
+// by column and by row. Only vec_transform3() ever wanted the column form,
+// and it can transpose while making the matrix copy it needs anyway, so
+// ppilot carries one routine instead of two ~350 byte ones. This one is left
+// in place for vectest and the host tests; the linker drops it from builds
+// that never call it.
 void vec_transform(const mat3_t *mat, const vec3_t *u, vec3_t *res) {
   res->x = vec_fastmul8p8(mat->front.x, u->x);
   res->x += vec_fastmul8p8(mat->left.x, u->y);
@@ -430,10 +436,21 @@ void vec_transform_inv(const mat3_t *mat, const vec3_t *u, vec3_t *res) {
 }
 
 void vec_transform3(const mat3_t *t, mat3_t *m) {
-  const mat3_t mc = *m;
-  vec_transform(&mc, &t->front, &m->front);
-  vec_transform(&mc, &t->left, &m->left);
-  vec_transform(&mc, &t->up, &m->up);
+  // Transposed copy of m: applying it with vec_transform_inv() is the same as
+  // applying m with vec_transform(), and the copy has to be made either way.
+  mat3_t mc;
+  mc.front.x = m->front.x;
+  mc.front.y = m->left.x;
+  mc.front.z = m->up.x;
+  mc.left.x = m->front.y;
+  mc.left.y = m->left.y;
+  mc.left.z = m->up.y;
+  mc.up.x = m->front.z;
+  mc.up.y = m->left.z;
+  mc.up.z = m->up.z;
+  vec_transform_inv(&mc, &t->front, &m->front);
+  vec_transform_inv(&mc, &t->left, &m->left);
+  vec_transform_inv(&mc, &t->up, &m->up);
 }
 
 void vec_transform3_inv(const mat3_t *t, mat3_t *m) {
