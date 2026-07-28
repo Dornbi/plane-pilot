@@ -7,6 +7,9 @@
 #include "vec.h"
 #include <stdint.h>
 
+// Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
+#pragma optimize(push, nooutline)
+
 struct vertex16_t {
   int16_t x;
   int16_t y;
@@ -625,3 +628,4 @@ __noinline void poly_draw_3d(const vec3_t *vertices, uint8_t num_vertices,
     poly_fill(final_verts, n, fill_char_start_idx, color);
   }
 }
+#pragma optimize(pop)

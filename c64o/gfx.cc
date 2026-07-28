@@ -35,7 +35,9 @@ const char kGfxCharsCompressed[] = {
 #embed 1792 lzo "gfx_chars.bin"
 };
 
-#pragma optimize(push, noasm)
+// Raster IRQ handlers: cycle-counted (note the NOP padding below), so keep
+// the outliner out of them as well.
+#pragma optimize(push, noasm, nooutline)
 static void _switch_to_panel_top() {
   if (mem_debug_enabled) {
     sprites_show_no_sprites();

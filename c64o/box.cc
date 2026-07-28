@@ -10,6 +10,9 @@
 #include "mem.h"
 #include "render.h"
 
+// Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
+#pragma optimize(push, nooutline)
+
 #pragma bss(bss2)
 
 // The two screen buffers use distinct charset slots (mem_box_char_start
@@ -225,3 +228,4 @@ void box_draw(void) {
 
   bm_view_end(870, "DRW:");
 }
+#pragma optimize(pop)

@@ -11,6 +11,9 @@
 #include "sprites.h"
 #include "vec.h"
 
+// Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
+#pragma optimize(push, nooutline)
+
 // Not static so that polydemo.cc can access them for testing.
 __zeropage uint8_t _world_grid_radius;
 __zeropage uint8_t _world_start_cx;
@@ -300,3 +303,4 @@ void world_update_sun_pos() {
   }
 #endif
 }
+#pragma optimize(pop)

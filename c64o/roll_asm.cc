@@ -1,5 +1,8 @@
 #include "roll.h"
 
+// Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
+#pragma optimize(push, nooutline)
+
 // Helper for assembly dispatch
 void *roll_mul_dx;
 void *roll_mul_dy;
@@ -267,3 +270,4 @@ uint16_t roll_get_dist(int8_t px, int8_t py) {
   }
   return roll_get_dist_res;
 }
+#pragma optimize(pop)

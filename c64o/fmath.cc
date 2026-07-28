@@ -1,5 +1,8 @@
 #include "fmath.h"
 
+// Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
+#pragma optimize(push, nooutline)
+
 uint8_t _get_msb(uint16_t n) {
   if (n == 0) {
     return 0;
@@ -148,3 +151,4 @@ uint8_t _get_roll_angle(int16_t up_z, int16_t left_z) {
     }
   }
 }
+#pragma optimize(pop)

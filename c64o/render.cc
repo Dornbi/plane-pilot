@@ -10,6 +10,9 @@
 #include "mem.h"
 #include "roll.h"
 
+// Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
+#pragma optimize(push, nooutline)
+
 int16_t render_cx_pixels;
 int16_t render_cy_pixels;
 int16_t render_px_pixels;
@@ -365,3 +368,4 @@ void render_fill_sky_ground() {
   }
 #endif
 }
+#pragma optimize(pop)

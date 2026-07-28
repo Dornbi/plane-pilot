@@ -3,6 +3,9 @@
 #include "fmath.h"
 #include <stdlib.h>
 
+// Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
+#pragma optimize(push, nooutline)
+
 extern const uint8_t vec_recip_lut[];
 extern const uint8_t vec_sqr_lo[];
 extern const uint8_t vec_sqr_hi[];
@@ -388,3 +391,4 @@ bool vec_project_nocull() {
   vec_sy = vec_div8p8(vec_v.z, vec_v.x);
   return true;
 }
+#pragma optimize(pop)

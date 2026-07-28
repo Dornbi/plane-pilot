@@ -128,7 +128,10 @@ VECTEST_SRC = 	benchmark.h \
 
 CC = oscar64
 CFLAGS = -ii=${OSCAR64_INCLUDE} -D__OSCAR64__ -g -xz
-OPTFLAGS = -O2 -Op -Oa -Oi -Oz
+# -Oo runs the outliner over everything; the per-frame render and math files
+# opt back out with #pragma optimize(nooutline), since there a JSR/RTS per
+# extracted sequence costs more than the bytes are worth.
+OPTFLAGS = -O2 -Op -Oa -Oi -Oz -Oo
 
 all: $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg test
 

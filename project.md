@@ -330,9 +330,12 @@ screen buffers at offset 1016.
 rising-edge detection on toggle keys, and `keys_wait_release()` for momentary
 ones.
 
-Screens that don't render per frame (menu, help) are compiled under
-`#pragma optimize(outline)`, which trades speed for size — free, since they
-never run inside the render loop.
+The outliner (`-Oo`) runs over the whole program, trading speed for size by
+extracting repeated instruction sequences into subroutines. The files on the
+per-frame path — `render.cc`, `box.cc`, `poly.cc`, `world.cc`, `vec.cc`,
+`vec_asm.cc`, `fmath.cc`, `roll_asm.cc` — and the raster IRQ handlers in
+`gfx.cc` opt back out with `#pragma optimize(nooutline)`, since a JSR/RTS per
+extracted sequence costs more there than the bytes are worth.
 
 ### `mission.cc`
 
@@ -358,7 +361,7 @@ implies gear down and on-ground state.
 
 ## 9. Build targets
 
-`c64o/Makefile`, with `-O2 -Op -Oa -Oi -Oz`:
+`c64o/Makefile`, with `-O2 -Op -Oa -Oi -Oz -Oo`:
 
 | Target         | Purpose                                                       |
 | -------------- | ------------------------------------------------------------- |

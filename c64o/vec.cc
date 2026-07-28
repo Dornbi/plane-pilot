@@ -1,6 +1,9 @@
 #include "vec.h"
 #include <stdint.h>
 
+// Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
+#pragma optimize(push, nooutline)
+
 #ifndef __OSCAR64__
 vec3_t vec_v;
 int16_t vec_sx;
@@ -459,3 +462,4 @@ void vec_transform3_inv(const mat3_t *t, mat3_t *m) {
   vec_transform_inv(t, &mc.left, &m->left);
   vec_transform_inv(t, &mc.up, &m->up);
 }
+#pragma optimize(pop)
