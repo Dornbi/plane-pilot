@@ -29,7 +29,7 @@ static void _enter_simulation(uint8_t selected_mission) {
   memset(kScreenRamAlt, kCharSolid11, 1000);
 
   msg_clear();
-  flight_init_from_mission(&kMissions[selected_mission]);
+  flight_init_from_mission(&kMissions[selected_mission], selected_mission);
   msg_show(kMissionTitles[selected_mission]);
 
   mem_init_mccm();
@@ -94,7 +94,7 @@ void sim_run(uint8_t selected_mission) {
     if (!map_mode) {
       if (key_pressed(KSCAN_R)) {
         msg_clear();
-        flight_init_from_mission(&kMissions[selected_mission]);
+        flight_init_from_mission(&kMissions[selected_mission], selected_mission);
         msg_show(kMissionTitles[selected_mission]);
       }
       if (key_pressed(KSCAN_J)) {
@@ -166,9 +166,9 @@ void sim_run(uint8_t selected_mission) {
     if (!map_mode) {
       bm_model_start();
       flight_advance();
-      if (flight_crashed) {
+      if (flight_status) {
         const char *msg = "YOU CRASHED";
-        switch (flight_crashed) {
+        switch (flight_status) {
         case FLIGHT_CRASH_ROLL:
           msg = "CRASH: BANK ANGLE";
           break;
@@ -189,6 +189,9 @@ void sim_run(uint8_t selected_mission) {
           break;
         case FLIGHT_CRASH_GEAR:
           msg = "CRASH: GEAR RETRACTED";
+          break;
+        case FLIGHT_MISSION_COMPLETED:
+          msg = "MISSION COMPLETED!";
           break;
         default:
           break;

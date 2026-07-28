@@ -3,10 +3,12 @@
 
 #include <stdint.h>
 
+#include "bool.h"
+
 enum MissionWaypointConstraint {
   WP_NOTHING = 0,
   WP_LANDED = 1,
-  WP_MIN_3000FT = 2,
+  WP_MIN_1000FT = 2,
 };
 
 // Each mission leads through a number of "waypoints".
@@ -40,6 +42,7 @@ extern const mission_waypoint_t kMissionWaypoints[];
 extern const mission_t kMissions[];
 extern const uint8_t kWaypointDefault;
 static const uint8_t kMissionCount = 4;
+extern bool mission_completed[kMissionCount];
 
 #pragma compile("mission.cc")
 

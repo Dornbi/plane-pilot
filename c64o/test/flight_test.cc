@@ -8,6 +8,12 @@
 #include "../fmath.h"
 #include "../vec.h"
 
+// Stubs for msg.cc dependencies when compiling host test
+uint8_t *mem_screen_ram = nullptr;
+uint8_t *mem_screen_row_ptrs[25];
+uint8_t color_buffer_dummy[560];
+extern uint8_t *const mem_color_buffer = color_buffer_dummy;
+
 // Mirrors of the constants inside flight.cc. They are static there, so the
 // tests restate them; if one of these drifts the tests below are wrong rather
 // than merely failing, so keep them in step.
@@ -146,7 +152,7 @@ static void _put_on_ground(int16_t speed) {
   flight_speed = kTrimSpeed;
   flight_eye_z = kGroundZ;
   flight_advance(); // Trips the ground contact check -> model_on_ground = true
-  assert(!flight_crashed);
+  assert(!flight_status);
   flight_speed = speed;
 }
 
@@ -161,7 +167,7 @@ static void test_level_cruise_equilibrium() {
   int16_t settled_speed = flight_speed;
   int32_t settled_z = flight_eye_z;
 
-  assert(!flight_crashed);
+  assert(!flight_status);
   assert(flight_vspeed == 0); // Actually level, not just airborne
 
   // Airspeed has stopped changing.
@@ -212,7 +218,7 @@ static void test_power_off_stall_recovery() {
 
   // Speed should recover above stall speed after nose drop
   assert(flight_speed >= 0x0300);
-  assert(!flight_crashed);
+  assert(!flight_status);
   printf("  PASS\n\n");
 }
 
@@ -333,7 +339,7 @@ static void test_inverted_flight_drag_and_pitch() {
   int16_t level_pitch = -1;
   for (int16_t p = 0; p <= 140; ++p) {
     _settle(0x14, p, -256, 400);
-    if (!flight_crashed && flight_vspeed >= 0) {
+    if (!flight_status && flight_vspeed >= 0) {
       level_pitch = p;
       break;
     }
@@ -436,7 +442,7 @@ static void test_touchdown_flare_and_crash_envelope() {
   flight_eye_z = 0x2000; // Ground altitude
   flight_gear = 0;
   flight_advance();
-  assert(flight_crashed == FLIGHT_CRASH_GEAR);
+  assert(flight_status == FLIGHT_CRASH_GEAR);
 
   // Both flares below are flown as genuine descents through the ground plane.
   // That constrains the speed: a nose-up attitude only descends when the lift
@@ -450,7 +456,7 @@ static void test_touchdown_flare_and_crash_envelope() {
   assert(vs < 0); // Really descending onto the runway
   assert(vs >= kMaxLandingVSpeed);
   flight_advance();
-  assert(!flight_crashed);
+  assert(!flight_status);
 
   // Excessive landing flare (front.z = 80 > 64) -> crash. Held off until the
   // speed has decayed below stall, which is the only way this attitude can
@@ -464,7 +470,7 @@ static void test_touchdown_flare_and_crash_envelope() {
   printf("  front.z at the check: %d (limit %d)\n", flight_cam.front.z,
          kMaxLandingPitch);
   assert(flight_cam.front.z > kMaxLandingPitch); // Still over the limit
-  assert(flight_crashed == FLIGHT_CRASH_PITCH_HIGH);
+  assert(flight_status == FLIGHT_CRASH_PITCH_HIGH);
 
   printf("  PASS\n\n");
 }
@@ -501,7 +507,7 @@ static void test_takeoff_stall_speed_gate() {
   printf("  after rotation: z=%d (ground %d), front.z=%d\n", flight_eye_z,
          (int)kGroundZ, flight_cam.front.z);
   assert(flight_eye_z > kGroundZ); // Airborne
-  assert(!flight_crashed);
+  assert(!flight_status);
 
   // Flaps lower the gate: a speed between the two stall constants is enough
   // with flaps down and not enough clean.
@@ -532,10 +538,10 @@ static void test_ground_deceleration_friction() {
     flight_advance();
   }
 
-  printf("  ground decel end speed: %d, crashed: %d\n", flight_speed,
-         flight_crashed);
+  printf("  ground decel end speed: %d, status: %d\n", flight_speed,
+         flight_status);
   assert(flight_speed == 0); // Came to a full stop
-  assert(!flight_crashed);
+  assert(!flight_status);
   printf("  PASS\n\n");
 }
 
@@ -554,7 +560,7 @@ static void test_ground_braking() {
     flight_input(FLIGHT_INPUT_BRAKE);
   }
   assert(flight_speed == 0);
-  assert(!flight_crashed);
+  assert(!flight_status);
 
   // Airborne: FLIGHT_INPUT_BRAKE does nothing
   flight_init();
@@ -633,7 +639,7 @@ static void test_ground_roll_takeoff_abort() {
   }
 
   assert(flight_speed == 0);
-  assert(!flight_crashed);
+  assert(!flight_status);
   printf("  PASS\n\n");
 }
 
@@ -683,7 +689,7 @@ static void test_low_altitude_stall_ground_impact() {
   }
 
   assert(
-      flight_crashed); // Altitude loss during stall should hit ground and crash
+      flight_status); // Altitude loss during stall should hit ground and crash
   printf("  PASS\n\n");
 }
 
@@ -727,7 +733,7 @@ static void test_touchdown_exact_boundary_limits() {
   int16_t vs = vec_fastmul8p8(64, 0x0500);
   flight_eye_z = 0x2000 - vs - 1;
   flight_advance();
-  assert(!flight_crashed);
+  assert(!flight_status);
 
   // Pitch = 65 -> CRASH
   flight_init();
@@ -737,7 +743,7 @@ static void test_touchdown_exact_boundary_limits() {
   vs = vec_fastmul8p8(65, 0x0500);
   flight_eye_z = 0x2000 - vs - 1;
   flight_advance();
-  assert(flight_crashed);
+  assert(flight_status);
 
   // Nose-down boundary, flown at kTrimSpeed rather than 0x0500. At 0x0500 a
   // front.z = -16 arrival sinks at -234, past kMaxLandingVSpeed, so this pair
@@ -754,7 +760,7 @@ static void test_touchdown_exact_boundary_limits() {
   flight_eye_z = 0x2000 - vs - 1;
   flight_advance();
   assert(flight_vspeed >= kMaxLandingVSpeed); // Sink is not the binding check
-  assert(!flight_crashed);
+  assert(!flight_status);
 
   // Pitch = -17 -> CRASH
   flight_init();
@@ -765,7 +771,7 @@ static void test_touchdown_exact_boundary_limits() {
   flight_eye_z = 0x2000 - vs - 1;
   flight_advance();
   assert(flight_vspeed >= kMaxLandingVSpeed); // Crashes on pitch, not on sink
-  assert(flight_crashed);
+  assert(flight_status);
 
   printf("  PASS\n\n");
 }
@@ -907,7 +913,7 @@ static void test_rollout_stays_on_ground() {
   assert(flight_cam.front.y == 0);
 
   flight_advance();
-  assert(!flight_crashed);
+  assert(!flight_status);
   assert(flight_eye_z == 0x2000);
   assert(flight_vspeed == 0);      // Vertical speed zeroed on touchdown
   assert(flight_cam.front.z == 0); // Nose wheel down, once, at touchdown
@@ -924,7 +930,7 @@ static void test_rollout_stays_on_ground() {
     assert(flight_cam.front.y == 0); // Does not wander off the runway heading
   }
 
-  assert(!flight_crashed);
+  assert(!flight_status);
   assert(flight_speed == 0); // Wheel friction brings it to a stop
   printf("  rollout end: z=%d speed=%d front.z=%d\n", flight_eye_z,
          flight_speed, flight_cam.front.z);
@@ -952,7 +958,7 @@ static void test_landing_envelope_sink_rate() {
   assert(fast < 0);
   assert(fast >= kMaxLandingVSpeed);
   flight_advance();
-  assert(!flight_crashed);
+  assert(!flight_status);
 
   // Same attitude, slow: the lift deficit drives the sink past the limit while
   // pitch, roll, speed, gear and up.z are all still legal.
@@ -965,7 +971,7 @@ static void test_landing_envelope_sink_rate() {
   assert(flight_gear);                                  // 1 clear
   flight_advance();
   assert(flight_cam.front.z >= kMinLandingPitch); // 4 clear at the check
-  assert(flight_crashed == FLIGHT_CRASH_VSPEED);
+  assert(flight_status == FLIGHT_CRASH_VSPEED);
 
   // Sweep every arrival above stall speed that passes the other five checks.
   // Two properties matter, and flight.md 5.3 states both:
@@ -1020,25 +1026,25 @@ static void test_landing_envelope_bank_angle() {
          kMaxLandingRoll);
   assert(_abs16(flight_cam.left.z) <= kMaxLandingRoll);
   flight_advance();
-  assert(!flight_crashed);
+  assert(!flight_status);
 
   // One unit past the limit -> crash. The boundary is exact.
   _arm_touchdown(0, kMaxLandingRoll + 1, 0x0500, 1);
   assert(_abs16(flight_cam.left.z) > kMaxLandingRoll);
   flight_advance();
-  assert(flight_crashed == FLIGHT_CRASH_ROLL);
+  assert(flight_status == FLIGHT_CRASH_ROLL);
 
   // A wingtip-down arrival -> crash.
   _arm_touchdown(0, 120, 0x0500, 1);
   assert(_abs16(flight_cam.left.z) > kMaxLandingRoll);
   flight_advance();
-  assert(flight_crashed);
+  assert(flight_status);
 
   // Symmetric: the other wing down crashes too.
   _arm_touchdown(0, -120, 0x0500, 1);
   assert(_abs16(flight_cam.left.z) > kMaxLandingRoll);
   flight_advance();
-  assert(flight_crashed);
+  assert(flight_status);
 
   printf("  PASS\n\n");
 }
@@ -1051,15 +1057,15 @@ static void test_landing_envelope_touchdown_speed() {
   _arm_touchdown(0, 0, (int16_t)kMaxLandingSpeed, 1);
   assert(flight_speed <= (int16_t)kMaxLandingSpeed);
   flight_advance();
-  printf("  at limit: speed %d, crashed %d\n", flight_speed, flight_crashed);
-  assert(!flight_crashed);
+  printf("  at limit: speed %d, status %d\n", flight_speed, flight_status);
+  assert(!flight_status);
 
   // Over the limit -> crash. Drag bleeds a little speed during the frame, so
   // arrive with enough margin that the check still sees an overspeed.
   _arm_touchdown(0, 0, (int16_t)kMaxLandingSpeed + 0x0100, 1);
   flight_advance();
-  printf("  over limit: speed %d, crashed %d\n", flight_speed, flight_crashed);
-  assert(flight_crashed == FLIGHT_CRASH_SPEED);
+  printf("  over limit: speed %d, status %d\n", flight_speed, flight_status);
+  assert(flight_status == FLIGHT_CRASH_SPEED);
 
   printf("  PASS\n\n");
 }
@@ -1074,7 +1080,7 @@ static void test_landing_envelope_inverted() {
   // Upright reference at the same pitch and speed: lands.
   _arm_touchdown(0, 0, 0x0500, 1);
   flight_advance();
-  assert(!flight_crashed);
+  assert(!flight_status);
 
   // Same arrival, belly up: crash, and specifically not because of any of the
   // other five triggers. 26 roll steps is a full roll to inverted, which is
@@ -1091,7 +1097,7 @@ static void test_landing_envelope_inverted() {
   assert(flight_speed <= (int16_t)kMaxLandingSpeed);
   assert(flight_gear);
   flight_advance();
-  assert(flight_crashed == FLIGHT_CRASH_INVERTED);
+  assert(flight_status == FLIGHT_CRASH_INVERTED);
 
   // A legal nose-up flare must not trip the new check: up.z falls with pitch,
   // so the threshold has to stay at 0 rather than a tight cos(roll) bound.
@@ -1101,7 +1107,7 @@ static void test_landing_envelope_inverted() {
   assert(flight_cam.up.z < 256); // Pitch really does reduce up.z
   assert(flight_cam.up.z >= kMinLandingUpZ);
   flight_advance();
-  assert(!flight_crashed);
+  assert(!flight_status);
 
   printf("  PASS\n\n");
 }
@@ -1169,7 +1175,7 @@ static int32_t _glide_ratio_x1000(int16_t pitch) {
     flight_cam.up.z = hu;
     flight_advance();
   }
-  if (flight_crashed) {
+  if (flight_status) {
     return 0;
   }
   int32_t x0 = flight_eye_x, y0 = flight_eye_y, z0 = flight_eye_z;
@@ -1346,7 +1352,7 @@ static void test_ground_steering() {
   assert(left_y != 0);            // It steered
   assert(flight_cam.left.z == 0); // ...without banking
   assert(flight_eye_z == kGroundZ);
-  assert(!flight_crashed);
+  assert(!flight_status);
 
   _put_on_ground(0x0300);
   for (int i = 0; i < 20; ++i) {
@@ -1359,7 +1365,7 @@ static void test_ground_steering() {
          flight_cam.left.z);
   assert(right_y != 0);
   assert(flight_cam.left.z == 0);
-  assert(!flight_crashed);
+  assert(!flight_status);
 
   // Symmetric: same magnitude, opposite sign.
   assert((left_y > 0) != (right_y > 0));
@@ -1430,7 +1436,7 @@ static void test_takeoff_roll_speed_margin() {
     if (flight_speed > top) {
       top = flight_speed;
     }
-    assert(!flight_crashed); // A takeoff roll must never crash by itself
+    assert(!flight_status); // A takeoff roll must never crash by itself
     assert(flight_eye_z == kGroundZ);
   }
   printf("  full throttle ground top speed: %d; landing limit %d,"
@@ -1461,10 +1467,102 @@ static void test_host_multiply_matches_c64() {
   printf("  PASS\n\n");
 }
 
+static void test_mission_waypoint_constraints() {
+  printf("Running test_mission_waypoint_constraints...\n");
+
+  for (int i = 0; i < kMissionCount; ++i) {
+    mission_completed[i] = false;
+  }
+
+  // Test 1: Mission 01 Takeoff (WP_MIN_3000FT)
+  flight_init_from_mission(&kMissions[0], 0);
+  assert(flight_current_wp == 0);
+  assert(!flight_mission_completed);
+  assert(!mission_completed[0]);
+
+  // Below 1000ft
+  flight_eye_z = 0x01F000;
+  flight_advance();
+  assert(!flight_mission_completed);
+  assert(!mission_completed[0]);
+
+  // Reach 1000ft (0x020000)
+  flight_eye_z = 0x020000;
+  flight_advance();
+  assert(flight_mission_completed);
+  assert(mission_completed[0]);
+
+  // Test 2: Mission 02 Landing (WP_LANDED)
+  flight_init_from_mission(&kMissions[1], 1);
+  assert(flight_current_wp == 0);
+  assert(!flight_mission_completed);
+  assert(!mission_completed[1]);
+
+  // On ground with gear down and stopped on Runway 1
+  flight_gear = true;
+  flight_eye_x = 0x140000;
+  flight_eye_y = 0x3F8000;
+  flight_eye_z = kGroundZ;
+  flight_throttle = 0;
+  flight_speed = kTrimSpeed;
+  flight_advance(); // Contact frame: sets model_on_ground = true at trim speed
+  assert(!flight_status);
+  assert(!flight_mission_completed);
+
+  // Stopped on runway
+  flight_speed = 0;
+  flight_advance();
+  assert(flight_status == FLIGHT_MISSION_COMPLETED);
+  assert(flight_mission_completed);
+  assert(mission_completed[1]);
+
+  // Test 3: Multi-waypoint mission 03 (Solo Flight: WP_MIN_1000FT then WP_LANDED)
+  flight_init_from_mission(&kMissions[2], 2);
+  assert(flight_current_wp == 0);
+  assert(flight_nav == 0);
+  assert(!flight_mission_completed);
+
+  // Reach 1000ft - waypoint 1 met
+  flight_eye_z = 0x020000;
+  flight_advance();
+  assert(flight_current_wp == 1);
+  assert(flight_nav == 0); // flight_nav does NOT auto-advance now
+  assert(!flight_mission_completed);
+  assert(!mission_completed[2]);
+
+  // Land on Runway 1 with gear down
+  flight_gear = true;
+  flight_eye_x = 0x140000;
+  flight_eye_y = 0x3F8000;
+  flight_eye_z = kGroundZ;
+  flight_throttle = 0;
+  flight_speed = kTrimSpeed;
+  flight_advance(); // Contact frame: sets model_on_ground = true at trim speed
+  assert(!flight_status);
+  assert(!flight_mission_completed);
+
+  // Stopped on runway
+  flight_speed = 0;
+  flight_advance();
+  assert(flight_status == FLIGHT_MISSION_COMPLETED);
+  assert(flight_mission_completed);
+  assert(mission_completed[2]);
+
+  // Test 4: Manual NAV toggle with N key
+  flight_init(); // Has 2 nav points
+  assert(flight_nav == 0);
+  flight_input(FLIGHT_INPUT_TOGGLE_NAV);
+  assert(flight_nav == 1);
+  flight_input(FLIGHT_INPUT_TOGGLE_NAV);
+  assert(flight_nav == 0);
+
+  printf("  PASS\n\n");
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
-  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (38 TESTS) ===\n\n");
+  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (39 TESTS) ===\n\n");
   test_host_multiply_matches_c64();
   test_level_cruise_equilibrium();
   test_trim_speed_boundary();
@@ -1503,6 +1601,7 @@ int main(int argc, char **argv) {
   test_banked_turn_loses_altitude();
   test_ground_steering();
   test_takeoff_roll_speed_margin();
-  printf("ALL 38 TESTS PASSED SUCCESSFULLY!\n");
+  test_mission_waypoint_constraints();
+  printf("ALL 39 TESTS PASSED SUCCESSFULLY!\n");
   return 0;
 }

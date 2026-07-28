@@ -5,8 +5,8 @@ HOST_CC = g++
 HOST_CFLAGS = -O2 -std=c++17 -Wall -Wno-unknown-pragmas -I..
 
 FLIGHT_TEST_SRC = flight_test.cc host_vec.cc ../flight.cc ../mission.cc ../vec.cc \
-		../vec_lut.cc ../fmath.cc
-FLIGHT_TEST_HDRS = ../flight.h ../mission.h ../vec.h ../fmath.h
+		../vec_lut.cc ../fmath.cc ../msg.cc
+FLIGHT_TEST_HDRS = ../flight.h ../mission.h ../vec.h ../fmath.h ../msg.h
 
 MSG_TEST_SRC = msg_test.cc ../msg.cc
 MSG_TEST_HDRS = ../msg.h
@@ -20,7 +20,7 @@ msg_test: $(MSG_TEST_SRC) $(MSG_TEST_HDRS)
 	$(HOST_CC) $(HOST_CFLAGS) -o msg_test $(MSG_TEST_SRC)
 
 test: flight_test msg_test
-	@./flight_test > output.txt && ./msg_test >> output.txt && echo "ALL TESTS PASSED (38 flight tests, msg_test) -> test/output.txt"
+	@./flight_test > output.txt && ./msg_test >> output.txt && echo "ALL TESTS PASSED (39 flight tests, msg_test) -> test/output.txt"
 
 clean:
 	rm -rf flight_test msg_test output.txt *.dSYM

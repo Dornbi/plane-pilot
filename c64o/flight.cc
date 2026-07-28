@@ -4,10 +4,16 @@
 #include <stdlib.h>
 
 #include "fmath.h"
+#include "msg.h"
 #include "vec.h"
 
 bool flight_paused = false;
-enum FlightCrashReason flight_crashed = FLIGHT_CRASH_NONE;
+enum FlightStatus flight_status = FLIGHT_ONGOING;
+
+uint8_t flight_current_wp = 0;
+bool flight_mission_completed = false;
+uint8_t flight_active_mission_idx = 0;
+static const mission_t *flight_active_mission = nullptr;
 
 #ifdef __OSCAR64__
 #pragma bss(bss2)
@@ -40,7 +46,7 @@ static uint16_t flight_nav_point_x[6];
 static uint16_t flight_nav_point_y[6];
 static uint8_t flight_num_nav_points = 0;
 
-void flight_update_nav() {
+static void _flight_update_nav() {
   flight_true_heading = _get_heading(flight_cam.front.x, flight_cam.front.y);
   if (flight_num_nav_points > 0) {
     flight_nav_x = flight_nav_point_x[flight_nav] - (flight_eye_x >> 8);
@@ -105,7 +111,11 @@ static const uint16_t kMaxGroundSpeed = 0x0D00;
 
 void flight_init() {
   flight_paused = false;
-  flight_crashed = FLIGHT_CRASH_NONE;
+  flight_status = FLIGHT_ONGOING;
+  flight_active_mission = nullptr;
+  flight_active_mission_idx = 0;
+  flight_current_wp = 0;
+  flight_mission_completed = false;
   flight_cam = _m_init;
   flight_eye_x = 0x140000;
   flight_eye_y = 0x3F8000;
@@ -123,12 +133,16 @@ void flight_init() {
   flight_nav_point_y[1] = 0xBF80;
   flight_num_nav_points = 2;
   flight_nav = 0;
-  flight_update_nav();
+  _flight_update_nav();
 }
 
 void flight_init_alt() {
   flight_paused = false;
-  flight_crashed = FLIGHT_CRASH_NONE;
+  flight_status = FLIGHT_ONGOING;
+  flight_active_mission = nullptr;
+  flight_active_mission_idx = 0;
+  flight_current_wp = 0;
+  flight_mission_completed = false;
   flight_cam = _m_init;
   flight_eye_x = 0x400000;
   flight_eye_y = 0xBF8000;
@@ -146,12 +160,16 @@ void flight_init_alt() {
   flight_nav_point_y[1] = 0xBF80;
   flight_num_nav_points = 2;
   flight_nav = 1;
-  flight_update_nav();
+  _flight_update_nav();
 }
 
-void flight_init_from_mission(const mission_t *mission) {
+void flight_init_from_mission(const mission_t *mission, uint8_t mission_idx) {
   flight_paused = false;
-  flight_crashed = FLIGHT_CRASH_NONE;
+  flight_status = FLIGHT_ONGOING;
+  flight_active_mission = mission;
+  flight_active_mission_idx = mission_idx;
+  flight_current_wp = 0;
+  flight_mission_completed = false;
   flight_cam = _m_init;
   flight_eye_x = (int32_t)mission->start_x << 16;
   flight_eye_y = ((int32_t)mission->start_y << 16) + 0x8000;
@@ -186,10 +204,10 @@ void flight_init_from_mission(const mission_t *mission) {
     flight_num_nav_points = 1;
   }
   flight_nav = 0;
-  flight_update_nav();
+  _flight_update_nav();
 }
 
-static void flight_move_forward(int16_t fspeed, int16_t vspeed) {
+static void _flight_move_forward(int16_t fspeed, int16_t vspeed) {
   flight_eye_x += vec_fastmul8p8(flight_cam.front.x, fspeed);
   flight_eye_y += vec_fastmul8p8(flight_cam.front.y, fspeed);
   flight_eye_z += vspeed;
@@ -198,8 +216,54 @@ static void flight_move_forward(int16_t fspeed, int16_t vspeed) {
   }
 }
 
+static void _flight_check_mission_waypoints() {
+  if (!flight_active_mission || flight_mission_completed || flight_status ||
+      flight_paused) {
+    return;
+  }
+  if (flight_current_wp >= flight_active_mission->num_waypoints) {
+    return;
+  }
+
+  uint8_t wp_idx = flight_active_mission->waypoints[flight_current_wp];
+  const mission_waypoint_t *wp = &kMissionWaypoints[wp_idx];
+  bool met = false;
+
+  switch (wp->constraint) {
+  case WP_MIN_1000FT:
+    if (flight_eye_z >= 0x020000) {
+      met = true;
+    }
+    break;
+  case WP_LANDED:
+    if (model_on_ground && flight_speed <= 0x0020) {
+      uint8_t eye_x_high = (uint8_t)(flight_eye_x >> 16);
+      uint8_t eye_y_high = (uint8_t)(flight_eye_y >> 16);
+      if (eye_x_high >= 0x10 && eye_x_high <= 0x1C && eye_y_high == 0x3F) {
+        met = true;
+      }
+    }
+    break;
+  default:
+    break;
+  }
+
+  if (met) {
+    if (flight_current_wp + 1 < flight_active_mission->num_waypoints) {
+      flight_current_wp++;
+      msg_show("WAYPOINT MET");
+    } else {
+      flight_mission_completed = true;
+      flight_status = FLIGHT_MISSION_COMPLETED;
+      if (flight_active_mission_idx < kMissionCount) {
+        mission_completed[flight_active_mission_idx] = true;
+      }
+    }
+  }
+}
+
 void flight_advance() {
-  if (flight_crashed) {
+  if (flight_status) {
     return;
   }
 
@@ -347,7 +411,7 @@ void flight_advance() {
     }
 
     // Motion
-    flight_move_forward(flight_speed << 1, flight_vspeed);
+    _flight_move_forward(flight_speed << 1, flight_vspeed);
 
     if (flight_eye_z <= kMinEyeZ) {
       // model_on_ground still holds last frame's value here, so it says
@@ -356,26 +420,26 @@ void flight_advance() {
       bool was_on_ground = model_on_ground;
       uint16_t speed_limit = was_on_ground ? kMaxGroundSpeed : kMaxLandingSpeed;
       if (_abs16(flight_cam.left.z) > kMaxLandingRoll) {
-        flight_crashed = FLIGHT_CRASH_ROLL;
+        flight_status = FLIGHT_CRASH_ROLL;
       } else if (flight_cam.up.z < kMinLandingUpZ) {
-        flight_crashed = FLIGHT_CRASH_INVERTED;
+        flight_status = FLIGHT_CRASH_INVERTED;
       } else if (flight_cam.front.z < kMinLandingPitch) {
-        flight_crashed = FLIGHT_CRASH_PITCH_LOW;
+        flight_status = FLIGHT_CRASH_PITCH_LOW;
       } else if (flight_cam.front.z > kMaxLandingPitch) {
-        flight_crashed = FLIGHT_CRASH_PITCH_HIGH;
+        flight_status = FLIGHT_CRASH_PITCH_HIGH;
       } else if (flight_vspeed < kMaxLandingVSpeed) {
-        flight_crashed = FLIGHT_CRASH_VSPEED;
+        flight_status = FLIGHT_CRASH_VSPEED;
       } else if (flight_speed > speed_limit) {
-        flight_crashed = FLIGHT_CRASH_SPEED;
+        flight_status = FLIGHT_CRASH_SPEED;
       } else if (!flight_gear) {
-        flight_crashed = FLIGHT_CRASH_GEAR;
+        flight_status = FLIGHT_CRASH_GEAR;
       }
       model_on_ground = true;
       // Touched down: the descent is over. Zeroed after the envelope check
       // above, which needs the sink rate the aircraft arrived with.
       flight_vspeed = 0;
 
-      if (!was_on_ground && !flight_crashed && flight_cam.front.z != 0) {
+      if (!was_on_ground && !flight_status && flight_cam.front.z != 0) {
         // Nose wheel comes down. Done once, on the touchdown transition,
         // rather than eased in over the rollout: easing means touching the
         // attitude every frame, and vec_normalize truncates when it rescales,
@@ -417,7 +481,8 @@ void flight_advance() {
     model_need_normalize = false;
   }
 
-  flight_update_nav();
+  _flight_update_nav();
+  _flight_check_mission_waypoints();
 }
 
 void flight_input(enum flight_input_t input) {
@@ -427,12 +492,16 @@ void flight_input(enum flight_input_t input) {
       if (flight_nav >= flight_num_nav_points) {
         flight_nav = 0;
       }
-      flight_update_nav();
+      _flight_update_nav();
+
+      static char nav_msg_buf[] = "NAVPOINT 1 SELECTED";
+      nav_msg_buf[9] = '0' + (flight_nav + 1);
+      msg_show(nav_msg_buf);
     }
     return;
   }
 
-  if (flight_crashed) {
+  if (flight_status) {
     return;
   }
 
@@ -496,7 +565,7 @@ void flight_input(enum flight_input_t input) {
                             ? kMoveForwardBackwardSpeed
                             : -kMoveForwardBackwardSpeed;
         int16_t vspeed = vec_fastmul8p8(flight_cam.front.z, speed);
-        flight_move_forward(speed, vspeed);
+        _flight_move_forward(speed, vspeed);
       }
       break;
     case FLIGHT_INPUT_BRAKE:
@@ -560,7 +629,7 @@ void flight_input(enum flight_input_t input) {
                           ? kMoveForwardBackwardSpeed
                           : -kMoveForwardBackwardSpeed;
       int16_t vspeed = vec_fastmul8p8(flight_cam.front.z, speed);
-      flight_move_forward(speed, vspeed);
+      _flight_move_forward(speed, vspeed);
     }
     break;
   default:

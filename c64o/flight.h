@@ -7,8 +7,9 @@
 #include "mission.h"
 #include "vec.h"
 
-enum FlightCrashReason {
-  FLIGHT_CRASH_NONE = 0,
+enum FlightStatus {
+  FLIGHT_ONGOING = 0,
+  FLIGHT_MISSION_COMPLETED,
   FLIGHT_CRASH_ROLL,
   FLIGHT_CRASH_INVERTED,
   FLIGHT_CRASH_PITCH_LOW,
@@ -19,7 +20,7 @@ enum FlightCrashReason {
 };
 
 extern bool flight_paused;
-extern enum FlightCrashReason flight_crashed;
+extern enum FlightStatus flight_status;
 
 extern mat3_t flight_cam;
 
@@ -60,9 +61,15 @@ enum flight_input_t {
   FLIGHT_INPUT_BRAKE,
 };
 
+// Mission waypoint tracking state
+extern uint8_t flight_current_wp;
+extern bool flight_mission_completed;
+extern uint8_t flight_active_mission_idx;
+
 void flight_init();
 void flight_init_alt();
-void flight_init_from_mission(const mission_t *mission);
+void flight_init_from_mission(const mission_t *mission,
+                              uint8_t mission_idx = 0);
 
 void flight_advance();
 void flight_input(enum flight_input_t input);

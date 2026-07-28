@@ -2,7 +2,6 @@
 
 #include <string.h>
 
-#include "color.h"
 #include "gfx.h"
 #include "help.h"
 #include "keys.h"
@@ -10,7 +9,6 @@
 #include "mission.h"
 #include "print.h"
 #include "screen.h"
-#include "vic.h"
 
 // The routines below only run on screen transitions (menu, help, map) or at
 // startup, never inside the per-frame simulation loop, so the outliner's
@@ -32,6 +30,11 @@ static void _enter_menu() {
   for (uint8_t i = 0; i < kMissionCount; ++i) {
     print_str(row, 2, kMissionTitles[i], strlen(kMissionTitles[i]));
     print_lines(row + 1, 4, kMissionDesc[i]);
+    if (mission_completed[i]) {
+      print_str(row, 38, STRL("@"));
+    } else {
+      print_str(row, 38, STRL("."));
+    }
     row += kMissionRowStep;
   }
   print_str(row + 2, 11, STRL("PRESS H FOR HELP"));

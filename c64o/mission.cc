@@ -22,12 +22,13 @@ const char *const kMissionDesc[] = {
 
 const mission_waypoint_t kMissionWaypoints[] = {
     {0x18, 0x3F, WP_LANDED, 0x00},
-    {0x00, 0x00, WP_MIN_3000FT, 0x00},
+    {0x00, 0x00, WP_MIN_1000FT, 0x00},
 };
 
 const uint8_t kWaypointDefault = 0;
 static const uint8_t kWaypointLanded = 0;
 static const uint8_t kWaypointMin3000ft = 1;
+bool mission_completed[kMissionCount] = {false, false, false, false};
 
 const mission_t kMissions[] = {
     // 01 Takeoff
@@ -50,7 +51,7 @@ const mission_t kMissions[] = {
      0x22, // fuel
      0x00, // wind_x
      0x00, // wind_y
-     0,    // num_waypoints
+     1,    // num_waypoints
      {kWaypointLanded}},
     // 03 Solo Flight
     {0x1C, // x
