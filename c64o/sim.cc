@@ -191,7 +191,7 @@ void sim_run(uint8_t selected_mission) {
           msg = "CRASH: GEAR RETRACTED";
           break;
         case FLIGHT_MISSION_COMPLETED:
-          msg = "MISSION COMPLETED!";
+          msg = "MISSION COMPLETE!";
           break;
         default:
           break;

@@ -3,9 +3,11 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "../flight.h"
 #include "../fmath.h"
+#include "../msg.h"
 #include "../vec.h"
 
 // Stubs for msg.cc dependencies when compiling host test
@@ -13,6 +15,22 @@ uint8_t *mem_screen_ram = nullptr;
 uint8_t *mem_screen_row_ptrs[25];
 uint8_t color_buffer_dummy[560];
 extern uint8_t *const mem_color_buffer = color_buffer_dummy;
+static uint8_t test_screen_row[40];
+
+static void assert_msg_rendered(const char *expected) {
+  memset(test_screen_row, ' ', sizeof(test_screen_row));
+  msg_render();
+  if (expected == nullptr || strlen(expected) == 0) {
+    for (int i = 0; i < 40; ++i) {
+      assert(test_screen_row[i] == ' ');
+    }
+  } else {
+    uint8_t len = (uint8_t)strlen(expected);
+    if (len > 40) len = 40;
+    uint8_t col = (40 - len) >> 1;
+    assert(memcmp(test_screen_row + col, expected, len) == 0);
+  }
+}
 
 // Mirrors of the constants inside flight.cc. They are static there, so the
 // tests restate them; if one of these drifts the tests below are wrong rather
@@ -1474,28 +1492,28 @@ static void test_mission_waypoint_constraints() {
     mission_completed[i] = false;
   }
 
-  // Test 1: Mission 01 Takeoff (WP_MIN_3000FT)
+  // Test 1: Mission 01 Takeoff (WP_MIN_1000FT)
   flight_init_from_mission(&kMissions[0], 0);
   assert(flight_current_wp == 0);
-  assert(!flight_mission_completed);
+  assert(flight_status == FLIGHT_ONGOING);
   assert(!mission_completed[0]);
 
-  // Below 1000ft
+  // Below 1000ft (e.g. 0x01F000)
   flight_eye_z = 0x01F000;
   flight_advance();
-  assert(!flight_mission_completed);
+  assert(flight_status == FLIGHT_ONGOING);
   assert(!mission_completed[0]);
 
   // Reach 1000ft (0x020000)
   flight_eye_z = 0x020000;
   flight_advance();
-  assert(flight_mission_completed);
+  assert(flight_status == FLIGHT_MISSION_COMPLETED);
   assert(mission_completed[0]);
 
   // Test 2: Mission 02 Landing (WP_LANDED)
   flight_init_from_mission(&kMissions[1], 1);
   assert(flight_current_wp == 0);
-  assert(!flight_mission_completed);
+  assert(flight_status == FLIGHT_ONGOING);
   assert(!mission_completed[1]);
 
   // On ground with gear down and stopped on Runway 1
@@ -1507,27 +1525,31 @@ static void test_mission_waypoint_constraints() {
   flight_speed = kTrimSpeed;
   flight_advance(); // Contact frame: sets model_on_ground = true at trim speed
   assert(!flight_status);
-  assert(!flight_mission_completed);
 
   // Stopped on runway
   flight_speed = 0;
   flight_advance();
   assert(flight_status == FLIGHT_MISSION_COMPLETED);
-  assert(flight_mission_completed);
   assert(mission_completed[1]);
 
-  // Test 3: Multi-waypoint mission 03 (Solo Flight: WP_MIN_1000FT then WP_LANDED)
+  // Test 3: Multi-waypoint mission 03 (Solo Flight: WP_MIN_2000FT then WP_LANDED)
   flight_init_from_mission(&kMissions[2], 2);
   assert(flight_current_wp == 0);
   assert(flight_nav == 0);
-  assert(!flight_mission_completed);
+  assert(flight_status == FLIGHT_ONGOING);
 
-  // Reach 1000ft - waypoint 1 met
-  flight_eye_z = 0x020000;
+  // Below 2000ft (0x03F000)
+  flight_eye_z = 0x03F000;
+  flight_advance();
+  assert(flight_current_wp == 0);
+  assert(flight_status == FLIGHT_ONGOING);
+
+  // Reach 2000ft (0x040000) - waypoint 1 met
+  flight_eye_z = 0x040000;
   flight_advance();
   assert(flight_current_wp == 1);
   assert(flight_nav == 0); // flight_nav does NOT auto-advance now
-  assert(!flight_mission_completed);
+  assert(flight_status == FLIGHT_ONGOING);
   assert(!mission_completed[2]);
 
   // Land on Runway 1 with gear down
@@ -1539,13 +1561,11 @@ static void test_mission_waypoint_constraints() {
   flight_speed = kTrimSpeed;
   flight_advance(); // Contact frame: sets model_on_ground = true at trim speed
   assert(!flight_status);
-  assert(!flight_mission_completed);
 
   // Stopped on runway
   flight_speed = 0;
   flight_advance();
   assert(flight_status == FLIGHT_MISSION_COMPLETED);
-  assert(flight_mission_completed);
   assert(mission_completed[2]);
 
   // Test 4: Manual NAV toggle with N key
@@ -1559,10 +1579,201 @@ static void test_mission_waypoint_constraints() {
   printf("  PASS\n\n");
 }
 
+static void test_mission_01_takeoff_completion() {
+  printf("Running test_mission_01_takeoff_completion...\n");
+
+  msg_clear();
+  mission_completed[0] = false;
+  flight_init_from_mission(&kMissions[0], 0);
+  msg_show(kMissionTitles[0]);
+
+  assert_msg_rendered(kMissionTitles[0]);
+  assert(flight_current_wp == 0);
+  assert(flight_status == FLIGHT_ONGOING);
+  assert(!mission_completed[0]);
+
+  // Below 1000ft (e.g. 0x01F000)
+  flight_eye_z = 0x01F000;
+  flight_advance();
+  assert(flight_status == FLIGHT_ONGOING);
+  assert(!mission_completed[0]);
+
+  // Reach 1000ft (0x020000)
+  flight_eye_z = 0x020000;
+  flight_advance();
+  assert(flight_status == FLIGHT_MISSION_COMPLETED);
+  assert(mission_completed[0]);
+
+  // Verify completion status message rendering (as sim.cc handles)
+  if (flight_status == FLIGHT_MISSION_COMPLETED) {
+    msg_show("MISSION COMPLETE!", MSG_FOREVER, true);
+  }
+  assert_msg_rendered("MISSION COMPLETE!");
+
+  printf("  PASS\n\n");
+}
+
+static void test_mission_02_landing_completion() {
+  printf("Running test_mission_02_landing_completion...\n");
+
+  msg_clear();
+  mission_completed[1] = false;
+  flight_init_from_mission(&kMissions[1], 1);
+  msg_show(kMissionTitles[1]);
+
+  assert_msg_rendered(kMissionTitles[1]);
+  assert(flight_current_wp == 0);
+  assert(flight_status == FLIGHT_ONGOING);
+  assert(!mission_completed[1]);
+
+  // On ground with gear down on Runway 1
+  flight_gear = true;
+  flight_eye_x = 0x140000;
+  flight_eye_y = 0x3F8000;
+  flight_eye_z = kGroundZ;
+  flight_throttle = 0;
+  flight_speed = kTrimSpeed;
+  flight_advance(); // Touchdown frame
+  assert(!flight_status);
+
+  // Stopped on runway
+  flight_speed = 0;
+  flight_advance();
+  assert(flight_status == FLIGHT_MISSION_COMPLETED);
+  assert(mission_completed[1]);
+
+  // Verify completion status message rendering (as sim.cc handles)
+  if (flight_status == FLIGHT_MISSION_COMPLETED) {
+    msg_show("MISSION COMPLETE!", MSG_FOREVER, true);
+  }
+  assert_msg_rendered("MISSION COMPLETE!");
+
+  printf("  PASS\n\n");
+}
+
+static void test_mission_03_solo_flight_completion() {
+  printf("Running test_mission_03_solo_flight_completion...\n");
+
+  msg_clear();
+  mission_completed[2] = false;
+  flight_init_from_mission(&kMissions[2], 2);
+  msg_show(kMissionTitles[2]);
+
+  assert_msg_rendered(kMissionTitles[2]);
+  assert(flight_current_wp == 0);
+  assert(flight_status == FLIGHT_ONGOING);
+  assert(!mission_completed[2]);
+
+  // Below 2000ft (0x03F000)
+  flight_eye_z = 0x03F000;
+  flight_advance();
+  assert(flight_current_wp == 0);
+  assert(flight_status == FLIGHT_ONGOING);
+
+  // Reach 2000ft (0x040000) - Waypoint 0 met
+  flight_eye_z = 0x040000;
+  flight_advance();
+  assert(flight_current_wp == 1);
+  assert(flight_status == FLIGHT_ONGOING);
+  assert(!mission_completed[2]);
+  assert_msg_rendered("NEXT GOAL REACHED");
+
+  // Waypoint 1: Land on Runway 1 with gear down
+  flight_gear = true;
+  flight_eye_x = 0x140000;
+  flight_eye_y = 0x3F8000;
+  flight_eye_z = kGroundZ;
+  flight_throttle = 0;
+  flight_speed = kTrimSpeed;
+  flight_advance(); // Touchdown frame
+  assert(!flight_status);
+
+  // Stopped on runway
+  flight_speed = 0;
+  flight_advance();
+  assert(flight_status == FLIGHT_MISSION_COMPLETED);
+  assert(mission_completed[2]);
+
+  // Verify completion status message rendering (as sim.cc handles)
+  if (flight_status == FLIGHT_MISSION_COMPLETED) {
+    msg_show("MISSION COMPLETE!", MSG_FOREVER, true);
+  }
+  assert_msg_rendered("MISSION COMPLETE!");
+
+  printf("  PASS\n\n");
+}
+
+static void test_intermediate_navpoint_reached_message() {
+  printf("Running test_intermediate_navpoint_reached_message...\n");
+
+  // Multi-waypoint mission where waypoint 0 is a navpoint (kMissionWaypoints[0] has x=0x18, y=0x3F)
+  mission_t nav_mission = {
+      0x10, 0x3F, 0x02, 0x60, 0x00, 0x22, 0x00, 0x00, 2, {0, 1}};
+
+  msg_clear();
+  flight_init_from_mission(&nav_mission, 0);
+
+  // Land on Runway 1 to complete intermediate waypoint 0 (a navpoint)
+  flight_gear = true;
+  flight_eye_x = 0x140000;
+  flight_eye_y = 0x3F8000;
+  flight_eye_z = kGroundZ;
+  flight_throttle = 0;
+  flight_speed = kTrimSpeed;
+  flight_advance();
+  flight_speed = 0;
+  flight_advance();
+
+  assert(flight_current_wp == 1);
+  assert(flight_status == FLIGHT_ONGOING);
+  assert_msg_rendered("NAVPOINT 1 REACHED");
+
+  printf("  PASS\n\n");
+}
+
+static void test_mission_04_find_the_runway_completion() {
+  printf("Running test_mission_04_find_the_runway_completion...\n");
+
+  msg_clear();
+  mission_completed[3] = false;
+  flight_init_from_mission(&kMissions[3], 3);
+  msg_show(kMissionTitles[3]);
+
+  assert_msg_rendered(kMissionTitles[3]);
+  assert(flight_current_wp == 0);
+  assert(flight_status == FLIGHT_ONGOING);
+  assert(!mission_completed[3]);
+
+  // Fly to Runway 1 (0x140000, 0x3F8000) and land safely
+  flight_gear = true;
+  flight_eye_x = 0x140000;
+  flight_eye_y = 0x3F8000;
+  flight_eye_z = kGroundZ;
+  flight_throttle = 0;
+  flight_speed = kTrimSpeed;
+  flight_advance(); // Touchdown frame
+  assert(!flight_status);
+
+  // Stopped on runway
+  flight_speed = 0;
+  flight_advance();
+  assert(flight_status == FLIGHT_MISSION_COMPLETED);
+  assert(mission_completed[3]);
+
+  // Verify completion status message rendering (as sim.cc handles)
+  if (flight_status == FLIGHT_MISSION_COMPLETED) {
+    msg_show("MISSION COMPLETE!", MSG_FOREVER, true);
+  }
+  assert_msg_rendered("MISSION COMPLETE!");
+
+  printf("  PASS\n\n");
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
-  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (39 TESTS) ===\n\n");
+  mem_screen_row_ptrs[0] = test_screen_row;
+  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (44 TESTS) ===\n\n");
   test_host_multiply_matches_c64();
   test_level_cruise_equilibrium();
   test_trim_speed_boundary();
@@ -1602,6 +1813,11 @@ int main(int argc, char **argv) {
   test_ground_steering();
   test_takeoff_roll_speed_margin();
   test_mission_waypoint_constraints();
-  printf("ALL 39 TESTS PASSED SUCCESSFULLY!\n");
+  test_mission_01_takeoff_completion();
+  test_mission_02_landing_completion();
+  test_mission_03_solo_flight_completion();
+  test_intermediate_navpoint_reached_message();
+  test_mission_04_find_the_runway_completion();
+  printf("ALL 44 TESTS PASSED SUCCESSFULLY!\n");
   return 0;
 }

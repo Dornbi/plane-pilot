@@ -11,7 +11,6 @@ bool flight_paused = false;
 enum FlightStatus flight_status = FLIGHT_ONGOING;
 
 uint8_t flight_current_wp = 0;
-bool flight_mission_completed = false;
 uint8_t flight_active_mission_idx = 0;
 static const mission_t *flight_active_mission = nullptr;
 
@@ -44,6 +43,7 @@ static bool model_need_normalize;
 // Location of navigation waypoints.
 static uint16_t flight_nav_point_x[6];
 static uint16_t flight_nav_point_y[6];
+static uint8_t flight_waypoint_nav[6];
 static uint8_t flight_num_nav_points = 0;
 
 static void _flight_update_nav() {
@@ -115,7 +115,6 @@ void flight_init() {
   flight_active_mission = nullptr;
   flight_active_mission_idx = 0;
   flight_current_wp = 0;
-  flight_mission_completed = false;
   flight_cam = _m_init;
   flight_eye_x = 0x140000;
   flight_eye_y = 0x3F8000;
@@ -142,7 +141,6 @@ void flight_init_alt() {
   flight_active_mission = nullptr;
   flight_active_mission_idx = 0;
   flight_current_wp = 0;
-  flight_mission_completed = false;
   flight_cam = _m_init;
   flight_eye_x = 0x400000;
   flight_eye_y = 0xBF8000;
@@ -169,7 +167,6 @@ void flight_init_from_mission(const mission_t *mission, uint8_t mission_idx) {
   flight_active_mission = mission;
   flight_active_mission_idx = mission_idx;
   flight_current_wp = 0;
-  flight_mission_completed = false;
   flight_cam = _m_init;
   flight_eye_x = (int32_t)mission->start_x << 16;
   flight_eye_y = ((int32_t)mission->start_y << 16) + 0x8000;
@@ -195,6 +192,9 @@ void flight_init_from_mission(const mission_t *mission, uint8_t mission_idx) {
       flight_nav_point_x[flight_num_nav_points] = (uint16_t)wp->x << 8;
       flight_nav_point_y[flight_num_nav_points] = ((uint16_t)wp->y << 8) + 0x80;
       flight_num_nav_points++;
+      flight_waypoint_nav[i] = flight_num_nav_points;
+    } else {
+      flight_waypoint_nav[i] = 0;
     }
   }
   if (flight_num_nav_points == 0) {
@@ -217,8 +217,7 @@ static void _flight_move_forward(int16_t fspeed, int16_t vspeed) {
 }
 
 static void _flight_check_mission_waypoints() {
-  if (!flight_active_mission || flight_mission_completed || flight_status ||
-      flight_paused) {
+  if (!flight_active_mission || flight_status || flight_paused) {
     return;
   }
   if (flight_current_wp >= flight_active_mission->num_waypoints) {
@@ -232,6 +231,11 @@ static void _flight_check_mission_waypoints() {
   switch (wp->constraint) {
   case WP_MIN_1000FT:
     if (flight_eye_z >= 0x020000) {
+      met = true;
+    }
+    break;
+  case WP_MIN_2000FT:
+    if (flight_eye_z >= 0x040000) {
       met = true;
     }
     break;
@@ -250,10 +254,16 @@ static void _flight_check_mission_waypoints() {
 
   if (met) {
     if (flight_current_wp + 1 < flight_active_mission->num_waypoints) {
+      uint8_t nav_n = flight_waypoint_nav[flight_current_wp];
+      if (nav_n != 0) {
+        static char nav_reached_buf[] = "NAVPOINT 1 REACHED";
+        nav_reached_buf[9] = '0' + nav_n;
+        msg_show(nav_reached_buf);
+      } else {
+        msg_show("NEXT GOAL REACHED");
+      }
       flight_current_wp++;
-      msg_show("WAYPOINT MET");
     } else {
-      flight_mission_completed = true;
       flight_status = FLIGHT_MISSION_COMPLETED;
       if (flight_active_mission_idx < kMissionCount) {
         mission_completed[flight_active_mission_idx] = true;

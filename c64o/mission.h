@@ -9,6 +9,7 @@ enum MissionWaypointConstraint {
   WP_NOTHING = 0,
   WP_LANDED = 1,
   WP_MIN_1000FT = 2,
+  WP_MIN_2000FT = 3,
 };
 
 // Each mission leads through a number of "waypoints".

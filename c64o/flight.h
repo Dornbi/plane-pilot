@@ -63,7 +63,6 @@ enum flight_input_t {
 
 // Mission waypoint tracking state
 extern uint8_t flight_current_wp;
-extern bool flight_mission_completed;
 extern uint8_t flight_active_mission_idx;
 
 void flight_init();
