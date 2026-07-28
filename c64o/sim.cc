@@ -33,6 +33,7 @@ static void _enter_simulation(uint8_t selected_mission) {
   flight_init_from_mission(&kMissions[selected_mission], selected_mission);
   msg_show(kMissionTitles[selected_mission]);
 
+  mem_switch_debug(false);
   mem_init_mccm();
   view_refresh_panel();
   mem_use_main_buffer();
@@ -104,6 +105,7 @@ void sim_run(uint8_t selected_mission) {
                                  selected_mission);
         msg_show(kMissionTitles[selected_mission]);
         view_update_view(VIEW_CENTER);
+        mem_switch_debug(false);
       }
       if (key_pressed(KSCAN_J)) {
         flight_input(FLIGHT_INPUT_ROLL_LEFT);
