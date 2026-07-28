@@ -80,6 +80,40 @@ int main() {
   msg_render();
   assert(memcmp(row0 + 14, "           ", 11) == 0);
 
+  // Test 3: the message touches only its own span, and reports that span in
+  // screen pixels so overlapping sprites can hide themselves. Anything wider
+  // than the text would make sprites disappear when they are nowhere near it.
+  memset(row0, 0xEE, sizeof(row0));
+  memset(color_buffer_dummy, 0xEE, 40);
+  msg_show("TEST", 5, false);
+  assert(msg_active());
+  assert(msg_span_x0 == 18 * 8);
+  assert(msg_span_x1 == 22 * 8);
+  msg_render();
+  for (int i = 0; i < 40; ++i) {
+    if (i < 18 || i >= 22) {
+      assert(row0[i] == 0xEE);
+      assert(mem_color_buffer[i] == 0xEE);
+    } else {
+      assert(mem_color_buffer[i] == 0);
+    }
+  }
+  msg_restore_color();
+  for (int i = 18; i < 22; ++i) {
+    assert(mem_color_buffer[i] == (6 | 0x08));
+  }
+
+  // The span follows the message width, so a short message frees most of the
+  // row and a full width one covers all of it.
+  msg_clear();
+  msg_show("HI", 5, false);
+  assert(msg_span_x0 == 19 * 8 && msg_span_x1 == 21 * 8);
+  msg_clear();
+  msg_show("0123456789012345678901234567890123456789", 5, false);
+  assert(msg_span_x0 == 0 && msg_span_x1 == 40 * 8);
+  msg_clear();
+  assert(!msg_active());
+
   printf("msg_test passed successfully!\n");
   return 0;
 }

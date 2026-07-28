@@ -18,6 +18,19 @@ void msg_update(void);
 // rows never rewrite the color buffer and would keep the hires text color.
 void msg_restore_color(void);
 
+// True while a message is on screen.
+bool msg_active(void);
+
+// Horizontal span the message covers on row 0, in screen pixels, half open:
+// [msg_span_x0, msg_span_x1). Only meaningful while msg_active(). Terrain
+// sprites that would overlap this box hide themselves instead of drawing
+// over the text — see sprites_set_sun_position().
+extern uint16_t msg_span_x0;
+extern uint16_t msg_span_x1;
+
+// Height of the message box, in screen pixels: it occupies row 0 only.
+static const uint8_t kMsgHeightPixels = 8;
+
 void msg_render(void);
 
 #pragma compile("msg.cc")

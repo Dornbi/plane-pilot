@@ -2,6 +2,7 @@
 
 #include "color.h"
 #include "mem.h"
+#include "msg.h"
 #include "roll.h"
 #include "spritedef.h"
 #include "vec.h"
@@ -14,6 +15,10 @@ char kSpriteDataCompressed[] = {
 
 static const uint8_t kSpriteOffsetX = 24;
 static const uint8_t kSpriteOffsetY = 50;
+
+// An unexpanded sprite.
+static const uint8_t kSpriteWidthPixels = 24;
+static const uint8_t kSpriteHeightPixels = 21;
 
 static const uint8_t kSpeedPivotX = 112;
 static const uint8_t kSpeedPivotY = 176;
@@ -142,6 +147,27 @@ static uint8_t _sun_x = 0;
 static uint8_t _sun_y = 0;
 static bool _sun_msbx = false;
 
+// A terrain sprite that would land on the message text hides for as long as
+// the message is up, rather than drawing over it. The test is a box overlap
+// against the message span, so a message narrow enough — or a sprite far
+// enough to the side — leaves the sprite alone. Coordinates are VIC sprite
+// coordinates, i.e. already shifted by kSpriteOffsetX / kSpriteOffsetY.
+static const int16_t kMsgBoxTop = kSpriteOffsetY;
+static const int16_t kMsgBoxBottom = kSpriteOffsetY + kMsgHeightPixels;
+
+static bool _hidden_by_msg(int16_t x, int16_t y, uint8_t width,
+                           uint8_t height) {
+  if (!msg_active()) {
+    return false;
+  }
+  if (y >= kMsgBoxBottom || y + (int16_t)height <= kMsgBoxTop) {
+    return false;
+  }
+  int16_t x0 = kSpriteOffsetX + (int16_t)msg_span_x0;
+  int16_t x1 = kSpriteOffsetX + (int16_t)msg_span_x1;
+  return x < x1 && x + (int16_t)width > x0;
+}
+
 inline void sprites_set_sun_position(int16_t x, int16_t y) {
   if (x < -12 || x > (int16_t)kScreenWidthPixels + 12 || y < -10 ||
       y > (int16_t)kScreenHeightPixels + 11) {
@@ -150,7 +176,8 @@ inline void sprites_set_sun_position(int16_t x, int16_t y) {
   } else {
     x += kSpriteOffsetX - kSpriteDefSun.pivot_x;
     y += kSpriteOffsetY - kSpriteDefSun.pivot_y;
-    if (y >= kRasterScreenYStart + kViewportEndYPixels) {
+    if (y >= kRasterScreenYStart + kViewportEndYPixels ||
+        _hidden_by_msg(x, y, kSpriteWidthPixels, kSpriteHeightPixels)) {
       x = 0;
       y = 0;
     }
