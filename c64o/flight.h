@@ -67,8 +67,7 @@ extern uint8_t flight_active_mission_idx;
 
 void flight_init();
 void flight_init_alt();
-void flight_init_from_mission(const mission_t *mission,
-                              uint8_t mission_idx = 0);
+void flight_init_from_mission(uint8_t mission_idx = 0);
 
 void flight_advance();
 void flight_input(enum flight_input_t input);

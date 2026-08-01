@@ -30,7 +30,7 @@ static void _enter_simulation(uint8_t selected_mission) {
 
   view_state = VIEW_CENTER;
   msg_clear();
-  flight_init_from_mission(&kMissions[selected_mission], selected_mission);
+  flight_init_from_mission(selected_mission);
   msg_show(kMissionTitles[selected_mission]);
 
   mem_switch_debug(false);
@@ -101,8 +101,7 @@ void sim_run(uint8_t selected_mission) {
     if (!map_mode) {
       if (key_pressed(KSCAN_R)) {
         msg_clear();
-        flight_init_from_mission(&kMissions[selected_mission],
-                                 selected_mission);
+        flight_init_from_mission(selected_mission);
         msg_show(kMissionTitles[selected_mission]);
         view_update_view(VIEW_CENTER);
         mem_switch_debug(false);

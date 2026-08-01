@@ -12,7 +12,6 @@ enum FlightStatus flight_status = FLIGHT_ONGOING;
 
 uint8_t flight_current_wp = 0;
 uint8_t flight_active_mission_idx = 0;
-static const mission_t *flight_active_mission = nullptr;
 
 #ifdef __OSCAR64__
 #pragma bss(bss2)
@@ -112,8 +111,7 @@ static const uint16_t kMaxGroundSpeed = 0x0D00;
 void flight_init() {
   flight_paused = false;
   flight_status = FLIGHT_ONGOING;
-  flight_active_mission = nullptr;
-  flight_active_mission_idx = 0;
+  flight_active_mission_idx = 0xFF;
   flight_current_wp = 0;
   flight_cam = _m_init;
   flight_eye_x = 0x140000;
@@ -138,8 +136,7 @@ void flight_init() {
 void flight_init_alt() {
   flight_paused = false;
   flight_status = FLIGHT_ONGOING;
-  flight_active_mission = nullptr;
-  flight_active_mission_idx = 0;
+  flight_active_mission_idx = 0xFF;
   flight_current_wp = 0;
   flight_cam = _m_init;
   flight_eye_x = 0x400000;
@@ -161,36 +158,39 @@ void flight_init_alt() {
   _flight_update_nav();
 }
 
-void flight_init_from_mission(const mission_t *mission, uint8_t mission_idx) {
+void flight_init_from_mission(uint8_t mission_idx) {
   flight_paused = false;
   flight_status = FLIGHT_ONGOING;
-  flight_active_mission = mission;
   flight_active_mission_idx = mission_idx;
   flight_current_wp = 0;
   flight_cam = _m_init;
-  flight_eye_x = (int32_t)mission->start_x << 16;
-  flight_eye_y = ((int32_t)mission->start_y << 16) + 0x8000;
-  flight_eye_z = (int32_t)mission->start_z << 16;
+  flight_eye_x = (int32_t)kMissionStartX[mission_idx] << 16;
+  flight_eye_y = ((int32_t)kMissionStartY[mission_idx] << 16) + 0x8000;
+  flight_eye_z = (int32_t)kMissionStartZ[mission_idx] << 16;
   if (flight_eye_z <= kMinEyeZ) {
     flight_eye_z = kMinEyeZ;
     model_on_ground = true;
   } else {
     model_on_ground = false;
   }
-  flight_speed = (int16_t)mission->start_speed << 4;
-  flight_throttle = mission->start_throttle;
+  flight_speed = (int16_t)kMissionStartSpeed[mission_idx] << 4;
+  flight_throttle = kMissionStartThrottle[mission_idx];
   flight_fuel =
-      mission->start_fuel ? (((uint32_t)mission->start_fuel << 12) - 1) : 0;
+      kMissionStartFuel[mission_idx] ? (((uint32_t)kMissionStartFuel[mission_idx] << 12) - 1) : 0;
   model_need_normalize = false;
   flight_flap = false;
   flight_gear = model_on_ground;
   flight_num_nav_points = 0;
-  for (uint8_t i = 0; i < mission->num_waypoints; ++i) {
-    uint8_t wp_idx = mission->waypoints[i];
-    const mission_waypoint_t *wp = &kMissionWaypoints[wp_idx];
-    if (wp->x != 0 || wp->y != 0) {
-      flight_nav_point_x[flight_num_nav_points] = (uint16_t)wp->x << 8;
-      flight_nav_point_y[flight_num_nav_points] = ((uint16_t)wp->y << 8) + 0x80;
+  uint8_t wp_begin = kMissionWpBegin[mission_idx];
+  uint8_t wp_end = kMissionWpEnd[mission_idx];
+  uint8_t num_wp = wp_end - wp_begin;
+  for (uint8_t i = 0; i < num_wp; ++i) {
+    uint8_t wp_idx = wp_begin + i;
+    uint8_t wx = kMissionWpX[wp_idx];
+    uint8_t wy = kMissionWpY[wp_idx];
+    if (wx != 0 || wy != 0) {
+      flight_nav_point_x[flight_num_nav_points] = (uint16_t)wx << 8;
+      flight_nav_point_y[flight_num_nav_points] = ((uint16_t)wy << 8) + 0x80;
       flight_num_nav_points++;
       flight_waypoint_nav[i] = flight_num_nav_points;
     } else {
@@ -198,9 +198,10 @@ void flight_init_from_mission(const mission_t *mission, uint8_t mission_idx) {
     }
   }
   if (flight_num_nav_points == 0) {
-    const mission_waypoint_t *def_wp = &kMissionWaypoints[kWaypointDefault];
-    flight_nav_point_x[0] = (uint16_t)def_wp->x << 8;
-    flight_nav_point_y[0] = ((uint16_t)def_wp->y << 8) + 0x80;
+    uint8_t wx = kMissionWpX[kWaypointDefault];
+    uint8_t wy = kMissionWpY[kWaypointDefault];
+    flight_nav_point_x[0] = (uint16_t)wx << 8;
+    flight_nav_point_y[0] = ((uint16_t)wy << 8) + 0x80;
     flight_num_nav_points = 1;
   }
   flight_nav = 0;
@@ -217,18 +218,21 @@ static void _flight_move_forward(int16_t fspeed, int16_t vspeed) {
 }
 
 static void _flight_check_mission_waypoints() {
-  if (!flight_active_mission || flight_status || flight_paused) {
+  if (flight_active_mission_idx >= kMissionCount || flight_status || flight_paused) {
     return;
   }
-  if (flight_current_wp >= flight_active_mission->num_waypoints) {
+  uint8_t wp_begin = kMissionWpBegin[flight_active_mission_idx];
+  uint8_t wp_end = kMissionWpEnd[flight_active_mission_idx];
+  uint8_t num_wp = wp_end - wp_begin;
+  if (flight_current_wp >= num_wp) {
     return;
   }
 
-  uint8_t wp_idx = flight_active_mission->waypoints[flight_current_wp];
-  const mission_waypoint_t *wp = &kMissionWaypoints[wp_idx];
+  uint8_t wp_idx = wp_begin + flight_current_wp;
+  MissionWaypointConstraint constraint = kMissionWpConstraint[wp_idx];
   bool met = false;
 
-  switch (wp->constraint) {
+  switch (constraint) {
   case WP_MIN_1000FT:
     if (flight_eye_z >= 0x020000) {
       met = true;
@@ -240,7 +244,7 @@ static void _flight_check_mission_waypoints() {
     }
     break;
   case WP_LANDED:
-    if (model_on_ground && flight_speed <= 0x0020) {
+    if (model_on_ground && flight_speed <= 0x0010) {
       uint8_t eye_x_high = (uint8_t)(flight_eye_x >> 16);
       uint8_t eye_y_high = (uint8_t)(flight_eye_y >> 16);
       if (eye_x_high >= 0x10 && eye_x_high <= 0x1C && eye_y_high == 0x3F) {
@@ -253,7 +257,7 @@ static void _flight_check_mission_waypoints() {
   }
 
   if (met) {
-    if (flight_current_wp + 1 < flight_active_mission->num_waypoints) {
+    if (flight_current_wp + 1 < num_wp) {
       uint8_t nav_n = flight_waypoint_nav[flight_current_wp];
       if (nav_n != 0) {
         static char nav_reached_buf[] = "NAVPOINT 1 REACHED";
