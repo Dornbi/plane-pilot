@@ -20,7 +20,7 @@ extern const uint8_t
 extern const MissionWaypointConstraint kMissionWpConstraint[kMissionWpCount];
 extern const uint8_t kWaypointDefault;
 
-static const uint8_t kMissionCount = 4;
+static const uint8_t kMissionCount = 5;
 extern const char *const kMissionTitles[kMissionCount];
 extern const char *const kMissionDesc[kMissionCount];
 

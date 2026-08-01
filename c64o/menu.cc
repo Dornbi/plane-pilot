@@ -17,17 +17,21 @@
 // straight-line code.
 #pragma optimize(push, outline)
 
-static const uint8_t kMissionRowStart = 4;
+static const uint8_t kMissionRowStart = 6;
 static const uint8_t kMissionRowStep = 4;
+static const uint8_t kVisibleMissions = 4;
 
-static void _enter_menu() {
-  screen_begin_text_page();
-
-  print_str(0, 14, STRL("PLANE PILOT"));
-  print_str(2, 12, STRL("SELECT MISSION:"));
+static void _render_menu_items(uint8_t scroll_offset) {
+  memset(mem_screen_row_ptrs[4], ' ', kScreenWidth * 19);
 
   uint8_t row = kMissionRowStart;
-  for (uint8_t i = 0; i < kMissionCount; ++i) {
+  uint8_t visible_count = kMissionCount - scroll_offset;
+  if (visible_count > kVisibleMissions) {
+    visible_count = kVisibleMissions;
+  }
+
+  for (uint8_t v = 0; v < visible_count; ++v) {
+    uint8_t i = scroll_offset + v;
     print_str(row, 2, kMissionTitles[i], strlen(kMissionTitles[i]));
     print_lines(row + 1, 4, kMissionDesc[i]);
     if (mission_completed[i]) {
@@ -37,19 +41,39 @@ static void _enter_menu() {
     }
     row += kMissionRowStep;
   }
-  print_str(row + 2, 11, STRL("PRESS H FOR HELP"));
+
+  if (scroll_offset > 0) {
+    print_str(4, 38, STRL("("));
+  }
+  if (scroll_offset + kVisibleMissions < kMissionCount) {
+    print_str(22, 38, STRL(")"));
+  }
 }
 
-static void _draw_mission_cursor(uint8_t selected_mission, bool draw) {
-  mem_screen_row_ptrs[kMissionRowStart + selected_mission * kMissionRowStep]
-                     [0] = draw ? '>' : ' ';
+static void _enter_menu(uint8_t scroll_offset) {
+  screen_begin_text_page();
+
+  print_str(0, 14, STRL("PLANE PILOT"));
+  print_str(3, 12, STRL("SELECT MISSION:"));
+
+  _render_menu_items(scroll_offset);
+
+  print_str(24, 11, STRL("PRESS H FOR HELP"));
+}
+
+static void _draw_mission_cursor(uint8_t selected_mission,
+                                 uint8_t scroll_offset, bool draw) {
+  uint8_t visible_slot = selected_mission - scroll_offset;
+  mem_screen_row_ptrs[kMissionRowStart + visible_slot * kMissionRowStep][0] =
+      draw ? '>' : ' ';
 }
 
 uint8_t menu_run() {
-  _enter_menu();
-
   uint8_t selected_mission = 0;
-  _draw_mission_cursor(selected_mission, true);
+  uint8_t scroll_offset = 0;
+
+  _enter_menu(scroll_offset);
+  _draw_mission_cursor(selected_mission, scroll_offset, true);
 
   static const uint8_t kMenuKeyI = 0x01;
   static const uint8_t kMenuKeyK = 0x02;
@@ -79,29 +103,51 @@ uint8_t menu_run() {
     }
     const uint8_t menu_edges = keys_edges(menu_toggles, &prev_menu_toggles);
 
-    _draw_mission_cursor(selected_mission, false);
-    if (menu_edges & kMenuKeyI) {
-      if (selected_mission > 0) {
-        selected_mission--;
-      } else {
-        selected_mission = kMissionCount - 1;
+    if (menu_edges & (kMenuKeyI | kMenuKeyK)) {
+      _draw_mission_cursor(selected_mission, scroll_offset, false);
+      uint8_t old_scroll = scroll_offset;
+
+      if (menu_edges & kMenuKeyI) {
+        if (selected_mission > 0) {
+          selected_mission--;
+          if (selected_mission < scroll_offset) {
+            scroll_offset = selected_mission;
+          }
+        } else {
+          selected_mission = kMissionCount - 1;
+          if (kMissionCount > kVisibleMissions) {
+            scroll_offset = kMissionCount - kVisibleMissions;
+          } else {
+            scroll_offset = 0;
+          }
+        }
       }
-    }
-    if (menu_edges & kMenuKeyK) {
-      if (selected_mission < kMissionCount - 1) {
-        selected_mission++;
-      } else {
-        selected_mission = 0;
+
+      if (menu_edges & kMenuKeyK) {
+        if (selected_mission < kMissionCount - 1) {
+          selected_mission++;
+          if (selected_mission >= scroll_offset + kVisibleMissions) {
+            scroll_offset = selected_mission - kVisibleMissions + 1;
+          }
+        } else {
+          selected_mission = 0;
+          scroll_offset = 0;
+        }
       }
+
+      if (scroll_offset != old_scroll) {
+        _render_menu_items(scroll_offset);
+      }
+      _draw_mission_cursor(selected_mission, scroll_offset, true);
     }
-    _draw_mission_cursor(selected_mission, true);
+
     if (menu_edges & (kMenuKeySpace | kMenuKeyReturn)) {
       return selected_mission;
     }
     if (menu_edges & kMenuKeyH) {
       help_run();
-      _enter_menu();
-      _draw_mission_cursor(selected_mission, true);
+      _enter_menu(scroll_offset);
+      _draw_mission_cursor(selected_mission, scroll_offset, true);
     }
 
     gfx_wait_vsync();

@@ -247,7 +247,17 @@ static void _flight_check_mission_waypoints() {
     if (model_on_ground && flight_speed <= 0x0010) {
       uint8_t eye_x_high = (uint8_t)(flight_eye_x >> 16);
       uint8_t eye_y_high = (uint8_t)(flight_eye_y >> 16);
-      if (eye_x_high >= 0x10 && eye_x_high <= 0x1C && eye_y_high == 0x3F) {
+      uint8_t wx = kMissionWpX[wp_idx];
+      uint8_t wy = kMissionWpY[wp_idx];
+      int8_t dx = (int8_t)(eye_x_high - wx);
+      int8_t dy = (int8_t)(eye_y_high - wy);
+      if (dx < 0) {
+        dx = -dx;
+      }
+      if (dy < 0) {
+        dy = -dy;
+      }
+      if (dx <= 0x10 && dy <= 0x04) {
         met = true;
       }
     }

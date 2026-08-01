@@ -32,9 +32,11 @@ const uint8_t kMissionWpBegin[kMissionCount] = {
     kWaypointMin1000ft,
     kWaypointLanded1,
     kWaypointMin2000ft,
+    kWaypointLanded1,
     kWaypointLanded1};
 const uint8_t kMissionWpEnd[kMissionCount] = {
     kWaypointMin1000ft + 1,
+    kWaypointLanded1 + 1,
     kWaypointLanded1 + 1,
     kWaypointLanded1 + 1,
     kWaypointLanded2 + 1};
@@ -44,8 +46,8 @@ const char *const kMissionTitles[kMissionCount] = {
     "02 GETTING DOWN",
     "03 SOLO FLIGHT",
     "04 FIND THE RUNWAY",
-    /*
     "05 FERRY FLIGHT",
+    /*
     "06 AREA PATROL",
     "07 AIRSHOW",
     "08 AERIAL RECON",
@@ -67,10 +69,10 @@ const char *const kMissionDesc[kMissionCount] = {
     // 04
     "WHERE AM I? FIND THE RUNWAY\n"
     "AND GET ON THE GROUND.",
-    /**
     // 05
     "NAVIGATE TO THE OTHER FIELD\n"
     "AND LAND SAFELY.",
+    /**
     // 06
     "FLY TO ALL 3 NAV POINTS\n"
     "BEFORE TOUCHDOWN",
@@ -94,6 +96,7 @@ const uint8_t kMissionStartX[kMissionCount] = {
     0x10, // 02
     0x1C, // 03
     0x10, // 04
+    0x1C, // 05
 };
 
 const uint8_t kMissionStartY[kMissionCount] = {
@@ -101,6 +104,7 @@ const uint8_t kMissionStartY[kMissionCount] = {
     0x3F, // 02
     0x3F, // 03
     0x5F, // 04
+    0x3F, // 05
 };
 
 const uint8_t kMissionStartZ[kMissionCount] = {
@@ -108,6 +112,7 @@ const uint8_t kMissionStartZ[kMissionCount] = {
     0x02, // 02
     0x00, // 03
     0x04, // 04
+    0x00, // 05
 };
 
 const uint8_t kMissionStartSpeed[kMissionCount] = {
@@ -115,6 +120,7 @@ const uint8_t kMissionStartSpeed[kMissionCount] = {
     0x60, // 02
     0x00, // 03
     0x60, // 04
+    0x00, // 05
 };
 
 const uint8_t kMissionStartThrottle[kMissionCount] = {
@@ -122,6 +128,7 @@ const uint8_t kMissionStartThrottle[kMissionCount] = {
     0x02, // 02
     0x00, // 03
     0x14, // 04
+    0x00, // 05
 };
 
 const uint8_t kMissionStartFuel[kMissionCount] = {
@@ -129,6 +136,7 @@ const uint8_t kMissionStartFuel[kMissionCount] = {
     0x22, // 02
     0x22, // 03
     0x22, // 04
+    0x22, // 05
 };
 
 const uint8_t kMissionWindX[kMissionCount] = {
@@ -136,6 +144,7 @@ const uint8_t kMissionWindX[kMissionCount] = {
     0x00, // 02
     0x00, // 03
     0x00, // 04
+    0x00, // 05
 };
 
 const uint8_t kMissionWindY[kMissionCount] = {
@@ -143,10 +152,17 @@ const uint8_t kMissionWindY[kMissionCount] = {
     0x00, // 02
     0x00, // 03
     0x00, // 04
+    0x00, // 05
 };
 
 
-bool mission_completed[kMissionCount] = {false, false, false, false};
+bool mission_completed[kMissionCount] = {
+    false,
+    false,
+    false,
+    false,
+    false,
+};
 
 
 /*
