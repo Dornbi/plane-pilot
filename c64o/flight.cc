@@ -228,13 +228,28 @@ static bool _on_runway() {
 // One landing envelope test, shared by the approach warnings and the
 // touchdown verdict. Returns FLIGHT_ONGOING while inside the envelope,
 // otherwise the status describing the first violation.
+//
+// The order is what the pilot is told to fix first, so it runs from the
+// things that have to be settled early on the approach (be over the runway,
+// upright, gear down) to the ones that are trimmed on short final. It also
+// decides which crash is reported when a touchdown breaks several rules at
+// once.
 static enum FlightStatus _landing_fault(uint16_t speed_limit,
                                         bool check_runway) {
-  if (_abs16(flight_cam.left.z) > kMaxLandingRoll) {
-    return FLIGHT_CRASH_ROLL;
+  if (check_runway && !_on_runway()) {
+    return FLIGHT_CRASH_NOT_ON_RUNWAY;
   }
   if (flight_cam.up.z < kMinLandingUpZ) {
     return FLIGHT_CRASH_INVERTED;
+  }
+  if (!flight_gear) {
+    return FLIGHT_CRASH_GEAR;
+  }
+  if (flight_vspeed < kMaxLandingVSpeed) {
+    return FLIGHT_CRASH_VSPEED;
+  }
+  if (_abs16(flight_cam.left.z) > kMaxLandingRoll) {
+    return FLIGHT_CRASH_ROLL;
   }
   if (flight_cam.front.z < kMinLandingPitch) {
     return FLIGHT_CRASH_PITCH_LOW;
@@ -242,17 +257,8 @@ static enum FlightStatus _landing_fault(uint16_t speed_limit,
   if (flight_cam.front.z > kMaxLandingPitch) {
     return FLIGHT_CRASH_PITCH_HIGH;
   }
-  if (flight_vspeed < kMaxLandingVSpeed) {
-    return FLIGHT_CRASH_VSPEED;
-  }
   if (flight_speed > speed_limit) {
     return FLIGHT_CRASH_SPEED;
-  }
-  if (!flight_gear) {
-    return FLIGHT_CRASH_GEAR;
-  }
-  if (check_runway && !_on_runway()) {
-    return FLIGHT_CRASH_NOT_ON_RUNWAY;
   }
   return FLIGHT_ONGOING;
 }

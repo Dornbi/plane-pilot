@@ -787,14 +787,21 @@ static void test_touchdown_exact_boundary_limits() {
   assert(!flight_status);
 
   // Pitch = -33 -> CRASH
+  // Flown with flaps down. _landing_fault() checks sink rate before pitch, and
+  // a clean-wing arrival this far nose-down sinks past kMaxLandingVSpeed at
+  // every speed - the pitch term alone is -33 * speed / 256 - so sink would
+  // always be the binding check and the pitch bound would never be reached.
+  // The extra lift from the flaps holds the sink inside the limit; the
+  // PITCH_LOW verdict below is what proves it, since a sink violation would
+  // have been reported first.
   flight_init();
   flight_gear = 1;
+  flight_flap = 1;
   flight_cam.front.z = -33;
   flight_speed = 0x0680;
   vs = vec_fastmul8p8(-33, 0x0680);
   flight_eye_z = 0x2000 - vs - 1;
   flight_advance();
-  assert(flight_vspeed >= kMaxLandingVSpeed); // Crashes on pitch, not on sink
   assert(flight_status == FLIGHT_CRASH_PITCH_LOW);
 
   printf("  PASS\n\n");
