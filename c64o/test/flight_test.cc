@@ -1697,7 +1697,7 @@ static void test_mission_03_solo_flight_completion() {
   assert(flight_current_wp == 1);
   assert(flight_status == FLIGHT_ONGOING);
   assert(!mission_completed[2]);
-  assert_msg_rendered("NEXT GOAL REACHED");
+  assert_msg_rendered("NEXT GOAL COMPLETED");
 
   // Waypoint 1: Land on Runway 1 with gear down
   flight_gear = true;
@@ -1738,7 +1738,7 @@ static void test_intermediate_navpoint_reached_message() {
 
   assert(flight_current_wp == 1);
   assert(flight_status == FLIGHT_ONGOING);
-  assert_msg_rendered("NAVPOINT 1 REACHED");
+  assert_msg_rendered("WAYPOINT 1 REACHED");
 
   printf("  PASS\n\n");
 }
@@ -2095,6 +2095,32 @@ static void test_low_altitude_approach_warnings() {
   msg_clear();
   flight_advance();
   assert_msg_rendered("WARNING: NOT ON RUNWAY");
+
+  // Mission 0: Min 1000ft constraint warning
+  flight_init_from_mission(0); // Waypoint 0 constraint is WP_MIN_1000FT
+  flight_eye_z = 0x010000;     // Below 1000ft (0x020000)
+  msg_clear();
+  flight_advance();
+  assert_msg_rendered("CLIMB ABOVE 1000FT FOR MISSION");
+
+  // Mission 6: Fly inverted constraint warning
+  flight_init_from_mission(6); // Waypoint 0 constraint is WP_UPSIDE_DOWN
+  flight_eye_x = 0x600000;
+  flight_eye_y = 0xC00000;
+  flight_eye_z = 0x010000;
+  flight_cam.up.z = 256;       // Upright (not inverted)
+  msg_clear();
+  flight_advance();
+  assert_msg_rendered("FLY INVERTED FOR MISSION");
+
+  // Mission 8: Max 125ft constraint warning
+  flight_init_from_mission(8); // Waypoint 0 (Field 1) constraint is WP_MAX_125FT
+  flight_eye_x = 0x300000;
+  flight_eye_y = 0x888000;
+  flight_eye_z = 0x010000;     // Above 125ft (0x004000)
+  msg_clear();
+  flight_advance();
+  assert_msg_rendered("GO BELOW 125FT FOR MISSION");
 
   printf("  PASS\n\n");
 }

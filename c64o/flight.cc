@@ -265,13 +265,13 @@ static const char *const kFaultText[] = {
 // mission.h. WP_NOTHING has nothing to complain about: being there is the
 // whole constraint.
 static const char *const kWaypointFault[] = {
-    "",            // 0 WP_NOTHING
-    "",            // 1 WP_LANDED
-    "TOO LOW",     // 2 WP_MIN_1000FT
-    "TOO LOW",     // 3 WP_MIN_2000FT
-    "TOO LOW",     // 4 WP_MIN_3000FT
-    "TOO HIGH",    // 5 WP_MAX_125FT
-    "NOT INVERTED" // 6 WP_UPSIDE_DOWN
+    "",                   // 0 WP_NOTHING
+    "",                   // 1 WP_LANDED
+    "CLIMB ABOVE 1000FT", // 2 WP_MIN_1000FT
+    "CLIMB ABOVE 2000FT", // 3 WP_MIN_2000FT
+    "CLIMB ABOVE 3000FT", // 4 WP_MIN_3000FT
+    "GO BELOW 125FT",     // 5 WP_MAX_125FT
+    "FLY INVERTED"        // 6 WP_UPSIDE_DOWN
     ,
 };
 
@@ -280,7 +280,7 @@ static const char *const kWaypointFault[] = {
 // than stored per message because msg_show() keeps only the pointer. Every
 // caller below bails out once flight_status is set, so no warning can rewrite
 // the buffer while a crash message is still on screen.
-static char _status_text[28];
+static char _status_text[40];
 
 static const char *_join(const char *prefix, const char *suffix) {
   char *dst = _status_text;
@@ -368,11 +368,11 @@ static void _flight_check_mission_waypoints() {
     if (flight_current_wp + 1 < num_wp) {
       uint8_t nav_n = flight_waypoint_nav[flight_current_wp];
       if (nav_n != 0) {
-        static char nav_reached_buf[] = "NAVPOINT 1 REACHED";
+        static char nav_reached_buf[] = "WAYPOINT 1 REACHED";
         nav_reached_buf[9] = '0' + nav_n;
         msg_show(nav_reached_buf);
       } else {
-        msg_show("NEXT GOAL REACHED");
+        msg_show("NEXT GOAL COMPLETED");
       }
       flight_current_wp++;
     } else {
@@ -387,7 +387,7 @@ static void _flight_check_mission_waypoints() {
     // or the attitude is wrong.
     const char *fault = kWaypointFault[constraint];
     if (*fault) {
-      msg_show(_join("WARNING: ", fault));
+      msg_show(_join(fault, " FOR MISSION"));
     }
   }
 }
