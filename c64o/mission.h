@@ -11,7 +11,8 @@ enum MissionWaypointConstraint {
   WP_MIN_1000FT = 2,
   WP_MIN_2000FT = 3,
   WP_MIN_3000FT = 4,
-  WP_MAX_100FT = 5,
+  // 0x004000, which is 125ft on the altitude scale where 1000ft is 0x020000.
+  WP_MAX_125FT = 5,
   WP_UPSIDE_DOWN = 6,
 };
 

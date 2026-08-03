@@ -279,28 +279,46 @@ static const char *const kFaultText[] = {
     "NOT ON RUNWAY",  // FLIGHT_CRASH_NOT_ON_RUNWAY
 };
 
-// Both prefixes are nine characters, so the joined text fits comfortably on
-// row 0. Built here rather than stored per message because msg_show() keeps
-// only the pointer. A crash ends the flight and flight_advance() returns
-// early once flight_status is set, so no warning can rewrite the buffer while
-// a crash message is still on screen.
-static char _status_text[24];
+// Why the current waypoint is not satisfied while the aircraft is in the
+// right place. Indexed by MissionWaypointConstraint; keep in sync with
+// mission.h. WP_NOTHING has nothing to complain about: being there is the
+// whole constraint.
+static const char *const kWaypointFault[] = {
+    "",             // 0 WP_NOTHING
+    "LAND AND STOP" // 1 WP_LANDED
+    ,
+    "TOO LOW",     // 2 WP_MIN_1000FT
+    "TOO LOW",     // 3 WP_MIN_2000FT
+    "TOO LOW",     // 4 WP_MIN_3000FT
+    "TOO HIGH",    // 5 WP_MAX_125FT
+    "NOT INVERTED" // 6 WP_UPSIDE_DOWN
+    ,
+};
+
+// Both prefixes are nine characters and the longest fault text is fourteen,
+// so 24 is the exact fit and this leaves a little room. Built here rather
+// than stored per message because msg_show() keeps only the pointer. Every
+// caller below bails out once flight_status is set, so no warning can rewrite
+// the buffer while a crash message is still on screen.
+static char _status_text[28];
+
+static const char *_join(const char *prefix, const char *suffix) {
+  char *dst = _status_text;
+  while (*prefix) {
+    *dst++ = *prefix++;
+  }
+  while (*suffix) {
+    *dst++ = *suffix++;
+  }
+  *dst = 0;
+  return _status_text;
+}
 
 const char *flight_status_text(enum FlightStatus status, bool crashed) {
   if (status == FLIGHT_MISSION_COMPLETED) {
     return "MISSION COMPLETE!";
   }
-  const char *src = crashed ? "CRASHED: " : "WARNING: ";
-  char *dst = _status_text;
-  while (*src) {
-    *dst++ = *src++;
-  }
-  src = kFaultText[status];
-  while (*src) {
-    *dst++ = *src++;
-  }
-  *dst = 0;
-  return _status_text;
+  return _join(crashed ? "CRASHED: " : "WARNING: ", kFaultText[status]);
 }
 
 static void _flight_check_mission_waypoints() {
@@ -344,13 +362,13 @@ static void _flight_check_mission_waypoints() {
       2, // 2 WP_MIN_1000FT   (0x020000 >> 16)
       4, // 3 WP_MIN_2000FT
       6, // 4 WP_MIN_3000FT
-      0, // 5 WP_MAX_100FT    (handled below)
+      0, // 5 WP_MAX_125FT    (handled below)
       0, // 6 WP_UPSIDE_DOWN  (handled below)
   };
   bool met = pos_ok;
   if (met) {
     switch (constraint) {
-    case WP_MAX_100FT:
+    case WP_MAX_125FT:
       met = flight_eye_z <= 0x004000;
       break;
     case WP_UPSIDE_DOWN:
@@ -381,6 +399,14 @@ static void _flight_check_mission_waypoints() {
       if (flight_active_mission_idx < kMissionCount) {
         mission_completed[flight_active_mission_idx] = true;
       }
+    }
+  } else if (pos_ok) {
+    // Over the waypoint but the constraint is not satisfied: say which one,
+    // so the player knows they are in the right place and only the altitude
+    // or the attitude is wrong.
+    const char *fault = kWaypointFault[constraint];
+    if (*fault) {
+      msg_show(_join("WARNING: ", fault));
     }
   }
 }

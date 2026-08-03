@@ -67,9 +67,9 @@ const MissionWaypointConstraint kMissionWpConstraint[kMissionWpCount] = {
     WP_MIN_3000FT,  // 10 (City 2)
     WP_MIN_3000FT,  // 11 (City 3)
     WP_LANDED,      // 12 (Runway 2)
-    WP_MAX_100FT,   // 13 (Field 1)
-    WP_MAX_100FT,   // 14 (Field 2)
-    WP_MAX_100FT,   // 15 (Field 3)
+    WP_MAX_125FT,   // 13 (Field 1)
+    WP_MAX_125FT,   // 14 (Field 2)
+    WP_MAX_125FT,   // 15 (Field 3)
     WP_LANDED,      // 16 (Runway 2)
 };
 
@@ -129,7 +129,7 @@ const char *const kMissionDesc[kMissionCount] = {
     "FLY AT LEAST 3000FT OVER ALL\n"       // 08
     "CITIES ON THE MAP",                   //
     "TOUCH ALL FIELDS ON THE MAP.\n"       // 09
-    "MAKE SURE TO STAY BELOW 100FT.",      //
+    "MAKE SURE TO STAY BELOW 125FT.",      //
     "YOU ARE ALMOST OUT OF FUEL.\n"        // 10
     "GET TO THE NEAREST FIELD AND LAND.",  //
 };
