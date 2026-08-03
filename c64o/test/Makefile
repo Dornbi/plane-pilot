@@ -11,6 +11,9 @@ FLIGHT_TEST_HDRS = ../flight.h ../mission.h ../vec.h ../fmath.h ../msg.h
 MSG_TEST_SRC = msg_test.cc ../msg.cc
 MSG_TEST_HDRS = ../msg.h
 
+MAP_TEST_SRC = map_test.cc ../mission.cc ../world_map.cc
+MAP_TEST_HDRS = ../mission.h ../world.h
+
 all: test
 
 flight_test: $(FLIGHT_TEST_SRC) $(FLIGHT_TEST_HDRS)
@@ -19,10 +22,13 @@ flight_test: $(FLIGHT_TEST_SRC) $(FLIGHT_TEST_HDRS)
 msg_test: $(MSG_TEST_SRC) $(MSG_TEST_HDRS)
 	$(HOST_CC) $(HOST_CFLAGS) -o msg_test $(MSG_TEST_SRC)
 
-test: flight_test msg_test
-	@./flight_test > output.txt && ./msg_test >> output.txt && echo "ALL TESTS PASSED (44 flight tests, msg_test) -> test/output.txt"
+map_test: $(MAP_TEST_SRC) $(MAP_TEST_HDRS)
+	$(HOST_CC) $(HOST_CFLAGS) -o map_test $(MAP_TEST_SRC)
+
+test: flight_test msg_test map_test
+	@./flight_test > output.txt && ./msg_test >> output.txt && ./map_test >> output.txt && echo "ALL TESTS PASSED (flight_test, msg_test, map_test) -> test/output.txt"
 
 clean:
-	rm -rf flight_test msg_test output.txt *.dSYM
+	rm -rf flight_test msg_test map_test output.txt *.dSYM
 
-.PHONY: all test flight_test msg_test clean
+.PHONY: all test flight_test msg_test map_test clean

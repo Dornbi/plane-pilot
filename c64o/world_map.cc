@@ -4,7 +4,6 @@
 #include "color.h"
 
 // Local abbreviations to make formatting below more compact.
-static const auto ___ = MAP_NOTHING;
 static const auto D__ = MAP_DOT_GROUND;
 static const auto DK_ = MAP_DOT_BLACK;
 static const auto DW_ = MAP_DOT_WHITE;
@@ -87,20 +86,21 @@ const uint8_t kWorldObjColors[kWorldObjDim] = {
 // On this map N is down, W is right, S is up and E is left.
 // clang-format off
 const WorldMapType kWorldMap[kWorldMapHeight][kWorldMapWidth] = {
-    {D__, D__, D__, DB_, PND, DB_, D__, D__, DY_, DY_, DY_, D__, D__, DK_, D__, D__, D__, D__, D__, DY_, DY_, DY_, D__, D__, D__, DC_, DC_, DC_, D__, D__, D__, D__},
+    // 00       10        20        30        40        50        60        70        80        90        A0        B0        C0        D0        E0        F0
+    {D__, D__, D__, DB_, PND, DB_, D__, D__, DY_, DY_, DY_, D__, D__, DK_, D__, D__, D__, D__, D__, DY_, DY_, DY_, D__, D__, D__, DC_, DC_, DC_, D__, D__, D__, D__}, // 00
     {D__, D__, D__, DB_, DB_, DB_, D__, D__, DW_, D__, D__, D__, DK_, DK_, DK_, D__, D__, D__, D__, DY_, FYS, DY_, D__, D__, DC_, DB_, DB_, DB_, DC_, D__, D__, D__},
-    {D__, D__, D__, D__, D__, D__, D__, D__, DW_, D__, D__, DK_, DK_, CTY, DK_, DK_, D__, D__, D__, DY_, DY_, DY_, D__, D__, DC_, DB_, LAK, DB_, DC_, D__, D__, D__},
+    {D__, D__, D__, D__, D__, D__, D__, D__, DW_, D__, D__, DK_, DK_, CTY, DK_, DK_, D__, D__, D__, DY_, DY_, DY_, D__, D__, DC_, DB_, LAK, DB_, DC_, D__, D__, D__}, // 10
     {D__, D__, D__, D__, D__, D__, D__, D__, DW_, D__, D__, D__, DK_, DK_, DK_, D__, D__, D__, D__, D__, D__, D__, D__, D__, DC_, DB_, DB_, DB_, DC_, D__, D__, D__},
-    {D__, D__, D__, D__, D__, D__, D__, D__, RWY, D__, D__, D__, D__, DK_, DK_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, DC_, DC_, DC_, D__, D__, D__, D__},
+    {D__, D__, D__, D__, D__, D__, D__, D__, RWY, D__, D__, D__, D__, DK_, DK_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, DC_, DC_, DC_, D__, D__, D__, D__}, // 20
     {D__, D__, DY_, DY_, DY_, D__, D__, D__, DW_, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__},
-    {D__, D__, DY_, FYS, DY_, D__, D__, D__, DW_, D__, D__, D__, D__, D__, DK_, D__, D__, FLS, D__, D__, D__, D__, D__, D__, D__, D__, D__, DC_, DC_, DC_, D__, D__},
+    {D__, D__, DY_, FYS, DY_, D__, D__, D__, DW_, D__, D__, D__, D__, D__, DK_, D__, D__, FLS, D__, D__, D__, D__, D__, D__, D__, D__, D__, DC_, DC_, DC_, D__, D__}, // 30
     {D__, D__, DY_, DY_, DY_, D__, D__, DY_, DW_, D__, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, D__, D__, FLD, D__, D__, D__, DC_, DB_, DB_, DB_, DC_, D__},
-    {D__, D__, D__, D__, D__, D__, DY_, DY_, DY_, D__, D__, D__, FLS, D__, D__, DK_, D__, D__, D__, D__, D__, D__, D__, D__, DW_, D__, DC_, DB_, LAK, DB_, DC_, D__},
+    {D__, D__, D__, D__, D__, D__, DY_, DY_, DY_, D__, D__, D__, FLS, D__, D__, DK_, D__, D__, D__, D__, D__, D__, D__, D__, DW_, D__, DC_, DB_, LAK, DB_, DC_, D__}, // 40
     {D__, DC_, DC_, DC_, D__, DY_, DY_, FYW, DY_, DY_, D__, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, D__, D__, D__, DW_, D__, DC_, DB_, DB_, DB_, DC_, D__},
-    {DC_, DB_, DB_, DB_, DC_, D__, DY_, DY_, DY_, D__, D__, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, D__, D__, D__, DW_, D__, D__, DC_, DC_, DC_, D__, D__},
+    {DC_, DB_, DB_, DB_, DC_, D__, DY_, DY_, DY_, D__, D__, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, D__, D__, D__, DW_, D__, D__, DC_, DC_, DC_, D__, D__}, // 50
     {DC_, DB_, LAK, DB_, DC_, D__, D__, DY_, D__, D__, D__, D__, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, DK_, D__, DW_, D__, D__, D__, D__, D__, D__, D__},
-    {DC_, DB_, DB_, DB_, DC_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, DK_, DK_, DK_, DK_, D__, DK_, RWY, D__, D__, D__, D__, D__, D__, D__},
+    {DC_, DB_, DB_, DB_, DC_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, DK_, DK_, DK_, DK_, D__, DK_, RWY, D__, D__, D__, D__, D__, D__, D__}, // 60
     {D__, DC_, DC_, DC_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, FLD, D__, D__, D__, DK_, TWN, DK_, D__, D__, D__, DW_, DK_, DK_, D__, DK_, DK_, DK_, D__},
-    {D__, D__, D__, D__, D__, D__, D__, D__, DY_, DY_, DY_, D__, D__, D__, D__, D__, D__, D__, DK_, DK_, DK_, D__, D__, D__, DW_, D__, D__, DK_, DK_, TWN, DK_, D__},
+    {D__, D__, D__, D__, D__, D__, D__, D__, DY_, DY_, DY_, D__, D__, D__, D__, D__, D__, D__, DK_, DK_, DK_, D__, D__, D__, DW_, D__, D__, DK_, DK_, TWN, DK_, D__}, // 70
     {D__, D__, D__, DB_, DB_, DB_, D__, D__, DY_, FYS, DY_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, DW_, D__, D__, D__, DK_, DK_, DK_, D__},
 };

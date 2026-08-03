@@ -1715,17 +1715,12 @@ static void test_intermediate_navpoint_reached_message() {
   printf("Running test_intermediate_navpoint_reached_message...\n");
 
   msg_clear();
-  flight_init_from_mission(4);
+  flight_init_from_mission(5);
 
-  // Land on Runway 1 to complete intermediate waypoint 0 (a navpoint)
-  flight_gear = true;
-  flight_eye_x = 0x140000;
-  flight_eye_y = 0x3F8000;
-  flight_eye_z = kGroundZ;
-  flight_throttle = 0;
-  flight_speed = kTrimSpeed;
-  flight_advance();
-  flight_speed = 0;
+  // Fly to Lake 1 to complete intermediate waypoint 0 (navpoint 1)
+  flight_eye_x = 0x580000;
+  flight_eye_y = 0x108000;
+  flight_eye_z = 0x020000;
   flight_advance();
 
   assert(flight_current_wp == 1);
@@ -1786,20 +1781,7 @@ static void test_mission_05_ferry_flight_completion() {
   assert(flight_status == FLIGHT_ONGOING);
   assert(!mission_completed[4]);
 
-  // Waypoint 0: Land on Runway 1 (0x140000, 0x3F8000)
-  flight_gear = true;
-  flight_eye_x = 0x140000;
-  flight_eye_y = 0x3F8000;
-  flight_eye_z = kGroundZ;
-  flight_throttle = 0;
-  flight_speed = kTrimSpeed;
-  flight_advance();
-  flight_speed = 0;
-  flight_advance();
-  assert(flight_current_wp == 1);
-  assert(flight_status == FLIGHT_ONGOING);
-
-  // Waypoint 1: Land on Runway 2 (0x600000, 0xBF8000) and land safely
+  // Land on Runway 2 (0x600000, 0xBF8000) and land safely
   flight_gear = true;
   flight_eye_x = 0x600000;
   flight_eye_y = 0xBF8000;
@@ -1820,11 +1802,227 @@ static void test_mission_05_ferry_flight_completion() {
   printf("  PASS\n\n");
 }
 
+static void test_mission_06_area_patrol_completion() {
+  printf("Running test_mission_06_area_patrol_completion...\n");
+
+  msg_clear();
+  mission_completed[5] = false;
+  flight_init_from_mission(5);
+  msg_show(kMissionTitles[5]);
+
+  assert_msg_rendered(kMissionTitles[5]);
+  assert(flight_current_wp == 0);
+  assert(flight_status == FLIGHT_ONGOING);
+  assert(!mission_completed[5]);
+
+  // Waypoint 0: Lake 1 (0x580000, 0x108000)
+  flight_eye_x = 0x580000;
+  flight_eye_y = 0x108000;
+  flight_eye_z = 0x020000;
+  flight_advance();
+  assert(flight_current_wp == 1);
+  assert(flight_status == FLIGHT_ONGOING);
+
+  // Waypoint 1: Lake 2 (0x400000, 0xE08000)
+  flight_eye_x = 0x400000;
+  flight_eye_y = 0xE08000;
+  flight_advance();
+  assert(flight_current_wp == 2);
+  assert(flight_status == FLIGHT_ONGOING);
+
+  // Waypoint 2: Lake 3 (0x100000, 0xD08000)
+  flight_eye_x = 0x100000;
+  flight_eye_y = 0xD08000;
+  flight_advance();
+  assert(flight_current_wp == 3);
+  assert(flight_status == FLIGHT_ONGOING);
+
+  // Waypoint 3: Land on Runway 2 (0x600000, 0xBF8000)
+  flight_gear = true;
+  flight_eye_x = 0x600000;
+  flight_eye_y = 0xBF8000;
+  flight_eye_z = kGroundZ;
+  flight_throttle = 0;
+  flight_speed = kTrimSpeed;
+  flight_advance();
+  flight_speed = 0;
+  flight_advance();
+  assert(flight_status == FLIGHT_MISSION_COMPLETED);
+  assert(mission_completed[5]);
+
+  printf("  PASS\n\n");
+}
+
+static void test_mission_07_airshow_completion() {
+  printf("Running test_mission_07_airshow_completion...\n");
+
+  msg_clear();
+  mission_completed[6] = false;
+  flight_init_from_mission(6);
+  msg_show(kMissionTitles[6]);
+
+  assert_msg_rendered(kMissionTitles[6]);
+  assert(flight_current_wp == 0);
+  assert(flight_status == FLIGHT_ONGOING);
+  assert(!mission_completed[6]);
+
+  // Waypoint 0: Fly upside down above Runway 2 (0x600000, 0x608000)
+  flight_cam.up.z = -256;
+  flight_eye_x = 0x600000;
+  flight_eye_y = 0x608000;
+  flight_eye_z = 0x010000;
+  flight_advance();
+  assert(flight_current_wp == 1);
+  assert(flight_status == FLIGHT_ONGOING);
+
+  // Waypoint 1: Land on Runway 2 (0x600000, 0x608000)
+  flight_cam.up.z = 256;
+  flight_gear = true;
+  flight_eye_x = 0x600000;
+  flight_eye_y = 0x608000;
+  flight_eye_z = kGroundZ;
+  flight_throttle = 0;
+  flight_speed = kTrimSpeed;
+  flight_advance();
+  flight_speed = 0;
+  flight_advance();
+  assert(flight_status == FLIGHT_MISSION_COMPLETED);
+  assert(mission_completed[6]);
+
+  printf("  PASS\n\n");
+}
+
+static void test_mission_08_aerial_recon_completion() {
+  printf("Running test_mission_08_aerial_recon_completion...\n");
+
+  msg_clear();
+  mission_completed[7] = false;
+  flight_init_from_mission(7);
+  msg_show(kMissionTitles[7]);
+
+  assert_msg_rendered(kMissionTitles[7]);
+  assert(flight_current_wp == 0);
+  assert(flight_status == FLIGHT_ONGOING);
+
+  // Waypoint 0: City 1 at 3000ft (0x580000, 0x108000, z >= 0x060000)
+  flight_eye_x = 0x580000;
+  flight_eye_y = 0x108000;
+  flight_eye_z = 0x065000;
+  flight_advance();
+  assert(flight_current_wp == 1);
+
+  // Waypoint 1: City 2 at 3000ft (0x580000, 0x688000, z >= 0x060000)
+  flight_eye_x = 0x580000;
+  flight_eye_y = 0x688000;
+  flight_eye_z = 0x065000;
+  flight_advance();
+  assert(flight_current_wp == 2);
+
+  // Waypoint 2: City 3 at 3000ft (0x580000, 0x708000, z >= 0x060000)
+  flight_eye_x = 0x580000;
+  flight_eye_y = 0x708000;
+  flight_eye_z = 0x065000;
+  flight_advance();
+  assert(flight_current_wp == 3);
+
+  // Waypoint 3: Land on Runway 2 (0x600000, 0x608000)
+  flight_gear = true;
+  flight_eye_x = 0x600000;
+  flight_eye_y = 0x608000;
+  flight_eye_z = kGroundZ;
+  flight_throttle = 0;
+  flight_speed = kTrimSpeed;
+  flight_advance();
+  flight_speed = 0;
+  flight_advance();
+  assert(flight_status == FLIGHT_MISSION_COMPLETED);
+  assert(mission_completed[7]);
+
+  printf("  PASS\n\n");
+}
+
+static void test_mission_09_crop_duster_completion() {
+  printf("Running test_mission_09_crop_duster_completion...\n");
+
+  msg_clear();
+  mission_completed[8] = false;
+  flight_init_from_mission(8);
+  msg_show(kMissionTitles[8]);
+
+  assert_msg_rendered(kMissionTitles[8]);
+  assert(flight_current_wp == 0);
+  assert(flight_status == FLIGHT_ONGOING);
+
+  // Waypoint 0: Field 1 below 100ft (0x300000, 0x888000, z <= 0x004000)
+  flight_eye_x = 0x300000;
+  flight_eye_y = 0x888000;
+  flight_eye_z = 0x003000;
+  flight_advance();
+  assert(flight_current_wp == 1);
+
+  // Waypoint 1: Field 2 below 100ft (0x080000, 0xA08000, z <= 0x004000)
+  flight_eye_x = 0x080000;
+  flight_eye_y = 0xA08000;
+  flight_eye_z = 0x003000;
+  flight_advance();
+  assert(flight_current_wp == 2);
+
+  // Waypoint 2: Field 3 below 100ft (0x380000, 0xB08000, z <= 0x004000)
+  flight_eye_x = 0x380000;
+  flight_eye_y = 0xB08000;
+  flight_eye_z = 0x003000;
+  flight_advance();
+  assert(flight_current_wp == 3);
+
+  // Waypoint 3: Land on Runway 2 (0x600000, 0x608000)
+  flight_gear = true;
+  flight_eye_x = 0x600000;
+  flight_eye_y = 0x608000;
+  flight_eye_z = kGroundZ;
+  flight_throttle = 0;
+  flight_speed = kTrimSpeed;
+  flight_advance();
+  flight_speed = 0;
+  flight_advance();
+  assert(flight_status == FLIGHT_MISSION_COMPLETED);
+  assert(mission_completed[8]);
+
+  printf("  PASS\n\n");
+}
+
+static void test_mission_10_fuel_challenge_completion() {
+  printf("Running test_mission_10_fuel_challenge_completion...\n");
+
+  msg_clear();
+  mission_completed[9] = false;
+  flight_init_from_mission(9);
+  msg_show(kMissionTitles[9]);
+
+  assert_msg_rendered(kMissionTitles[9]);
+  assert(flight_current_wp == 0);
+  assert(flight_status == FLIGHT_ONGOING);
+
+  // Waypoint 0: Land on Runway 2 (0x600000, 0x608000)
+  flight_gear = true;
+  flight_eye_x = 0x600000;
+  flight_eye_y = 0xBF8000;
+  flight_eye_z = kGroundZ;
+  flight_throttle = 0;
+  flight_speed = kTrimSpeed;
+  flight_advance();
+  flight_speed = 0;
+  flight_advance();
+  assert(flight_status == FLIGHT_MISSION_COMPLETED);
+  assert(mission_completed[9]);
+
+  printf("  PASS\n\n");
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   mem_screen_row_ptrs[0] = test_screen_row;
-  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (45 TESTS) ===\n\n");
+  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (50 TESTS) ===\n\n");
   test_host_multiply_matches_c64();
   test_level_cruise_equilibrium();
   test_trim_speed_boundary();
@@ -1870,6 +2068,11 @@ int main(int argc, char **argv) {
   test_intermediate_navpoint_reached_message();
   test_mission_04_find_the_runway_completion();
   test_mission_05_ferry_flight_completion();
-  printf("ALL 45 TESTS PASSED SUCCESSFULLY!\n");
+  test_mission_06_area_patrol_completion();
+  test_mission_07_airshow_completion();
+  test_mission_08_aerial_recon_completion();
+  test_mission_09_crop_duster_completion();
+  test_mission_10_fuel_challenge_completion();
+  printf("ALL 50 TESTS PASSED SUCCESSFULLY!\n");
   return 0;
 }

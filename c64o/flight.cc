@@ -230,37 +230,47 @@ static void _flight_check_mission_waypoints() {
 
   uint8_t wp_idx = wp_begin + flight_current_wp;
   MissionWaypointConstraint constraint = kMissionWpConstraint[wp_idx];
-  bool met = false;
+  uint8_t eye_x_high = (uint8_t)(flight_eye_x >> 16);
+  uint8_t eye_y_high = (uint8_t)(flight_eye_y >> 16);
+  uint8_t wx = kMissionWpX[wp_idx];
+  uint8_t wy = kMissionWpY[wp_idx];
 
-  switch (constraint) {
-  case WP_MIN_1000FT:
-    if (flight_eye_z >= 0x020000) {
-      met = true;
+  bool pos_ok = true;
+  if (wx != 0 || wy != 0) {
+    int8_t dx = (int8_t)(eye_x_high - wx);
+    int8_t dy = (int8_t)(eye_y_high - wy);
+    if (dx < 0) {
+      dx = -dx;
     }
+    if (dy < 0) {
+      dy = -dy;
+    }
+    uint8_t max_dy = (constraint == WP_LANDED) ? 0x04 : 0x10;
+    pos_ok = (dx <= 0x10 && dy <= max_dy);
+  }
+
+  bool met = false;
+  switch (constraint) {
+  case WP_NOTHING:
+    met = pos_ok;
+    break;
+  case WP_MIN_1000FT:
+    met = (flight_eye_z >= 0x020000) && pos_ok;
     break;
   case WP_MIN_2000FT:
-    if (flight_eye_z >= 0x040000) {
-      met = true;
-    }
+    met = (flight_eye_z >= 0x040000) && pos_ok;
+    break;
+  case WP_MIN_3000FT:
+    met = (flight_eye_z >= 0x060000) && pos_ok;
+    break;
+  case WP_MAX_100FT:
+    met = (flight_eye_z <= 0x004000) && pos_ok;
+    break;
+  case WP_UPSIDE_DOWN:
+    met = (flight_cam.up.z < 0) && pos_ok;
     break;
   case WP_LANDED:
-    if (model_on_ground && flight_speed <= 0x0010) {
-      uint8_t eye_x_high = (uint8_t)(flight_eye_x >> 16);
-      uint8_t eye_y_high = (uint8_t)(flight_eye_y >> 16);
-      uint8_t wx = kMissionWpX[wp_idx];
-      uint8_t wy = kMissionWpY[wp_idx];
-      int8_t dx = (int8_t)(eye_x_high - wx);
-      int8_t dy = (int8_t)(eye_y_high - wy);
-      if (dx < 0) {
-        dx = -dx;
-      }
-      if (dy < 0) {
-        dy = -dy;
-      }
-      if (dx <= 0x10 && dy <= 0x04) {
-        met = true;
-      }
-    }
+    met = model_on_ground && (flight_speed <= 0x0010) && pos_ok;
     break;
   default:
     break;

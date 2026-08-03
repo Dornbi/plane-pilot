@@ -10,17 +10,20 @@ enum MissionWaypointConstraint {
   WP_LANDED = 1,
   WP_MIN_1000FT = 2,
   WP_MIN_2000FT = 3,
+  WP_MIN_3000FT = 4,
+  WP_MAX_100FT = 5,
+  WP_UPSIDE_DOWN = 6,
 };
 
 // Waypoints across all missions.
-static const uint8_t kMissionWpCount = 4;
+static const uint8_t kMissionWpCount = 17;
 extern const uint8_t kMissionWpX[kMissionWpCount]; // flight_eye_x = x << 16;
 extern const uint8_t
     kMissionWpY[kMissionWpCount]; // flight_eye_y = y << 16 + 0x8000;
 extern const MissionWaypointConstraint kMissionWpConstraint[kMissionWpCount];
 extern const uint8_t kWaypointDefault;
 
-static const uint8_t kMissionCount = 5;
+static const uint8_t kMissionCount = 10;
 extern const char *const kMissionTitles[kMissionCount];
 extern const char *const kMissionDesc[kMissionCount];
 
