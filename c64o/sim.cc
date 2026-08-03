@@ -176,38 +176,20 @@ void sim_run(uint8_t selected_mission) {
       bm_model_start();
       flight_advance();
       if (flight_status) {
-        const char *msg = "YOU CRASHED";
-        switch (flight_status) {
-        case FLIGHT_CRASH_ROLL:
-          msg = "CRASH: BANK ANGLE";
-          break;
-        case FLIGHT_CRASH_INVERTED:
-          msg = "CRASH: INVERTED";
-          break;
-        case FLIGHT_CRASH_PITCH_LOW:
-          msg = "CRASH: PITCH TOO LOW";
-          break;
-        case FLIGHT_CRASH_PITCH_HIGH:
-          msg = "CRASH: PITCH TOO HIGH";
-          break;
-        case FLIGHT_CRASH_VSPEED:
-          msg = "CRASH: HARD LANDING";
-          break;
-        case FLIGHT_CRASH_SPEED:
-          msg = "CRASH: TOO FAST";
-          break;
-        case FLIGHT_CRASH_GEAR:
-          msg = "CRASH: GEAR RETRACTED";
-          break;
-        case FLIGHT_CRASH_NOT_ON_RUNWAY:
-          msg = "CRASH: NOT ON RUNWAY";
-          break;
-        case FLIGHT_MISSION_COMPLETED:
-          msg = "MISSION COMPLETE!";
-          break;
-        default:
-          break;
-        }
+        // Indexed by FlightStatus; keep in sync with the enum in flight.h.
+        static const char *const kStatusMsg[] = {
+            "",                      // FLIGHT_ONGOING
+            "MISSION COMPLETE!",     // FLIGHT_MISSION_COMPLETED
+            "CRASH: BANK ANGLE",     // FLIGHT_CRASH_ROLL
+            "CRASH: INVERTED",       // FLIGHT_CRASH_INVERTED
+            "CRASH: PITCH TOO LOW",  // FLIGHT_CRASH_PITCH_LOW
+            "CRASH: PITCH TOO HIGH", // FLIGHT_CRASH_PITCH_HIGH
+            "CRASH: HARD LANDING",   // FLIGHT_CRASH_VSPEED
+            "CRASH: TOO FAST",       // FLIGHT_CRASH_SPEED
+            "CRASH: GEAR RETRACTED", // FLIGHT_CRASH_GEAR
+            "CRASH: NOT ON RUNWAY",  // FLIGHT_CRASH_NOT_ON_RUNWAY
+        };
+        const char *msg = kStatusMsg[flight_status];
         msg_show(msg, MSG_FOREVER, true);
       }
       msg_update();

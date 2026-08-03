@@ -34,19 +34,15 @@ static void _render_menu_items(uint8_t scroll_offset) {
     uint8_t i = scroll_offset + v;
     print_str(row, 2, kMissionTitles[i], strlen(kMissionTitles[i]));
     print_lines(row + 1, 4, kMissionDesc[i]);
-    if (mission_completed[i]) {
-      print_str(row, 38, STRL("@"));
-    } else {
-      print_str(row, 38, STRL("."));
-    }
+    mem_screen_row_ptrs[row][38] = mission_completed[i] ? '@' : '.';
     row += kMissionRowStep;
   }
 
   if (scroll_offset > 0) {
-    print_str(4, 38, STRL("("));
+    mem_screen_row_ptrs[4][38] = '(';
   }
   if (scroll_offset + kVisibleMissions < kMissionCount) {
-    print_str(22, 38, STRL(")"));
+    mem_screen_row_ptrs[22][38] = ')';
   }
 }
 

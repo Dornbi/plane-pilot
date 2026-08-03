@@ -218,6 +218,59 @@ static void _flight_move_forward(int16_t fspeed, int16_t vspeed) {
   }
 }
 
+// True when the aircraft is over a runway tile.
+static bool _on_runway() {
+  uint8_t row = ((uint8_t)(flight_eye_x >> 16) >> 3) & kWorldMapHeightMask;
+  uint8_t col = ((uint8_t)(flight_eye_y >> 16) >> 3) & kWorldMapWidthMask;
+  return kWorldMap[row][col] == MAP_OBJ_RUNWAY;
+}
+
+// One landing envelope test, shared by the approach warnings and the
+// touchdown verdict. Returns FLIGHT_ONGOING while inside the envelope,
+// otherwise the status describing the first violation.
+static enum FlightStatus _landing_fault(uint16_t speed_limit,
+                                        bool check_runway) {
+  if (_abs16(flight_cam.left.z) > kMaxLandingRoll) {
+    return FLIGHT_CRASH_ROLL;
+  }
+  if (flight_cam.up.z < kMinLandingUpZ) {
+    return FLIGHT_CRASH_INVERTED;
+  }
+  if (flight_cam.front.z < kMinLandingPitch) {
+    return FLIGHT_CRASH_PITCH_LOW;
+  }
+  if (flight_cam.front.z > kMaxLandingPitch) {
+    return FLIGHT_CRASH_PITCH_HIGH;
+  }
+  if (flight_vspeed < kMaxLandingVSpeed) {
+    return FLIGHT_CRASH_VSPEED;
+  }
+  if (flight_speed > speed_limit) {
+    return FLIGHT_CRASH_SPEED;
+  }
+  if (!flight_gear) {
+    return FLIGHT_CRASH_GEAR;
+  }
+  if (check_runway && !_on_runway()) {
+    return FLIGHT_CRASH_NOT_ON_RUNWAY;
+  }
+  return FLIGHT_ONGOING;
+}
+
+// Indexed by FlightStatus; keep in sync with the enum in flight.h.
+static const char *const kLandingWarning[] = {
+    "",                    // FLIGHT_ONGOING
+    "",                    // FLIGHT_MISSION_COMPLETED
+    "WARN: BANK ANGLE",    // FLIGHT_CRASH_ROLL
+    "WARN: INVERTED",      // FLIGHT_CRASH_INVERTED
+    "WARN: BAD PITCH",     // FLIGHT_CRASH_PITCH_LOW
+    "WARN: BAD PITCH",     // FLIGHT_CRASH_PITCH_HIGH
+    "WARN: SINK RATE",     // FLIGHT_CRASH_VSPEED
+    "WARN: TOO FAST",      // FLIGHT_CRASH_SPEED
+    "WARN: LOWER GEAR",    // FLIGHT_CRASH_GEAR
+    "WARN: NOT ON RUNWAY", // FLIGHT_CRASH_NOT_ON_RUNWAY
+};
+
 static void _flight_check_mission_waypoints() {
   if (flight_active_mission_idx >= kMissionCount || flight_status || flight_paused) {
     return;
@@ -250,31 +303,34 @@ static void _flight_check_mission_waypoints() {
     pos_ok = (dx <= 0x10 && dy <= max_dy);
   }
 
-  bool met = false;
-  switch (constraint) {
-  case WP_NOTHING:
-    met = pos_ok;
-    break;
-  case WP_MIN_1000FT:
-    met = (flight_eye_z >= 0x020000) && pos_ok;
-    break;
-  case WP_MIN_2000FT:
-    met = (flight_eye_z >= 0x040000) && pos_ok;
-    break;
-  case WP_MIN_3000FT:
-    met = (flight_eye_z >= 0x060000) && pos_ok;
-    break;
-  case WP_MAX_100FT:
-    met = (flight_eye_z <= 0x004000) && pos_ok;
-    break;
-  case WP_UPSIDE_DOWN:
-    met = (flight_cam.up.z < 0) && pos_ok;
-    break;
-  case WP_LANDED:
-    met = model_on_ground && (flight_speed <= 0x0010) && pos_ok;
-    break;
-  default:
-    break;
+  // Altitude limits live in a table so the three MIN_*FT cases share one
+  // comparison instead of open-coding three 32-bit ones.
+  // Indexed by MissionWaypointConstraint; keep in sync with mission.h.
+  static const uint8_t kWpMinAltHi[] = {
+      0, // 0 WP_NOTHING
+      0, // 1 WP_LANDED       (handled below)
+      2, // 2 WP_MIN_1000FT   (0x020000 >> 16)
+      4, // 3 WP_MIN_2000FT
+      6, // 4 WP_MIN_3000FT
+      0, // 5 WP_MAX_100FT    (handled below)
+      0, // 6 WP_UPSIDE_DOWN  (handled below)
+  };
+  bool met = pos_ok;
+  if (met) {
+    switch (constraint) {
+    case WP_MAX_100FT:
+      met = flight_eye_z <= 0x004000;
+      break;
+    case WP_UPSIDE_DOWN:
+      met = flight_cam.up.z < 0;
+      break;
+    case WP_LANDED:
+      met = model_on_ground && (flight_speed <= 0x0010);
+      break;
+    default:
+      met = (uint8_t)(flight_eye_z >> 16) >= kWpMinAltHi[constraint];
+      break;
+    }
   }
 
   if (met) {
@@ -449,25 +505,9 @@ void flight_advance() {
     _flight_move_forward(flight_speed << 1, flight_vspeed);
 
     if (!model_on_ground && flight_vspeed < 0 && flight_eye_z <= 0x4000) {
-      uint8_t wx = (uint8_t)(flight_eye_x >> 16);
-      uint8_t wy = (uint8_t)(flight_eye_y >> 16);
-      uint8_t row = (wx >> 3) & kWorldMapHeightMask;
-      uint8_t col = (wy >> 3) & kWorldMapWidthMask;
-      WorldMapType map_type = kWorldMap[row][col];
-
-      if (!flight_gear) {
-        msg_show("WARN: LOWER GEAR");
-      } else if (map_type != MAP_OBJ_RUNWAY) {
-        msg_show("WARN: NOT ON RUNWAY");
-      } else if (flight_speed > kMaxLandingSpeed) {
-        msg_show("WARN: TOO FAST");
-      } else if (flight_vspeed < kMaxLandingVSpeed) {
-        msg_show("WARN: SINK RATE");
-      } else if (_abs16(flight_cam.left.z) > kMaxLandingRoll) {
-        msg_show("WARN: BANK ANGLE");
-      } else if (flight_cam.front.z > kMaxLandingPitch ||
-                 flight_cam.front.z < kMinLandingPitch) {
-        msg_show("WARN: BAD PITCH");
+      enum FlightStatus fault = _landing_fault(kMaxLandingSpeed, true);
+      if (fault) {
+        msg_show(kLandingWarning[fault]);
       }
     }
 
@@ -477,29 +517,8 @@ void flight_advance() {
       // roll.
       bool was_on_ground = model_on_ground;
       uint16_t speed_limit = was_on_ground ? kMaxGroundSpeed : kMaxLandingSpeed;
-      uint8_t wx = (uint8_t)(flight_eye_x >> 16);
-      uint8_t wy = (uint8_t)(flight_eye_y >> 16);
-      uint8_t row = (wx >> 3) & kWorldMapHeightMask;
-      uint8_t col = (wy >> 3) & kWorldMapWidthMask;
-      WorldMapType map_type = kWorldMap[row][col];
+      flight_status = _landing_fault(speed_limit, !was_on_ground);
 
-      if (_abs16(flight_cam.left.z) > kMaxLandingRoll) {
-        flight_status = FLIGHT_CRASH_ROLL;
-      } else if (flight_cam.up.z < kMinLandingUpZ) {
-        flight_status = FLIGHT_CRASH_INVERTED;
-      } else if (flight_cam.front.z < kMinLandingPitch) {
-        flight_status = FLIGHT_CRASH_PITCH_LOW;
-      } else if (flight_cam.front.z > kMaxLandingPitch) {
-        flight_status = FLIGHT_CRASH_PITCH_HIGH;
-      } else if (flight_vspeed < kMaxLandingVSpeed) {
-        flight_status = FLIGHT_CRASH_VSPEED;
-      } else if (flight_speed > speed_limit) {
-        flight_status = FLIGHT_CRASH_SPEED;
-      } else if (!flight_gear) {
-        flight_status = FLIGHT_CRASH_GEAR;
-      } else if (!was_on_ground && map_type != MAP_OBJ_RUNWAY) {
-        flight_status = FLIGHT_CRASH_NOT_ON_RUNWAY;
-      }
       model_on_ground = true;
       // Touched down: the descent is over. Zeroed after the envelope check
       // above, which needs the sink rate the aircraft arrived with.
