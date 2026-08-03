@@ -1917,23 +1917,23 @@ static void test_mission_08_aerial_recon_completion() {
   assert(flight_current_wp == 0);
   assert(flight_status == FLIGHT_ONGOING);
 
-  // Waypoint 0: City 1 at 3000ft (0x580000, 0x108000, z >= 0x060000)
-  flight_eye_x = 0x580000;
-  flight_eye_y = 0x108000;
+  // Waypoint 0: City 1 at 3000ft (0x100000, 0x688000, z >= 0x060000)
+  flight_eye_x = 0x100000;
+  flight_eye_y = 0x688000;
   flight_eye_z = 0x065000;
   flight_advance();
   assert(flight_current_wp == 1);
 
-  // Waypoint 1: City 2 at 3000ft (0x580000, 0x688000, z >= 0x060000)
-  flight_eye_x = 0x580000;
-  flight_eye_y = 0x688000;
+  // Waypoint 1: City 2 at 3000ft (0x680000, 0x988000, z >= 0x060000)
+  flight_eye_x = 0x680000;
+  flight_eye_y = 0x988000;
   flight_eye_z = 0x065000;
   flight_advance();
   assert(flight_current_wp == 2);
 
-  // Waypoint 2: City 3 at 3000ft (0x580000, 0x708000, z >= 0x060000)
-  flight_eye_x = 0x580000;
-  flight_eye_y = 0x708000;
+  // Waypoint 2: City 3 at 3000ft (0x700000, 0xE88000, z >= 0x060000)
+  flight_eye_x = 0x700000;
+  flight_eye_y = 0xE88000;
   flight_eye_z = 0x065000;
   flight_advance();
   assert(flight_current_wp == 3);
