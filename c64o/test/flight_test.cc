@@ -2056,7 +2056,7 @@ static void test_low_altitude_approach_warnings() {
   flight_eye_z = 0x003000; // <= 0x4000
   msg_clear();
   flight_advance();
-  assert_msg_rendered("WARN: LOWER GEAR");
+  assert_msg_rendered("WARNING: GEAR RETRACTED");
 
   flight_init();
   flight_current_wp = 5;
@@ -2067,7 +2067,7 @@ static void test_low_altitude_approach_warnings() {
   flight_eye_z = 0x003000;
   msg_clear();
   flight_advance();
-  assert_msg_rendered("WARN: NOT ON RUNWAY");
+  assert_msg_rendered("WARNING: NOT ON RUNWAY");
 
   printf("  PASS\n\n");
 }

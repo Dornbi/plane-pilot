@@ -263,19 +263,45 @@ static enum FlightStatus _landing_fault(uint16_t speed_limit,
   return FLIGHT_ONGOING;
 }
 
-// Indexed by FlightStatus; keep in sync with the enum in flight.h.
-static const char *const kLandingWarning[] = {
-    "",                    // FLIGHT_ONGOING
-    "",                    // FLIGHT_MISSION_COMPLETED
-    "WARN: BANK ANGLE",    // FLIGHT_CRASH_ROLL
-    "WARN: INVERTED",      // FLIGHT_CRASH_INVERTED
-    "WARN: BAD PITCH",     // FLIGHT_CRASH_PITCH_LOW
-    "WARN: BAD PITCH",     // FLIGHT_CRASH_PITCH_HIGH
-    "WARN: SINK RATE",     // FLIGHT_CRASH_VSPEED
-    "WARN: TOO FAST",      // FLIGHT_CRASH_SPEED
-    "WARN: LOWER GEAR",    // FLIGHT_CRASH_GEAR
-    "WARN: NOT ON RUNWAY", // FLIGHT_CRASH_NOT_ON_RUNWAY
+// One text per FlightStatus, with the prefix supplied by the caller, so the
+// approach warnings and the crash report share one set of strings.
+// Keep in sync with the enum in flight.h.
+static const char *const kFaultText[] = {
+    "",               // FLIGHT_ONGOING
+    "",               // FLIGHT_MISSION_COMPLETED (handled below)
+    "BANK ANGLE",     // FLIGHT_CRASH_ROLL
+    "INVERTED",       // FLIGHT_CRASH_INVERTED
+    "PITCH TOO LOW",  // FLIGHT_CRASH_PITCH_LOW
+    "PITCH TOO HIGH", // FLIGHT_CRASH_PITCH_HIGH
+    "SINK RATE",      // FLIGHT_CRASH_VSPEED
+    "TOO FAST",       // FLIGHT_CRASH_SPEED
+    "GEAR RETRACTED", // FLIGHT_CRASH_GEAR
+    "NOT ON RUNWAY",  // FLIGHT_CRASH_NOT_ON_RUNWAY
 };
+
+// Both prefixes are nine characters, so the joined text fits comfortably on
+// row 0. Built here rather than stored per message because msg_show() keeps
+// only the pointer. A crash ends the flight and flight_advance() returns
+// early once flight_status is set, so no warning can rewrite the buffer while
+// a crash message is still on screen.
+static char _status_text[24];
+
+const char *flight_status_text(enum FlightStatus status, bool crashed) {
+  if (status == FLIGHT_MISSION_COMPLETED) {
+    return "MISSION COMPLETE!";
+  }
+  const char *src = crashed ? "CRASHED: " : "WARNING: ";
+  char *dst = _status_text;
+  while (*src) {
+    *dst++ = *src++;
+  }
+  src = kFaultText[status];
+  while (*src) {
+    *dst++ = *src++;
+  }
+  *dst = 0;
+  return _status_text;
+}
 
 static void _flight_check_mission_waypoints() {
   if (flight_active_mission_idx >= kMissionCount || flight_status || flight_paused) {
@@ -513,7 +539,7 @@ void flight_advance() {
     if (!model_on_ground && flight_vspeed < 0 && flight_eye_z <= 0x4000) {
       enum FlightStatus fault = _landing_fault(kMaxLandingSpeed, true);
       if (fault) {
-        msg_show(kLandingWarning[fault]);
+        msg_show(flight_status_text(fault, false));
       }
     }
 

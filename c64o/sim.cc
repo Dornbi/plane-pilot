@@ -176,20 +176,7 @@ void sim_run(uint8_t selected_mission) {
       bm_model_start();
       flight_advance();
       if (flight_status) {
-        // Indexed by FlightStatus; keep in sync with the enum in flight.h.
-        static const char *const kStatusMsg[] = {
-            "",                      // FLIGHT_ONGOING
-            "MISSION COMPLETE!",     // FLIGHT_MISSION_COMPLETED
-            "CRASH: BANK ANGLE",     // FLIGHT_CRASH_ROLL
-            "CRASH: INVERTED",       // FLIGHT_CRASH_INVERTED
-            "CRASH: PITCH TOO LOW",  // FLIGHT_CRASH_PITCH_LOW
-            "CRASH: PITCH TOO HIGH", // FLIGHT_CRASH_PITCH_HIGH
-            "CRASH: HARD LANDING",   // FLIGHT_CRASH_VSPEED
-            "CRASH: TOO FAST",       // FLIGHT_CRASH_SPEED
-            "CRASH: GEAR RETRACTED", // FLIGHT_CRASH_GEAR
-            "CRASH: NOT ON RUNWAY",  // FLIGHT_CRASH_NOT_ON_RUNWAY
-        };
-        const char *msg = kStatusMsg[flight_status];
+        const char *msg = flight_status_text(flight_status, true);
         msg_show(msg, MSG_FOREVER, true);
       }
       msg_update();

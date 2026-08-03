@@ -20,6 +20,11 @@ enum FlightStatus {
   FLIGHT_CRASH_NOT_ON_RUNWAY,
 };
 
+// Message for a status: "WARNING: ..." on the approach, "CRASHED: ..." after
+// touchdown, from one shared set of strings. The returned pointer is a shared
+// buffer, valid until the next call.
+const char *flight_status_text(enum FlightStatus status, bool crashed);
+
 extern bool flight_paused;
 extern enum FlightStatus flight_status;
 
