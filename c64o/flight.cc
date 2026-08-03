@@ -154,8 +154,9 @@ void flight_init_from_mission(uint8_t mission_idx) {
   }
   flight_speed = (int16_t)kMissionStartSpeed[mission_idx] << 4;
   flight_throttle = kMissionStartThrottle[mission_idx];
-  flight_fuel =
-      kMissionStartFuel[mission_idx] ? (((uint32_t)kMissionStartFuel[mission_idx] << 12) - 1) : 0;
+  flight_fuel = kMissionStartFuel[mission_idx]
+                    ? (((uint32_t)kMissionStartFuel[mission_idx] << 12) - 1)
+                    : 0;
   model_need_normalize = false;
   flight_flap = false;
   flight_gear = model_on_ground;
@@ -198,8 +199,10 @@ static void _flight_move_forward(int16_t fspeed, int16_t vspeed) {
 
 // True when the aircraft is over a runway tile.
 static bool _on_runway() {
-  uint8_t row = ((uint8_t)(flight_eye_x >> 16) >> 3) & kWorldMapHeightMask;
-  uint8_t col = ((uint8_t)(flight_eye_y >> 16) >> 3) & kWorldMapWidthMask;
+  uint8_t row =
+      ((uint8_t)((flight_eye_x >> 16) + 0x04) >> 3) & kWorldMapHeightMask;
+  uint8_t col =
+      ((uint8_t)((flight_eye_y >> 16) + 0x04) >> 3) & kWorldMapWidthMask;
   return kWorldMap[row][col] == MAP_OBJ_RUNWAY;
 }
 
@@ -262,9 +265,8 @@ static const char *const kFaultText[] = {
 // mission.h. WP_NOTHING has nothing to complain about: being there is the
 // whole constraint.
 static const char *const kWaypointFault[] = {
-    "",             // 0 WP_NOTHING
-    "LAND AND STOP" // 1 WP_LANDED
-    ,
+    "",            // 0 WP_NOTHING
+    "",            // 1 WP_LANDED
     "TOO LOW",     // 2 WP_MIN_1000FT
     "TOO LOW",     // 3 WP_MIN_2000FT
     "TOO LOW",     // 4 WP_MIN_3000FT
@@ -300,7 +302,8 @@ const char *flight_status_text(enum FlightStatus status, bool crashed) {
 }
 
 static void _flight_check_mission_waypoints() {
-  if (flight_active_mission_idx >= kMissionCount || flight_status || flight_paused) {
+  if (flight_active_mission_idx >= kMissionCount || flight_status ||
+      flight_paused) {
     return;
   }
   uint8_t wp_begin = kMissionWpBegin[flight_active_mission_idx];

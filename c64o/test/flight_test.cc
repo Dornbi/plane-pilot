@@ -2045,6 +2045,33 @@ static void test_landing_off_runway_crash() {
   printf("  PASS\n\n");
 }
 
+static void test_runway_1_bounds_alignment() {
+  printf("Running test_runway_1_bounds_alignment...\n");
+  // Test Runway 1 detection for EX: 0x001EF217, EY: 0x003F8000
+  flight_init();
+  flight_gear = true;
+  flight_eye_x = 0x001EF217;
+  flight_eye_y = 0x003F8000;
+  flight_eye_z = kGroundZ;
+  flight_throttle = 0;
+  flight_speed = kTrimSpeed;
+  flight_advance();
+  assert(flight_status == FLIGHT_ONGOING || flight_status == FLIGHT_MISSION_COMPLETED);
+
+  // Test edge of range 0x1C0001..0x23FFFF x 0x3C0001..0x43FFFF
+  flight_init();
+  flight_gear = true;
+  flight_eye_x = 0x001C0001;
+  flight_eye_y = 0x003C0001;
+  flight_eye_z = kGroundZ;
+  flight_throttle = 0;
+  flight_speed = kTrimSpeed;
+  flight_advance();
+  assert(flight_status == FLIGHT_ONGOING || flight_status == FLIGHT_MISSION_COMPLETED);
+
+  printf("  PASS\n\n");
+}
+
 static void test_low_altitude_approach_warnings() {
   printf("Running test_low_altitude_approach_warnings...\n");
   flight_init();
@@ -2127,6 +2154,7 @@ int main(int argc, char **argv) {
   test_mission_08_aerial_recon_completion();
   test_mission_09_crop_duster_completion();
   test_mission_10_fuel_challenge_completion();
+  test_runway_1_bounds_alignment();
   test_landing_off_runway_crash();
   test_low_altitude_approach_warnings();
   printf("ALL 52 TESTS PASSED SUCCESSFULLY!\n");
