@@ -6,6 +6,7 @@
 #include "fmath.h"
 #include "msg.h"
 #include "vec.h"
+#include "world.h"
 
 bool flight_paused = false;
 enum FlightStatus flight_status = FLIGHT_ONGOING;
@@ -87,7 +88,7 @@ static const int16_t kMaxLandingRoll = 32;
 // trying to express. Zero rather than a tight cos(roll) bound because up.z
 // also drops with nose-up pitch, and a legal flare must not trip this.
 static const int16_t kMinLandingUpZ = 0;
-static const int16_t kMinLandingPitch = -16;
+static const int16_t kMinLandingPitch = -32;
 static const int16_t kMaxLandingPitch = 64;
 // Sink rate limit. Has to sit inside the range reachable ABOVE stall speed to
 // mean anything: a below-stall arrival has already had its nose pushed past
@@ -114,8 +115,8 @@ void flight_init() {
   flight_active_mission_idx = 0xFF;
   flight_current_wp = 0;
   flight_cam = _m_init;
-  flight_eye_x = 0x140000;
-  flight_eye_y = 0x3F8000;
+  flight_eye_x = 0x200000;
+  flight_eye_y = 0x400000;
   flight_eye_z = 0x010000;
   flight_speed = 0x860;
   flight_throttle = 0x14;
@@ -447,12 +448,41 @@ void flight_advance() {
     // Motion
     _flight_move_forward(flight_speed << 1, flight_vspeed);
 
+    if (!model_on_ground && flight_vspeed < 0 && flight_eye_z <= 0x4000) {
+      uint8_t wx = (uint8_t)(flight_eye_x >> 16);
+      uint8_t wy = (uint8_t)(flight_eye_y >> 16);
+      uint8_t row = (wx >> 3) & kWorldMapHeightMask;
+      uint8_t col = (wy >> 3) & kWorldMapWidthMask;
+      WorldMapType map_type = kWorldMap[row][col];
+
+      if (!flight_gear) {
+        msg_show("WARN: LOWER GEAR");
+      } else if (map_type != MAP_OBJ_RUNWAY) {
+        msg_show("WARN: NOT ON RUNWAY");
+      } else if (flight_speed > kMaxLandingSpeed) {
+        msg_show("WARN: TOO FAST");
+      } else if (flight_vspeed < kMaxLandingVSpeed) {
+        msg_show("WARN: SINK RATE");
+      } else if (_abs16(flight_cam.left.z) > kMaxLandingRoll) {
+        msg_show("WARN: BANK ANGLE");
+      } else if (flight_cam.front.z > kMaxLandingPitch ||
+                 flight_cam.front.z < kMinLandingPitch) {
+        msg_show("WARN: BAD PITCH");
+      }
+    }
+
     if (flight_eye_z <= kMinEyeZ) {
       // model_on_ground still holds last frame's value here, so it says
       // whether this is a touchdown or another frame of an existing ground
       // roll.
       bool was_on_ground = model_on_ground;
       uint16_t speed_limit = was_on_ground ? kMaxGroundSpeed : kMaxLandingSpeed;
+      uint8_t wx = (uint8_t)(flight_eye_x >> 16);
+      uint8_t wy = (uint8_t)(flight_eye_y >> 16);
+      uint8_t row = (wx >> 3) & kWorldMapHeightMask;
+      uint8_t col = (wy >> 3) & kWorldMapWidthMask;
+      WorldMapType map_type = kWorldMap[row][col];
+
       if (_abs16(flight_cam.left.z) > kMaxLandingRoll) {
         flight_status = FLIGHT_CRASH_ROLL;
       } else if (flight_cam.up.z < kMinLandingUpZ) {
@@ -467,6 +497,8 @@ void flight_advance() {
         flight_status = FLIGHT_CRASH_SPEED;
       } else if (!flight_gear) {
         flight_status = FLIGHT_CRASH_GEAR;
+      } else if (!was_on_ground && map_type != MAP_OBJ_RUNWAY) {
+        flight_status = FLIGHT_CRASH_NOT_ON_RUNWAY;
       }
       model_on_ground = true;
       // Touched down: the descent is over. Zeroed after the envelope check

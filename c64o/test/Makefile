@@ -4,7 +4,7 @@
 HOST_CC = g++
 HOST_CFLAGS = -O2 -std=c++17 -Wall -Wno-unknown-pragmas -I..
 
-FLIGHT_TEST_SRC = flight_test.cc host_vec.cc ../flight.cc ../mission.cc ../vec.cc \
+FLIGHT_TEST_SRC = flight_test.cc host_vec.cc ../flight.cc ../mission.cc ../world_map.cc ../vec.cc \
 		../vec_lut.cc ../fmath.cc ../msg.cc
 FLIGHT_TEST_HDRS = ../flight.h ../mission.h ../vec.h ../fmath.h ../msg.h
 

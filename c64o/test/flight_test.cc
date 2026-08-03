@@ -44,7 +44,7 @@ static const int16_t kTrimSpeed = 0x0800;
 static const int32_t kGroundZ = 0x2000;
 static const int16_t kMaxLandingRoll = 32;
 static const int16_t kMinLandingUpZ = 0;
-static const int16_t kMinLandingPitch = -16;
+static const int16_t kMinLandingPitch = -32;
 static const int16_t kMaxLandingPitch = 64;
 static const int16_t kMaxLandingVSpeed = -0x00E0;
 static const uint16_t kMaxLandingSpeed = 0x0A00;
@@ -125,6 +125,8 @@ static void _roll_by(int steps) {
 static int16_t _arm_touchdown(int16_t pitch, int16_t roll, int16_t speed,
                               uint8_t gear, int roll_steps = 0) {
   flight_init();
+  flight_eye_x = 0x200000;
+  flight_eye_y = 0x400000;
   flight_eye_z = 0x040000;
   flight_gear = gear;
   flight_throttle = 0;
@@ -146,6 +148,8 @@ static int16_t _arm_touchdown(int16_t pitch, int16_t roll, int16_t speed,
 
   // Now re-arm the same state exactly one frame's descent above the ground.
   flight_init();
+  flight_eye_x = 0x200000;
+  flight_eye_y = 0x400000;
   flight_gear = gear;
   flight_throttle = 0;
   flight_speed = saved_speed;
@@ -160,6 +164,8 @@ static int16_t _arm_touchdown(int16_t pitch, int16_t roll, int16_t speed,
 // branch. One advance at ground level is what actually sets the flag.
 static void _put_on_ground(int16_t speed) {
   flight_init();
+  flight_eye_x = 0x200000;
+  flight_eye_y = 0x400000;
   flight_gear = 1;
   flight_throttle = 0;
   // The contact frame is a touchdown as far as flight_advance is concerned, so
@@ -769,27 +775,27 @@ static void test_touchdown_exact_boundary_limits() {
   // At kTrimSpeed the lift deficit is zero, so vertical speed is just the
   // pitch term and stays well inside the sink limit.
 
-  // Pitch = -16 (-3.5 deg pitch down) -> PASS
+  // Pitch = -27 (-6.0 deg pitch down) -> PASS
   flight_init();
   flight_gear = 1;
-  flight_cam.front.z = -16;
+  flight_cam.front.z = -27;
   flight_speed = kTrimSpeed;
-  vs = vec_fastmul8p8(-16, kTrimSpeed);
+  vs = vec_fastmul8p8(-27, kTrimSpeed);
   flight_eye_z = 0x2000 - vs - 1;
   flight_advance();
   assert(flight_vspeed >= kMaxLandingVSpeed); // Sink is not the binding check
   assert(!flight_status);
 
-  // Pitch = -17 -> CRASH
+  // Pitch = -33 -> CRASH
   flight_init();
   flight_gear = 1;
-  flight_cam.front.z = -17;
-  flight_speed = kTrimSpeed;
-  vs = vec_fastmul8p8(-17, kTrimSpeed);
+  flight_cam.front.z = -33;
+  flight_speed = 0x0680;
+  vs = vec_fastmul8p8(-33, 0x0680);
   flight_eye_z = 0x2000 - vs - 1;
   flight_advance();
   assert(flight_vspeed >= kMaxLandingVSpeed); // Crashes on pitch, not on sink
-  assert(flight_status);
+  assert(flight_status == FLIGHT_CRASH_PITCH_LOW);
 
   printf("  PASS\n\n");
 }
@@ -970,7 +976,7 @@ static void test_landing_envelope_sink_rate() {
   printf("Running test_landing_envelope_sink_rate...\n");
 
   // Nose down but with plenty of speed: sink stays inside the limit.
-  int16_t fast = _arm_touchdown(kMinLandingPitch, 0, 0x0800, 1);
+  int16_t fast = _arm_touchdown(-24, 0, 0x0800, 1);
   printf("  nose down at speed 0x0800 -> vspeed %d (limit %d)\n", fast,
          kMaxLandingVSpeed);
   assert(fast < 0);
@@ -980,7 +986,7 @@ static void test_landing_envelope_sink_rate() {
 
   // Same attitude, slow: the lift deficit drives the sink past the limit while
   // pitch, roll, speed, gear and up.z are all still legal.
-  int16_t slow = _arm_touchdown(kMinLandingPitch, 0, 0x0450, 1);
+  int16_t slow = _arm_touchdown(-24, 0, 0x0450, 1);
   printf("  nose down at speed 0x0450 -> vspeed %d\n", slow);
   assert(slow < kMaxLandingVSpeed);                     // Trigger 2 armed
   assert(_abs16(flight_cam.left.z) <= kMaxLandingRoll); // 3 clear
@@ -1520,8 +1526,8 @@ static void test_mission_waypoint_constraints() {
 
   // On ground with gear down and stopped on Runway 1
   flight_gear = true;
-  flight_eye_x = 0x140000;
-  flight_eye_y = 0x3F8000;
+  flight_eye_x = 0x200000;
+  flight_eye_y = 0x400000;
   flight_eye_z = kGroundZ;
   flight_throttle = 0;
   flight_speed = kTrimSpeed;
@@ -1558,8 +1564,8 @@ static void test_mission_waypoint_constraints() {
 
   // Land on Runway 1 with gear down
   flight_gear = true;
-  flight_eye_x = 0x140000;
-  flight_eye_y = 0x3F8000;
+  flight_eye_x = 0x200000;
+  flight_eye_y = 0x400000;
   flight_eye_z = kGroundZ;
   flight_throttle = 0;
   flight_speed = kTrimSpeed;
@@ -1634,8 +1640,8 @@ static void test_mission_02_landing_completion() {
 
   // On ground with gear down on Runway 1
   flight_gear = true;
-  flight_eye_x = 0x140000;
-  flight_eye_y = 0x3F8000;
+  flight_eye_x = 0x200000;
+  flight_eye_y = 0x400000;
   flight_eye_z = kGroundZ;
   flight_throttle = 0;
   flight_speed = kTrimSpeed;
@@ -1688,8 +1694,8 @@ static void test_mission_03_solo_flight_completion() {
 
   // Waypoint 1: Land on Runway 1 with gear down
   flight_gear = true;
-  flight_eye_x = 0x140000;
-  flight_eye_y = 0x3F8000;
+  flight_eye_x = 0x200000;
+  flight_eye_y = 0x400000;
   flight_eye_z = kGroundZ;
   flight_throttle = 0;
   flight_speed = kTrimSpeed;
@@ -1743,10 +1749,10 @@ static void test_mission_04_find_the_runway_completion() {
   assert(flight_status == FLIGHT_ONGOING);
   assert(!mission_completed[3]);
 
-  // Land on Runway 1 (0x140000, 0x3F8000) and land safely
+  // Land on Runway 1 (0x200000, 0x400000) and land safely
   flight_gear = true;
-  flight_eye_x = 0x140000;
-  flight_eye_y = 0x3F8000;
+  flight_eye_x = 0x200000;
+  flight_eye_y = 0x400000;
   flight_eye_z = kGroundZ;
   flight_throttle = 0;
   flight_speed = kTrimSpeed;
@@ -1784,7 +1790,7 @@ static void test_mission_05_ferry_flight_completion() {
   // Land on Runway 2 (0x600000, 0xBF8000) and land safely
   flight_gear = true;
   flight_eye_x = 0x600000;
-  flight_eye_y = 0xBF8000;
+  flight_eye_y = 0xC00000;
   flight_eye_z = kGroundZ;
   flight_throttle = 0;
   flight_speed = kTrimSpeed;
@@ -1840,7 +1846,7 @@ static void test_mission_06_area_patrol_completion() {
   // Waypoint 3: Land on Runway 2 (0x600000, 0xBF8000)
   flight_gear = true;
   flight_eye_x = 0x600000;
-  flight_eye_y = 0xBF8000;
+  flight_eye_y = 0xC00000;
   flight_eye_z = kGroundZ;
   flight_throttle = 0;
   flight_speed = kTrimSpeed;
@@ -1869,7 +1875,7 @@ static void test_mission_07_airshow_completion() {
   // Waypoint 0: Fly upside down above Runway 2 (0x600000, 0x608000)
   flight_cam.up.z = -256;
   flight_eye_x = 0x600000;
-  flight_eye_y = 0x608000;
+  flight_eye_y = 0xC00000;
   flight_eye_z = 0x010000;
   flight_advance();
   assert(flight_current_wp == 1);
@@ -1879,7 +1885,7 @@ static void test_mission_07_airshow_completion() {
   flight_cam.up.z = 256;
   flight_gear = true;
   flight_eye_x = 0x600000;
-  flight_eye_y = 0x608000;
+  flight_eye_y = 0xC00000;
   flight_eye_z = kGroundZ;
   flight_throttle = 0;
   flight_speed = kTrimSpeed;
@@ -1928,7 +1934,7 @@ static void test_mission_08_aerial_recon_completion() {
   // Waypoint 3: Land on Runway 2 (0x600000, 0x608000)
   flight_gear = true;
   flight_eye_x = 0x600000;
-  flight_eye_y = 0x608000;
+  flight_eye_y = 0xC00000;
   flight_eye_z = kGroundZ;
   flight_throttle = 0;
   flight_speed = kTrimSpeed;
@@ -1977,7 +1983,7 @@ static void test_mission_09_crop_duster_completion() {
   // Waypoint 3: Land on Runway 2 (0x600000, 0x608000)
   flight_gear = true;
   flight_eye_x = 0x600000;
-  flight_eye_y = 0x608000;
+  flight_eye_y = 0xC00000;
   flight_eye_z = kGroundZ;
   flight_throttle = 0;
   flight_speed = kTrimSpeed;
@@ -2005,7 +2011,7 @@ static void test_mission_10_fuel_challenge_completion() {
   // Waypoint 0: Land on Runway 2 (0x600000, 0x608000)
   flight_gear = true;
   flight_eye_x = 0x600000;
-  flight_eye_y = 0xBF8000;
+  flight_eye_y = 0xC00000;
   flight_eye_z = kGroundZ;
   flight_throttle = 0;
   flight_speed = kTrimSpeed;
@@ -2018,11 +2024,52 @@ static void test_mission_10_fuel_challenge_completion() {
   printf("  PASS\n\n");
 }
 
+static void test_landing_off_runway_crash() {
+  printf("Running test_landing_off_runway_crash...\n");
+  flight_init();
+  flight_gear = true;
+  flight_eye_x = 0x000000; // Not on runway
+  flight_eye_y = 0x000000;
+  flight_eye_z = kGroundZ;
+  flight_throttle = 0;
+  flight_speed = kTrimSpeed;
+  flight_advance();
+  assert(flight_status == FLIGHT_CRASH_NOT_ON_RUNWAY);
+  printf("  PASS\n\n");
+}
+
+static void test_low_altitude_approach_warnings() {
+  printf("Running test_low_altitude_approach_warnings...\n");
+  flight_init();
+  flight_current_wp = 5;
+  flight_gear = false;
+  flight_cam.front.z = -10;
+  flight_eye_x = 0x200000; // Runway 1
+  flight_eye_y = 0x400000;
+  flight_eye_z = 0x003000; // <= 0x4000
+  msg_clear();
+  flight_advance();
+  assert_msg_rendered("WARN: LOWER GEAR");
+
+  flight_init();
+  flight_current_wp = 5;
+  flight_gear = true;
+  flight_cam.front.z = -10;
+  flight_eye_x = 0x000000; // Off runway
+  flight_eye_y = 0x000000;
+  flight_eye_z = 0x003000;
+  msg_clear();
+  flight_advance();
+  assert_msg_rendered("WARN: NOT ON RUNWAY");
+
+  printf("  PASS\n\n");
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   mem_screen_row_ptrs[0] = test_screen_row;
-  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (50 TESTS) ===\n\n");
+  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (52 TESTS) ===\n\n");
   test_host_multiply_matches_c64();
   test_level_cruise_equilibrium();
   test_trim_speed_boundary();
@@ -2073,6 +2120,8 @@ int main(int argc, char **argv) {
   test_mission_08_aerial_recon_completion();
   test_mission_09_crop_duster_completion();
   test_mission_10_fuel_challenge_completion();
-  printf("ALL 50 TESTS PASSED SUCCESSFULLY!\n");
+  test_landing_off_runway_crash();
+  test_low_altitude_approach_warnings();
+  printf("ALL 52 TESTS PASSED SUCCESSFULLY!\n");
   return 0;
 }

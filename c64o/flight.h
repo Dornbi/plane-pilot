@@ -17,6 +17,7 @@ enum FlightStatus {
   FLIGHT_CRASH_VSPEED,
   FLIGHT_CRASH_SPEED,
   FLIGHT_CRASH_GEAR,
+  FLIGHT_CRASH_NOT_ON_RUNWAY,
 };
 
 extern bool flight_paused;

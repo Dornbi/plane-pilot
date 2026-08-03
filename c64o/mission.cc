@@ -41,16 +41,16 @@ const uint8_t kMissionWpY[kMissionWpCount] = {
     0xE0, // 04 (Lake 2)
     0xD0, // 05 (Lake 3)
     0xBF, // 06 (Runway 2)
-    0x60, // 07 (Runway 2 upside down)
-    0x60, // 08 (Runway 2)
+    0xBF, // 07 (Runway 2 upside down)
+    0xBF, // 08 (Runway 2)
     0x10, // 09 (City 1)
     0x68, // 10 (City 2)
     0x70, // 11 (City 3)
-    0x60, // 12 (Runway 2)
+    0xBF, // 12 (Runway 2)
     0x88, // 13 (Field 1)
     0xA0, // 14 (Field 2)
     0xB0, // 15 (Field 3)
-    0x60, // 16 (Runway 2)
+    0xBF, // 16 (Runway 2)
 };
 
 const MissionWaypointConstraint kMissionWpConstraint[kMissionWpCount] = {

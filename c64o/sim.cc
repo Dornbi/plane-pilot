@@ -199,6 +199,9 @@ void sim_run(uint8_t selected_mission) {
         case FLIGHT_CRASH_GEAR:
           msg = "CRASH: GEAR RETRACTED";
           break;
+        case FLIGHT_CRASH_NOT_ON_RUNWAY:
+          msg = "CRASH: NOT ON RUNWAY";
+          break;
         case FLIGHT_MISSION_COMPLETED:
           msg = "MISSION COMPLETE!";
           break;
