@@ -109,6 +109,8 @@ static const uint16_t kMaxLandingSpeed = 0x0A00;
 // mission data but leaves the takeoff roll ~45% of headroom.
 static const uint16_t kMaxGroundSpeed = 0x0D00;
 
+// Host test fixture only; see flight.h.
+#ifndef __OSCAR64__
 void flight_init() {
   flight_paused = false;
   flight_status = FLIGHT_ONGOING;
@@ -133,31 +135,7 @@ void flight_init() {
   flight_nav = 0;
   _flight_update_nav();
 }
-
-void flight_init_alt() {
-  flight_paused = false;
-  flight_status = FLIGHT_ONGOING;
-  flight_active_mission_idx = 0xFF;
-  flight_current_wp = 0;
-  flight_cam = _m_init;
-  flight_eye_x = 0x400000;
-  flight_eye_y = 0xBF8000;
-  flight_eye_z = 0x040000;
-  flight_speed = 0x860;
-  flight_throttle = 0x14;
-  model_need_normalize = false;
-  flight_flap = false;
-  flight_gear = false;
-  flight_fuel = 0x21FFF;
-  model_on_ground = false;
-  flight_nav_point_x[0] = 0x2000;
-  flight_nav_point_y[0] = 0x3F80;
-  flight_nav_point_x[1] = 0x6000;
-  flight_nav_point_y[1] = 0xBF80;
-  flight_num_nav_points = 2;
-  flight_nav = 1;
-  _flight_update_nav();
-}
+#endif
 
 void flight_init_from_mission(uint8_t mission_idx) {
   flight_paused = false;
