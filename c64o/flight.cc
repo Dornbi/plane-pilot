@@ -381,7 +381,7 @@ static void _flight_check_mission_waypoints() {
         mission_completed[flight_active_mission_idx] = true;
       }
     }
-  } else if (pos_ok) {
+  } else if (pos_ok && (wx != 0 || wy != 0)) {
     // Over the waypoint but the constraint is not satisfied: say which one,
     // so the player knows they are in the right place and only the altitude
     // or the attitude is wrong.
