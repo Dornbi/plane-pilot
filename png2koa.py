@@ -191,6 +191,66 @@ def auto_detect_bg_color(grid: list[list[tuple[int, int, int]]]) -> int:
     return max(range(16), key=lambda c: color_counts[c])
 
 
+import zlib
+
+
+def estimate_lzo_size(data: bytes) -> int:
+    """Estimates the LZO1X / LZ77 compressed byte size of a binary buffer."""
+    n = len(data)
+    pos = 0
+    literals = 0
+    compressed_size = 0
+
+    head: dict[tuple[int, int, int], int] = {}
+
+    def flush_literals(count: int) -> None:
+        nonlocal compressed_size
+        if count == 0:
+            return
+        if count <= 3:
+            compressed_size += count
+        elif count <= 18:
+            compressed_size += 1 + count
+        else:
+            compressed_size += 2 + count
+
+    while pos < n:
+        best_len = 0
+        best_off = 0
+
+        if pos + 2 < n:
+            triple = (data[pos], data[pos + 1], data[pos + 2])
+            prev_pos = head.get(triple, -1)
+            head[triple] = pos
+            if prev_pos != -1 and (pos - prev_pos) <= 4096:
+                length = 0
+                max_len = min(255, n - pos)
+                while length < max_len and data[prev_pos + length] == data[pos + length]:
+                    length += 1
+                if length >= 3:
+                    best_len = length
+                    best_off = pos - prev_pos
+
+        if best_len >= 3:
+            flush_literals(literals)
+            literals = 0
+
+            if best_len <= 8 and best_off <= 2048:
+                compressed_size += 2
+            elif best_len <= 33 and best_off <= 16384:
+                compressed_size += 2
+            else:
+                compressed_size += 3
+
+            pos += best_len
+        else:
+            literals += 1
+            pos += 1
+
+    flush_literals(literals)
+    return compressed_size
+
+
 def convert_png_to_koala(
     input_path: str,
     koa_output_path: str,
@@ -249,8 +309,6 @@ def convert_png_to_koala(
             l1, l2, l3, bits = optimize_cell(cell_pixels, bg_color, prev_l1, prev_l2, prev_l3)
             prev_l1, prev_l2, prev_l3 = l1, l2, l3
 
-
-
             # Store Screen RAM: High nibble = L1, Low nibble = L2
             koa_bytes[8002 + cell_idx] = ((l1 & 0x0F) << 4) | (l2 & 0x0F)
 
@@ -280,12 +338,24 @@ def convert_png_to_koala(
     # Write .koa binary file
     with open(koa_output_path, "wb") as f:
         f.write(koa_bytes)
+
+    bm_lzo = estimate_lzo_size(bytes(koa_bytes[2:8002]))
+    sc_lzo = estimate_lzo_size(bytes(koa_bytes[8002:9002]))
+    cr_lzo = estimate_lzo_size(bytes(koa_bytes[9002:10002]))
+    full_lzo = estimate_lzo_size(bytes(koa_bytes))
+    zlib_size = len(zlib.compress(koa_bytes, 9))
+
     print(f"Saved Koala Painter file: {koa_output_path} ({len(koa_bytes)} bytes)")
+    print(f"Estimated LZO compressed size: ~{full_lzo} bytes (Zlib: {zlib_size} bytes)")
+    print(f"  - Bitmap RAM (8KB):    ~{bm_lzo} bytes")
+    print(f"  - Screen RAM (1KB):    ~{sc_lzo} bytes")
+    print(f"  - Color RAM  (1KB):    ~{cr_lzo} bytes")
 
     # Write preview PNG if requested
     if png_output_path:
         preview_img.save(png_output_path)
         print(f"Saved Pepto palette preview PNG: {png_output_path}")
+
 
 
 def main():
