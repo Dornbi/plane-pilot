@@ -31,9 +31,11 @@ static void rirq_stop(void) {}
 static const char *oscar_expand_lzo(char *dp, const char *sp) { return sp; }
 #endif
 
+#pragma data(data_compr)
 const char kGfxCharsCompressed[] = {
 #embed 1792 lzo "gfx_chars.bin"
 };
+#pragma data(data)
 
 // Raster IRQ handlers: cycle-counted (note the NOP padding below), so keep
 // the outliner out of them as well.

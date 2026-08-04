@@ -13,13 +13,13 @@ static inline void oscar_expand_lzo(char *dst, const char *src) {}
 #include "flight.h"
 #include "gfx.h"
 #include "mem.h"
-#include "panel.h"
 #include "vec.h"
 #include "world.h"
 
 view_state_t view_state = VIEW_UNKNOWN;
 static view_state_t view_bitmap_state = VIEW_UNKNOWN;
 
+#pragma data(data_compr)
 static const char kPanelBitmapCompressed[] = {
 #embed 3904 4098 lzo "panel.koa"
 };
@@ -31,7 +31,7 @@ static const char kPanelScreenCompressed[] = {
 static const char kPanelColorCompressed[] = {
 #embed 440 9562 lzo "panel.koa"
 };
-
+#pragma data(data)
 
 void view_update_cam() {
   if (view_state == VIEW_CENTER) {

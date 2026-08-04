@@ -9,9 +9,11 @@
 #include "vic.h"
 #include "view.h"
 
+#pragma data(data_compr)
 char kSpriteDataCompressed[] = {
 #embed 2112 lzo "spritedef.bin"
 };
+#pragma data(data)
 
 static const uint8_t kSpriteOffsetX = 24;
 static const uint8_t kSpriteOffsetY = 50;

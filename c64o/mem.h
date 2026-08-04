@@ -19,11 +19,12 @@
 // Additional bss.
 #pragma section(bss2, 0, , , bss)
 #pragma region( bss2, 0x280, 0x800, , , {bss2} )
+#pragma section(data_compr, 0, , , data)
 // Startup code is 0x0801 .. 0x0853, use everything before the VIC
 // range as RAM. In theory we could use everything until kSpriteData
 // but it overlaps with VIC control registers so we would have to
 // switch back and forth.
-#pragma region( main, 0x0860, 0xD000, , , {code, data, bss, heap} )
+#pragma region( main, 0x0860, 0xD000, , , {code, data, data_compr, bss, heap} )
 #endif
 // Region 0x5F..0xFF should be possible, except that the irq trap
 // handles 0x80. This probably depends on that the irq routines
