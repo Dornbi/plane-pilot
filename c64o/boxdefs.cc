@@ -6,7 +6,6 @@
 // --------------------------------------------------------------------------
 
 #include "boxdefs.h"
-#include "chardefs.h"
 
 #include <stddef.h>
 #include <string.h>

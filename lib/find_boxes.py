@@ -419,8 +419,7 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
     Generates boxdefs.cc content with preprocessed boxdef_t structures.
     """
     content = banner.c_banner("lib/find_boxes.py")
-    content += '#include "boxdefs.h"\n'
-    content += '#include "chardefs.h"\n\n'
+    content += '#include "boxdefs.h"\n\n'
     content += '#include <stddef.h>\n'
     content += '#include <string.h>\n\n'
     content += '#include "roll.h"\n\n'
