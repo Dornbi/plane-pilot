@@ -1,8 +1,9 @@
 #ifndef ROLL_H
 #define ROLL_H
 
-#include "bool.h"
 #include <stdint.h>
+
+#include "bool.h"
 
 static const uint8_t kRollMax = 60;
 

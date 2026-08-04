@@ -1,8 +1,9 @@
 #ifndef GFX_H
 #define GFX_H
 
-#include "bool.h"
 #include <stdint.h>
+
+#include "bool.h"
 
 // Start of character range where uncompression starts.
 static const uint8_t kGfxCharStart = 32;

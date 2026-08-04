@@ -1,8 +1,9 @@
 #ifndef SPRITES_H
 #define SPRITES_H
 
-#include "bool.h"
 #include <stdint.h>
+
+#include "bool.h"
 
 extern char kSpriteDataCompressed[];
 

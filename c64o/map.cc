@@ -1,4 +1,7 @@
 #include "map.h"
+
+#include <string.h>
+
 #include "color.h"
 #include "gfx.h"
 #include "mem.h"
@@ -6,15 +9,12 @@
 #include "vic.h"
 #include "world.h"
 
-#include <string.h>
-
 // The routines below only run on screen transitions (menu, help, map) or at
 // startup, never inside the per-frame simulation loop, so the outliner's
 // size-for-a-JSR trade costs nothing that matters here. It stays off
 // globally so the renderer and the raster IRQ handlers keep their
 // straight-line code.
 #pragma optimize(push, outline)
-
 
 bool map_mode = false;
 

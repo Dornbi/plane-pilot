@@ -1,7 +1,7 @@
-#include "gfx.h"
 #include "world.h"
 
 #include "color.h"
+#include "gfx.h"
 
 // Local abbreviations to make formatting below more compact.
 static const auto D__ = MAP_DOT_GROUND;

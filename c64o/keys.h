@@ -1,8 +1,9 @@
 #ifndef KEYS_H
 #define KEYS_H
 
-#include "bool.h"
 #include <stdint.h>
+
+#include "bool.h"
 
 #ifdef __OSCAR64__
 #include <c64/keyboard.h>

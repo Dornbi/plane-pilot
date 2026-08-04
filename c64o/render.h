@@ -1,8 +1,9 @@
 #ifndef RENDER_H
 #define RENDER_H
 
-#include "bool.h"
 #include <stdint.h>
+
+#include "bool.h"
 
 extern int16_t render_cx_pixels;
 extern int16_t render_cy_pixels;

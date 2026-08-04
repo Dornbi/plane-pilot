@@ -1,5 +1,7 @@
 #include "gfx.h"
 
+#include <string.h>
+
 #include "chardefs.h"
 #include "color.h"
 #include "fmath.h"
@@ -8,7 +10,6 @@
 #include "vec.h"
 #include "vic.h"
 #include "view.h"
-#include <string.h>
 
 #ifdef __OSCAR64__
 #include <c64/rasterirq.h>

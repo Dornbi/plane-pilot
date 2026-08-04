@@ -1,7 +1,8 @@
 #include "vec.h"
 
-#include "fmath.h"
 #include <stdlib.h>
+
+#include "fmath.h"
 
 // Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
 #pragma optimize(push, nooutline)

@@ -1,8 +1,9 @@
 #ifndef VEC_H
 #define VEC_H
 
-#include "bool.h"
 #include <stdint.h>
+
+#include "bool.h"
 
 #ifndef __OSCAR64__
 #define __zeropage

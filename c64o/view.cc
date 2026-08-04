@@ -1,7 +1,8 @@
 #include "view.h"
-#include "color.h"
 
 #include <string.h>
+
+#include "color.h"
 
 #ifdef __OSCAR64__
 #include <oscar.h>

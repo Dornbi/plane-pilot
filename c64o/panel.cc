@@ -1,11 +1,7 @@
 #include "panel.h"
 
-#include <stdint.h>
-
 #include "flight.h"
 #include "gfx.h"
-#include "mem.h"
-#include "print.h"
 #include "roll.h"
 #include "sprites.h"
 #include "view.h"
@@ -57,4 +53,3 @@ void panel_maybe_print_debug() {
   }
 #endif
 }
-

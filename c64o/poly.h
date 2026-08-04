@@ -1,8 +1,9 @@
 #ifndef POLY_H
 #define POLY_H
 
-#include "vec.h"
 #include <stdint.h>
+
+#include "vec.h"
 
 static const uint8_t kPolyMaxVertices = 6;
 static const uint8_t kPolyMax2dVertices =

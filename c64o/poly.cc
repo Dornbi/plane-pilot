@@ -1,11 +1,12 @@
 #include "poly.h"
 
+#include <stdint.h>
+
 #include "benchmark.h"
 #include "chardefs.h"
 #include "fmath.h"
 #include "mem.h"
 #include "vec.h"
-#include <stdint.h>
 
 // Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
 #pragma optimize(push, nooutline)

@@ -1,9 +1,10 @@
 #ifndef BENCHMARK_H
 #define BENCHMARK_H
 
+#include <stdint.h>
+
 #include "bool.h"
 #include "print.h"
-#include <stdint.h>
 
 #if defined(__DEBUG_CYCLES__) || defined(__DEBUG_VIEW__) ||                    \
     defined(__DEBUG_MODEL__) || defined(__DEBUG_POLY__)

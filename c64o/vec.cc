@@ -1,4 +1,5 @@
 #include "vec.h"
+
 #include <stdint.h>
 
 // Per-frame path: the outliner (-Oo) would trade cycles for bytes here.

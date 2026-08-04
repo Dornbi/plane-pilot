@@ -1,8 +1,9 @@
 #ifndef MEM_H
 #define MEM_H
 
-#include "bool.h"
 #include <stdint.h>
+
+#include "bool.h"
 
 #ifndef __OSCAR64__
 #define __memmap
