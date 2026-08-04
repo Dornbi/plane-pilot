@@ -2096,12 +2096,14 @@ static void test_low_altitude_approach_warnings() {
   flight_advance();
   assert_msg_rendered("WARNING: NOT ON RUNWAY");
 
-  // Mission 0: Min 1000ft constraint warning
-  flight_init_from_mission(0); // Waypoint 0 constraint is WP_MIN_1000FT
-  flight_eye_z = 0x010000;     // Below 1000ft (0x020000)
+  // Mission 7: Min 3000ft constraint warning over City 1 (wx=0x10, wy=0x68)
+  flight_init_from_mission(7); // Waypoint 0 constraint is WP_MIN_3000FT at City 1
+  flight_eye_x = 0x100000;
+  flight_eye_y = 0x688000;
+  flight_eye_z = 0x010000;     // Below 3000ft (0x060000)
   msg_clear();
   flight_advance();
-  assert_msg_rendered("CLIMB ABOVE 1000FT FOR MISSION");
+  assert_msg_rendered("CLIMB ABOVE 3000FT FOR MISSION");
 
   // Mission 6: Fly inverted constraint warning
   flight_init_from_mission(6); // Waypoint 0 constraint is WP_UPSIDE_DOWN

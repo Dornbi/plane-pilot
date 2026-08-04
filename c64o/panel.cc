@@ -43,13 +43,11 @@ void panel_maybe_print_debug() {
     print_labeled_hex(818, "EY:", flight_eye_y, 8);
     print_labeled_hex(858, "EZ:", flight_eye_z, 8);
 
-    print_labeled_signed_bcd(760, "NX:", flight_nav_x);
-    print_labeled_signed_bcd(800, "NY:", flight_nav_y);
-    print_labeled_bcd(840, "NAV:", flight_nav_heading);
-
-    print_labeled_bcd(850, "HDG:", flight_true_heading, 3);
     print_labeled_signed_bcd(920, "SPD:", flight_speed, 4);
     print_labeled_signed_bcd(960, "VSP:", flight_vspeed, 4);
+
+    print_labeled_bcd(930, "HDG:", flight_true_heading, 3);
+    print_labeled_bcd(970, "NAV:", flight_nav_heading);
   }
 #endif
 }

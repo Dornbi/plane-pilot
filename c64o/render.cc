@@ -362,9 +362,7 @@ void render_fill_sky_ground() {
 
 #ifdef __DEBUG_VIEW__
   if (mem_debug_enabled) {
-    print_labeled_bcd(810, "ROL:", roll_angle, 3);
-    print_labeled_signed_bcd(930, "CXP:", render_cx_pixels, 4);
-    print_labeled_signed_bcd(940, "CYP:", render_cy_pixels, 4);
+    print_labeled_bcd(980, "ROL:", roll_angle, 3);
   }
 #endif
 }

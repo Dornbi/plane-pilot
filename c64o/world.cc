@@ -244,7 +244,7 @@ __noinline void world_render_grid() {
 
 #ifdef __DEBUG_VIEW__
   if (mem_debug_enabled) {
-    print_labeled_bcd(770, "GRD:", _world_grid_radius, 3);
+    print_labeled_bcd(940, "GRD:", _world_grid_radius, 3);
   }
 #endif
 }
@@ -295,12 +295,5 @@ void world_update_sun_pos() {
   }
   sprites_set_sun_position(sx, sy);
   bm_end(670, "UPD:");
-
-#ifdef __DEBUG_VIEW__
-  if (mem_debug_enabled) {
-    print_labeled_signed_bcd(970, "SXP:", sx, 4);
-    print_labeled_signed_bcd(980, "SYP:", sy, 4);
-  }
-#endif
 }
 #pragma optimize(pop)
