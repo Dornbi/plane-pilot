@@ -96,12 +96,15 @@ def downsample_to_multicolor_grid(img: Image.Image) -> list[list[tuple[int, int,
 
 def optimize_cell(
     cell_pixels: list[tuple[int, int, int]],
-    bg_color: int
+    bg_color: int,
+    prev_l1: int = 13,
+    prev_l2: int = 13,
+    prev_l3: int = 13,
 ) -> tuple[int, int, int, list[int]]:
     """
     Finds optimal 3 local colors (L1, L2, L3) and assigns bit pairs (0..3) for a 4x8 cell (32 pixels).
     Bits mapping: 00 -> bg_color, 01 -> L1, 10 -> L2, 11 -> L3.
-    Returns: (L1, L2, L3, bit_assignments)
+    Propagates prev_l1, prev_l2, prev_l3 across unused color slots to maximize RLE / LZ77 compression ratio.
     """
     # Calculate distance of each pixel to all 16 Pepto colors
     pixel_dists = []
@@ -118,11 +121,21 @@ def optimize_cell(
     # Unique colors needed (excluding bg_color)
     needed_colors = [c for c in set(pixel_best_colors) if c != bg_color]
 
-    if len(needed_colors) <= 3:
-        # Fits directly within available local color slots
-        l1 = needed_colors[0] if len(needed_colors) > 0 else 0
-        l2 = needed_colors[1] if len(needed_colors) > 1 else (1 if l1 != 1 else 0)
-        l3 = needed_colors[2] if len(needed_colors) > 2 else (2 if 2 not in (l1, l2) else 0)
+    # Rule 1: If needed_colors is empty or a subset of (prev_l1, prev_l2, prev_l3), keep prev_l1, prev_l2, prev_l3 completely
+    if all(c in (prev_l1, prev_l2, prev_l3) for c in needed_colors):
+        l1, l2, l3 = prev_l1, prev_l2, prev_l3
+    elif len(needed_colors) <= 3:
+        sorted_colors = sorted(needed_colors)
+        cand_l = [prev_l1, prev_l2, prev_l3]
+        missing = [c for c in sorted_colors if c not in cand_l]
+        unused_slot_indices = [idx for idx, c in enumerate(cand_l) if c not in sorted_colors]
+
+        for c, slot_idx in zip(missing, unused_slot_indices):
+            cand_l[slot_idx] = c
+
+        l1, l2, l3 = cand_l[0], cand_l[1], cand_l[2]
+        if len(sorted_colors) == 3:
+            l1, l2, l3 = sorted_colors[0], sorted_colors[1], sorted_colors[2]
     else:
         # Candidate local colors are primarily those present in the cell, sorted by frequency
         unique_cell_colors = sorted(set(needed_colors), key=lambda c: color_freq[c], reverse=True)
@@ -134,7 +147,8 @@ def optimize_cell(
             unique_cell_colors = unique_cell_colors[:6]
 
         best_error = float('inf')
-        best_triple = (unique_cell_colors[0], unique_cell_colors[1], unique_cell_colors[2])
+        best_triple = (prev_l1, prev_l2, prev_l3)
+        best_overlap = -1
 
         num_cand = len(unique_cell_colors)
         for i in range(num_cand):
@@ -148,18 +162,20 @@ def optimize_cell(
                         min(dists[bg_color], dists[c1], dists[c2], dists[c3])
                         for dists in pixel_dists
                     )
-                    if err < best_error:
+                    overlap = (1 if c1 == prev_l1 else 0) + (1 if c2 == prev_l2 else 0) + (1 if c3 == prev_l3 else 0)
+                    if err < best_error or (err == best_error and overlap > best_overlap):
                         best_error = err
+                        best_overlap = overlap
                         best_triple = (c1, c2, c3)
 
-        l1, l2, l3 = best_triple
+        l1, l2, l3 = sorted(best_triple)
 
     # Map each pixel to best bit pattern in {00: bg, 01: l1, 10: l2, 11: l3}
     allowed = [(bg_color, 0), (l1, 1), (l2, 2), (l3, 3)]
     bit_assignments = []
     for dists in pixel_dists:
-        _, best_bit = min(allowed, key=lambda item: dists[item[0]])
-        bit_assignments.append(best_bit)
+        best_b = min(range(len(allowed)), key=lambda idx: dists[allowed[idx][0]])
+        bit_assignments.append(allowed[best_b][1])
 
     return l1, l2, l3, bit_assignments
 
@@ -214,6 +230,9 @@ def convert_png_to_koala(
     preview_img = Image.new("RGB", (320, 200))
     preview_pixels = preview_img.load()
 
+    # Default initial prev colors set to 13 (Light Green border color)
+    prev_l1, prev_l2, prev_l3 = 13, 13, 13
+
     # Process 40x25 character matrix cells
     for cy in range(25):
         for cx in range(40):
@@ -227,7 +246,10 @@ def convert_png_to_koala(
                     x = cx * 4 + rx
                     cell_pixels.append(grid[y][x])
 
-            l1, l2, l3, bits = optimize_cell(cell_pixels, bg_color)
+            l1, l2, l3, bits = optimize_cell(cell_pixels, bg_color, prev_l1, prev_l2, prev_l3)
+            prev_l1, prev_l2, prev_l3 = l1, l2, l3
+
+
 
             # Store Screen RAM: High nibble = L1, Low nibble = L2
             koa_bytes[8002 + cell_idx] = ((l1 & 0x0F) << 4) | (l2 & 0x0F)
