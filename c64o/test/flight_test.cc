@@ -978,7 +978,7 @@ static void test_rollout_stays_on_ground() {
 // a worst upright sink of -301, inside the -0x0180 limit. So trigger 2 is
 // only reachable inverted - where lift acts downward and the deficit doubles -
 // and it is reachable there precisely because the bank check looks at left.z,
-// which is ~0 after a full 180 degree roll. See flight_review.md C5.
+// which is ~0 after a full 180 degree roll. See docs/flight_review.md C5.
 static void test_landing_envelope_sink_rate() {
   printf("Running test_landing_envelope_sink_rate...\n");
 

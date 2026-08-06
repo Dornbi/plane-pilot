@@ -24,12 +24,25 @@ This document specifies the flight dynamics model requirements for the C64 fligh
 
 ### 2.1. Straight & Level Flight Dynamics
 
-- **Lift Balance**: $L = W$ (Lift equals Weight). Lift is proportional to Angle of Attack ($\alpha$) and airspeed squared ($V^2$).
-- **Trim vs. Airspeed & Throttle**:
-  - **High Throttle (75% – 100%)**: Higher equilibrium airspeed $\implies$ lower nose pitch angle required for level flight ($V_{\text{vspeed}} = 0$).
-  - **Cruise / Medium Throttle (50%)**: Moderate airspeed $\implies$ moderate nose pitch.
-  - **Low Level Throttle (25%)**: Minimum throttle setting capable of sustained level flight. Requires high nose-up pitch angle.
-  - **Below 25% Throttle**: Airspeed bleeds below the level flight threshold, resulting in insufficient lift and triggering a stall.
+> **Throttle convention**: throttle is an integer $0 \dots \text{kMaxThrottle} = \text{0x18} = 24$. Percentages below are of that range, so "50%" means throttle 12.
+
+- **Lift Balance**: $L = W$. **There is no angle of attack in this model.** Lift is a function of airspeed squared and bank only — $\text{lift} = f(V^2, \text{up.z})$ — and `front.z` never enters it (§2.4). Pitch does exactly two things: it adds a gravity term to the speed equation ($V \mathrel{-}= \text{front.z} \gg 3$) and it sets the flight path ($V_{\text{vspeed}} = \text{front.z} \cdot V / 256 - \text{sink}$). Pitching up does not make lift, it trades airspeed for climb rate.
+- **What "trim" means here**: because the lift deficit is one-sided (§2.4), holding level flight is a matter of pitching up just enough to cancel the sink penalty. Once airspeed reaches $V_{\text{trim}}$ the sink is zero and level flight is $\text{front.z} = 0$ exactly.
+- **Trim vs. Airspeed & Throttle** (measured, upright, clean, sea level, run to steady state):
+
+| Throttle | Level flight? | Lowest pitch holding level | Settled airspeed |
+| :--- | :--- | :--- | :--- |
+| $\le 10$ ($\le 41\%$) | **No** — sinks at every pitch, bleeds to stall | — | — |
+| 11 (46%) | Marginal | $\text{front.z} = 20$ (~4.5° nose up) | 1535 |
+| 12 (50%) | Yes | $\text{front.z} = 8$ (~1.8°) | 1846 |
+| 14 (58%) | Yes | $\text{front.z} = 4$ (~0.9°) | 1982 |
+| 16 (67%) | Yes | $\text{front.z} = 0$ | 2111 |
+| 18 (75%) | Yes | $\text{front.z} = 0$ | 2173 |
+| 24 (100%) | Yes | $\text{front.z} = 0$ | 2509 |
+
+- **Minimum throttle for sustained level flight is ~46% (throttle 11)**, not 25%. Below that the aircraft cannot hold altitude at *any* pitch angle: nose-up bleeds speed faster than the reduced sink saves altitude, and it descends into the ground.
+- **From ~67% throttle up, the level trim is $\text{front.z} = 0$ exactly** — airspeed is at or above $V_{\text{trim}}$, the deficit is zero, and any positive pitch is a climb. "Low nose up" is only the correct level attitude in the ~46–58% band.
+- With flaps down the floor drops to **throttle 9 (~37%)**, because the flap lift bonus (§4.2) shrinks the deficit.
 
 ### 2.2. Stall Dynamics & Automatic Recovery
 
@@ -57,7 +70,8 @@ This document specifies the flight dynamics model requirements for the C64 fligh
 - **Climb Performance by Throttle Level**:
   - **100% Throttle**: Maximum rate of climb (ROC). Sustained airspeed during climb is slower than level cruise at 100% throttle due to gravity penalty.
   - **75% Throttle**: Moderate rate of climb at lower airspeed.
-  - **25% Throttle**: **Zero excess thrust**. Attempting to climb (positive pitch) at 25% throttle bleeds speed rapidly, leading to a stall.
+  - **~46% Throttle (11)**: **Zero excess thrust** — the floor from §2.1. This is the throttle at which the best achievable vertical speed is barely positive; there is nothing left over for a climb.
+  - **Below ~46% Throttle**: *negative* excess thrust. Not merely "cannot climb" — cannot hold altitude either. At 25% (throttle 6) the best any pitch achieves is $V_{\text{vspeed}} = -145$, and pitching up to fight it bleeds airspeed into a stall.
 - **Service Ceiling & Altitude Density Decay**:
   - Continuous air density decay applies above ceiling threshold altitude ($Z > \text{0x080000}$):
     $\text{alt\_penalty} = (Z - \text{0x080000}) \gg 12$ (clamped to max 128).
@@ -84,7 +98,7 @@ This is the central mechanism of the model: it is what makes banked turns descen
 - Below $V_{\text{trim}}$: the aircraft sinks, and nose-up pitch is what offsets the sink. Lower airspeed needs more nose-up pitch.
 - At or above $V_{\text{trim}}$: sink is zero, and level flight means $\text{front.z} = 0$ **exactly**. Any positive pitch is a climb; there is no faster level trim.
 
-> **Not yet reconciled**: §2.1 describes lift as proportional to angle of attack. The model has no AoA term — see `flight_review.md` §A and §B for the measured consequences (the throttle figures in §2.1, §2.3 and §3.2 and in the §7 matrix are still the un-reviewed originals).
+> **Reconciled** with the code as of the current `flight.cc`. §2.1 no longer claims an angle-of-attack term (there is none), and the throttle figures in §2.1, §2.3, §3.2 and the §7 matrix are measured rather than assumed. See `flight_review.md` §A, §B1, §B2 and §B5 for the measurements and the numbers they replaced.
 
 ---
 
@@ -116,7 +130,19 @@ This is the central mechanism of the model: it is what makes banked turns descen
 - **Implicit Inverted Drag & Lift Deficit**:
   - Inverted flight ($\text{up.z} < 0$) causes wing lift to act downward ($\text{lift} < 0$).
   - The high lift deficit ($\text{deficit} = \text{kTrimLift} - \text{lift}$) implicitly produces high induced drag ($\Delta \text{speed} \propto \text{deficit} \gg 10$), naturally bleeding airspeed without needing ad-hoc conditional logic.
-  - Sustained inverted level flight requires higher throttle (50%–60%) to overcome this implicit lift-deficit drag.
+  - **Sustained inverted level flight requires ~71% throttle (17), not 50–60%.** See the table below.
+
+Measured at $\text{up.z} = -256$, clean, sea level, run to steady state:
+
+| Throttle | Level flight? | Lowest pitch holding level | Settled airspeed |
+| :--- | :--- | :--- | :--- |
+| 12 (50%) | **No** — best vspeed is $-127$ | — | — |
+| 16 (67%) | **No** — best vspeed is $-9$ | — | — |
+| 17 (71%) | Yes | $\text{front.z} = 82$ (~19° nose up) | 1049 |
+| 18 (75%) | Yes | $\text{front.z} = 78$ (~18°) | 1144 |
+| 24 (100%) | Yes | $\text{front.z} = 68$ (~15°) | 1698 |
+
+At the 71% trim the aircraft sits at ~1049, a few units above the `0x0400` (1024) stall speed — inverted level flight is flown on the edge of the stall, and any further speed loss breaks it. Note that the required pitch *decreases* with throttle: more speed means more (negative) lift, a smaller deficit, and less sink to cancel.
 
 ---
 
@@ -159,7 +185,8 @@ This is the central mechanism of the model: it is what makes banked turns descen
   - **Steering requires the wheels to be turning**: all four steering inputs are ignored when $V = 0$. A parked aircraft cannot pivot on the spot.
   - **Heading is held, not restored.** The wing-levelling rebuild (`left` from `front`, then `up = front \times left`) runs *only when the wings are actually off level*. Running it every frame slowly turned the aircraft back toward whichever axis it was nearest: the 8.8 cross product loses a little length, `vec_orthonormalize` scales `front` back up, and that scaling truncates — so the dominant component gains a unit before the smaller one does. On the runway that walked a 29° heading back to 0 in about 300 frames. Skipping the no-op case also saves a full re-orthonormalization on every frame of taxi and takeoff roll (§1).
 - **Ground Friction & Braking**:
-  - Throttle at 0% applies a constant wheel friction drag, decelerating the aircraft to a full stop.
+  - Throttle at 0% applies a constant wheel friction drag of **2 units per frame**, on top of the usual airframe and gear drag, decelerating the aircraft to a full stop. It is not applied while the throttle is open.
+  - **Wheel brake** (`FLIGHT_INPUT_BRAKE`): each input removes **32** from airspeed, flooring at 0. It is a ground-only control — airborne, the input is ignored.
 
 ### 5.2. Takeoff Requirements
 
@@ -173,30 +200,56 @@ This is the central mechanism of the model: it is what makes banked turns descen
 
 The check triggers whenever altitude $Z \le Z_{\text{min}}$ — **every frame the aircraft is at ground level, not only on the touchdown frame**. It therefore also polices taxi and takeoff roll: rolling with the gear retracted, or with the wings or nose out of limits, fails immediately. This is intended.
 
-The one trigger that must not be applied unchanged during a ground roll is the speed limit, which is an *impact* limit. Full throttle with the gear down settles at 2290, only 270 under $\text{kMaxLandingSpeed}$, so a normal takeoff run would sit uncomfortably close to crashing. The limit is therefore split:
+Two triggers must not be applied unchanged during a ground roll:
 
-| State | Speed limit |
-| :--- | :--- |
-| Touchdown (was airborne last frame) | $\text{kMaxLandingSpeed} = \text{0x0A00}$ |
-| Already rolling | $\text{kMaxGroundSpeed} = \text{0x0D00}$ |
+- **The speed limit**, which is an *impact* limit. Full throttle with the gear down settles at 2290, only 270 under $\text{kMaxLandingSpeed}$, so a normal takeoff run would sit uncomfortably close to crashing.
+- **The runway check**, which is an *arrival* condition. Applied continuously it would crash an aircraft that simply rolled past the end of the runway.
+
+Both are therefore keyed on whether this frame is a touchdown (the aircraft was airborne last frame) or another frame of an existing ground roll:
+
+| State | Speed limit | Runway check |
+| :--- | :--- | :--- |
+| Touchdown (was airborne last frame) | $\text{kMaxLandingSpeed} = \text{0x0A00}$ | applied |
+| Already rolling | $\text{kMaxGroundSpeed} = \text{0x0D00}$ | skipped |
 
 The looser ground limit still rejects nonsense start states from mission data while leaving the takeoff roll ~45% headroom.
 
-- **Crash Triggers**:
-  1. **Gear Retracted**: `flight_gear == 0`.
-  2. **Excess Vertical Speed**: Sink rate exceeds limit ($V_{\text{vspeed}} < - \text{0x00E0}$).
-  3. **Excess Bank Angle**: Roll/bank exceeds threshold ($|\text{left.z}| > 32$, approx > 7°).
-  4. **Invalid Touchdown Pitch**: Touchdown with steep nose-down pitch ($\text{front.z} < -16$, > -3.5° nose down) or excessive pitch flare ($\text{front.z} > 64$, > 15° pitch up). Safe landing pitch range is $-16 \le \text{front.z} \le 64$.
-  5. **Excess Airspeed**: Touchdown speed exceeds gear threshold ($V > \text{0x0A00}$).
-  6. **Belly-Up Arrival**: Touchdown while inverted ($\text{up.z} < 0$). Trigger 3 does not cover this — `left.z` returns to ~0 after a full 180° roll, so a wings-level inverted arrival passes the bank check. The threshold is 0 rather than a tight $\cos(\text{roll})$ bound because `up.z` also falls with nose-up pitch, and a legal flare must not trip it.
+- **Crash Triggers**, in the order the code evaluates them. **The order is part of the specification**: the first violation found is the one reported, so it decides which fault the pilot is told about when an arrival breaks several rules at once. It runs from what has to be settled early on the approach to what is trimmed on short final.
 
-- **Note on trigger 2 — where the limit comes from**: vertical speed at touchdown is $\text{front.z} \cdot V / 256 - \text{sink}$, so sink rate is driven by nose-down pitch *and* by the lift deficit, which grows as speed falls.
-  - The limit has to sit inside the range reachable **above stall speed**. A below-stall arrival has already had its nose driven past $\text{kMinLandingPitch}$ by the stall break (§2.2), so trigger 4 owns it and any sink limit that only bites there is redundant.
-  - Above stall the reachable range is roughly $-251$ (at $\text{front.z} = -16$, just above stall) to $0$. The limit of $-\text{0x00E0} = -224$ sits inside it.
-  - **Resulting rule**: a level-or-nose-up flare ($\text{front.z} \ge 0$) is always survivable — the worst sink it can produce is $-194$. A nose-down arrival needs airspeed: at $\text{front.z} = -16$ the aircraft must be above ~1350 to survive touchdown.
+  1. **Not On A Runway**: the ground tile under the aircraft is not `MAP_OBJ_RUNWAY`. Checked **only on the touchdown frame**, not during an existing ground roll — once down, the aircraft may roll off the end without a second crash verdict.
+  2. **Belly-Up Arrival**: touchdown while inverted ($\text{up.z} < \text{kMinLandingUpZ} = 0$). Trigger 5 does not cover this — `left.z` returns to ~0 after a full 180° roll, so a wings-level inverted arrival passes the bank check. The threshold is 0 rather than a tight $\cos(\text{roll})$ bound because `up.z` also falls with nose-up pitch, and a legal flare must not trip it.
+  3. **Gear Retracted**: `flight_gear == 0`.
+  4. **Excess Vertical Speed**: sink rate exceeds limit ($V_{\text{vspeed}} < \text{kMaxLandingVSpeed} = -\text{0x00E0} = -224$).
+  5. **Excess Bank Angle**: roll/bank exceeds threshold ($|\text{left.z}| > \text{kMaxLandingRoll} = 32$, approx > 7°).
+  6. **Pitch Too Low**: $\text{front.z} < \text{kMinLandingPitch} = -32$ (steeper than ~-7° nose down).
+  7. **Pitch Too High**: $\text{front.z} > \text{kMaxLandingPitch} = 64$ (more than ~15° of flare).
+  8. **Excess Airspeed**: $V >$ the applicable speed limit from the table above.
+
+  Safe landing pitch range is therefore $-32 \le \text{front.z} \le 64$.
+
+- **Approach warnings**: the *same* envelope test runs non-destructively while the aircraft is airborne, descending, and below $Z = \text{0x4000}$. The first violation is shown as `WARNING: <fault>` instead of crashing, so the pilot is told about a retracted gear or a wrong approach path before the wheels arrive. The warning pass always applies the runway check and the touchdown speed limit, since it is by definition not a ground roll.
+
 - **Successful Landing**:
   - If all safety thresholds are satisfied: transition to `model_on_ground = true`, zero out vertical speed, level wings, and drop the nose ($\text{front.z} = 0$).
   - The nose drop happens **once, on the touchdown transition**, not eased in over the rollout. Easing it would mean adjusting the attitude on every frame, and `vec_normalize` truncates when it rescales, so a per-frame nudge would ratchet the heading toward the nearest axis — see §5.1.
+
+#### Where the sink limit comes from (trigger 4)
+
+Vertical speed at touchdown is $\text{front.z} \cdot V / 256 - \text{sink}$, so sink rate is driven by nose-down pitch *and* by the lift deficit, which grows as speed falls.
+
+The limit has to sit inside the range reachable **above stall speed**. A below-stall arrival has already had its nose driven past $\text{kMinLandingPitch}$ by the stall break (§2.2), so trigger 6 owns it, and any sink limit that only bites there is redundant. Above stall the worst reachable sink is $-315$, so the limit of $-224$ sits inside the reachable range and genuinely fires.
+
+The resulting rule the pilot learns is **"flare and you are safe; arrive nose-down and you need airspeed"**. Measured over every legal arrival above stall speed:
+
+| Arrival pitch | Worst sink at that pitch | Minimum airspeed to survive |
+| :--- | :--- | :--- |
+| $-32$ (the pitch limit itself) | $-315$ | unsurvivable at any speed |
+| $-24$ | $-283$ | ~1746 |
+| $-16$ | $-251$ | ~1331 |
+| $-8$ | $-219$ | any (already inside the limit) |
+| $\ge 0$ (any flare) | $-194$ | any |
+
+So triggers 4 and 6 meet with no gap: pitch alone becomes illegal at $-32$, and just above that the sink rate makes the arrival unsurvivable whatever the airspeed. `test_landing_envelope_sink_rate` re-derives the $-315$ and $-194$ figures on every run and asserts both properties — that the limit is reachable at all, and that a flare never trips it.
 
 ---
 
@@ -211,8 +264,15 @@ The looser ground limit still rejects nonsense start states from mission data wh
   - Thrust acts directly against gravity; airspeed rapidly bleeds toward zero.
   - Before speed reaches zero, the nose pitches down into a dive to regain forward airspeed.
 - **Straight Down (-90° Pitch / Vertical Dive)**:
-  - Gravity accelerates the aircraft toward Terminal Velocity ($V_{\text{max\_terminal}}$) where drag balances gravity. At full throttle in a vertical dive this balance lands at ~`0x0EF7`.
-- **Absolute Speed Clamp**: independently of the drag balance, airspeed is hard-clamped to $\text{kMaxSpeed} = \text{0x0F00}$. Terminal velocity sits just under the clamp, so in normal flight the clamp is not what limits the aircraft — but it bounds `flight_speed` for every downstream calculation regardless of attitude or altitude.
+  - Gravity accelerates the aircraft toward Terminal Velocity ($V_{\text{max\_terminal}}$) where drag balances gravity. Measured with the nose truly straight down (so $\text{up.z} = 0$, no lift, and the full lift deficit is charged as induced drag):
+
+| Configuration | Terminal velocity |
+| :--- | :--- |
+| Full throttle, clean | **3693** (`0x0E6D`) |
+| Full throttle, gear down | 3319 (`0x0CF7`) |
+| Idle throttle, clean | 2710 (`0x0A96`) |
+
+- **Absolute Speed Clamp**: independently of the drag balance, airspeed is hard-clamped to $\text{kMaxSpeed} = \text{0x0F00} = 3840$. Terminal velocity sits under the clamp in every configuration, so in normal flight the clamp is not what limits the aircraft — but it bounds `flight_speed` for every downstream calculation regardless of attitude or altitude.
 
 ### 6.2. Engine Failure & Gliding Physics
 
@@ -225,17 +285,24 @@ The looser ground limit still rejects nonsense start states from mission data wh
 
 ## 7. Summary Matrix of Flight Test Cases
 
-| Scenario / Test Case         | Throttle  |      Pitch Angle       | Bank Angle |    Gear / Flap    | Expected Aircraft Behavior                                                                           |
-| :--------------------------- | :-------: | :--------------------: | :--------: | :---------------: | :--------------------------------------------------------------------------------------------------- |
-| **Cruising Level Flight**    |    75%    |      Low Nose Up       |     0°     |       Clean       | Stable level flight ($V_{\text{vspeed}} = 0$), high speed                                            |
-| **Slow Level Flight**        |    25%    |      High Nose Up      |     0°     |       Clean       | Stable level flight at minimum level speed                                                           |
-| **Power-Off Stall**          |    0%     |    Moderate Nose Up    |     0°     |       Clean       | Airspeed drops $< V_{\text{stall}}$, nose auto-drops, loses altitude to regain speed                 |
-| **Max Climb**                |   100%    |      Positive Up       |     0°     |       Clean       | Sustained climb, airspeed lower than 100% level cruise                                               |
-| **Low-Power Climb Attempt**  |    25%    |      Positive Up       |     0°     |       Clean       | Airspeed bleeds rapidly $\rightarrow$ stall onset                                                    |
-| **Moderate Bank Turn**       |    75%    |      Level Pitch       |  40% Bank  |       Clean       | Aircraft turns smoothly, slight altitude drop if pitch not added                                     |
-| **Steep Bank Turn**          |   100%    |      High Nose Up      |  80% Bank  |       Clean       | High turn rate, heavy drag penalty, severe altitude drop without high throttle & pitch               |
-| **Inverted Level Flight**    |    60%    | Pitch Down (vs Canopy) |    180°    |       Clean       | Maintains level inverted flight; high drag penalty                                                   |
-| **Dirty Configuration**      |    50%    |      Low Nose Up       |     0°     | Gear & Flaps Down | Lower stall speed, higher drag, lower level speed for given throttle                                 |
-| **Clean Touchdown**          | Idle (0%) |    Touchdown Pitch     |     0°     |     Gear Down     | Smooth ground transition, no crash                                                                   |
-| **Gear-Up Belly Landing**    | Idle (0%) |    Touchdown Pitch     |     0°     |      Gear Up      | **CRASH** upon ground contact                                                                        |
-| **Vertical Pitch Up (+90°)** |   100%    |      Vertical Up       |     0°     |       Clean       | Speed bleeds toward 0 $\rightarrow$ auto pitch-down to dive and regain airspeed (no backward flight) |
+Throttle is quoted as a percentage of $\text{kMaxThrottle} = 24$, with the raw value in brackets. Figures are measured, not nominal.
+
+| Scenario / Test Case         |  Throttle   |      Pitch Angle       | Bank Angle |    Gear / Flap    | Expected Aircraft Behavior                                                                           |
+| :--------------------------- | :---------: | :--------------------: | :--------: | :---------------: | :--------------------------------------------------------------------------------------------------- |
+| **Cruising Level Flight**    |  75% (18)   |   **Zero** pitch       |     0°     |       Clean       | Stable level flight ($V_{\text{vspeed}} = 0$) at speed 2173. Above ~67% throttle the level trim is $\text{front.z} = 0$ exactly; any nose-up is a climb |
+| **Slow Level Flight**        |  50% (12)   |  Low Nose Up (~1.8°)   |     0°     |       Clean       | Stable level flight at speed 1846                                                                    |
+| **Minimum Level Flight**     |  46% (11)   |  Nose Up (~4.5°)       |     0°     |       Clean       | The floor: level flight at speed 1535. One notch of throttle lower and no pitch holds altitude       |
+| **Below Minimum Power**      | $\le$ 41% (10) |  any                |     0°     |       Clean       | Cannot hold altitude at any pitch; sinks, bleeds to stall, descends into the ground                  |
+| **Power-Off Stall**          |     0%      |    Moderate Nose Up    |     0°     |       Clean       | Airspeed drops $< V_{\text{stall}}$, nose auto-drops, loses altitude to regain speed                 |
+| **Max Climb**                |  100% (24)  |      Positive Up       |     0°     |       Clean       | Sustained climb, airspeed lower than 100% level cruise                                               |
+| **Low-Power Climb Attempt**  |  46% (11)   |      Positive Up       |     0°     |       Clean       | Zero excess thrust: airspeed bleeds $\rightarrow$ stall onset. Below 46% this also happens at level pitch |
+| **Moderate Bank Turn**       |  75% (18)   |      Level Pitch       |  40% Bank  |       Clean       | Aircraft turns smoothly, slight altitude drop if pitch not added                                     |
+| **Steep Bank Turn**          |  100% (24)  |      High Nose Up      |  80% Bank  |       Clean       | High turn rate, heavy drag penalty, severe altitude drop without high throttle & pitch               |
+| **Inverted Level Flight**    |  71% (17)   | Nose Up ~19° vs horizon |   180°    |       Clean       | Level inverted flight at speed ~1049 — a few units above stall, so permanently on the stall boundary. Below 71% no pitch holds it |
+| **Dirty Configuration**      |  50% (12)   |      Level Pitch       |     0°     | Gear & Flaps Down | Lower stall speed, higher drag, lower level speed for given throttle. Flaps drop the level-flight floor to 37% (9) |
+| **Clean Touchdown**          |  Idle (0%)  |  $-32 \le$ pitch $\le 64$ |  0°     |     Gear Down     | Smooth ground transition, no crash — provided the aircraft is over a runway tile                     |
+| **Off-Runway Touchdown**     |  Idle (0%)  |    Touchdown Pitch     |     0°     |     Gear Down     | **CRASH** (`NOT ON RUNWAY`) even with a perfect attitude                                             |
+| **Gear-Up Belly Landing**    |  Idle (0%)  |    Touchdown Pitch     |     0°     |      Gear Up      | **CRASH** upon ground contact                                                                        |
+| **Inverted Touchdown**       |  Idle (0%)  |    Touchdown Pitch     |    180°    |     Gear Down     | **CRASH** (`INVERTED`) — wings-level inverted passes the bank check, so this is its own trigger      |
+| **Vertical Pitch Up (+90°)** |  100% (24)  |      Vertical Up       |     0°     |       Clean       | Speed bleeds toward 0 $\rightarrow$ auto pitch-down to dive and regain airspeed (no backward flight) |
+| **Vertical Dive (-90°)**     |  100% (24)  |     Vertical Down      |     0°     |       Clean       | Settles at terminal velocity 3693 (`0x0E6D`), under the `0x0F00` clamp                               |
