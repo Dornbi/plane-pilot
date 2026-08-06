@@ -15,16 +15,29 @@ from tools.png2koa import (
     get_closest_pepto_color,
     downsample_to_multicolor_grid,
     convert_png_to_koala,
+    parse_pin,
 )
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PANEL_KOA = os.path.join(REPO_ROOT, "c64o", "panel.koa")
 GFX_CC = os.path.join(REPO_ROOT, "c64o", "gfx.cc")
+MAKEFILE = os.path.join(REPO_ROOT, "Makefile")
 
 # The indicator lamp color. gfx.cc switches the lamps by storing it into color
-# RAM, so `make panel` pins it there with --pin-color-ram; see the lamp
-# functions in gfx.cc and the `panel` target in the root Makefile.
+# RAM, so `make panel` pins it there in those four cells with --pin-color-ram;
+# see the lamp functions in gfx.cc and PANEL_FLAGS in the root Makefile.
 LAMP_COLOR = 10  # light red
+
+
+def pinned_cells_from_makefile() -> dict[tuple[int, int], int]:
+    """The --pin-color-ram cells in PANEL_FLAGS, as {(row, col): color}."""
+    with open(MAKEFILE) as f:
+        makefile = f.read()
+    pins = {}
+    for spec in re.findall(r"--pin-color-ram\s+(\d+@\d+,\d+)", makefile):
+        idx, color = parse_pin(spec)
+        pins[(idx // 40, idx % 40)] = color
+    return pins
 
 
 def read_koa(path: str) -> tuple[bytes, bytes, bytes, int]:
@@ -175,12 +188,15 @@ class TestPng2Koa(unittest.TestCase):
 
 class TestPinColorRam(unittest.TestCase):
     """
-    A pinned color has to stay in color RAM. Which of the two screen RAM colors
-    a cell's colors land in is the encoder's choice and it re-labels them for
-    compression, so anything the C64 side pokes at run time has to be somewhere
-    that choice cannot reach - color RAM is a whole byte per cell and is the
-    only such place.
+    A pinned cell has to keep its color in color RAM. Which of the two screen
+    RAM colors a cell's colors land in is the encoder's choice and it re-labels
+    them for compression, so anything the C64 side pokes at run time has to be
+    somewhere that choice cannot reach - color RAM is a whole byte per cell and
+    is the only such place. Only the named cells are constrained; the same color
+    elsewhere in the image is placed for compression as usual.
     """
+
+    LAMP_CELL = (16, 10)  # row, col of the lamp _image_with_lamp() draws
 
     def _image_with_lamp(self, path: str) -> None:
         """A gray dial with a light red lamp on it, in one 4x8 multicolor cell."""
@@ -206,38 +222,48 @@ class TestPinColorRam(unittest.TestCase):
             free_png = os.path.join(tmp_dir, "free.png")
             pinned_koa = os.path.join(tmp_dir, "pinned.koa")
             pinned_png = os.path.join(tmp_dir, "pinned.png")
+            row, col = self.LAMP_CELL
             convert_png_to_koala(input_path=src, koa_output_path=free_koa,
                                  png_output_path=free_png, bg_color=0)
             convert_png_to_koala(input_path=src, koa_output_path=pinned_koa,
                                  png_output_path=pinned_png, bg_color=0,
-                                 pin_color_ram=frozenset({LAMP_COLOR}))
+                                 pins={row * 40 + col: LAMP_COLOR})
+
+            # Unpinned, the encoder puts the lamp in a screen RAM slot, which is
+            # what makes the pin worth having.
+            _, free_screen, free_color, _ = read_koa(free_koa)
+            idx = row * 40 + col
+            self.assertNotEqual(free_color[idx] & 0x0F, LAMP_COLOR)
 
             _, screen, color, _ = read_koa(pinned_koa)
-            self.assertIn(LAMP_COLOR, [c & 0x0F for c in color],
-                          "the pinned color should be in color RAM somewhere")
-            for idx, byte in enumerate(screen):
-                self.assertNotEqual(byte >> 4, LAMP_COLOR,
-                                    f"cell {idx} holds the pinned color in screen RAM")
-                self.assertNotEqual(byte & 0x0F, LAMP_COLOR,
-                                    f"cell {idx} holds the pinned color in screen RAM")
+            self.assertEqual(color[idx] & 0x0F, LAMP_COLOR)
+            self.assertNotEqual(screen[idx] >> 4, LAMP_COLOR)
+            self.assertNotEqual(screen[idx] & 0x0F, LAMP_COLOR)
 
             # Pinning only relabels slots, so the picture must be untouched.
             self.assertEqual(Image.open(free_png).convert("RGB").tobytes(),
                              Image.open(pinned_png).convert("RGB").tobytes())
 
-    def test_two_pinned_colors_in_one_cell_is_an_error(self):
+    def test_pinning_a_cell_that_does_not_use_the_color_is_an_error(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             src = os.path.join(tmp_dir, "lamp.png")
             self._image_with_lamp(src)
+            row, col = self.LAMP_CELL
             with self.assertRaises(ValueError):
                 convert_png_to_koala(
                     input_path=src,
                     koa_output_path=os.path.join(tmp_dir, "out.koa"),
                     bg_color=0,
-                    # Light grey is the dial the lamp sits on: no cell can put
-                    # both in the one color RAM nibble.
-                    pin_color_ram=frozenset({LAMP_COLOR, 15}),
+                    # One cell to the right: dial, no lamp. Pinning there would
+                    # give the C64 side a cell with nothing to light up.
+                    pins={row * 40 + col + 1: LAMP_COLOR},
                 )
+
+    def test_parse_pin(self):
+        self.assertEqual(parse_pin("10@15,21"), (15 * 40 + 21, 10))
+        for bad in ("10", "10@15", "16@0,0", "10@25,0", "10@0,40", "@1,2"):
+            with self.assertRaises(Exception, msg=bad):
+                parse_pin(bad)
 
 
 class TestShippedPanel(unittest.TestCase):
@@ -259,14 +285,14 @@ class TestShippedPanel(unittest.TestCase):
             self.assertNotEqual(screen[idx] >> 4, LAMP_COLOR)
             self.assertNotEqual(screen[idx] & 0x0F, LAMP_COLOR)
 
-    def test_lamp_color_is_nowhere_in_screen_ram(self):
-        _, screen, _, _ = read_koa(PANEL_KOA)
-        stray = [i for i, b in enumerate(screen)
-                 if b >> 4 == LAMP_COLOR or b & 0x0F == LAMP_COLOR]
+    def test_makefile_pins_exactly_the_lamp_cells(self):
+        # Two hand-written lists of the same four cells, one in C and one in
+        # make. Regenerating the panel with the wrong list is silent: the image
+        # looks right and the lamps do not work.
         self.assertEqual(
-            stray, [],
-            "panel.koa was re-encoded without --pin-color-ram "
-            f"{LAMP_COLOR}; run `make panel`")
+            pinned_cells_from_makefile(),
+            {cell: LAMP_COLOR for cell in lamp_cells_from_gfx_cc()},
+            "PANEL_FLAGS in the Makefile and the lamps in gfx.cc disagree")
 
 
 if __name__ == "__main__":

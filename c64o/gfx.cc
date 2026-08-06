@@ -223,9 +223,10 @@ inline void gfx_update_heading_bitmap(uint8_t heading) {
 // The two screen RAM colors would do the job too, but they share a byte, and
 // which of them a cell's colors land in is png2koa.py's choice, not ours: it
 // re-labels the slots for compression and has already swapped a lamp's nibbles
-// once, silently. `make panel` therefore passes `--pin-color-ram 10`, which
-// keeps light red in color RAM wherever the panel uses it, and
-// tests/test_png2koa.py checks that the shipped panel.koa still honors it.
+// once, silently. `make panel` therefore pins light red to color RAM in these
+// four cells, by the same row and column as the pointers below, and
+// tests/test_png2koa.py checks all three lists still agree. Only these cells
+// are pinned; light red elsewhere in the panel is the encoder's business.
 static void _set_lamp(uint8_t *color_ptr, bool on) {
   *color_ptr = on ? kColorLightRed : kColorBlack;
 }

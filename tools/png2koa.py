@@ -25,6 +25,7 @@ Usage:
 
 from __future__ import annotations
 import os
+import re
 import sys
 import zlib
 import argparse
@@ -217,40 +218,36 @@ def auto_detect_bg_color(cell_dists: list[list[list[float]]]) -> int:
 # ---------------------------------------------------------------------------
 
 def _pin_to_color_ram(l1: int, l2: int, l3: int, bits: list[int],
-                      pinned: frozenset[int]) -> tuple[int, int, int, list[int]]:
+                      pin: int) -> tuple[int, int, int, list[int]]:
     """
-    Moves a pinned colour into L3 (colour RAM, bit pair 11), swapping whatever
-    was there into the slot it came from. Purely a relabeling: every pixel keeps
-    its exact colour, so this may be applied to any finished cell.
+    Moves `pin` into L3 (colour RAM, bit pair 11), swapping whatever was there
+    into the slot it came from. Purely a relabeling: every pixel keeps its exact
+    colour, so this may be applied to any finished cell.
 
-    At most one pinned colour can be honoured per cell, since there is only one
-    colour RAM nibble. A cell needing two of them is a conflict the caller has
-    to hear about, so it is reported rather than silently half-applied.
-
-    Slots no pixel references are cleared out too. They are invisible, but
-    leaving a pinned colour in one would break the flat rule the C64 side relies
-    on - "this colour lives in colour RAM, always" - and make it untestable.
+    The colour has to be one the cell actually draws in. A pin on a cell that
+    does not use it is a mistake worth hearing about - the coordinates are
+    written down by hand and the artwork moves - so it raises rather than
+    quietly doing nothing.
     """
     slots = [l1, l2, l3]
     used = set(bits)
-    live = [s for s in (1, 2, 3) if s in used and slots[s - 1] in pinned]
-    if len(live) > 1:
-        raise ValueError(
-            f"cell draws in {len(live)} pinned colours "
-            f"({', '.join(str(slots[s - 1]) for s in live)}) but there is "
-            "only one colour RAM nibble to pin them to")
-    if live and live[0] != 3:
+    live = [s for s in (1, 2, 3) if s in used and slots[s - 1] == pin]
+    if not live:
+        raise ValueError(f"cell does not draw in colour {pin}, so pinning it to "
+                         f"colour RAM would light nothing; it uses "
+                         f"{sorted({slots[s - 1] for s in used if s})}")
+    if live[0] != 3:
         src = live[0]
         slots[src - 1], slots[2] = slots[2], slots[src - 1]
         swap = {src: 3, 3: src}
         bits = [swap.get(b, b) for b in bits]
         used = set(bits)
-    # Whatever pinned colours are left sit in slots no pixel reads, so they can
-    # be anything at all; they are cleared rather than kept so that "pinned
-    # colour in screen RAM" stays a flat error, with no exceptions to check.
-    filler = next(c for c in range(16) if c not in pinned)
+    # An unused slot can hold anything, and here it holds the pinned colour only
+    # by accident of inheritance. Cleared, so that within a pinned cell the
+    # colour appears in exactly one place.
+    filler = 0 if pin != 0 else 1
     for s in (1, 2):
-        if slots[s - 1] in pinned and s not in used:
+        if slots[s - 1] == pin and s not in used:
             slots[s - 1] = filler
     return slots[0], slots[1], slots[2], bits
 
@@ -261,7 +258,7 @@ def optimize_cell(
     prev_l1: int = 13,
     prev_l2: int = 13,
     prev_l3: int = 13,
-    pin_color_ram: frozenset[int] = frozenset(),
+    pin: int | None = None,
 ) -> tuple[int, int, int, list[int]]:
     """
     Finds optimal 3 local colors (L1, L2, L3) and assigns bit pairs (0..3) for a 4x8 cell.
@@ -277,8 +274,8 @@ def optimize_cell(
       * Slots not actually used by the cell inherit the previous cell's value,
         which is free (those bit patterns never occur) and keeps the screen and
         colour RAM bytes stable.
-      * A colour in `pin_color_ram` overrides all of the above and is placed in
-        L3, so the program can find it at a known address at run time.
+      * `pin` overrides all of the above and puts that one colour in L3, so the
+        program can find it at a known address at run time.
     """
     color_freq = [0] * 16
     pixel_best_colors = []
@@ -350,24 +347,25 @@ def optimize_cell(
                 best_b = code
         bit_assignments.append(best_b)
 
-    if pin_color_ram:
+    if pin is not None:
         l1, l2, l3, bit_assignments = _pin_to_color_ram(
-            l1, l2, l3, bit_assignments, pin_color_ram)
+            l1, l2, l3, bit_assignments, pin)
 
     return l1, l2, l3, bit_assignments
 
 
 def encode_cells(cell_dists, bg_color: int,
-                 pin_color_ram: frozenset[int] = frozenset()
+                 pins: dict[int, int] | None = None
                  ) -> list[tuple[int, int, int, list[int]]]:
     """Runs optimize_cell over the whole 40x25 matrix in char order."""
+    pins = pins or {}
     cells = []
     prev_l1, prev_l2, prev_l3 = 13, 13, 13
     for cell_idx in range(1000):
         try:
             l1, l2, l3, bits = optimize_cell(
                 cell_dists[cell_idx], bg_color, prev_l1, prev_l2, prev_l3,
-                pin_color_ram
+                pins.get(cell_idx)
             )
         except ValueError as e:
             raise ValueError(f"cell {cell_idx} "
@@ -564,16 +562,16 @@ def _write_cell(koa, idx: int, l1: int, l2: int, l3: int, bits: list[int]) -> No
 
 
 def optimize_slots(cells, plan: EmbedPlan, passes: int = 8, verbose: bool = True,
-                   pin_color_ram: frozenset[int] = frozenset()):
+                   pins: dict[int, int] | None = None):
     """
     Lossless post-pass. Within a cell, which of L1/L2/L3 holds which colour is
     arbitrary, and slots no pixel uses may hold anything at all. Both choices
     change the emitted bytes without changing a single pixel, so they are free
     to pick for compression.
 
-    Free to pick for *pixels*, that is. A colour in `pin_color_ram` is one the
-    program pokes at run time, so where it sits is part of the interface and
-    candidates that move it out of colour RAM are dropped.
+    Free to pick for *pixels*, that is. In a pinned cell the colour RAM byte is
+    something the program pokes at run time, so where that colour sits is part
+    of the interface and candidates that move it out are dropped.
 
     This matters because the bitmap stream does not encode colours at all, only
     2-bit patterns: two cells that look different can still be made to emit the
@@ -586,6 +584,7 @@ def optimize_slots(cells, plan: EmbedPlan, passes: int = 8, verbose: bool = True
     survivors are scored on the real objective, which is the weighted sum of the
     embedded ranges' compressed sizes.
     """
+    pins = pins or {}
     koa = build_koa(cells, 0)
     targets = plan.permutable_cells()
     if not targets:
@@ -615,8 +614,9 @@ def optimize_slots(cells, plan: EmbedPlan, passes: int = 8, verbose: bool = True
             for perm in _SLOT_PERMUTATIONS:
                 for fill in fills:
                     cand = _permute_cell(l1, l2, l3, bits, perm, fill)
-                    if pin_color_ram and (cand[0] in pin_color_ram
-                                          or cand[1] in pin_color_ram):
+                    pin = pins.get(idx)
+                    if pin is not None and (cand[0] == pin or cand[1] == pin
+                                            or cand[2] != pin):
                         continue
                     key = (cand[0], cand[1], cand[2], tuple(cand[3]))
                     if key in seen:
@@ -655,14 +655,18 @@ def optimize_slots(cells, plan: EmbedPlan, passes: int = 8, verbose: bool = True
     return total_changed, start_obj, current
 
 
-def verify_pins(cells, pin_color_ram: frozenset[int]) -> list[int]:
+def verify_pins(cells, pins: dict[int, int]) -> list[int]:
     """
-    Returns the cells where a pinned colour did not end up in colour RAM. Must
-    be empty: the whole point of a pin is that the C64 side can name one address
-    per cell and know what it is writing.
+    Returns the pinned cells whose colour did not end up in colour RAM, and only
+    there. Must be empty: the whole point of a pin is that the C64 side can name
+    one address per cell and know what it is writing.
     """
-    return [idx for idx, (l1, l2, _l3, _bits) in enumerate(cells)
-            if l1 in pin_color_ram or l2 in pin_color_ram]
+    bad = []
+    for idx, pin in pins.items():
+        l1, l2, l3, _bits = cells[idx]
+        if l3 != pin or l1 == pin or l2 == pin:
+            bad.append(idx)
+    return sorted(bad)
 
 
 def verify_lossless(cells_before, cells_after, bg_color: int) -> int:
@@ -740,7 +744,7 @@ def convert_png_to_koala(
     snap_window: int = CELL_WINDOW,
     plan: EmbedPlan | None = None,
     optimize_slot_order: bool = False,
-    pin_color_ram: frozenset[int] = frozenset(),
+    pins: dict[int, int] | None = None,
 ) -> None:
     """
     Loads a PNG, encodes it to Koala Painter format, optionally searching for the
@@ -751,10 +755,10 @@ def convert_png_to_koala(
     grid = downsample_to_multicolor_grid(img)
     cell_dists = build_cell_dists(grid)
     plan = plan or EmbedPlan()
-    pin_color_ram = frozenset(pin_color_ram)
+    pins = dict(pins or {})
 
     def encode(bg: int):
-        cells = encode_cells(cell_dists, bg, pin_color_ram)
+        cells = encode_cells(cell_dists, bg, pins)
         snapped = snap_cells(cells, cell_dists, bg, snap_tolerance,
                              snap_max_error, snap_window)
         return cells, snapped
@@ -811,8 +815,7 @@ def convert_png_to_koala(
               + (f" ({partial} skipped: bitmap embedded but screen/color are not)"
                  if partial else ""))
         before = [(a, b, c, list(d)) for a, b, c, d in cells]
-        changed, obj0, obj1 = optimize_slots(cells, plan,
-                                             pin_color_ram=pin_color_ram)
+        changed, obj0, obj1 = optimize_slots(cells, plan, pins=pins)
         moved = verify_lossless(before, cells, bg_color)
         if moved:
             raise AssertionError(
@@ -821,15 +824,16 @@ def convert_png_to_koala(
         print(f"  {changed} cells re-slotted, objective {obj0:.0f} -> {obj1:.0f} "
               f"({obj1 - obj0:+.0f}), 0 of 32000 pixels changed")
 
-    if pin_color_ram:
-        loose = verify_pins(cells, pin_color_ram)
+    if pins:
+        loose = verify_pins(cells, pins)
         if loose:
             raise AssertionError(
-                f"{len(loose)} cells hold a pinned colour outside colour RAM, "
-                f"first at row {loose[0] // 40} col {loose[0] % 40} - this is a bug")
-        held = sum(1 for l1, l2, l3, _ in cells if l3 in pin_color_ram)
-        print(f"Pinned to colour RAM: {', '.join(str(c) for c in sorted(pin_color_ram))}"
-              f" ({held} cells carry one)")
+                f"{len(loose)} pinned cells did not keep their colour in colour "
+                f"RAM, first at row {loose[0] // 40} col {loose[0] % 40} - "
+                "this is a bug")
+        print("Pinned to colour RAM: " + ", ".join(
+            f"color {c} at row {idx // 40} col {idx % 40}"
+            for idx, c in sorted(pins.items())))
 
     koa_bytes = build_koa(cells, bg_color)
 
@@ -864,6 +868,20 @@ def convert_png_to_koala(
     if png_output_path:
         render_preview(cells, bg_color).save(png_output_path)
         print(f"Saved Pepto palette preview PNG: {png_output_path}")
+
+
+def parse_pin(spec: str) -> tuple[int, int]:
+    """`COLOR@ROW,COL` -> (cell index, colour), for --pin-color-ram."""
+    m = re.fullmatch(r"\s*(\d+)\s*@\s*(\d+)\s*,\s*(\d+)\s*", spec)
+    if not m:
+        raise argparse.ArgumentTypeError(
+            f"--pin-color-ram expects COLOR@ROW,COL, got {spec!r}")
+    color, row, col = (int(g) for g in m.groups())
+    if not 0 <= color <= 15:
+        raise argparse.ArgumentTypeError(f"color {color} is not 0..15")
+    if not 0 <= row < 25 or not 0 <= col < 40:
+        raise argparse.ArgumentTypeError(f"cell {row},{col} is off the 40x25 screen")
+    return row * 40 + col, color
 
 
 def main():
@@ -904,14 +922,15 @@ def main():
                         help="Lossless: re-label each cell's L1/L2/L3 slots, and fill unused "
                              "slots, to minimize the embedded ranges. Every pixel keeps its exact "
                              "color; the result is verified pixel-by-pixel before writing.")
-    parser.add_argument("--pin-color-ram", type=int, action="append", default=None,
-                        choices=range(16), metavar="0..15",
-                        help="Keep this color in color RAM (bit pair 11) in every cell that "
-                             "uses it, and never let the slot optimizer move it. Repeatable. "
-                             "For colors the program pokes at run time: color RAM is one whole "
-                             "byte per cell, so the C64 side can just store to it, while the "
-                             "two screen RAM colors share a byte and can swap nibbles whenever "
-                             "the image is re-encoded.")
+    parser.add_argument("--pin-color-ram", type=parse_pin, action="append", default=None,
+                        metavar="COLOR@ROW,COL",
+                        help="Keep COLOR in color RAM (bit pair 11) in the cell at ROW,COL, and "
+                             "never let the slot optimizer move it. Repeatable. For the handful "
+                             "of cells the program recolors at run time: color RAM is one whole "
+                             "byte per cell, so the C64 side can just store to it, while the two "
+                             "screen RAM colors share a byte and may swap nibbles whenever the "
+                             "image is re-encoded. Only the named cells are constrained - "
+                             "elsewhere the color is placed for compression as usual.")
     parser.add_argument("--snap-window", type=int, default=CELL_WINDOW, metavar="CELLS",
                         help=f"How many cells back snapping may reference (default {CELL_WINDOW}, "
                              "which is the 255-byte LZO window)")
@@ -933,7 +952,7 @@ def main():
         snap_window=args.snap_window,
         plan=EmbedPlan([EmbedPlan.parse(s) for s in args.embed]) if args.embed else None,
         optimize_slot_order=args.optimize_slots,
-        pin_color_ram=frozenset(args.pin_color_ram or ()),
+        pins=dict(args.pin_color_ram or ()),
     )
 
 

@@ -300,9 +300,11 @@ Color RAM, and not one of the two screen RAM colors, because those two share a
 byte and which of them holds what is `png2koa.py`'s choice: its lossless slot
 optimizer relabels them for compression, and it once moved a lamp from one
 nibble to the other, which killed the right-hand nav light silently. `make
-panel` therefore passes `--pin-color-ram 10`, which keeps light red in color
-RAM in every cell that uses it, and `tests/test_png2koa.py` reads the lamp
-coordinates out of `gfx.cc` and checks the shipped `panel.koa` against them.
+panel` therefore passes `--pin-color-ram 10@ROW,COL` for the four lamp cells,
+and nothing else — light red anywhere else in the panel is still placed for
+compression. `tests/test_png2koa.py` reads the lamp coordinates out of `gfx.cc`
+and checks both the shipped `panel.koa` and the Makefile's pin list against
+them, since the same four cells are now written down in three places.
 The lamps also only update in the center view, like the heading strip: a side
 view replaces those cells with the fill pattern, which draws with color RAM
 itself.
