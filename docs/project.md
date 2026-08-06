@@ -47,8 +47,8 @@ program (`__MAX_RAM__`).
 | Address       | Contents                                                   |
 | ------------- | ---------------------------------------------------------- |
 | `$0080–$00FF` | zero page (oscar64 `zeropage` region)                      |
-| `$0400–$0480` | CPU stack (`#pragma stacksize(0x80)`) — the old screen RAM |
-| `$0480–$0800` | `bss2`, a second BSS region for hot state                  |
+| `$0200–$0280` | CPU stack (`#pragma stacksize(0x80)`)                      |
+| `$0280–$0800` | `bss2`, a second BSS region — full to the byte             |
 | `$0860–$CFFF` | code, data, bss, heap                                      |
 | `$D000–$DFFF` | I/O (`MMAP_NO_ROM`)                                        |
 | `$D7C0`       | sprite bitmaps, expanded from `spritedef.bin` at startup   |

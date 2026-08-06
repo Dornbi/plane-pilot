@@ -17,8 +17,8 @@
 
 // The two screen buffers use distinct charset slots (mem_box_char_start
 // 0x01 / 0x61), so everything box_prepare produces is cached per slot and
-// only rebuilt when that slot's box definition changes. These live in the
-// default bss region because bss2 is nearly full.
+// only rebuilt when that slot's box definition changes. 384 bytes of bss2,
+// its two largest tenants by some way.
 static uint8_t _box_chars[2][kMaxBoxTotalSize];
 static uint8_t _box_colors[2][kMaxBoxTotalSize];
 // Which definition each charset slot currently holds.
