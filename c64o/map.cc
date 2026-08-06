@@ -121,6 +121,17 @@ static void _draw_digit(uint8_t digit, uint8_t screen_row, uint8_t screen_col) {
   }
 }
 
+// Plots the recent flight path. flight.cc already stores map pixels, and
+// consecutive samples are 4-neighbours by construction, so this is a plain
+// walk with no line drawing between the points -- see kFlightPathLen in
+// flight.h. Entries 0 .. count - 1 are the live ones whether or not the ring
+// has wrapped.
+static void _draw_path(void) {
+  for (uint8_t i = 0; i < flight_path_count; ++i) {
+    map_set_overlay_pixel(flight_path_px[i], flight_path_py[i]);
+  }
+}
+
 // Places the active mission's navpoint digits. flight_init_from_mission()
 // has already unpacked the waypoints into flight_nav_point_*, high byte =
 // world unit, so the cell arithmetic is map.md section 4's, with the 180
@@ -247,8 +258,10 @@ void map_enter() {
   memset(kMapBitmap, 0xFF, kMapBitmapSize);
   memset(kColorRam, kColorBlack, kMapScreenSize);
   _draw_object_layer();
-  // Overlay, on top of the object art. The flight path joins here in phase 5,
-  // before the digits, so a digit still wins its own cell.
+  // Overlay, on top of the object art. Path first: a digit clears its own
+  // cell's overlay before stencilling, so drawing it last keeps the trail
+  // from filling in the glyph's counters.
+  _draw_path();
   _draw_navpoints();
 
   // Pass B -- screen RAM at $D000, which the CPU can only reach with I/O

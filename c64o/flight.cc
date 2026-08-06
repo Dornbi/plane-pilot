@@ -14,6 +14,21 @@ enum FlightStatus flight_status = FLIGHT_ONGOING;
 uint8_t flight_current_wp = 0;
 uint8_t flight_active_mission_idx = 0;
 
+// The map view's flight path. Parallel arrays rather than one array of
+// 2-byte entries, so an index needs no shift, matching how every other table
+// here is stored.
+//
+// Declared above the bss2 switch below on purpose: bss2 ($0280..$0800) is
+// occupied to $077C and has no room for 256 bytes, so this goes in main's
+// bss with the rest of the large tables.
+uint8_t flight_path_px[kFlightPathLen];
+uint8_t flight_path_py[kFlightPathLen];
+uint8_t flight_path_count = 0;
+// Next slot to write. Wraps at kFlightPathLen, which is a power of two, so
+// the wrap is a mask.
+static uint8_t flight_path_head = 0;
+static const uint8_t kFlightPathMask = kFlightPathLen - 1;
+
 #ifdef __OSCAR64__
 #pragma bss(bss2)
 #endif
@@ -48,6 +63,36 @@ uint16_t flight_nav_point_x[kMaxNavPoints];
 uint16_t flight_nav_point_y[kMaxNavPoints];
 static uint8_t flight_waypoint_nav[kMaxNavPoints];
 uint8_t flight_num_nav_points = 0;
+
+// Appends the current position to the flight path, unless it is the pixel
+// already at the head.
+//
+// The conversion is map.md section 4's: flight_eye_* is 24.8 fixed point
+// metres, so >> 16 gives 256-metre world units; + 4 centres cells on
+// multiples of 8; and the complement applies the map's 180 degree rotation.
+// x selects the row and y the column, and y is halved because a horizontal
+// map pixel spans two world units -- which is exactly what makes the map
+// square on screen at 256 m per pixel on both axes.
+//
+// Comparing against the single most recent entry is enough to keep the path
+// connected; see kFlightPathLen in flight.h.
+static void _flight_path_sample() {
+  const uint8_t py = 127 - ((uint8_t)((flight_eye_x >> 16) + 0x04) & 0x7F);
+  const uint8_t px =
+      127 - (((uint8_t)((flight_eye_y >> 16) + 0x04) >> 1) & 0x7F);
+  if (flight_path_count != 0) {
+    const uint8_t last = (flight_path_head - 1) & kFlightPathMask;
+    if (flight_path_px[last] == px && flight_path_py[last] == py) {
+      return;
+    }
+  }
+  flight_path_px[flight_path_head] = px;
+  flight_path_py[flight_path_head] = py;
+  flight_path_head = (flight_path_head + 1) & kFlightPathMask;
+  if (flight_path_count < kFlightPathLen) {
+    flight_path_count++;
+  }
+}
 
 static void _flight_update_nav() {
   flight_true_heading = _get_heading(flight_cam.front.x, flight_cam.front.y);
@@ -137,6 +182,9 @@ void flight_init() {
   flight_num_nav_points = 2;
   flight_nav = 0;
   _flight_update_nav();
+  flight_path_head = 0;
+  flight_path_count = 0;
+  _flight_path_sample();
 }
 #endif
 
@@ -197,6 +245,12 @@ void flight_init_from_mission(uint8_t mission_idx) {
   }
   flight_nav = 0;
   _flight_update_nav();
+  // The trail is per attempt, so R starts a fresh one. Seeding it with the
+  // start position means the path is already anchored on the runway before
+  // the aircraft has moved.
+  flight_path_head = 0;
+  flight_path_count = 0;
+  _flight_path_sample();
 }
 
 static void _flight_move_forward(int16_t fspeed, int16_t vspeed) {
@@ -617,6 +671,7 @@ void flight_advance() {
   }
 
   _flight_update_nav();
+  _flight_path_sample();
   _flight_check_mission_waypoints();
 }
 

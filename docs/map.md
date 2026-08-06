@@ -346,6 +346,13 @@ A ring buffer of 128 map-pixel positions, 2 bytes each (`px`, `py`), 256 bytes
 in `main`. `bss2` (`$0280–$0800`) is used to `$077C` and has no room. Cleared by
 `flight_init_from_mission()`, so the trail is per-attempt and `R` wipes it.
 
+It lives in `flight.cc`, not `map.cc`. That is the one place that can clear it
+without a second call site, and `flight_advance()` is already where the
+position is known — but it does mean `flight.cc`, otherwise a pure model file
+with no rendering dependencies, knows the map's 128 × 128 pixel space. The
+trade bought host test coverage: `flight_test` exercises the sampler directly,
+which it could not do if the buffer sat behind `map.cc`.
+
 Plotted into the overlay layer (§3) with the same "set pair to `01`" primitive
 the navpoint digits use.
 
@@ -356,12 +363,33 @@ compute px, py
 if (px, py) != most recent entry: append, advance head
 ```
 
-Comparison against the single most recent entry is sufficient. Maximum speed is
-`kMaxSpeed = 0x0F00` ≈ 15 m per step; the smallest map pixel is 256 m, so the
-position advances by at most one pixel per step. **Consecutive samples are
-therefore always 4-neighbours** — the stored points already form a connected
-path, so there is no line drawing, no interpolation, and consequently no
-wrap-seam special case. Cost is about 30 cycles per frame.
+Maximum speed is `kMaxSpeed = 0x0F00` ≈ 15 m per step; the smallest map pixel
+is 256 m, so the position advances by at most one pixel **per axis** per step.
+**Consecutive samples are therefore always 8-neighbours** — the stored points
+already form a connected path, so there is no line drawing, no interpolation,
+and consequently no wrap-seam special case. Cost is about 30 cycles per frame.
+
+Not 4-neighbours, as an earlier draft of this section claimed: a step passing
+near a cell corner crosses a row and a column boundary at once and lands
+diagonally. Rare — one append in 385 in
+`test_flight_path_samples_are_connected` — and it makes no difference to the
+drawing, since two pixels touching at a corner still read as a line. The test
+asserts the true bound, `dx ≤ 1 && dy ≤ 1 && dx + dy ≥ 1`.
+
+### Comparing against only the most recent entry
+
+The dedup looks at one entry back, so a position that dithers across a pixel
+boundary appends `A, B, A, B, …` and spends the ring on two pixels. Measured
+rather than assumed: over 266 full 128-entry rings flown with deliberately
+oscillating yaw and pitch inputs, the *worst* ring still held 114 distinct
+pixels, and `A, B, A` revisits accounted for about 0.5% of appends.
+
+The trail cannot collapse because the aircraft cannot hover — it always moves
+forward at up to 15 m per step, so it can only dither across a boundary during
+the brief window where it turns through the tangent. The one input that does
+reverse position exactly, `Z`/`X` while paused, moves by a fixed amount each
+way and returns to the same pixel, which the existing one-entry comparison
+already drops.
 
 At cruise a vertical pixel takes ~1.7 s, so 128 samples covers roughly 3.5
 minutes of flight — about one full traverse of the map. Cleared by
@@ -547,7 +575,7 @@ lookups, no new data at all.
 | 2 | ~~Tile + digit art `gfx/ppilot_map_tiles.png`; `tools/generate_map_tiles.py`; `make map-tiles`~~ | **done** — 18 tiles + 4 digits = 212 bytes |
 | 3 | ~~MCBM `map_enter()` / `map_exit()`, object layer only~~ | **done** — verified pixel-identical to `render_map_preview.py` |
 | 4 | ~~Overlay layer: `set_overlay_pixel()` + digit stencils; `kMaxNavPoints = 4` in `flight.cc` + clamp~~ | **done** — verified against `render_map_preview.py`, collision case included |
-| 5 | Flight path ring buffer, cleared by `flight_init_from_mission()` | reuses the phase 4 overlay primitive |
+| 5 | ~~Flight path ring buffer, cleared by `flight_init_from_mission()`~~ | **done** — 3 new `flight_test` cases |
 | 6 | Aircraft sprites — two centred long arms, 48→32 heading LUT, `$D010` handling | |
 
 ---

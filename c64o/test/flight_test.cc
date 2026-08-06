@@ -2072,6 +2072,152 @@ static void test_runway_1_bounds_alignment() {
   printf("  PASS\n\n");
 }
 
+// Distance between two map-pixel coordinates on one axis, the short way
+// round: the world wraps, so 127 and 0 are neighbours.
+static uint8_t _path_axis_delta(uint8_t a, uint8_t b) {
+  uint8_t d = (uint8_t)(a - b) & 0x7F;
+  return d <= 64 ? d : (uint8_t)(128 - d);
+}
+
+// The map view addresses cells by (row, col) and pixels by (px, py), and
+// map.md section 4 claims the two agree by construction: py >> 3 is the
+// screen row and px >> 2 the screen column. Everything the map draws depends
+// on that, so check it exhaustively rather than by example.
+static void test_flight_path_pixel_cell_agreement() {
+  printf("Running test_flight_path_pixel_cell_agreement...\n");
+
+  for (int32_t unit = 0; unit < 256; ++unit) {
+    // flight_init() is what resets the ring; count alone is not enough, since
+    // the write position is private to flight.cc. Paused, so flight_advance()
+    // samples the position set here rather than one step past it.
+    flight_init();
+    flight_paused = true;
+    // x selects the row.
+    flight_eye_x = unit << 16;
+    flight_eye_y = 0;
+    flight_advance();
+    const uint8_t xb = (uint8_t)(unit + 0x04);
+    const uint8_t map_row = (xb >> 3) & 0x0F;
+    const uint8_t screen_row = 15 - map_row;
+    assert((flight_path_py[flight_path_count - 1] >> 3) == screen_row);
+
+    // y selects the column.
+    flight_init();
+    flight_paused = true;
+    flight_eye_x = 0;
+    flight_eye_y = unit << 16;
+    flight_advance();
+    const uint8_t yb = (uint8_t)(unit + 0x04);
+    const uint8_t map_col = (yb >> 3) & 0x1F;
+    const uint8_t screen_col = 31 - map_col;
+    assert((flight_path_px[flight_path_count - 1] >> 2) == screen_col);
+  }
+  flight_paused = false;
+
+  printf("  PASS\n\n");
+}
+
+// The path is stored as bare points with no line drawing between them, which
+// is only correct if consecutive samples are always neighbours -- including
+// diagonally, since one step passing near a cell corner can cross a row and a
+// column boundary at once. That rests on the aircraft covering at most 256 m
+// per step, so fly it at kMaxSpeed -- the worst case -- in a variety of
+// directions and check every append.
+static void test_flight_path_samples_are_connected() {
+  printf("Running test_flight_path_samples_are_connected...\n");
+
+  static const int16_t kMaxSpeed = 0x0F00;
+  int checked = 0;
+
+  // Several segments, each restarted so the ring stays in chronological
+  // order, and each steered differently to sweep the compass.
+  for (int seg = 0; seg < 8; ++seg) {
+    flight_init_from_mission(3);
+    flight_eye_z = 0x040000;
+    // Seeded with the start position, and nothing else yet.
+    assert(flight_path_count == 1);
+
+    for (int i = 0; i < seg; ++i) {
+      flight_input(FLIGHT_INPUT_YAW_LEFT);
+    }
+    for (int frame = 0; frame < 400 && flight_path_count < kFlightPathLen;
+         ++frame) {
+      flight_speed = kMaxSpeed;  // hold the worst case against drag
+      flight_eye_z = 0x040000;   // and stay airborne
+      flight_advance();
+    }
+    assert(flight_path_count > 8);  // the segment actually moved
+
+    for (uint8_t i = 1; i < flight_path_count; ++i) {
+      const uint8_t dx =
+          _path_axis_delta(flight_path_px[i], flight_path_px[i - 1]);
+      const uint8_t dy =
+          _path_axis_delta(flight_path_py[i], flight_path_py[i - 1]);
+      // At most one pixel on each axis, and at least one somewhere: the
+      // sampler drops repeats, and no step can skip a pixel.
+      assert(dx <= 1 && dy <= 1);
+      assert(dx + dy >= 1);
+      ++checked;
+    }
+  }
+  assert(checked > 300);
+
+  printf("  PASS (%d transitions)\n\n", checked);
+}
+
+// Ring behaviour: repeats are dropped, the buffer saturates rather than
+// overflowing, and restarting the mission wipes the trail.
+static void test_flight_path_ring_buffer() {
+  printf("Running test_flight_path_ring_buffer...\n");
+
+  flight_init_from_mission(3);
+  assert(flight_path_count == 1);
+
+  // Frozen position appends nothing, however long it is left running.
+  flight_paused = true;
+  const uint8_t px0 = flight_path_px[0];
+  const uint8_t py0 = flight_path_py[0];
+  for (int i = 0; i < 200; ++i) {
+    flight_advance();
+  }
+  assert(flight_path_count == 1);
+  assert(flight_path_px[0] == px0 && flight_path_py[0] == py0);
+  flight_paused = false;
+
+  // Fly long enough to wrap the ring several times over.
+  flight_eye_z = 0x040000;
+  for (int frame = 0; frame < 6000; ++frame) {
+    flight_eye_z = 0x040000;
+    flight_advance();
+    assert(flight_path_count <= kFlightPathLen);
+  }
+  assert(flight_path_count == kFlightPathLen);
+
+  // The oldest entries are being overwritten, not just appended past. Steer
+  // while doing it, so the trail moves on both axes rather than running
+  // straight down a column and rewriting the same px values.
+  uint8_t before_px[kFlightPathLen], before_py[kFlightPathLen];
+  memcpy(before_px, flight_path_px, sizeof(before_px));
+  memcpy(before_py, flight_path_py, sizeof(before_py));
+  for (int frame = 0; frame < 2000; ++frame) {
+    flight_eye_z = 0x040000;
+    flight_input(FLIGHT_INPUT_YAW_LEFT);
+    flight_advance();
+  }
+  assert(memcmp(before_px, flight_path_px, sizeof(before_px)) != 0 ||
+         memcmp(before_py, flight_path_py, sizeof(before_py)) != 0);
+
+  // R restarts the mission, which starts a fresh trail at the start point.
+  flight_init_from_mission(3);
+  assert(flight_path_count == 1);
+  const uint8_t xb = (uint8_t)((flight_eye_x >> 16) + 0x04);
+  const uint8_t yb = (uint8_t)((flight_eye_y >> 16) + 0x04);
+  assert(flight_path_py[0] == (uint8_t)(127 - (xb & 0x7F)));
+  assert(flight_path_px[0] == (uint8_t)(127 - ((yb >> 1) & 0x7F)));
+
+  printf("  PASS\n\n");
+}
+
 static void test_low_altitude_approach_warnings() {
   printf("Running test_low_altitude_approach_warnings...\n");
   flight_init();
@@ -2131,7 +2277,7 @@ int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   mem_screen_row_ptrs[0] = test_screen_row;
-  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (52 TESTS) ===\n\n");
+  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (55 TESTS) ===\n\n");
   test_host_multiply_matches_c64();
   test_level_cruise_equilibrium();
   test_trim_speed_boundary();
@@ -2185,6 +2331,9 @@ int main(int argc, char **argv) {
   test_runway_1_bounds_alignment();
   test_landing_off_runway_crash();
   test_low_altitude_approach_warnings();
-  printf("ALL 52 TESTS PASSED SUCCESSFULLY!\n");
+  test_flight_path_pixel_cell_agreement();
+  test_flight_path_samples_are_connected();
+  test_flight_path_ring_buffer();
+  printf("ALL 55 TESTS PASSED SUCCESSFULLY!\n");
   return 0;
 }

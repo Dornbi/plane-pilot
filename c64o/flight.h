@@ -58,6 +58,27 @@ extern uint16_t flight_nav_point_x[kMaxNavPoints];
 extern uint16_t flight_nav_point_y[kMaxNavPoints];
 extern uint8_t flight_num_nav_points;
 
+// Recent flight path, in the map view's pixel space: 0..127 on both axes over
+// the 128 x 128 map area, px across and py down, already rotated to N up and
+// W left. Sampled once per flight_advance() and reset by
+// flight_init_from_mission(), so the trail is per attempt and R wipes it.
+//
+// A sample is only appended when it differs from the previous one. At
+// kMaxSpeed the aircraft covers about 15 m per step and the smallest map
+// pixel is 256 m, so the position advances by at most one pixel per step and
+// consecutive entries are always 4-neighbours. The stored points therefore
+// already form a connected path: no line drawing, no interpolation, and no
+// wrap-seam special case.
+//
+// At cruise a vertical pixel takes about 1.7 s, so 128 samples is roughly
+// 3.5 minutes of flight, about one full traverse of the map.
+static const uint8_t kFlightPathLen = 128;
+extern uint8_t flight_path_px[kFlightPathLen];
+extern uint8_t flight_path_py[kFlightPathLen];
+// Entries 0 .. flight_path_count - 1 are live in both cases: before the ring
+// wraps, count is the write position; after it, every slot is live.
+extern uint8_t flight_path_count;
+
 // Aircraft position in world coordinates (24.8 fixed point)
 extern int32_t flight_eye_x;
 extern int32_t flight_eye_y;
