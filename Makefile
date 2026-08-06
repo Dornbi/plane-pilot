@@ -15,14 +15,15 @@ RENDER_CENTERS = 160,100;160,96;164,100
 # c64o/ (build output, gitignored) to bin/ (checked in, what README links to).
 PROGRAMS = ppilot polydemo vecdemo vectest
 
-.PHONY: help data chardefs gfx-chars sprites render demo prg release test clean
+.PHONY: help data chardefs gfx-chars sprites map-tiles map-tiles-draft render demo prg release test clean
 
 help:
 	@echo "Data generation:"
-	@echo "  make data       - regenerate all generated C64 data (chardefs, gfx-chars, sprites)"
+	@echo "  make data       - regenerate all generated C64 data (chardefs, gfx-chars, sprites, map-tiles)"
 	@echo "  make chardefs   - chardefs/boxdefs for Python and C, plus all reference frames"
 	@echo "  make gfx-chars  - c64o/gfx_chars.bin"
 	@echo "  make sprites    - c64o/spritedef.{bin,h,cc} and lib/spritedef.py"
+	@echo "  make map-tiles  - c64o/mapdefs.{cc,h} from gfx/ppilot_map_tiles.png"
 	@echo ""
 	@echo "Preview and build:"
 	@echo "  make render     - render all roll angles to out/rendered_frames"
@@ -35,7 +36,7 @@ help:
 
 # --- Data generation -------------------------------------------------------
 
-data: chardefs gfx-chars sprites
+data: chardefs gfx-chars sprites map-tiles
 
 chardefs:
 	$(PYTHON) tools/generate_all.py $(CHARDEFS_FLAGS)
@@ -45,6 +46,15 @@ gfx-chars:
 
 sprites:
 	$(PYTHON) tools/generate_sprites.py
+
+# The tile sheet gfx/ppilot_map_tiles.png is the source of truth: edit it in
+# GIMP, then run this. map-tiles-draft only lays down the first version and
+# refuses to clobber an existing sheet without --force.
+map-tiles:
+	$(PYTHON) tools/generate_map_tiles.py
+
+map-tiles-draft:
+	$(PYTHON) tools/make_map_tiles_draft.py
 
 # --- Preview and build -----------------------------------------------------
 

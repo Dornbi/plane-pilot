@@ -510,8 +510,8 @@ lookups, no new data at all.
 
 | # | Work | Notes |
 | --- | --- | --- |
-| 1 | Restore-path fixes (`gfx_init_chars`, `box_invalidate`, `view_invalidate_bitmap`) | ~40 bytes; testable against the existing char-mode map |
-| 2 | Tile + digit art `gfx/ppilot_map_tiles.png`; `tools/generate_map_tiles.py`; `make map-tiles` | |
+| 1 | ~~Restore-path fixes (`gfx_init_chars`, `box_invalidate`, `view_invalidate_bitmap`)~~ | **done** — 13 bytes code, 8 bytes heap |
+| 2 | ~~Tile + digit art `gfx/ppilot_map_tiles.png`; `tools/generate_map_tiles.py`; `make map-tiles`~~ | **done** — 18 tiles + 4 digits = 212 bytes |
 | 3 | MCBM `map_enter()` / `map_exit()`, object layer only | the bulk of the work |
 | 4 | Overlay layer: `set_overlay_pixel()` + digit stencils; `kMaxNavPoints = 4` in `flight.cc` + clamp | |
 | 5 | Flight path ring buffer, cleared by `flight_init_from_mission()` | reuses the phase 4 overlay primitive |

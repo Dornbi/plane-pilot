@@ -28,6 +28,8 @@ PPILOT_SRC = \
 		mem.cc \
 		map.h \
 		map.cc \
+		mapdefs.h \
+		mapdefs.cc \
 		menu.h \
 		menu.cc \
 		flight.h \
