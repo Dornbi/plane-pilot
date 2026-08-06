@@ -29,7 +29,7 @@ import sys
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 
-from lib.c64_colors import PALETTE_RGB  # noqa: E402
+from lib.c64_colors import PALETTE_RGB, to_indexed  # noqa: E402
 
 BLACK, WHITE, CYAN, GREEN, BLUE, YELLOW = 0, 1, 3, 5, 6, 7
 MEDIUM_GRAY, LIGHT_GREEN, LIGHT_GRAY = 12, 13, 15
@@ -332,7 +332,10 @@ def main():
                 px[i * TILE_W + mx * 2, y] = rgb
                 px[i * TILE_W + mx * 2 + 1, y] = rgb
 
-    im.save(args.out)
+    # Indexed, 16 entries, in C64 hardware order -- so the sheet opens in GIMP
+    # already on the right palette and a stray off-palette pixel is hard to
+    # introduce by accident.
+    to_indexed(im).save(args.out)
     print(f"make_map_tiles_draft: wrote {os.path.relpath(args.out, REPO_ROOT)} "
           f"({len(cells)} tiles, {im.size[0]}x{im.size[1]})")
 

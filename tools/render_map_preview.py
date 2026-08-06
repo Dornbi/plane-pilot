@@ -24,7 +24,7 @@ import sys
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 
-from lib.c64_colors import PALETTE_RGB  # noqa: E402
+from lib.c64_colors import PALETTE_RGB, to_indexed  # noqa: E402
 from tools.generate_map_tiles import TILE_NAMES, DIGIT_NAMES  # noqa: E402
 
 BACKGROUND = 5   # green, bit pair 00
@@ -152,8 +152,11 @@ def main():
 
     os.makedirs(args.out_dir, exist_ok=True)
     out_map = os.path.join(args.out_dir, "map_preview.png")
-    im.resize((SCREEN_W * args.scale, SCREEN_H * args.scale),
-              Image.NEAREST).save(out_map)
+    # Indexed with the C64 palette, like the source art: nearest-neighbour
+    # scaling introduces no new colors, so the preview stays a picture of
+    # exactly the 16 the hardware has.
+    to_indexed(im.resize((SCREEN_W * args.scale, SCREEN_H * args.scale),
+                         Image.NEAREST)).save(out_map)
 
     # Tile sheet, blown up, in table order.
     names = TILE_NAMES + DIGIT_NAMES
@@ -163,14 +166,17 @@ def main():
     cols = 11
     rows_n = (len(names) + cols - 1) // cols
     cell = 8 * zoom + pad
-    grid = Image.new("RGB", (cols * cell + pad, rows_n * cell + pad), (24, 24, 24))
+    # Dark gray rather than an arbitrary near-black: the sheet is saved
+    # indexed on the C64 palette, so the padding has to be a C64 color too.
+    grid = Image.new("RGB", (cols * cell + pad, rows_n * cell + pad),
+                     PALETTE_RGB[11])
     for i in range(len(names)):
         tile = sheet.crop((i * 8, 0, i * 8 + 8, 8)).resize((8 * zoom, 8 * zoom),
                                                            Image.NEAREST)
         gx, gy = i % cols, i // cols
         grid.paste(tile, (pad + gx * cell, pad + gy * cell))
     out_tiles = os.path.join(args.out_dir, "map_tiles_preview.png")
-    grid.save(out_tiles)
+    to_indexed(grid).save(out_tiles)
 
     print(f"render_map_preview: {os.path.relpath(out_map, REPO_ROOT)}")
     print(f"render_map_preview: {os.path.relpath(out_tiles, REPO_ROOT)}")

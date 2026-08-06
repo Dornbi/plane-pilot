@@ -39,3 +39,40 @@ PALETTE_RGB: Dict[int, Tuple[int, int, int]] = {
     14: (108, 94, 181),    # Light Blue
     15: (149, 149, 149),   # Light Gray
 }
+
+RGB_TO_INDEX: Dict[Tuple[int, int, int], int] = {
+    rgb: i for i, rgb in PALETTE_RGB.items()
+}
+
+
+def to_indexed(im):
+    """Returns a copy of an RGB image as a 16-color indexed image.
+
+    The palette is the C64 palette above, in hardware order, so a color's
+    index in the file *is* its C64 color number. That keeps the PNGs honest
+    -- an off-palette pixel is a hard error here rather than something the
+    generators have to notice later -- and lets GIMP show the art in indexed
+    mode with the same palette the C64 uses.
+    """
+    from PIL import Image
+
+    im = im.convert("RGB")
+    out = Image.new("P", im.size)
+    flat = []
+    for i in range(16):
+        flat.extend(PALETTE_RGB[i])
+    out.putpalette(flat)
+
+    src = im.load()
+    dst = out.load()
+    width, height = im.size
+    for y in range(height):
+        for x in range(width):
+            rgb = src[x, y]
+            if rgb not in RGB_TO_INDEX:
+                raise ValueError(
+                    f"to_indexed: pixel at ({x}, {y}) is {rgb}, "
+                    "which is not a C64 palette color"
+                )
+            dst[x, y] = RGB_TO_INDEX[rgb]
+    return out
