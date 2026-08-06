@@ -23,6 +23,12 @@ void view_update_cam();
 // Unconditionally updates the bitmap based on the current view.
 void view_refresh_panel();
 
+// Forgets which view the panel bitmap currently holds, so the next
+// view_refresh_panel() re-expands it instead of concluding it is already
+// correct. Must be called by anything that overwrites $F000..$FF3F behind
+// view_refresh_panel's back.
+void view_invalidate_bitmap();
+
 // Updates view_state and the bitmap based on the previous state.
 void view_update_view(view_state_t new_state);
 

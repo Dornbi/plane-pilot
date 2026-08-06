@@ -33,6 +33,11 @@ static const uint8_t *_cur_box_colors;
 static uint8_t _char_lut[kMaxBoxCharCount + 3];
 static uint8_t _color_lut[kMaxBoxCharCount + 3];
 
+void box_invalidate(void) {
+  _slot_def[0] = NULL;
+  _slot_def[1] = NULL;
+}
+
 void box_prepare(void) {
   const boxdef_t *src_def;
   if (render_alt_box) {

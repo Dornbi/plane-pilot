@@ -2,11 +2,13 @@
 
 #include <string.h>
 
+#include "box.h"
 #include "color.h"
 #include "gfx.h"
 #include "mem.h"
 #include "screen.h"
 #include "vic.h"
+#include "view.h"
 #include "world.h"
 
 // The routines below only run on screen transitions (menu, help, map) or at
@@ -59,9 +61,26 @@ void map_enter() {
 }
 
 void map_exit() {
+  // Rebuild what the map view is allowed to destroy, before restoring the
+  // simulation. The character-mode map below does not touch any of it, but
+  // the multicolor bitmap map (docs/map.md) takes over $E000..$FF3F wholesale
+  // — character RAM, both screen buffers and the panel bitmap — and none of
+  // this is reachable from screen_restore_simulation(). Getting it wrong
+  // shows up as corrupt graphics rather than a crash, so the rebuild lands
+  // with the placeholder and the bitmap map inherits it.
+  //
+  // gfx_init_chars() restores characters 0 and 32..255; the two caches below
+  // own the gradient slots and would otherwise report memory they no longer
+  // hold as still valid.
+  gfx_init_chars();
+  box_invalidate();
+  view_invalidate_bitmap();
+
   // screen_restore_simulation() re-applies the debug or default view's VIC
   // mode and colors (map_enter wiped the color RAM and the bottom of the
-  // main screen), and restarts sprites and the raster IRQ split.
+  // main screen), and restarts sprites and the raster IRQ split. It must run
+  // after view_invalidate_bitmap(), since it is what calls
+  // view_refresh_panel().
   screen_restore_simulation();
 
   map_mode = false;

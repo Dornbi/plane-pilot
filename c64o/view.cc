@@ -143,6 +143,8 @@ void view_refresh_panel() {
   }
 }
 
+void view_invalidate_bitmap() { view_bitmap_state = VIEW_UNKNOWN; }
+
 void view_update_view(view_state_t new_state) {
   if (new_state == view_state) {
     return;
