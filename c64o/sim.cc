@@ -209,7 +209,11 @@ void sim_run(uint8_t selected_mission) {
 
     bm_model_start();
     flight_advance();
-    if (flight_status) {
+    if (flight_crashed()) {
+      // A crash is the end of the flight, so its message stays up until R or
+      // Q. Completing a mission is not: flight.cc announces it for a few
+      // seconds and the simulation carries on, which is why only crashes are
+      // handled here.
       const char *msg = flight_status_text(flight_status, true);
       msg_show(msg, MSG_FOREVER, true);
     }

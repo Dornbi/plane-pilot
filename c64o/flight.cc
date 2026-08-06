@@ -370,8 +370,13 @@ const char *flight_status_text(enum FlightStatus status, bool crashed) {
   return _join(crashed ? "CRASHED: " : "WARNING: ", kFaultText[status]);
 }
 
+// Longer than a waypoint message, because it is the one the pilot flew the
+// whole mission for, but still temporary: the flight continues underneath it
+// and the message row belongs to the warnings again once it expires.
+static const uint16_t kMissionCompleteDuration = 3 * MSG_DEFAULT_DURATION;
+
 static void _flight_check_mission_waypoints() {
-  if (flight_active_mission_idx >= kMissionCount || flight_status ||
+  if (flight_active_mission_idx >= kMissionCount || flight_crashed() ||
       flight_paused) {
     return;
   }
@@ -445,7 +450,14 @@ static void _flight_check_mission_waypoints() {
       }
       flight_current_wp++;
     } else {
+      // The last waypoint. The flight is not over: the pilot keeps the
+      // aircraft and can fly on until they quit, restart or crash it. Past
+      // the end of the list, so this cannot fire a second time - the message
+      // is a moment, not a state, and nothing here re-arms it.
+      flight_current_wp = num_wp;
       flight_status = FLIGHT_MISSION_COMPLETED;
+      msg_show(flight_status_text(FLIGHT_MISSION_COMPLETED, false),
+               kMissionCompleteDuration);
       if (flight_active_mission_idx < kMissionCount) {
         mission_completed[flight_active_mission_idx] = true;
       }
@@ -462,7 +474,7 @@ static void _flight_check_mission_waypoints() {
 }
 
 void flight_advance() {
-  if (flight_status) {
+  if (flight_crashed()) {
     return;
   }
 
@@ -625,14 +637,21 @@ void flight_advance() {
       // roll.
       bool was_on_ground = model_on_ground;
       uint16_t speed_limit = was_on_ground ? kMaxGroundSpeed : kMaxLandingSpeed;
-      flight_status = _landing_fault(speed_limit, !was_on_ground);
+      // Only a fault is written back. A clean touchdown leaves the status
+      // alone rather than clearing it to FLIGHT_ONGOING, which would erase a
+      // FLIGHT_MISSION_COMPLETED the pilot has already earned.
+      enum FlightStatus touchdown_fault =
+          _landing_fault(speed_limit, !was_on_ground);
+      if (touchdown_fault) {
+        flight_status = touchdown_fault;
+      }
 
       model_on_ground = true;
       // Touched down: the descent is over. Zeroed after the envelope check
       // above, which needs the sink rate the aircraft arrived with.
       flight_vspeed = 0;
 
-      if (!was_on_ground && !flight_status && flight_cam.front.z != 0) {
+      if (!was_on_ground && !flight_crashed() && flight_cam.front.z != 0) {
         // Nose wheel comes down. Done once, on the touchdown transition,
         // rather than eased in over the rollout: easing means touching the
         // attitude every frame, and vec_normalize truncates when it rescales,
@@ -695,7 +714,7 @@ void flight_input(enum flight_input_t input) {
     return;
   }
 
-  if (flight_status) {
+  if (flight_crashed()) {
     return;
   }
 

@@ -7,6 +7,12 @@
 #include "mission.h"
 #include "vec.h"
 
+// Everything from FLIGHT_CRASH_ROLL on is a crash, and only a crash ends the
+// flight. FLIGHT_MISSION_COMPLETED is a record of what the pilot achieved,
+// not a stop state: the simulation keeps running so they can fly on, and
+// flight_crashed() below - not a plain truth test on flight_status - is what
+// the flight loop asks before freezing.
+// Keep the crash statuses last, and keep kFaultText in flight.cc in sync.
 enum FlightStatus {
   FLIGHT_ONGOING = 0,
   FLIGHT_MISSION_COMPLETED,
@@ -27,6 +33,10 @@ const char *flight_status_text(enum FlightStatus status, bool crashed);
 
 extern bool flight_paused;
 extern enum FlightStatus flight_status;
+
+// True once the aircraft is wrecked, which is the only thing that stops the
+// physics and locks out the controls.
+inline bool flight_crashed(void) { return flight_status >= FLIGHT_CRASH_ROLL; }
 
 extern mat3_t flight_cam;
 

@@ -1632,6 +1632,68 @@ static void test_mission_01_takeoff_completion() {
   printf("  PASS\n\n");
 }
 
+// Completing a mission is a goal reached, not the end of the flight. The
+// physics and the controls stay live afterwards, the announcement is
+// temporary, and only a crash freezes anything.
+static void test_flight_continues_after_mission_completion() {
+  printf("Running test_flight_continues_after_mission_completion...\n");
+
+  msg_clear();
+  mission_completed[0] = false;
+  flight_init_from_mission(0);
+
+  // Mission 01 completes on passing 1000ft.
+  flight_speed = 0x60;
+  flight_vspeed = 0;
+  flight_eye_z = 0x025000;
+  flight_advance();
+  assert(flight_status == FLIGHT_MISSION_COMPLETED);
+  assert(mission_completed[0]);
+  assert(!flight_crashed());
+  // Announced by flight.cc itself, not by the caller.
+  assert_msg_rendered("MISSION COMPLETE!");
+
+  // The aircraft is still flying: the next frame still moves it.
+  int32_t x_before = flight_eye_x;
+  int32_t y_before = flight_eye_y;
+  flight_advance();
+  assert(flight_eye_x != x_before || flight_eye_y != y_before);
+
+  // And the controls still answer.
+  uint8_t throttle_before = flight_throttle;
+  flight_input(FLIGHT_INPUT_THROTTLE_UP);
+  assert(flight_throttle == throttle_before + 1);
+
+  // The waypoint is behind us, so the message fires once and is not repeated
+  // frame after frame.
+  msg_clear();
+  flight_advance();
+  assert_msg_rendered(nullptr);
+
+  // It was a timed message, so the row frees itself for later warnings
+  // instead of sitting there like a crash report.
+  msg_show("MISSION COMPLETE!");
+  uint16_t frames = 0;
+  while (msg_active() && frames < 1000) {
+    msg_update();
+    ++frames;
+  }
+  assert(!msg_active());
+
+  // A crash after the fact still ends the flight.
+  flight_status = FLIGHT_CRASH_SPEED;
+  assert(flight_crashed());
+  x_before = flight_eye_x;
+  y_before = flight_eye_y;
+  throttle_before = flight_throttle;
+  flight_advance();
+  flight_input(FLIGHT_INPUT_THROTTLE_UP);
+  assert(flight_eye_x == x_before && flight_eye_y == y_before);
+  assert(flight_throttle == throttle_before);
+
+  printf("  PASS\n\n");
+}
+
 static void test_mission_02_landing_completion() {
   printf("Running test_mission_02_landing_completion...\n");
 
@@ -1731,8 +1793,8 @@ static void test_intermediate_navpoint_reached_message() {
   flight_init_from_mission(5);
 
   // Fly to Lake 1 to complete intermediate waypoint 0 (navpoint 1)
-  flight_eye_x = 0x580000;
-  flight_eye_y = 0x108000;
+  flight_eye_x = 0x100000;
+  flight_eye_y = 0xD08000;
   flight_eye_z = 0x020000;
   flight_advance();
 
@@ -1828,9 +1890,9 @@ static void test_mission_06_area_patrol_completion() {
   assert(flight_status == FLIGHT_ONGOING);
   assert(!mission_completed[5]);
 
-  // Waypoint 0: Lake 1 (0x580000, 0x108000)
-  flight_eye_x = 0x580000;
-  flight_eye_y = 0x108000;
+  // Waypoint 0: Lake 1 (0x100000, 0xD08000)
+  flight_eye_x = 0x100000;
+  flight_eye_y = 0xD08000;
   flight_eye_z = 0x020000;
   flight_advance();
   assert(flight_current_wp == 1);
@@ -1843,9 +1905,9 @@ static void test_mission_06_area_patrol_completion() {
   assert(flight_current_wp == 2);
   assert(flight_status == FLIGHT_ONGOING);
 
-  // Waypoint 2: Lake 3 (0x100000, 0xD08000)
-  flight_eye_x = 0x100000;
-  flight_eye_y = 0xD08000;
+  // Waypoint 2: Lake 3 (0x580000, 0x108000)
+  flight_eye_x = 0x580000;
+  flight_eye_y = 0x108000;
   flight_advance();
   assert(flight_current_wp == 3);
   assert(flight_status == FLIGHT_ONGOING);
@@ -2318,6 +2380,7 @@ int main(int argc, char **argv) {
   test_takeoff_roll_speed_margin();
   test_mission_waypoint_constraints();
   test_mission_01_takeoff_completion();
+  test_flight_continues_after_mission_completion();
   test_mission_02_landing_completion();
   test_mission_03_solo_flight_completion();
   test_intermediate_navpoint_reached_message();

@@ -372,6 +372,13 @@ waypoint maps to. `flight_current_wp` tracks progress, advanced in
 satisfies its constraint. Unmet constraints surface as warning text through
 `flight_status_text()` and `msg_show()`.
 
+Clearing the last waypoint sets `flight_status` to `FLIGHT_MISSION_COMPLETED`
+and announces it for a few seconds, but it does **not** end the flight: the
+pilot keeps flying until they crash, restart with `R` or quit with `Q`. Only a
+crash freezes the model, which is what `flight_crashed()` in `flight.h` asks —
+`flight_status` being non-zero is not the same question, and the crash statuses
+are kept last in the enum so that predicate stays a single comparison.
+
 ---
 
 ## 8. Support modules

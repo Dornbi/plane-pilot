@@ -17,9 +17,9 @@ const uint8_t kMissionWpX[kMissionWpCount] = {
     0x00, // 00 (Min 1000ft)
     0x00, // 01 (Min 2000ft)
     0x20, // 02 (Runway 1)
-    0x58, // 03 (Lake 1)
+    0x10, // 05 (Lake 1)
     0x40, // 04 (Lake 2)
-    0x10, // 05 (Lake 3)
+    0x58, // 03 (Lake 3)
     0x60, // 06 (Runway 2)
     0x60, // 07 (Runway 2 upside down)
     0x60, // 08 (Runway 2)
@@ -37,9 +37,9 @@ const uint8_t kMissionWpY[kMissionWpCount] = {
     0x00, // 00 (Min 1000ft)
     0x00, // 01 (Min 2000ft)
     0x3F, // 02 (Runway 1)
-    0x10, // 03 (Lake 1)
+    0xD0, // 05 (Lake 1)
     0xE0, // 04 (Lake 2)
-    0xD0, // 05 (Lake 3)
+    0x10, // 03 (Lake 3)
     0xBF, // 06 (Runway 2)
     0xBF, // 07 (Runway 2 upside down)
     0xBF, // 08 (Runway 2)
@@ -140,7 +140,7 @@ const uint8_t kMissionStartX[kMissionCount] = {
     0x1C, // 03
     0x10, // 04
     0x1C, // 05
-    0x18, // 06
+    0x08, // 06
     0x40, // 07
     0x10, // 08
     0x10, // 09
@@ -153,7 +153,7 @@ const uint8_t kMissionStartY[kMissionCount] = {
     0x3F, // 03
     0x5F, // 04
     0x3F, // 05
-    0x50, // 06
+    0xB8, // 06
     0xBF, // 07
     0x50, // 08
     0x88, // 09
