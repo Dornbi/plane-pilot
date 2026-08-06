@@ -33,7 +33,7 @@ help:
 	@echo "  make release    - build, then publish the .prg files to bin/"
 	@echo ""
 	@echo "  make test       - run the Python test suite"
-	@echo "  make clean      - remove out/"
+	@echo "  make clean      - remove out/ and the c64o/ build output"
 
 # --- Data generation -------------------------------------------------------
 
@@ -95,3 +95,5 @@ test:
 
 clean:
 	rm -rf out
+	$(MAKE) -C c64o clean
+	rm -f c64o/*.prg
