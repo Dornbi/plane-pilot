@@ -25,7 +25,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 
 from lib.c64_colors import PALETTE_RGB, to_indexed  # noqa: E402
-from tools.generate_map_tiles import TILE_NAMES, DIGIT_NAMES  # noqa: E402
+from tools.generate_map_tiles import (  # noqa: E402
+    TILE_NAMES, DIGIT_NAMES, COMPASS_NAMES, STENCIL_NAMES)
 
 BACKGROUND = 5   # green, bit pair 00
 OVERLAY = 1      # white, bit pair 01
@@ -74,12 +75,15 @@ def _parse_tables(path):
     ]
     lo = [int(x) for x in re.findall(r"^\s*(\d+),", block("kMapTileLo[kMapTileCount] ="), re.M)]
     col = [int(x) for x in re.findall(r"^\s*(\d+),", block("kMapTileCol[kMapTileCount] ="), re.M)]
-    digits_txt = block("kMapDigitMask[kMapDigitCount][8] =")
-    digits = [
-        [int(x, 16) for x in re.findall(r"0x([0-9A-Fa-f]{2})", line)]
-        for line in re.findall(r"\{([^{}]*)\}", digits_txt)
-    ]
-    return rows, lo, col, digits
+    def masks(marker):
+        return [
+            [int(x, 16) for x in re.findall(r"0x([0-9A-Fa-f]{2})", line)]
+            for line in re.findall(r"\{([^{}]*)\}", block(marker))
+        ]
+
+    digits = masks("kMapDigitMask[kMapDigitCount][8] =")
+    compass = masks("kMapCompassMask[kMapCompassCount][8] =")
+    return rows, lo, col, digits, compass
 
 
 def _tile_index(cell, row, col_):
@@ -108,7 +112,7 @@ def main():
         sys.exit("render_map_preview: Pillow is required (pip install pillow)")
 
     world = _parse_world_map(os.path.join(REPO_ROOT, "c64o", "world_map.cc"))
-    rows, lo, col, digits = _parse_tables(os.path.join(REPO_ROOT, "c64o", "mapdefs.cc"))
+    rows, lo, col, digits, compass = _parse_tables(os.path.join(REPO_ROOT, "c64o", "mapdefs.cc"))
 
     # Bitmap in the C64's own layout, so the address arithmetic gets exercised.
     bitmap = bytearray(8000)
@@ -158,6 +162,30 @@ def main():
                     px[x, y0] = rgb
                     px[x + 1, y0] = rgb
 
+    # Compass letters, one clear cell outside each side of the map and centred
+    # on it. These land in the surround, which is solid 11 over black color
+    # RAM, so the stencil's 01 pairs are white on black -- and the preview's
+    # background is already that black, so only the ink needs painting.
+    compass_at = {
+        COMPASS_NAMES.index("COMPASS_N"): (ORIGIN_ROW - 2,
+                                           ORIGIN_COL + MAP_W // 2),
+        COMPASS_NAMES.index("COMPASS_S"): (ORIGIN_ROW + MAP_H + 1,
+                                           ORIGIN_COL + MAP_W // 2),
+        COMPASS_NAMES.index("COMPASS_W"): (ORIGIN_ROW + MAP_H // 2,
+                                           ORIGIN_COL - 2),
+        COMPASS_NAMES.index("COMPASS_E"): (ORIGIN_ROW + MAP_H // 2,
+                                           ORIGIN_COL + MAP_W + 1),
+    }
+    for n, (cr, cc) in compass_at.items():
+        for y in range(8):
+            mask = compass[n][y]
+            for mx in range(4):
+                if (mask >> (2 * (3 - mx))) & 3 == 0:
+                    continue
+                x, y0 = cc * 8 + mx * 2, cr * 8 + y
+                px[x, y0] = PALETTE_RGB[OVERLAY]
+                px[x + 1, y0] = PALETTE_RGB[OVERLAY]
+
     os.makedirs(args.out_dir, exist_ok=True)
     out_map = os.path.join(args.out_dir, "map_preview.png")
     # Indexed with the C64 palette, like the source art: nearest-neighbour
@@ -167,7 +195,7 @@ def main():
                          Image.NEAREST)).save(out_map)
 
     # Tile sheet, blown up, in table order.
-    names = TILE_NAMES + DIGIT_NAMES
+    names = TILE_NAMES + STENCIL_NAMES
     zoom, pad = 8, 2
     sheet = Image.open(os.path.join(REPO_ROOT, "gfx", "ppilot_map_tiles.png"))
     sheet = sheet.convert("RGB")

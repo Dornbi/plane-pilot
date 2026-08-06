@@ -75,13 +75,17 @@ static const uint8_t kMapScreenSurround = (kColorWhite << 4) | kColorBlack;
 // two routines below. Neither touches screen or color RAM, which is what lets
 // pass B stay write-once.
 
-// The 8 bitmap bytes of a map cell, addressed by *screen* row and column
+// The 8 bitmap bytes of a character cell, addressed in whole-screen
+// coordinates (0..24, 0..39).
+static uint8_t *_screen_cell_bitmap(uint8_t row, uint8_t col) {
+  return kMapBitmap + ((uint16_t)row * kScreenWidth + col) * 8;
+}
+
+// The same, for a cell inside the map, by *screen* row and column
 // (0..15, 0..31 -- already rotated).
 static uint8_t *_cell_bitmap(uint8_t screen_row, uint8_t screen_col) {
-  return kMapBitmap +
-         ((uint16_t)(kMapOriginRow + screen_row) * kScreenWidth +
-          (kMapOriginCol + screen_col)) *
-             8;
+  return _screen_cell_bitmap(kMapOriginRow + screen_row,
+                             kMapOriginCol + screen_col);
 }
 
 // Sets one map pixel of the overlay, px 0..127 across, py 0..127 down. Per
@@ -94,14 +98,13 @@ void map_set_overlay_pixel(uint8_t px, uint8_t py) {
   *dst = (*dst & ~(3 << shift)) | (1 << shift);
 }
 
-// Draws navpoint digit `digit` (0..3, rendered as '1'..'4') over the cell at
-// the given screen row and column.
+// Stamps an overlay stencil over one character cell.
 //
 // A glyph is 4 multicolor pixels wide and 8 rows tall -- exactly one cell,
-// byte aligned -- so there is no shifting and no per-pixel addressing.
-// kMapDigitMask holds 11 in every ink pair, so `mask & 0x55` deposits 01 in
-// exactly those pairs and `& ~mask` clears them first, leaving every other
-// pair of the object art untouched.
+// byte aligned -- so there is no shifting and no per-pixel addressing. The
+// mask holds 11 in every ink pair, so `mask & 0x55` deposits 01 in exactly
+// those pairs and `& ~mask` clears them first, leaving every other pair of
+// whatever is underneath untouched.
 //
 // The cell's existing overlay pairs are reset to 00 before the stencil goes
 // down. Without that, mission 07 -- whose waypoints 7 and 8 are both
@@ -109,9 +112,8 @@ void map_set_overlay_pixel(uint8_t px, uint8_t py) {
 // and '2' superimposed in cell [12][24] rather than letting the last one
 // win. It also keeps a flight path crossing the cell from filling in the
 // counters of the digit.
-static void _draw_digit(uint8_t digit, uint8_t screen_row, uint8_t screen_col) {
-  uint8_t *dst = _cell_bitmap(screen_row, screen_col);
-  const uint8_t *mask = kMapDigitMask[digit];
+static void _draw_stencil(const uint8_t *mask, uint8_t row, uint8_t col) {
+  uint8_t *dst = _screen_cell_bitmap(row, col);
   for (uint8_t r = 0; r < 8; ++r) {
     // b & ~(b >> 1) & 0x55 is 1 in the low bit of every pair that is 01 and
     // nowhere else, so clearing it turns 01 into 00 and leaves 10 and 11.
@@ -119,6 +121,25 @@ static void _draw_digit(uint8_t digit, uint8_t screen_row, uint8_t screen_col) {
     b &= ~(b & ~(b >> 1) & 0x55);
     dst[r] = (b & ~mask[r]) | (mask[r] & 0x55);
   }
+}
+
+// N, E, S and W, one character clear of each side of the map, centred on it.
+// They land in the surround, which is solid 11 over black color RAM, so the
+// stencil's 01 pairs come out white against black with no extra work -- the
+// same overlay layer the digits and the path use.
+static void _draw_compass(void) {
+  static const uint8_t kMapCenterRow = kMapOriginRow + kWorldMapHeight / 2;
+  static const uint8_t kMapCenterCol = kMapOriginCol + kWorldMapWidth / 2;
+  static const uint8_t kGap = 2;  // one blank cell between map and letter
+
+  _draw_stencil(kMapCompassMask[kMapCompassN], kMapOriginRow - kGap,
+                kMapCenterCol);
+  _draw_stencil(kMapCompassMask[kMapCompassS],
+                kMapOriginRow + kWorldMapHeight + kGap - 1, kMapCenterCol);
+  _draw_stencil(kMapCompassMask[kMapCompassW], kMapCenterRow,
+                kMapOriginCol - kGap);
+  _draw_stencil(kMapCompassMask[kMapCompassE], kMapCenterRow,
+                kMapOriginCol + kWorldMapWidth + kGap - 1);
 }
 
 // Plots the recent flight path. flight.cc already stores map pixels, and
@@ -153,7 +174,9 @@ static void _draw_navpoints(void) {
     const uint8_t col =
         ((uint8_t)((flight_nav_point_y[i] >> 8) + 0x04) >> 3) &
         kWorldMapWidthMask;
-    _draw_digit(i, (kWorldMapHeight - 1) - row, (kWorldMapWidth - 1) - col);
+    _draw_stencil(kMapDigitMask[i],
+                  kMapOriginRow + (kWorldMapHeight - 1) - row,
+                  kMapOriginCol + (kWorldMapWidth - 1) - col);
   }
 }
 
@@ -263,6 +286,7 @@ void map_enter() {
   // from filling in the glyph's counters.
   _draw_path();
   _draw_navpoints();
+  _draw_compass();
 
   // Pass B -- screen RAM at $D000, which the CPU can only reach with I/O
   // banked out. Interrupts are already masked (see gfx_stop_raster_irqs()

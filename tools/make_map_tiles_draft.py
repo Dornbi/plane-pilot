@@ -284,6 +284,57 @@ DIGITS = [
     ]),
 ]
 
+# Compass letters for the four sides of the map. Stencils like the digits, so
+# white ink on green, and three multicolor pixels wide to match them.
+#
+# Three pixels is too narrow for real letterforms, so N and W follow the tiny
+# pixel-font convention instead of trying for a diagonal: the mass sits where
+# the diagonal would be heaviest, top-left for N and bottom-centre for W. It
+# reads because the four are only ever seen one per side, and the position
+# carries most of the meaning.
+COMPASS = [
+    ("COMPASS_N", [
+        "....",
+        "##..",
+        "#.#.",
+        "#.#.",
+        "#.#.",
+        "#.#.",
+        "#.#.",
+        "....",
+    ]),
+    ("COMPASS_E", [
+        "....",
+        "###.",
+        "#...",
+        "##..",
+        "#...",
+        "#...",
+        "###.",
+        "....",
+    ]),
+    ("COMPASS_S", [
+        "....",
+        ".##.",
+        "#...",
+        "##..",
+        "..#.",
+        "..#.",
+        "##..",
+        "....",
+    ]),
+    ("COMPASS_W", [
+        "....",
+        "#.#.",
+        "#.#.",
+        "#.#.",
+        "###.",
+        "###.",
+        "#.#.",
+        "....",
+    ]),
+]
+
 TILE_W, TILE_H = 8, 8
 DEFAULT_OUT = os.path.join(REPO_ROOT, "gfx", "ppilot_map_tiles.png")
 
@@ -307,7 +358,7 @@ def main():
             "discard it and start over."
         )
 
-    cells = TILES + [(name, art, None, None) for name, art in DIGITS]
+    cells = TILES + [(name, art, None, None) for name, art in DIGITS + COMPASS]
     im = Image.new("RGB", (len(cells) * TILE_W, TILE_H), PALETTE_RGB[GREEN])
     px = im.load()
 

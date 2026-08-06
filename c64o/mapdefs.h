@@ -8,6 +8,7 @@
 
 static const uint8_t kMapTileCount = 18;
 static const uint8_t kMapDigitCount = 4;
+static const uint8_t kMapCompassCount = 4;
 
 // Group bases, so a WorldMapType becomes a tile index with
 // shifts and adds only. Empty ground (MAP_DOT_GROUND) selects a
@@ -49,6 +50,14 @@ extern const uint8_t kMapTileCol[kMapTileCount];
 // which deposits 01 into the ink pairs and leaves the object
 // art in every other pair untouched.
 extern const uint8_t kMapDigitMask[kMapDigitCount][8];
+
+// Compass letters, same stencil format, drawn into the black
+// surround around the map. Indexed by kMapCompass* below.
+extern const uint8_t kMapCompassMask[kMapCompassCount][8];
+static const uint8_t kMapCompassN = 0;
+static const uint8_t kMapCompassE = 1;
+static const uint8_t kMapCompassS = 2;
+static const uint8_t kMapCompassW = 3;
 
 #pragma compile("mapdefs.cc")
 
