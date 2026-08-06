@@ -131,7 +131,7 @@ static void _draw_stencil(const uint8_t *mask, uint8_t row, uint8_t col) {
 static void _draw_compass(void) {
   static const uint8_t kMapCenterRow = kMapOriginRow + kWorldMapHeight / 2;
   static const uint8_t kMapCenterCol = kMapOriginCol + kWorldMapWidth / 2;
-  static const uint8_t kGap = 2;  // one blank cell between map and letter
+  static const uint8_t kGap = 2; // one blank cell between map and letter
 
   _draw_stencil(kMapCompassMask[kMapCompassN], kMapOriginRow - kGap,
                 kMapCenterCol);
@@ -169,14 +169,11 @@ static void _draw_navpoints(void) {
   for (uint8_t i = 0; i < n; ++i) {
     // x selects the row and y the column; + 4 centres cells on multiples
     // of 8 world units.
-    const uint8_t row =
-        ((uint8_t)((flight_nav_point_x[i] >> 8) + 0x04) >> 3) &
-        kWorldMapHeightMask;
-    const uint8_t col =
-        ((uint8_t)((flight_nav_point_y[i] >> 8) + 0x04) >> 3) &
-        kWorldMapWidthMask;
-    _draw_stencil(kMapDigitMask[i],
-                  kMapOriginRow + (kWorldMapHeight - 1) - row,
+    const uint8_t row = ((uint8_t)((flight_nav_point_x[i] >> 8) + 0x04) >> 3) &
+                        kWorldMapHeightMask;
+    const uint8_t col = ((uint8_t)((flight_nav_point_y[i] >> 8) + 0x04) >> 3) &
+                        kWorldMapWidthMask;
+    _draw_stencil(kMapDigitMask[i], kMapOriginRow + (kWorldMapHeight - 1) - row,
                   kMapOriginCol + (kWorldMapWidth - 1) - col);
   }
 }
@@ -205,9 +202,9 @@ static const uint8_t kMapSprCenterY = 10;
 // from the display by the 24 x 50 pixel border, and the marker is placed by
 // its centre rather than its top left corner.
 static const uint8_t kMapSprOriginX =
-    kMapOriginCol * 8 + 24 - kMapSprCenterX;  // 44
+    kMapOriginCol * 8 + 24 - kMapSprCenterX; // 44
 static const uint8_t kMapSprOriginY =
-    kMapOriginRow * 8 + 50 - kMapSprCenterY;  // 72
+    kMapOriginRow * 8 + 50 - kMapSprCenterY; // 72
 
 // Sprite pointers sit at video matrix + 1016, which in map mode is
 // $D3F8..$D3FF -- RAM under I/O, so they are written in pass B with the rest
@@ -313,10 +310,10 @@ void map_enter() {
   // bytes are several frames long, and with DEN clear they show the black
   // border instead of the old character RAM reinterpreted as a bitmap --
   // and run faster, since a blanked screen has no badlines to steal cycles.
-  vic.ctrl1 = 0x2b;  // bitmap mode, screen off
-  vic.ctrl2 = 0xd8;  // multicolor
+  vic.ctrl1 = 0x2b; // bitmap mode, screen off
+  vic.ctrl2 = 0xd8; // multicolor
   vic_memptr = kVicMemMap;
-  vic.color_back = kColorGreen;  // bit pair 00, the ground everywhere
+  vic.color_back = kColorGreen; // bit pair 00, the ground everywhere
   vic.color_border = kColorBlack;
 
   // Pass A -- bitmap and color RAM.
@@ -372,11 +369,11 @@ void map_enter() {
   // frozen while the map is up, so this is the only time they are set.
   _set_sprite_pos(kMapSprBody, body_x, body_y);
   _set_sprite_pos(kMapSprWing, body_x + fx, body_y + fy);
-  vic.spr_color[kMapSprBody] = kColorLightRed;
-  vic.spr_color[kMapSprWing] = kColorLightRed;
+  vic.spr_color[kMapSprBody] = kColorLightGreen;
+  vic.spr_color[kMapSprWing] = kColorLightGreen;
   vic.spr_enable = (1 << kMapSprBody) | (1 << kMapSprWing);
 
-  vic.ctrl1 = 0x3b;  // bitmap mode, screen on
+  vic.ctrl1 = 0x3b; // bitmap mode, screen on
 
   map_mode = true;
 }
