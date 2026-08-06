@@ -254,10 +254,10 @@ This follows the existing Python → C data flow (`chardefs`, `boxdefs`,
 `map_enter()`:
 
 ```
-sei
-gfx_stop_raster_irqs(); vic.spr_enable = 0
+gfx_stop_raster_irqs()               // = sei, and that is all it is
+vic.spr_enable = 0
 vic_memptr = 0x48                    // screen $D000, bitmap $E000
-vic.ctrl1 = 0x3b; vic.ctrl2 = 0xd8   // MCBM
+vic.ctrl1 = 0x2b; vic.ctrl2 = 0xd8   // MCBM, screen off for the build
 vic.color_back = kColorGreen; vic.color_border = kColorBlack
 
 // Pass A — I/O in
@@ -274,12 +274,39 @@ memset(0xD000, (kColorWhite << 4) | kColorBlack, 1000)
 for each of the 512 cells:
     screen[offset] = (kColorWhite << 4) | kMapTileLo[idx]
 $01 = $35
-cli
+vic.ctrl1 = 0x3b                     // screen on
 ```
 
 The 8000-byte `memset` costs about one frame and is simpler than computing the
-non-contiguous surround. Interrupts stay disabled across pass B so no handler
-touches I/O while it is banked out.
+non-contiguous surround.
+
+### No `cli` anywhere in map mode
+
+`gfx_stop_raster_irqs()` is `rirq_stop()`, and oscar64's `rirq_stop()` is
+**nothing but an `sei`** — it leaves `vic.intr_enable` set and relies on the
+CPU mask alone. `rirq_start()` is the matching `cli`. So the raster split is
+only masked, not disarmed, and a `cli` anywhere between `map_enter()` and
+`map_exit()` restarts it on the next raster compare.
+
+That failure is worth recognising on sight: `_switch_to_terrain()` puts rows
+0–13 back into MCCM over a character set the map has overwritten, and
+`_switch_to_panel_top()` leaves rows 14–24 in MCBM with `$d018 = $b8`, so the
+screen splits into a band of light-blue character garbage above a band of map
+tiles wearing colors read from the wrong video matrix.
+
+Interrupts therefore stay masked for the whole life of the map view — as they
+did for the character-mode placeholder — and `map_exit()`'s
+`gfx_init_raster_irqs()` is what re-enables them. The banked-out window in
+pass B needs no `sei` of its own as a result.
+
+The display is blanked (`DEN` clear) for the whole build. Ten thousand bytes
+of writes take several frames, and the alternative is watching the old
+character RAM reinterpreted as a bitmap for the duration. A blanked screen also
+has no badlines, so the passes run faster for free.
+
+The tile index is recomputed in pass B rather than carried over from pass A.
+Caching it would need a 512-byte scratch buffer in the region the whole design
+exists to protect, to save work that happens once per `map_enter()`.
 
 `map_exit()`:
 
@@ -512,7 +539,7 @@ lookups, no new data at all.
 | --- | --- | --- |
 | 1 | ~~Restore-path fixes (`gfx_init_chars`, `box_invalidate`, `view_invalidate_bitmap`)~~ | **done** — 13 bytes code, 8 bytes heap |
 | 2 | ~~Tile + digit art `gfx/ppilot_map_tiles.png`; `tools/generate_map_tiles.py`; `make map-tiles`~~ | **done** — 18 tiles + 4 digits = 212 bytes |
-| 3 | MCBM `map_enter()` / `map_exit()`, object layer only | the bulk of the work |
+| 3 | ~~MCBM `map_enter()` / `map_exit()`, object layer only~~ | **done** — verified pixel-identical to `render_map_preview.py` |
 | 4 | Overlay layer: `set_overlay_pixel()` + digit stencils; `kMaxNavPoints = 4` in `flight.cc` + clamp | |
 | 5 | Flight path ring buffer, cleared by `flight_init_from_mission()` | reuses the phase 4 overlay primitive |
 | 6 | Aircraft sprites — two centred long arms, 48→32 heading LUT, `$D010` handling | |
