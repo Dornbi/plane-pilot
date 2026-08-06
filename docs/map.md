@@ -67,9 +67,14 @@ Only the video matrix base changes. Candidates within VIC bank 3:
 
 - **`$CC00`** — normal RAM, but it is the top 1 KB of `main`, the region that is
   actually scarce.
-- **`$D000`** — RAM under I/O, outside `main`, currently unused, and useful for
-  almost nothing *except* things the VIC reads. There is already precedent:
-  sprite bitmaps live at `$D7C0`.
+- **`$D000`** — RAM under I/O, outside `main`, and useful for almost nothing
+  *except* things the VIC reads. There is already precedent: `mem_init()` banks
+  `$01 = MMAP_RAM` and expands the sprite bitmaps to `$D7C0`.
+
+Note that only `$D000–$D7BF` is free. `kSpriteDefBitmapCount` is 33 bitmaps of
+64 bytes starting at index 95, so the sprite data occupies `$D7C0–$DFFF`
+exactly, ending where character RAM begins. Screen RAM at `$D000–$D3E7` fits
+with 984 bytes to spare.
 
 `$D000` it is. `vic_memptr = 0x48`. The cost is that CPU writes there need
 `$01 = $34`, which is acceptable because — see §4 — screen RAM is written once
@@ -92,20 +97,24 @@ per `map_enter()` and never touched again.
 | Bit pair | Source | Colour |
 | --- | --- | --- |
 | `00` | `$D021` (global) | green (`kColorGreen`) — ground base |
-| `01` | screen RAM high nibble | **red (`kColorRed`) in every cell** — flight path and nothing else |
+| `01` | screen RAM high nibble | **white (`kColorWhite`) in every cell** — overlay layer |
 | `10` | screen RAM low nibble | per cell |
 | `11` | colour RAM | per cell |
 
-Pinning `01` to red in all 1000 screen cells is what makes the path drawable
-anywhere without a per-cell colour negotiation, and it is why screen RAM is
-write-once: the path only ever sets bit pairs to `01` in the *bitmap*.
+Pinning `01` to white in all 1000 screen cells creates a single **overlay
+layer** that can be drawn anywhere without per-cell colour negotiation. Both
+the flight path and the navpoint digits live in it, and both are drawn the same
+way: set bit pairs to `01` in the *bitmap*, on top of whatever object art is
+already there. Nothing is erased.
 
-Two free colours remain per cell, chosen independently. The tile generator
-enforces this: a tile using more than two colours besides green and red is a
-build error.
+That is also why screen RAM is write-once — neither overlay ever touches it.
 
-The aircraft is a sprite (phase 6), so it can be white without competing for a
-bit pair.
+Two free colours remain per cell for the object art, chosen independently. The
+tile generator enforces this: a tile using more than two colours besides green
+and white is a build error.
+
+The aircraft is a sprite (§9), so it can be white without competing for a bit
+pair.
 
 Border is black. The 8-cell-wide surround outside the map is bitmap `0xFF`
 (all `11`) with colour RAM black, matching the existing `kCharSolid11` idiom.
@@ -170,7 +179,8 @@ addr  = 0xE000 + ((4 + (py >> 3)) * 40 + (4 + (px >> 2))) * 8 + (py & 7)
 shift = (3 - (px & 3)) * 2
 ```
 
-Set the pair to red with `*addr = (*addr & ~(3 << shift)) | (1 << shift)`.
+Set the pair into the overlay layer with
+`*addr = (*addr & ~(3 << shift)) | (1 << shift)`.
 
 ---
 
@@ -178,13 +188,31 @@ Set the pair to red with `*addr = (*addr & ~(3 << shift)) | (1 << shift)`.
 
 ### Format
 
+Unpacked parallel arrays, not a struct. A 10-byte struct would need a
+multiply by 10 on every access, which the 6510 has no addressing mode for.
+This also matches how `mission.cc`, `boxdefs.cc` and `world_map.cc` already
+store their tables.
+
 ```c
-typedef struct {
-  uint8_t bits[8];  // MCBM rows, four bit pairs each
-  uint8_t lo;       // colour for bit pair 10 -> screen RAM low nibble
-  uint8_t col;      // colour for bit pair 11 -> colour RAM
-} map_tile_t;       // 10 bytes
+// Transposed: row index outer, tile index inner.
+extern const uint8_t kMapTileRows[8][kMapTileCount];
+extern const uint8_t kMapTileLo[kMapTileCount];   // bit pair 10 -> screen low nibble
+extern const uint8_t kMapTileCol[kMapTileCount];  // bit pair 11 -> colour RAM
 ```
+
+With the transpose, the compositor's inner loop is eight indexed loads sharing
+one index register and a compile-time-constant base per row:
+
+```
+lda kMapTileRows[0], x   ; x = tile index
+sta dst + 0
+lda kMapTileRows[1], x
+sta dst + 1
+...
+```
+
+No multiply and no pointer arithmetic anywhere — the `<< 3` that a
+`[kMapTileCount][8]` layout would need disappears too.
 
 Tiles needed:
 
@@ -193,11 +221,17 @@ Tiles needed:
 | `MAP_DOT_GROUND` (`D__`) — dotted gridline | 1 | art |
 | `MAP_DOT_BLACK/WHITE/CYAN/BLUE/YELLOW` | 5 | one shared pattern, `col` from `KWorldDotColors` |
 | `MAP_OBJ_*` (runway … city) | 9 | art, `col` seeded from `kWorldObjColors` |
-| digits `1`–`6` for navpoints | 6 | art, `lo` = white |
 
-21 tiles × 10 bytes = 210 bytes, plus a small type→index lookup. Types are
-`1..6` and `16..24`, so
+15 tiles: 8 row arrays plus two colour arrays, so 10 bytes per tile, 150 bytes.
+Plus a type→index lookup — types are `1..6` and `16..24`, so
 `idx = type < kWorldMapObjStart ? type : type - kWorldMapObjStart + 7`.
+
+Navpoint digits are **not** tiles. They are overlay stencils — see §8.
+
+**Gridlines only in empty cells.** `MAP_DOT_GROUND` (`D__`) is the empty-cell
+type and carries the dotted-gridline art; every other type draws its own tile
+instead. The grid therefore has a gap wherever an object sits, which is what
+the concept image shows.
 
 ### Generator
 
@@ -229,16 +263,16 @@ vic.color_back = kColorGreen; vic.color_border = kColorBlack
 // Pass A — I/O in
 memset(0xE000, 0xFF, 8000)           // surround = solid 11
 memset(kColorRam, kColorBlack, 1000)
-for each of the 512 cells:
-    copy tile.bits[0..7] to the cell's 8 bitmap bytes
-    kColorRam[screen_offset] = tile.col
-draw navpoint digit tiles over their cells
-plot the flight path ring buffer          // bitmap only, bit pair 01
+for each of the 512 cells:                        // object layer
+    copy kMapTileRows[0..7][idx] to the cell's 8 bitmap bytes
+    kColorRam[screen_offset] = kMapTileCol[idx]
+plot the flight path ring buffer                  // overlay, bit pair 01
+draw navpoint digit stencils, ascending           // overlay, bit pair 01
 
 // Pass B — $01 = $34, I/O out
-memset(0xD000, (kColorRed << 4) | kColorBlack, 1000)
+memset(0xD000, (kColorWhite << 4) | kColorBlack, 1000)
 for each of the 512 cells:
-    screen[offset] = (kColorRed << 4) | tile.lo
+    screen[offset] = (kColorWhite << 4) | kMapTileLo[idx]
 $01 = $35
 cli
 ```
@@ -282,7 +316,11 @@ Roughly 40 bytes to fix, and worth landing first — see §9.
 ## 7. Flight path
 
 A ring buffer of 128 map-pixel positions, 2 bytes each (`px`, `py`), 256 bytes
-in `main`. `bss2` (`$0280–$0800`) is used to `$077C` and has no room.
+in `main`. `bss2` (`$0280–$0800`) is used to `$077C` and has no room. Cleared by
+`flight_init_from_mission()`, so the trail is per-attempt and `R` wipes it.
+
+Plotted into the overlay layer (§3) with the same "set pair to `01`" primitive
+the navpoint digits use.
 
 Appended from the simulation loop:
 
@@ -307,30 +345,181 @@ minutes of flight — about one full traverse of the map. Cleared by
 ## 8. Navpoints
 
 `flight_init_from_mission()` unpacks the active mission's waypoint range into
-`flight_nav_point_x/y[6]`, so there are at most six, numbered `1`–`6`. Each is
-drawn by stamping the corresponding digit tile over the cell containing it,
-overwriting whatever object art is there — as specified.
+`flight_nav_point_x/y`, skipping position-free `(0, 0)` waypoints. Each
+navpoint draws its digit into the **overlay layer** over the cell containing
+it, on top of the object art rather than replacing it.
 
-Digits use `lo` = white (bit pair `10`), which is free in that cell because the
-object art it replaces is gone. Red stays available, so the path can still
-cross a navpoint cell.
+### Four navpoints, enforced in code
+
+Walking `kMissionWpBegin/End` against the `(0, 0)` skip rule:
+
+| Missions | Navpoints |
+| --- | --- |
+| 01, 02, 03, 04, 05, 10 | 1 |
+| 07 | 2 |
+| 06, 08, 09 | 4 |
+
+Four is the cap, and it becomes the declared limit rather than an observation.
+`flight.cc` currently sizes `flight_nav_point_x[6]`, `flight_nav_point_y[6]`
+and `flight_waypoint_nav[6]`; all three drop to `kMaxNavPoints = 4`, saving 10
+bytes.
+
+Both index spaces stay in bounds: `flight_waypoint_nav` is indexed by
+waypoint-within-mission and `flight_nav_point_*` by navpoint, and the largest
+mission slice (`kMissionWpEnd - kMissionWpBegin`) is also 4. The unpack loop in
+`flight_init_from_mission()` needs a clamp so a future five-waypoint mission
+fails visibly instead of writing past the array:
+
+```c
+if (flight_num_nav_points >= kMaxNavPoints) break;
+```
+
+### Digit source: a new multicolor asset
+
+The map digits are **not** derived from `_FONT_CHARS`. That font is hires — one
+bit per pixel, `0` = ink, 8 pixels wide — which is why the game's text is
+legible in MCCM: text cells clear bit 3 of their colour RAM nibble and render
+at full resolution, while terrain cells set it (`kColorSky | 0x08` in
+`mem_init()`) and render multicolor.
+
+The overlay is multicolor, so it needs 4-pixel-wide glyphs. Those are a
+separate hand-made asset covering `1`–`4` only. Authored as bit pairs:
+
+| Pair | Meaning | In the overlay |
+| --- | --- | --- |
+| `00` | light blue — the stroke | ink |
+| `10` | brown — edge shading, **ignored** | background |
+| `11` | background | background |
+
+Rendered with ink = `00` and nothing else, `1`–`4` read cleanly at 4 × 8:
+
+```
+ .#..    ##..    ##..    ..#.
+ ##..    ..#.    ..#.    .##.
+ .#..    ..#.    ..#.    #.#.
+ .#..    .#..    .#..    ###.
+ .#..    #...    ..#.    ..#.
+ .#..    ###.    ##..    ..#.
+```
+
+The art belongs in `gfx/ppilot_map_tiles.png` alongside the object tiles, so
+all map art comes through one asset and one generator pass.
+
+### Stencil format
+
+A glyph is 4 multicolor pixels wide and 8 rows tall — **exactly one cell, byte
+aligned**. So a digit needs no shifting and no per-pixel addressing: store one
+mask byte per row with `11` in each ink pair, and the draw is eight iterations
+of
+
+```c
+dst[r] = (dst[r] & ~mask[r]) | (mask[r] & 0x55);
+```
+
+`0x55` is `01 01 01 01`, so `mask & 0x55` deposits `01` in exactly the ink
+positions and leaves every other pair of the underlying object art untouched.
+
+For `'1'` (`FF 8F 0F CF CF CF 8B FF`) the masks are
+`00 30 F0 30 30 30 30 00`.
+
+Four digits × 8 bytes = **32 bytes**, and the generator derives the masks from
+the same PNG:
+
+```python
+mask = sum(3 << (2 * p) for p in range(4) if (b >> (2 * p)) & 3 == 0)
+```
+
+### Collision: mission 07
+
+Waypoints 7 and 8 are both `(0x60, 0xBF)` — fly inverted over runway 2, then
+land on runway 2. Both resolve to cell `[12][24]`, so navpoints 1 and 2 land on
+the same 8 × 8 area.
+
+Rule: **the last one wins.** Draw ascending and let the last write stand. Note
+the stencil only sets pairs, so a naive overlay would leave both glyphs
+superimposed — the digit draw must clear the cell's overlay pairs to `00`
+first, then apply the mask.
 
 ---
 
-## 9. Phases
+## 9. Aircraft sprite
+
+Sprites survive map mode. Their bitmaps live at `$D7C0–$DFFF`, outside the
+`$E000–$FF3F` the map bitmap claims, so the pre-rotated instrument needles are
+still loaded and free to reuse. `spr_multi` is never set, so sprites are hires
+with an independent colour each from `spr_color[n]` — both plane sprites can be
+white with no global colour negotiation.
+
+### Two crossed long arms
+
+Both sprites use `kSpriteDefMetaLongArm` — a 14 px segment — placed **centred**
+rather than pivoted, so each renders as a full 14 px line rather than a
+half-length needle:
+
+```
+body: long arm, direction d,     centred on the aircraft position
+wing: long arm, direction d + 8, centred slightly forward of it
+```
+
+Reading `spritedef.py`: directions `d` and `d + 16` share a `bitmap_idx` and
+differ only in pivot (direction 0 → bitmap 96, pivot `(12, 17)`; direction 16 →
+bitmap 96, pivot `(12, 3)`). A bitmap is therefore a **line segment spanning
+between the two pivots**, and the pivot table only picks which end anchors to
+the hub. Centring uses the same 16 bitmaps with no new sprite data.
+
+**The centre is a constant.** The midpoint of `pivot[d]` and `pivot[d ^ 16]` is
+`(12, 10)` for all 32 directions — checked for every entry in both arm tables.
+So centring needs no table and no arithmetic:
+
+```c
+spr_x = plane_screen_x + 24 - 12;   // sprite regs position the top-left
+spr_y = plane_screen_y + 50 - 10;
+```
+
+**The forward offset is also free.** `pivot[d ^ 16] - (12, 10)` is the fore
+vector at half the arm length, 7 px. Halving it gives the "little bit forward"
+offset without a new table:
+
+```c
+fx = (kSpriteDefMetaLongArm[d ^ 16].pivot_x - 12) >> 1;   // ~3.5 px forward
+fy = (kSpriteDefMetaLongArm[d ^ 16].pivot_y - 10) >> 1;
+```
+
+Wing position is the body position plus `(fx, fy)`. Two sprites, two table
+lookups, no new data at all.
+
+### Details
+
+- **Heading conversion.** `_get_heading()` has 48 steps; sprites have 32. A
+  48-byte lookup table is exact and cheaper than dividing by 3.
+- **X coordinate.** The map spans screen x 32–288, so sprite x runs 56–312 with
+  the 24 px border offset. Both sprites cross 255 — `$D010` MSB handling is
+  required.
+- **Y coordinate.** Rows 4–19 → sprite y 82–210. Fits in 8 bits.
+- **Set once.** The simulation is frozen in map mode, so both sprites are
+  positioned in `map_enter()` and never updated.
+- **Enable two.** `map_enter()` currently clears `spr_enable`; set it to the two
+  sprites in use. `sprites_init()` from `screen_restore_simulation()` restores
+  the instrument setup on exit.
+- **Scale.** Body and wingspan are both 14 px ≈ 2 cells. Not to scale with
+  anything, and the marker is roughly square — check at actual size.
+
+---
+
+## 10. Phases
 
 | # | Work | Notes |
 | --- | --- | --- |
 | 1 | Restore-path fixes (`gfx_init_chars`, `box_invalidate`, `view_invalidate_bitmap`) | ~40 bytes; testable against the existing char-mode map |
-| 2 | Tile art `gfx/ppilot_map_tiles.png` + `tools/generate_map_tiles.py` + `make map-tiles` | |
-| 3 | MCBM `map_enter()` / `map_exit()`, static map only | the bulk of the work |
-| 4 | Navpoint digits | |
-| 5 | Flight path ring buffer and plotting | |
-| 6 | Aircraft sprite | white, re-enables one sprite in map mode |
+| 2 | Tile + digit art `gfx/ppilot_map_tiles.png`; `tools/generate_map_tiles.py`; `make map-tiles` | |
+| 3 | MCBM `map_enter()` / `map_exit()`, object layer only | the bulk of the work |
+| 4 | Overlay layer: `set_overlay_pixel()` + digit stencils; `kMaxNavPoints = 4` in `flight.cc` + clamp | |
+| 5 | Flight path ring buffer, cleared by `flight_init_from_mission()` | reuses the phase 4 overlay primitive |
+| 6 | Aircraft sprites — two centred long arms, 48→32 heading LUT, `$D010` handling | |
 
 ---
 
-## 10. Open questions
+## 11. Open questions
 
 - **Concept art coverage.** `gfx/ppilot_map2.png` shows the gridlines and the
   object cells, but no navpoint numbers, no path and no aircraft. The final
@@ -339,8 +528,24 @@ cross a navpoint cell.
 - **Grid colour.** The gridline tile consumes one per-cell pair in every empty
   cell. Dark grey is the assumption; it should be checked against green at
   actual size.
-- **Does the path survive a mission restart?** Assumed cleared by
-  `flight_init_from_mission()`. If it should persist across `R`, say so.
-- **Runway cells vs navpoints.** Two `MAP_OBJ_RUNWAY` cells exist in
-  `kWorldMap`; a mission's navpoints may or may not coincide with them. When
-  they do, the digit wins.
+- **White-on-white.** The overlay is a single colour, so where the path crosses
+  a navpoint cell the digit and the trail are indistinguishable. Probably fine —
+  worth confirming on the mock-up. `01` was going to be red, so swapping the two
+  layers back apart later costs nothing but a constant.
+- **Digit `1` loses its base serif.** With brown ignored, the bottom row of
+  `'1'` (`0x8B` = `10 00 10 11`) keeps only the middle pixel, so the glyph is a
+  bare vertical stroke. At 4 px wide that risks reading as a stray path pixel.
+  Worth a look before deciding it is fine.
+- **Digit contrast over dark art.** Digits now overlay rather than replace, so a
+  white `1` sits on top of whatever the cell holds. Fine over a black city, less
+  so over the yellow fields — check on the mock-up.
+- **Aircraft marker size.** Two crossed 14 px arms make a roughly square marker
+  about 2 × 2 cells on a 256 × 128 map (§9). If that is too heavy, the short
+  arm is the drop-in alternative for one or both.
+
+### Settled
+
+- Gridlines appear only in cells with nothing else in them (§5).
+- The path is cleared by `flight_init_from_mission()` (§7).
+- Towns and cities are interchangeable; mission 08's "cities" including two
+  `MAP_OBJ_TOWN` cells is not a defect.
