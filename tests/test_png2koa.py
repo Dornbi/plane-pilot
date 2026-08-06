@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unit tests for png2koa.py converter tool.
+Unit tests for tools/png2koa.py converter tool.
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from PIL import Image
 
-from png2koa import (
+from tools.png2koa import (
     PEPTO_PALETTE,
     get_closest_pepto_color,
     downsample_to_multicolor_grid,

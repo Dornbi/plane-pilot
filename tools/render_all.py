@@ -3,6 +3,11 @@ import argparse
 import os
 import sys
 
+# Repo root, so `lib` is importable and outputs land in the right place
+# regardless of the current working directory.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO_ROOT)
+
 import lib.roll_angle
 import lib.renderer_engine
 import lib.c64_graphics
@@ -32,9 +37,8 @@ def main():
         print("No centers provided.")
         sys.exit(1)
 
-    output_dir = "rendered_frames"
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    output_dir = os.path.join(REPO_ROOT, "out", "rendered_frames")
+    os.makedirs(output_dir, exist_ok=True)
 
     print(f"Rendering for centers: {centers}")
     print(f"Debug mode: {args.debug}")

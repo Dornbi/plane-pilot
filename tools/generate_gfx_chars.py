@@ -8,6 +8,10 @@ and save the result to c64o/gfx_chars.bin.
 import os
 import sys
 
+# Repo root, so outputs land in the right place regardless of the
+# current working directory.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # Main pixels 01 (green), alt pixels 10 (orange)
 _ALT_LINES_10 = [0x95, 0x65, 0x59, 0x56]
 # Main pixels 01 (green), alt pixels 11 (char rom)
@@ -201,9 +205,8 @@ def generate_quad_chars(quad_char: list[int]) -> bytearray:
     return data
 
 def main():
-    # Paths relative to the script location
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    output_dir = os.path.join(script_dir, "c64o")
+    # Paths anchored to the repo root, not the current working directory.
+    output_dir = os.path.join(REPO_ROOT, "c64o")
     output_file = os.path.join(output_dir, "gfx_chars.bin")
     
     # Generate character data

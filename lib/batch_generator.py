@@ -11,6 +11,11 @@ from . import frame_generator
 from . import renderer_engine
 from . import roll_angle
 
+# Repo root. `reference_frames/` is checked-in reference data and always lives
+# here, independent of where rendered frames are written or what the cwd is.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_REF_DIR = os.path.join(REPO_ROOT, "reference_frames")
+
 def _to_k_camel_case(text):
     words = text.lower().split('_')
     return 'k' + ''.join(word.capitalize() for word in words)
@@ -26,13 +31,14 @@ def render_batch(colors: List[int],
                  tolerance: int=0,
                  rolls_limit: Optional[int]=None,
                  debug: bool=False,
-                 min_box_width: int=1) -> Tuple[Dict[bytes, Any], Dict[str, Any], Dict[str, int]]:
+                 min_box_width: int=1,
+                 ref_dir: Optional[str]=None) -> Tuple[Dict[bytes, Any], Dict[str, Any], Dict[str, int]]:
     """
     Renders frames for all valid roll angles.
 
     Args:
         colors (List[int]): List of 4 color indices [ground, grad1, grad2, sky].
-        output_dir (str, optional): Output directory. Defaults to "test_frames".
+        output_dir (str): Directory the rendered frames are written to.
         gradient_width (int, optional): Width of gradient bands. Defaults to 4.
         soft_horizon (bool, optional): Soft horizon enable. Defaults to False.
         dither (str, optional): Dither type. Defaults to "bayer4x4".
@@ -42,6 +48,8 @@ def render_batch(colors: List[int],
         rolls_limit (Optional[int], optional): limit number of rolls to render. Defaults to None.
         debug (bool, optional): Debug output enable. Defaults to False.
         min_box_width (int, optional): Minimum box width along major axis. Defaults to 1.
+        ref_dir (Optional[str], optional): Directory for the reference JSON files.
+            Defaults to `reference_frames/` at the repo root.
 
     Returns:
         Tuple[Dict[bytes, Dict[str, Any]], Dict[str, Dict[str, Any]], Dict[str, int]]:
@@ -50,9 +58,12 @@ def render_batch(colors: List[int],
             - special_ids: Map of special constant names to IDs.
     """
     
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir, exist_ok=True)
-        
+    if ref_dir is None:
+        ref_dir = DEFAULT_REF_DIR
+
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(ref_dir, exist_ok=True)
+
     rolls_to_render = roll_angle.RollAngle.all_rolls()
     if rolls_limit:
         rolls_to_render = rolls_to_render[:rolls_limit]
@@ -188,11 +199,6 @@ def render_batch(colors: List[int],
                 global_sram : List[int] = [local_to_global[x] for x in c_sram]
 
                 # Save Reference JSON
-                # Create reference_frames directory
-                ref_dir = os.path.join(os.path.dirname(output_dir), "reference_frames")
-                if not os.path.exists(ref_dir):
-                    os.makedirs(ref_dir)
-                    
                 ref_path = os.path.join(ref_dir, f"ref_{roll_key}.json")
                 with open(ref_path, "w") as f:
                     json.dump({

@@ -1,32 +1,34 @@
 import unittest
 import os
 import re
-import sys
 import shutil
-
-# Add project root to path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)) + '/..')
+import tempfile
 
 from lib import batch_generator
 
 class TestBatchGenerator(unittest.TestCase):
+    def setUp(self):
+        # Scratch space outside the repo, so a run never touches the
+        # checked-in reference_frames/ data.
+        self.tmp = tempfile.mkdtemp(prefix="plane-pilot-test-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.ref_dir = os.path.join(self.tmp, "reference_frames")
+
     def test_batch_execution(self):
         # Test with limit=2 to be fast
-        out_dir = "tests/temp_renders"
-        if os.path.exists(out_dir):
-            shutil.rmtree(out_dir)
-            
+        out_dir = os.path.join(self.tmp, "temp_renders")
+
         colors = [5, 3, 14, 6]
         rolls_Limit = 2
-        
+
         # Test 1: Default (No alternate center) -> 2 images
-        global_chars, box_defs, special_ids = batch_generator.render_batch(colors, rolls_limit=rolls_Limit, output_dir=out_dir)
+        global_chars, box_defs, special_ids = batch_generator.render_batch(colors, rolls_limit=rolls_Limit, output_dir=out_dir, ref_dir=self.ref_dir)
         files = [f for f in os.listdir(out_dir) if f.endswith(".png")]
         self.assertEqual(len(files), 2)
         shutil.rmtree(out_dir)
-        
+
         # Test 2: With alternate center -> 3 images (Only R8 has period 1, R16U1 has period 16)
-        global_chars, box_defs, special_ids = batch_generator.render_batch(colors, rolls_limit=rolls_Limit, output_dir=out_dir, include_alternates=True)
+        global_chars, box_defs, special_ids = batch_generator.render_batch(colors, rolls_limit=rolls_Limit, output_dir=out_dir, include_alternates=True, ref_dir=self.ref_dir)
         files = [f for f in os.listdir(out_dir) if f.endswith(".png")]
         self.assertEqual(len(files), 3)
         
@@ -48,9 +50,6 @@ class TestBatchGenerator(unittest.TestCase):
         code = batch_generator.generate_chardefs_content(global_chars)
         self.assertIn("ALL_CHARS = [", code)
         self.assertIn("# Used in", code)
-        
-        # Clean up
-        shutil.rmtree(out_dir)
 
 if __name__ == '__main__':
     unittest.main()

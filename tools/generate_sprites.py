@@ -3,6 +3,10 @@ import math
 import os
 import sys
 
+# Repo root, so outputs land in the right place regardless of the
+# current working directory.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 def generate_arm_set(arm_length, bitmap_offset, angles_tot):
     centered_x = 12.0
     centered_y = 10.0
@@ -133,7 +137,7 @@ def main():
     total_bitmaps = len(all_data)
 
     # 1. Output BIN
-    bin_path = "c64o/spritedef.bin"
+    bin_path = os.path.join(REPO_ROOT, "c64o", "spritedef.bin")
     os.makedirs(os.path.dirname(bin_path), exist_ok=True)
     with open(bin_path, "wb") as f:
         for data in all_data:
@@ -141,7 +145,7 @@ def main():
     print(f"Generated {bin_path} ({len(all_data) * 64} bytes)")
 
     # 2. Output H and CC
-    h_path = "c64o/spritedef.h"
+    h_path = os.path.join(REPO_ROOT, "c64o", "spritedef.h")
     with open(h_path, "w") as f:
         f.write("#ifndef SPRITEDEF_H\n")
         f.write("#define SPRITEDEF_H\n\n")
@@ -160,7 +164,7 @@ def main():
         f.write("#endif\n")
     print(f"Generated {h_path}")
 
-    cc_path = "c64o/spritedef.cc"
+    cc_path = os.path.join(REPO_ROOT, "c64o", "spritedef.cc")
     with open(cc_path, "w") as f:
         f.write('#include "spritedef.h"\n\n')
         f.write("const sprite_meta_t kSpriteDefMetaLongArm[kSpriteDefMetaCount] = {\n")
@@ -175,7 +179,7 @@ def main():
     print(f"Generated {cc_path}")
 
     # 3. Output Python
-    lib_path = "lib/spritedef.py"
+    lib_path = os.path.join(REPO_ROOT, "lib", "spritedef.py")
     with open(lib_path, "w") as f:
         f.write("# Generated Sprite Definitions (Long Arm 14, Short Arm 10, and Sun)\n\n")
         f.write(f"NUM_BITMAPS_TOTAL = {total_bitmaps}\n")

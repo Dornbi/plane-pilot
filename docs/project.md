@@ -2,14 +2,14 @@
 
 Plane Pilot is a 3D flight simulator for the Commodore 64. This document
 describes how the code works. For build and usage instructions see
-[README.md](README.md) and [development.md](development.md).
+[../README.md](../README.md) and [development.md](development.md).
 
 The repository holds two related codebases:
 
 - **`c64o/`** — the actual C64 program, written in C (`.cc`, compiled with
   [oscar64](https://github.com/drmortalwombat/oscar64)) with a few hand-written
   assembly routines.
-- **`lib/` + root scripts** — a Python prototype that models the C64 graphics
+- **`lib/` + `tools/`** — a Python prototype that models the C64 graphics
   hardware, explores the horizon-rendering scheme, and _generates_ the character
   set, tile definitions and sprite data that the C64 code compiles in.
 
@@ -175,7 +175,7 @@ are about to overwrite them anyway — worth about 1000 cycles for 260 bytes.
 offset relative to the snapped center, the character indices, and the index
 array. `boxdefs.cc` holds 68 definitions — 60 main (one per angle) and 8 alt —
 looked up through `main_boxes[]` / `alt_boxes[]`. Both files are generated;
-edit the generators under `lib/` and re-run `./generate_all.sh`.
+edit the generators under `lib/` and re-run `make chardefs`.
 
 A tile's characters are stored as one byte each, relative to the tile's own
 `char_offset`, rather than as pointers into `chardefs`: the characters a single
@@ -407,19 +407,26 @@ and generates the tables the C64 code compiles in.
   generated `chardefs`/`boxdefs`, used to validate the scheme end to end.
 - `spritedef.py` — the pre-rotated instrument needle bitmaps.
 
-**Command line tools** (root)
+**Command line tools** (`tools/`)
 
-| Script                  | Output                                                                   |
-| ----------------------- | ------------------------------------------------------------------------ |
-| `generate_frame.py`     | one reference frame as PNG                                               |
-| `generate_all.py`       | all frames, plus `chardefs` and `boxdefs` for both Python and C          |
-| `render_frame.py`       | one frame through `renderer_engine`                                      |
-| `render_all.py`         | all frames through `renderer_engine`                                     |
-| `flight_demo.py`        | interactive roll/pitch demo                                              |
-| `generate_sprites.py`   | `spritedef.bin` and `spritedef.py`                                       |
-| `generate_gfx_chars.py` | `c64o/gfx_chars.bin` — the font plus the quad and point character groups |
+| Script                  | Make target       | Output                                                                   |
+| ----------------------- | ----------------- | ------------------------------------------------------------------------ |
+| `generate_frame.py`     | —                 | one reference frame as PNG                                               |
+| `generate_all.py`       | `make chardefs`   | all frames, plus `chardefs` and `boxdefs` for both Python and C          |
+| `render_frame.py`       | —                 | one frame through `renderer_engine`                                      |
+| `render_all.py`         | `make render`     | all frames through `renderer_engine`                                     |
+| `flight_demo.py`        | `make demo`       | interactive roll/pitch demo                                              |
+| `generate_sprites.py`   | `make sprites`    | `spritedef.bin` and `spritedef.py`                                       |
+| `generate_gfx_chars.py` | `make gfx-chars`  | `c64o/gfx_chars.bin` — the font plus the quad and point character groups |
+| `png2koa.py`            | —                 | a `.koa` image from a 320×200 PNG                                        |
 
-Tests live in `tests/` and run with `python -m unittest discover tests`.
+`make data` runs the three generator targets together. The canonical flags for
+each tool live in the root `Makefile`; the scripts resolve their own paths from
+the repo root, so they can be run from any directory. Rendered frames and other
+disposable output go to `out/`, which is gitignored — `chardefs`, `boxdefs`,
+`spritedef` and `reference_frames/` are checked in and written in place.
+
+Tests live in `tests/` and run with `make test`.
 
 ---
 

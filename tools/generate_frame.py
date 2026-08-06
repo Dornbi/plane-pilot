@@ -3,8 +3,10 @@ import sys
 import os
 import math
 
-# Ensure lib is in path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Repo root, so `lib` is importable and outputs land in the right place
+# regardless of the current working directory.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO_ROOT)
 
 import lib.frame_generator
 import lib.c64_graphics
@@ -38,7 +40,7 @@ def main():
     parser.add_argument('--center-y', type=int, default=96, help="Y coordinate of the center point")
     parser.add_argument('--tolerance', type=int, default=2, help="Pixel match tolerance for MCCM characters (default: 1)")
     parser.add_argument('--debug', action='store_true', help="Enable debug rendering (8x upscale, grid, char indices)")
-    parser.add_argument('--output', type=str, default="flight_frame.png", help="Output PNG filename")
+    parser.add_argument('--output', type=str, default=os.path.join(REPO_ROOT, "out", "flight_frame.png"), help="Output PNG filename")
     parser.add_argument('--min-box-width', type=int, default=1, help="Minimum box width along major axis")
     
     args = parser.parse_args()
@@ -85,6 +87,8 @@ def main():
     else:
         img = lib.c64_graphics.C64Screen.render_mcbm(bg_col, screen_ram, color_ram, bitmap, debug=args.debug, debug_crosses=[(args.center_x, args.center_y)])
         
+    out_dir = os.path.dirname(os.path.abspath(args.output))
+    os.makedirs(out_dir, exist_ok=True)
     img.save(args.output)
     print(f"Saved to {args.output}")
 

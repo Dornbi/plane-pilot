@@ -5,8 +5,10 @@ import argparse
 import pygame
 from PIL import Image
 
-# Ensure lib is in path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Repo root, so `lib` is importable and outputs land in the right place
+# regardless of the current working directory.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO_ROOT)
 
 import lib.renderer_engine
 import lib.roll_angle

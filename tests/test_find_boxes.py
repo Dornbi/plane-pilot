@@ -5,6 +5,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import unittest
 import shutil
+import tempfile
 from lib import find_boxes
 from lib import frame_generator
 from lib import c64_converter
@@ -13,13 +14,10 @@ from lib import roll_angle
 
 class TestFindBoxes(unittest.TestCase):
     def setUp(self):
-        self.output_dir = "test_box_find_output"
-        if not os.path.exists(self.output_dir):
-            os.makedirs(self.output_dir)
-            
-    def tearDown(self):
-        if os.path.exists(self.output_dir):
-            shutil.rmtree(self.output_dir)
+        # Scratch space outside the repo, so a test run leaves no stray
+        # directories behind in the working tree.
+        self.output_dir = tempfile.mkdtemp(prefix="plane-pilot-boxes-")
+        self.addCleanup(shutil.rmtree, self.output_dir, True)
 
     def test_box_generation(self):
         # Rolls to test as requested

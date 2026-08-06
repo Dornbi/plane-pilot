@@ -3,8 +3,10 @@ import argparse
 import sys
 import os
 
-# Ensure lib is in path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Repo root, so `lib` is importable and outputs land in the right place
+# regardless of the current working directory.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO_ROOT)
 
 import lib.renderer_engine
 import lib.chardefs
@@ -30,7 +32,7 @@ def main():
     parser.add_argument('--roll', type=str, default="r8u1", help="Roll vector (e.g. r8u1)")
     parser.add_argument('--center-x', type=int, default=160, help="Horizon Center X")
     parser.add_argument('--center-y', type=int, default=64, help="Horizon Center Y")
-    parser.add_argument('--output', type=str, default="render_output.png", help="Output PNG filename")
+    parser.add_argument('--output', type=str, default=os.path.join(REPO_ROOT, "out", "render_output.png"), help="Output PNG filename")
     parser.add_argument('--debug', action='store_true', help="Enable debug overlay")
     parser.add_argument('--no-tiles', action='store_true', help="Disable tiled gradient boxes")
     
@@ -128,6 +130,8 @@ def main():
         print(f"Pulled: ({cx_pulled}, {cy_pulled})")
         print(f"Snapped: ({cx_snap}, {cy_snap})")
         
+        out_dir = os.path.dirname(os.path.abspath(args.output))
+        os.makedirs(out_dir, exist_ok=True)
         img.save(args.output)
         print(f"Saved to {args.output}")
     except Exception as e:

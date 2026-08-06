@@ -2,8 +2,10 @@ import argparse
 import sys
 import os
 
-# Ensure lib is in path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Repo root, so `lib` is importable and outputs land in the right place
+# regardless of the current working directory.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO_ROOT)
 
 import lib.batch_generator
 import lib.find_boxes
@@ -32,7 +34,7 @@ def main():
     parser.add_argument('--include-alternates', action='store_true', help="Include frames with alternate center positions")
     parser.add_argument('--tolerance', type=int, default=2, help="Pixel match tolerance (default: 0)")
     parser.add_argument('--debug', action='store_true', help="Enable debug output (writes to [output_dir]_debug)")
-    parser.add_argument('--output-dir', type=str, default="all_frames", help="Directory to save rendered frames")
+    parser.add_argument('--output-dir', type=str, default=os.path.join(REPO_ROOT, "out", "all_frames"), help="Directory to save rendered frames")
     parser.add_argument('--min-box-width', type=int, default=1, help="Minimum box width along major axis")
     
     args = parser.parse_args()
@@ -111,7 +113,7 @@ def main():
         # Generate chardefs.py
         chardefs_content = lib.batch_generator.generate_chardefs_content(global_chars, special_ids)
         
-        chardefs_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib", "chardefs.py")
+        chardefs_path = os.path.join(REPO_ROOT, "lib","chardefs.py")
         with open(chardefs_path, "w") as f:
             f.write(chardefs_content)
             
@@ -119,14 +121,14 @@ def main():
         
         # Generate boxdefs.py
         boxdefs_content = lib.find_boxes.generate_boxdefs_content(box_defs)
-        boxdefs_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib", "boxdefs.py")
+        boxdefs_path = os.path.join(REPO_ROOT, "lib","boxdefs.py")
         with open(boxdefs_path, "w") as f:
             f.write(boxdefs_content)
             
         print(f"Generated {boxdefs_path}")
         
         # --- C Export ---
-        c64_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "c64o")
+        c64_dir = os.path.join(REPO_ROOT, "c64o")
         if not os.path.exists(c64_dir):
             os.makedirs(c64_dir)
             
