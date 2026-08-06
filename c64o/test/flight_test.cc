@@ -601,8 +601,14 @@ static void test_zero_fuel_flameout_transition() {
   printf("Running test_zero_fuel_flameout_transition...\n");
 
   flight_init();
+  msg_clear();
   flight_fuel = 50; // Low fuel
   flight_throttle = 0x14;
+
+  // Still burning: nothing to say yet.
+  flight_advance();
+  assert(flight_fuel > 0);
+  assert_msg_rendered(nullptr);
 
   for (int i = 0; i < 100; ++i) {
     flight_advance();
@@ -610,6 +616,21 @@ static void test_zero_fuel_flameout_transition() {
 
   assert(flight_fuel == 0);
   assert(flight_throttle == 0);
+
+  // Replay the flameout frame on a fresh aircraft to catch the announcement.
+  flight_init();
+  msg_clear();
+  flight_fuel = 10;
+  flight_throttle = 0x14;
+  flight_advance();
+  assert(flight_fuel == 0);
+  assert_msg_rendered("OUT OF FUEL");
+
+  // Dry from here on, so the empty tank does not re-arm the message.
+  msg_clear();
+  flight_advance();
+  assert_msg_rendered(nullptr);
+
   printf("  PASS\n\n");
 }
 

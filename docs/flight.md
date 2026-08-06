@@ -278,6 +278,7 @@ So triggers 4 and 6 meet with no gap: pitch alone becomes illegal at $-32$, and 
 
 - **Zero Fuel State**:
   - When `flight_fuel == 0`, throttle drops to 0%.
+  - `OUT OF FUEL` is shown on the frame the tank runs dry, once. Later frames find it already empty and say nothing.
   - Aircraft becomes an unpowered glider.
   - **Optimal Glide Speed**: Best distance-over-ground ratio is achieved at $\text{front.z} = -50$ (**~ -11°**), giving a glide ratio of **~4.96 : 1**. Steeper pitch bleeds altitude fast (~4.0 : 1 at -100, ~2.9 : 1 at -25); flatter than about -8° the aircraft cannot hold glide speed and stalls. The peak sits on a shelf, since settled glide speed moves in steps.
 

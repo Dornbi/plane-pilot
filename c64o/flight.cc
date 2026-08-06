@@ -667,6 +667,12 @@ void flight_advance() {
     if (flight_fuel > fuel_consumption) {
       flight_fuel -= fuel_consumption;
     } else {
+      // The tank runs dry once. Every later frame arrives here too, with
+      // nothing left to burn, so the announcement hangs off the last of the
+      // fuel rather than off the empty tank.
+      if (flight_fuel != 0) {
+        msg_show("OUT OF FUEL");
+      }
       flight_fuel = 0;
       flight_throttle = 0;
     }
