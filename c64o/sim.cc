@@ -43,6 +43,32 @@ static void _enter_simulation(uint8_t selected_mission) {
   render_snap_center_chars();
 }
 
+// The keys that close the map: M because it is the toggle that opened it,
+// and RETURN, SPACE or Q to match the help screen's way out. Nothing else on
+// the map does anything at all.
+//
+// Keep in sync with the "Controls" table in help.cc and README.md.
+static const enum KeyScanCode kMapExitKeys[] = {KSCAN_M, KSCAN_SPACE,
+                                                KSCAN_RETURN, KSCAN_Q};
+static const uint8_t kMapExitKeyCount =
+    sizeof(kMapExitKeys) / sizeof(kMapExitKeys[0]);
+
+// Closes the map if one of those keys is down, and reports whether it did.
+static bool _map_poll_exit(void) {
+  for (uint8_t i = 0; i < kMapExitKeyCount; ++i) {
+    if (key_pressed(kMapExitKeys[i])) {
+      map_exit();
+      // Every one of these means something else in the simulation loop --
+      // M would reopen the map on the very next iteration and Q would quit
+      // to the menu -- so the press has to be spent here. Closing the map
+      // is all Q does; quitting takes a second, deliberate press.
+      keys_wait_release(kMapExitKeys[i]);
+      return true;
+    }
+  }
+  return false;
+}
+
 #pragma optimize(pop)
 
 void sim_run(uint8_t selected_mission) {
@@ -79,6 +105,20 @@ void sim_run(uint8_t selected_mission) {
     }
     const uint8_t toggle_edges = keys_edges(toggles, &prev_toggles);
 
+    // The map is a modal page, like the help screen: the simulation is
+    // frozen and nothing but the exit keys responds. That is partly because
+    // there is no instrument feedback to fly on, and partly because the map
+    // owns the character set, both screen buffers and the panel bitmap that
+    // most of the other keys write to. The edges above are still collected
+    // first, so a toggle pressed over the map is consumed rather than saved
+    // up to fire on the way out.
+    if (map_mode) {
+      if (!_map_poll_exit()) {
+        gfx_wait_vsync();
+      }
+      continue;
+    }
+
     if (toggle_edges & kToggleKeyD) {
       mem_switch_debug(!mem_debug_enabled);
     }
@@ -96,58 +136,54 @@ void sim_run(uint8_t selected_mission) {
       return;
     }
 
-    // Flight controls and resets are suspended while the map is open, since
-    // there's no instrument feedback to show the player what they're doing.
-    if (!map_mode) {
-      if (key_pressed(KSCAN_R)) {
-        msg_clear();
-        flight_init_from_mission(selected_mission);
-        msg_show(kMissionTitles[selected_mission]);
-        view_update_view(VIEW_CENTER);
-        mem_switch_debug(false);
-      }
-      if (key_pressed(KSCAN_J)) {
-        flight_input(FLIGHT_INPUT_ROLL_LEFT);
-      }
-      if (key_pressed(KSCAN_L)) {
-        flight_input(FLIGHT_INPUT_ROLL_RIGHT);
-      }
-      if (key_pressed(KSCAN_I)) {
-        flight_input(FLIGHT_INPUT_PITCH_DOWN);
-      }
-      if (key_pressed(KSCAN_K)) {
-        flight_input(FLIGHT_INPUT_PITCH_UP);
-      }
-      if (key_pressed(KSCAN_A)) {
-        flight_input(FLIGHT_INPUT_YAW_LEFT);
-      }
-      if (key_pressed(KSCAN_S)) {
-        flight_input(FLIGHT_INPUT_YAW_RIGHT);
-      }
-      if (toggle_edges & kToggleKeyF) {
-        flight_input(FLIGHT_INPUT_TOGGLE_FLAP);
-      }
-      if (toggle_edges & kToggleKeyG) {
-        flight_input(FLIGHT_INPUT_TOGGLE_GEAR);
-      }
-      if (key_pressed(KSCAN_Z)) {
-        flight_input(FLIGHT_INPUT_MOVE_FORWARD);
-      }
-      if (key_pressed(KSCAN_X)) {
-        flight_input(FLIGHT_INPUT_MOVE_BACKWARD);
-      }
-      if (key_pressed(KSCAN_PLUS)) {
-        flight_input(FLIGHT_INPUT_THROTTLE_UP);
-      }
-      if (key_pressed(KSCAN_MINUS)) {
-        flight_input(FLIGHT_INPUT_THROTTLE_DOWN);
-      }
-      if (toggle_edges & kToggleKeyN) {
-        flight_input(FLIGHT_INPUT_TOGGLE_NAV);
-      }
-      if (key_pressed(KSCAN_B)) {
-        flight_input(FLIGHT_INPUT_BRAKE);
-      }
+    if (key_pressed(KSCAN_R)) {
+      msg_clear();
+      flight_init_from_mission(selected_mission);
+      msg_show(kMissionTitles[selected_mission]);
+      view_update_view(VIEW_CENTER);
+      mem_switch_debug(false);
+    }
+    if (key_pressed(KSCAN_J)) {
+      flight_input(FLIGHT_INPUT_ROLL_LEFT);
+    }
+    if (key_pressed(KSCAN_L)) {
+      flight_input(FLIGHT_INPUT_ROLL_RIGHT);
+    }
+    if (key_pressed(KSCAN_I)) {
+      flight_input(FLIGHT_INPUT_PITCH_DOWN);
+    }
+    if (key_pressed(KSCAN_K)) {
+      flight_input(FLIGHT_INPUT_PITCH_UP);
+    }
+    if (key_pressed(KSCAN_A)) {
+      flight_input(FLIGHT_INPUT_YAW_LEFT);
+    }
+    if (key_pressed(KSCAN_S)) {
+      flight_input(FLIGHT_INPUT_YAW_RIGHT);
+    }
+    if (toggle_edges & kToggleKeyF) {
+      flight_input(FLIGHT_INPUT_TOGGLE_FLAP);
+    }
+    if (toggle_edges & kToggleKeyG) {
+      flight_input(FLIGHT_INPUT_TOGGLE_GEAR);
+    }
+    if (key_pressed(KSCAN_Z)) {
+      flight_input(FLIGHT_INPUT_MOVE_FORWARD);
+    }
+    if (key_pressed(KSCAN_X)) {
+      flight_input(FLIGHT_INPUT_MOVE_BACKWARD);
+    }
+    if (key_pressed(KSCAN_PLUS)) {
+      flight_input(FLIGHT_INPUT_THROTTLE_UP);
+    }
+    if (key_pressed(KSCAN_MINUS)) {
+      flight_input(FLIGHT_INPUT_THROTTLE_DOWN);
+    }
+    if (toggle_edges & kToggleKeyN) {
+      flight_input(FLIGHT_INPUT_TOGGLE_NAV);
+    }
+    if (key_pressed(KSCAN_B)) {
+      flight_input(FLIGHT_INPUT_BRAKE);
     }
     if (key_pressed(KSCAN_1)) {
       view_update_view(VIEW_LEFT);
@@ -158,49 +194,44 @@ void sim_run(uint8_t selected_mission) {
     if (key_pressed(KSCAN_3)) {
       view_update_view(VIEW_RIGHT);
     }
+    // Only the opening half of the toggle lives here; the map's own key
+    // handling above closes it, M included.
     if (key_pressed(KSCAN_M)) {
-      if (map_mode) {
-        map_exit();
-      } else {
-        map_enter();
-      }
+      map_enter();
       keys_wait_release(KSCAN_M);
+      continue;
     }
-    if (!map_mode && key_pressed(KSCAN_H)) {
+    if (key_pressed(KSCAN_H)) {
       help_run();
       screen_restore_simulation();
       keys_wait_release(KSCAN_H);
     }
 
-    if (!map_mode) {
-      bm_model_start();
-      flight_advance();
-      if (flight_status) {
-        const char *msg = flight_status_text(flight_status, true);
-        msg_show(msg, MSG_FOREVER, true);
-      }
-      msg_update();
-      bm_model_end(630, "MDL:");
-
-      bm_start();
-      view_update_cam();
-      world_update_roll_state();
-      world_update_sun_pos();
-      panel_update_instruments();
-
-      panel_maybe_print_debug();
-
-      render_snap_center_chars();
-      msg_restore_color();
-      render_fill_sky_ground();
-      box_prepare();
-      box_draw();
-      world_render_grid();
-      msg_render();
-      bm_total(990, "TOT:");
-      mem_switch_buffer();
-    } else {
-      gfx_wait_vsync();
+    bm_model_start();
+    flight_advance();
+    if (flight_status) {
+      const char *msg = flight_status_text(flight_status, true);
+      msg_show(msg, MSG_FOREVER, true);
     }
+    msg_update();
+    bm_model_end(630, "MDL:");
+
+    bm_start();
+    view_update_cam();
+    world_update_roll_state();
+    world_update_sun_pos();
+    panel_update_instruments();
+
+    panel_maybe_print_debug();
+
+    render_snap_center_chars();
+    msg_restore_color();
+    render_fill_sky_ground();
+    box_prepare();
+    box_draw();
+    world_render_grid();
+    msg_render();
+    bm_total(990, "TOT:");
+    mem_switch_buffer();
   }
 }
