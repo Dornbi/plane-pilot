@@ -122,8 +122,12 @@ def main():
             for y in range(8):
                 bitmap[base + y] = rows[y][idx]
 
-    # Navpoint digits, drawn into the overlay layer the way map_enter() will:
+    # Navpoint digits, drawn into the overlay layer the way map_enter() does:
     # clear the cell's overlay pairs, then punch the stencil in as 01.
+    #
+    # The clear is what makes "the last one wins" true. Mission 07's
+    # waypoints 7 and 8 are both (0x60, 0xBF), so navpoints 1 and 2 land on
+    # the same cell; without it the two glyphs would sit superimposed.
     for n, spec in enumerate(p for p in args.navpoints.split(";") if p):
         if n >= len(digits):
             break
@@ -132,7 +136,11 @@ def main():
         base = ((ORIGIN_ROW + sr) * 40 + (ORIGIN_COL + sc)) * 8
         for y in range(8):
             mask = digits[n][y]
-            bitmap[base + y] = (bitmap[base + y] & ~mask) | (mask & 0x55)
+            b = bitmap[base + y]
+            # b & ~(b >> 1) & 0x55 is 1 in the low bit of every 01 pair and
+            # nowhere else, so clearing it turns 01 into 00.
+            b &= ~(b & ~(b >> 1) & 0x55) & 0xFF
+            bitmap[base + y] = (b & ~mask) | (mask & 0x55)
 
     im = Image.new("RGB", (SCREEN_W, SCREEN_H), PALETTE_RGB[0])
     px = im.load()

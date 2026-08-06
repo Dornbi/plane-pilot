@@ -12,6 +12,7 @@ static char mmap_set(char pla) { return pla; }
 
 #include "box.h"
 #include "color.h"
+#include "flight.h"
 #include "gfx.h"
 #include "mapdefs.h"
 #include "mem.h"
@@ -65,6 +66,85 @@ static const uint8_t kMapCharGap = kScreenWidth - kWorldMapWidth;
 // and 5). Bit pair 10 is the tile's own second color, so the low nibble
 // varies per cell; the surround outside the map keeps black.
 static const uint8_t kMapScreenSurround = (kColorWhite << 4) | kColorBlack;
+
+// --- Overlay layer --------------------------------------------------------
+//
+// Bit pair 01 is white in every cell, so anything drawn as 01 lands on top of
+// the object art without negotiating for a color first. Both overlay users --
+// the navpoint digits here and the flight path in phase 5 -- go through the
+// two routines below. Neither touches screen or color RAM, which is what lets
+// pass B stay write-once.
+
+// The 8 bitmap bytes of a map cell, addressed by *screen* row and column
+// (0..15, 0..31 -- already rotated).
+static uint8_t *_cell_bitmap(uint8_t screen_row, uint8_t screen_col) {
+  return kMapBitmap +
+         ((uint16_t)(kMapOriginRow + screen_row) * kScreenWidth +
+          (kMapOriginCol + screen_col)) *
+             8;
+}
+
+// Sets one map pixel of the overlay, px 0..127 across, py 0..127 down. Per
+// map.md section 4: four multicolor pixels across and eight rows down per
+// cell, so py >> 3 and px >> 2 are the cell and the remainders address the
+// row and the bit pair within it.
+void map_set_overlay_pixel(uint8_t px, uint8_t py) {
+  uint8_t *dst = _cell_bitmap(py >> 3, px >> 2) + (py & 7);
+  const uint8_t shift = (3 - (px & 3)) << 1;
+  *dst = (*dst & ~(3 << shift)) | (1 << shift);
+}
+
+// Draws navpoint digit `digit` (0..3, rendered as '1'..'4') over the cell at
+// the given screen row and column.
+//
+// A glyph is 4 multicolor pixels wide and 8 rows tall -- exactly one cell,
+// byte aligned -- so there is no shifting and no per-pixel addressing.
+// kMapDigitMask holds 11 in every ink pair, so `mask & 0x55` deposits 01 in
+// exactly those pairs and `& ~mask` clears them first, leaving every other
+// pair of the object art untouched.
+//
+// The cell's existing overlay pairs are reset to 00 before the stencil goes
+// down. Without that, mission 07 -- whose waypoints 7 and 8 are both
+// (0x60, 0xBF), fly inverted over runway 2 then land on it -- would draw '1'
+// and '2' superimposed in cell [12][24] rather than letting the last one
+// win. It also keeps a flight path crossing the cell from filling in the
+// counters of the digit.
+static void _draw_digit(uint8_t digit, uint8_t screen_row, uint8_t screen_col) {
+  uint8_t *dst = _cell_bitmap(screen_row, screen_col);
+  const uint8_t *mask = kMapDigitMask[digit];
+  for (uint8_t r = 0; r < 8; ++r) {
+    // b & ~(b >> 1) & 0x55 is 1 in the low bit of every pair that is 01 and
+    // nowhere else, so clearing it turns 01 into 00 and leaves 10 and 11.
+    uint8_t b = dst[r];
+    b &= ~(b & ~(b >> 1) & 0x55);
+    dst[r] = (b & ~mask[r]) | (mask[r] & 0x55);
+  }
+}
+
+// Places the active mission's navpoint digits. flight_init_from_mission()
+// has already unpacked the waypoints into flight_nav_point_*, high byte =
+// world unit, so the cell arithmetic is map.md section 4's, with the 180
+// degree rotation applied to reach screen coordinates.
+//
+// Drawn ascending so that when two navpoints share a cell the higher number
+// is the one left standing.
+static void _draw_navpoints(void) {
+  uint8_t n = flight_num_nav_points;
+  if (n > kMapDigitCount) {
+    n = kMapDigitCount;
+  }
+  for (uint8_t i = 0; i < n; ++i) {
+    // x selects the row and y the column; + 4 centres cells on multiples
+    // of 8 world units.
+    const uint8_t row =
+        ((uint8_t)((flight_nav_point_x[i] >> 8) + 0x04) >> 3) &
+        kWorldMapHeightMask;
+    const uint8_t col =
+        ((uint8_t)((flight_nav_point_y[i] >> 8) + 0x04) >> 3) &
+        kWorldMapWidthMask;
+    _draw_digit(i, (kWorldMapHeight - 1) - row, (kWorldMapWidth - 1) - col);
+  }
+}
 
 // Maps a WorldMapType to a tile index. Empty ground carries the dotted
 // gridline, whose art has a two-cell period, so it picks one of the four
@@ -167,6 +247,9 @@ void map_enter() {
   memset(kMapBitmap, 0xFF, kMapBitmapSize);
   memset(kColorRam, kColorBlack, kMapScreenSize);
   _draw_object_layer();
+  // Overlay, on top of the object art. The flight path joins here in phase 5,
+  // before the digits, so a digit still wins its own cell.
+  _draw_navpoints();
 
   // Pass B -- screen RAM at $D000, which the CPU can only reach with I/O
   // banked out. Interrupts are already masked (see gfx_stop_raster_irqs()

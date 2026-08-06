@@ -395,11 +395,17 @@ Both index spaces stay in bounds: `flight_waypoint_nav` is indexed by
 waypoint-within-mission and `flight_nav_point_*` by navpoint, and the largest
 mission slice (`kMissionWpEnd - kMissionWpBegin`) is also 4. The unpack loop in
 `flight_init_from_mission()` needs a clamp so a future five-waypoint mission
-fails visibly instead of writing past the array:
+loses its extra waypoints instead of writing past the array:
 
 ```c
-if (flight_num_nav_points >= kMaxNavPoints) break;
+if (num_wp > kMaxNavPoints) num_wp = kMaxNavPoints;
 ```
+
+Clamping the loop bound rather than breaking on `flight_num_nav_points`
+covers *both* arrays with one comparison. Breaking on the navpoint counter
+leaves `flight_waypoint_nav[i]` unbounded: a six-waypoint mission whose first
+two are position-free would still reach `i == 5` with only four navpoints
+counted.
 
 ### Digit source: a new multicolor asset
 
@@ -540,7 +546,7 @@ lookups, no new data at all.
 | 1 | ~~Restore-path fixes (`gfx_init_chars`, `box_invalidate`, `view_invalidate_bitmap`)~~ | **done** — 13 bytes code, 8 bytes heap |
 | 2 | ~~Tile + digit art `gfx/ppilot_map_tiles.png`; `tools/generate_map_tiles.py`; `make map-tiles`~~ | **done** — 18 tiles + 4 digits = 212 bytes |
 | 3 | ~~MCBM `map_enter()` / `map_exit()`, object layer only~~ | **done** — verified pixel-identical to `render_map_preview.py` |
-| 4 | Overlay layer: `set_overlay_pixel()` + digit stencils; `kMaxNavPoints = 4` in `flight.cc` + clamp | |
+| 4 | ~~Overlay layer: `set_overlay_pixel()` + digit stencils; `kMaxNavPoints = 4` in `flight.cc` + clamp~~ | **done** — verified against `render_map_preview.py`, collision case included |
 | 5 | Flight path ring buffer, cleared by `flight_init_from_mission()` | reuses the phase 4 overlay primitive |
 | 6 | Aircraft sprites — two centred long arms, 48→32 heading LUT, `$D010` handling | |
 
@@ -559,13 +565,6 @@ lookups, no new data at all.
   a navpoint cell the digit and the trail are indistinguishable. Probably fine —
   worth confirming on the mock-up. `01` was going to be red, so swapping the two
   layers back apart later costs nothing but a constant.
-- **Digit `1` loses its base serif.** With brown ignored, the bottom row of
-  `'1'` (`0x8B` = `10 00 10 11`) keeps only the middle pixel, so the glyph is a
-  bare vertical stroke. At 4 px wide that risks reading as a stray path pixel.
-  Worth a look before deciding it is fine.
-- **Digit contrast over dark art.** Digits now overlay rather than replace, so a
-  white `1` sits on top of whatever the cell holds. Fine over a black city, less
-  so over the yellow fields — check on the mock-up.
 - **Aircraft marker size.** Two crossed 14 px arms make a roughly square marker
   about 2 × 2 cells on a 256 × 128 map (§9). If that is too heavy, the short
   arm is the drop-in alternative for one or both.
@@ -574,5 +573,8 @@ lookups, no new data at all.
 
 - Gridlines appear only in cells with nothing else in them (§5).
 - The path is cleared by `flight_init_from_mission()` (§7).
+- **Digit `1` reads fine** without its base serif, on hardware, at actual size.
+  Digit contrast over the object art is fine too — the digits overlay rather
+  than replace, and white holds up over every tile.
 - Towns and cities are interchangeable; mission 08's "cities" including two
   `MAP_OBJ_TOWN` cells is not a defect.

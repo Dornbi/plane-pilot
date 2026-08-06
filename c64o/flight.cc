@@ -40,11 +40,14 @@ int32_t flight_eye_z;
 static bool model_on_ground = false;
 static bool model_need_normalize;
 
-// Location of navigation waypoints.
-static uint16_t flight_nav_point_x[6];
-static uint16_t flight_nav_point_y[6];
-static uint8_t flight_waypoint_nav[6];
-static uint8_t flight_num_nav_points = 0;
+// Location of navigation waypoints. All three are kMaxNavPoints long, but
+// in two different index spaces: flight_waypoint_nav is indexed by
+// waypoint-within-mission and flight_nav_point_* by navpoint. Four is the
+// cap on both -- see kMaxNavPoints in flight.h.
+uint16_t flight_nav_point_x[kMaxNavPoints];
+uint16_t flight_nav_point_y[kMaxNavPoints];
+static uint8_t flight_waypoint_nav[kMaxNavPoints];
+uint8_t flight_num_nav_points = 0;
 
 static void _flight_update_nav() {
   flight_true_heading = _get_heading(flight_cam.front.x, flight_cam.front.y);
@@ -164,6 +167,14 @@ void flight_init_from_mission(uint8_t mission_idx) {
   uint8_t wp_begin = kMissionWpBegin[mission_idx];
   uint8_t wp_end = kMissionWpEnd[mission_idx];
   uint8_t num_wp = wp_end - wp_begin;
+  // No mission slice is longer than kMaxNavPoints today. Clamping the loop
+  // rather than trusting that bounds both arrays at once -- flight_waypoint_nav
+  // by i, flight_nav_point_* by a counter that advances at most once per
+  // iteration -- so a future longer mission quietly loses its extra
+  // waypoints instead of writing past the end of either.
+  if (num_wp > kMaxNavPoints) {
+    num_wp = kMaxNavPoints;
+  }
   for (uint8_t i = 0; i < num_wp; ++i) {
     uint8_t wp_idx = wp_begin + i;
     uint8_t wx = kMissionWpX[wp_idx];

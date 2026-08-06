@@ -44,6 +44,20 @@ extern int16_t flight_nav_y;
 extern uint8_t flight_true_heading;
 extern uint8_t flight_nav_heading;
 
+// The most navpoints any mission produces. Walking kMissionWpBegin/End
+// against the "skip a (0, 0) waypoint" rule, missions 06, 08 and 09 reach
+// four and nothing reaches five, so this is a declared limit rather than an
+// observation: flight_init_from_mission() clamps to it, and the map view
+// only has digit stencils for '1'..'4'.
+static const uint8_t kMaxNavPoints = 4;
+
+// Navpoint positions in world coordinates, high byte = world unit. Read by
+// the map view to place the navpoint digits; flight_num_nav_points is how
+// many of the arrays are live.
+extern uint16_t flight_nav_point_x[kMaxNavPoints];
+extern uint16_t flight_nav_point_y[kMaxNavPoints];
+extern uint8_t flight_num_nav_points;
+
 // Aircraft position in world coordinates (24.8 fixed point)
 extern int32_t flight_eye_x;
 extern int32_t flight_eye_y;
