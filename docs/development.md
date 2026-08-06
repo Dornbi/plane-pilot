@@ -21,11 +21,27 @@ Compiling the C64 code needs the install the [oscar64](https://github.com/drmort
 make prg
 ```
 
-If everything goes well it builds these executables:
+If everything goes well it builds these executables into `c64o/`:
 
 - `ppilot.prg`: The main executable.
+- `polydemo.prg`: Polygon rendering prototype.
 - `vecdemo.prg`: Simple character mode prototype of the dots on the ground.
 - `vectest.prg`: Correctness test and cycle count for 3D vector operations.
+
+## Releasing a build
+
+`c64o/*.prg` is build output and gitignored. The copies in [bin/](../bin) are the
+checked-in ones that README links to for the online emulators, so a build only
+reaches anyone after it is published there:
+
+```bash
+make release
+```
+
+This builds and then copies the four `.prg` files into `bin/`, reporting which
+ones actually changed. Check the result with `git status bin/` and commit it
+along with the source change that produced it — otherwise the downloadable
+binary drifts behind the code.
 
 ## Debug info
 
