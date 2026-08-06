@@ -293,8 +293,19 @@ with `#pragma optimize(noasm)` so the compiler leaves the timing alone.
 `gfx.cc` also owns the fixed character set (`gfx_chars.bin`, embedded LZO,
 expanded at startup), the ground/color point plotting, the scrolling heading
 strip (cached — it only redraws when the heading changes), and the panel's
-nav / flap / gear indicator lights, which are toggled by rewriting the upper
-nibble of a screen byte in the alt buffer.
+nav / flap / gear indicator lights, which are toggled by storing light red or
+black into the cell's color RAM byte.
+
+Color RAM, and not one of the two screen RAM colors, because those two share a
+byte and which of them holds what is `png2koa.py`'s choice: its lossless slot
+optimizer relabels them for compression, and it once moved a lamp from one
+nibble to the other, which killed the right-hand nav light silently. `make
+panel` therefore passes `--pin-color-ram 10`, which keeps light red in color
+RAM in every cell that uses it, and `tests/test_png2koa.py` reads the lamp
+coordinates out of `gfx.cc` and checks the shipped `panel.koa` against them.
+The lamps also only update in the center view, like the heading strip: a side
+view replaces those cells with the fill pattern, which draws with color RAM
+itself.
 
 ### `view.cc` — the three views
 
@@ -454,7 +465,7 @@ and generates the tables the C64 code compiles in.
 | `flight_demo.py`        | `make demo`       | interactive roll/pitch demo                                              |
 | `generate_sprites.py`   | `make sprites`    | `spritedef.bin` and `spritedef.py`                                       |
 | `generate_gfx_chars.py` | `make gfx-chars`  | `c64o/gfx_chars.bin` — the font plus the quad and point character groups |
-| `png2koa.py`            | —                 | a `.koa` image from a 320×200 PNG                                        |
+| `png2koa.py`            | `make panel`      | a `.koa` image from a 320×200 PNG — `c64o/panel.koa` from the panel art  |
 
 `make data` runs the three generator targets together. The canonical flags for
 each tool live in the root `Makefile`; the scripts resolve their own paths from

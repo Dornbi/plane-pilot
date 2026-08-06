@@ -10,12 +10,14 @@ PYTHON ?= python3
 # scripts, so they belong here rather than in anyone's shell history.
 CHARDEFS_FLAGS = --include-alternates --proportional-dither --min-box-width=4 --debug
 RENDER_CENTERS = 160,100;160,96;164,100
+PANEL_FLAGS = --bg-color 0 --optimize-slots --pin-color-ram 10 \
+	--embed 4098:3904 --embed 8562:440 --embed 9562:440
 
 # The programs c64o/Makefile builds. `make release` publishes these from
 # c64o/ (build output, gitignored) to bin/ (checked in, what README links to).
 PROGRAMS = ppilot polydemo vecdemo vectest
 
-.PHONY: help data chardefs gfx-chars sprites map-tiles map-tiles-draft map-preview render demo prg release test clean
+.PHONY: help data chardefs gfx-chars sprites map-tiles map-tiles-draft panel map-preview render demo prg release test clean
 
 help:
 	@echo "Data generation:"
@@ -24,6 +26,7 @@ help:
 	@echo "  make gfx-chars   - c64o/gfx_chars.bin"
 	@echo "  make sprites     - c64o/spritedef.{bin,h,cc} and lib/spritedef.py"
 	@echo "  make map-tiles   - c64o/mapdefs.{cc,h} from gfx/ppilot_map_tiles.png"
+	@echo "  make panel       - c64o/panel.koa from gfx/ppilot_panel_40.png"
 	@echo ""
 	@echo "Preview and build:"
 	@echo "  make map-preview - render out/map_preview.png from the current map tiles"
@@ -57,6 +60,16 @@ map-tiles:
 
 map-tiles-draft:
 	$(PYTHON) tools/make_map_tiles_draft.py
+
+# The instrument panel. --embed names the three byte ranges view.cc actually
+# embeds, so the optimizer works on what reaches the binary and nothing else.
+# --pin-color-ram 10 keeps light red in color RAM: that is the indicator lamp
+# color, gfx.cc switches the lamps by storing to color RAM, and without the pin
+# the slot optimizer is free to move it into either screen RAM nibble.
+panel:
+	$(PYTHON) tools/png2koa.py gfx/ppilot_panel_40.png gfx/ppilot_panel_40.koa \
+		out/ppilot_panel_40_pepto.png $(PANEL_FLAGS)
+	cp gfx/ppilot_panel_40.koa c64o/panel.koa
 
 # --- Preview and build -----------------------------------------------------
 

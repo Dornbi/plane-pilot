@@ -5,6 +5,7 @@ Unit tests for tools/png2koa.py converter tool.
 
 from __future__ import annotations
 import os
+import re
 import tempfile
 import unittest
 from PIL import Image
@@ -15,6 +16,52 @@ from tools.png2koa import (
     downsample_to_multicolor_grid,
     convert_png_to_koala,
 )
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PANEL_KOA = os.path.join(REPO_ROOT, "c64o", "panel.koa")
+GFX_CC = os.path.join(REPO_ROOT, "c64o", "gfx.cc")
+
+# The indicator lamp color. gfx.cc switches the lamps by storing it into color
+# RAM, so `make panel` pins it there with --pin-color-ram; see the lamp
+# functions in gfx.cc and the `panel` target in the root Makefile.
+LAMP_COLOR = 10  # light red
+
+
+def read_koa(path: str) -> tuple[bytes, bytes, bytes, int]:
+    """Splits a .koa into (bitmap, screen RAM, color RAM, background color)."""
+    with open(path, "rb") as f:
+        data = f.read()
+    assert len(data) == 10003, f"{path}: expected 10003 bytes, got {len(data)}"
+    return data[2:8002], data[8002:9002], data[9002:10002], data[10002]
+
+
+def lamp_cells_from_gfx_cc() -> list[tuple[int, int]]:
+    """
+    The panel cells gfx.cc pokes, read out of the source rather than repeated
+    here: the point of the test is that the code and the image agree, and a
+    second copy of the coordinates could drift from both.
+
+    Recognises the pointer definitions
+
+        static uint8_t *const kFlapPtr = kColorRam + 16 * kScreenWidth + 13;
+
+    and every `_set_lamp(kFlapPtr, ...)` or `_set_lamp(kFlapPtr + 1, ...)` that
+    uses one.
+    """
+    with open(GFX_CC) as f:
+        source = f.read()
+    bases = {
+        name: (int(row), int(col))
+        for name, row, col in re.findall(
+            r"(\w+)\s*=\s*kColorRam \+ (\d+) \* kScreenWidth \+ (\d+)\s*;", source)
+    }
+    cells = []
+    for name, offset in re.findall(r"_set_lamp\((\w+)(?:\s*\+\s*(\d+))?\s*,", source):
+        assert name in bases, f"_set_lamp() on unknown pointer {name}"
+        row, col = bases[name]
+        cells.append((row, col + int(offset or 0)))
+    assert cells, "found no lamps in gfx.cc"
+    return cells
 
 
 class TestPng2Koa(unittest.TestCase):
@@ -124,6 +171,102 @@ class TestPng2Koa(unittest.TestCase):
                             cell_colors.add(preview_pixels[cx * 8 + rx, cy * 8 + ry])
                     # Max 4 unique colors per 8x8 cell in VIC-II multicolor mode
                     self.assertLessEqual(len(cell_colors), 4)
+
+
+class TestPinColorRam(unittest.TestCase):
+    """
+    A pinned color has to stay in color RAM. Which of the two screen RAM colors
+    a cell's colors land in is the encoder's choice and it re-labels them for
+    compression, so anything the C64 side pokes at run time has to be somewhere
+    that choice cannot reach - color RAM is a whole byte per cell and is the
+    only such place.
+    """
+
+    def _image_with_lamp(self, path: str) -> None:
+        """A gray dial with a light red lamp on it, in one 4x8 multicolor cell."""
+        img = Image.new("RGB", (320, 200), (0, 0, 0))
+        px = img.load()
+        for y in range(120, 160):
+            for x in range(40, 200):
+                px[x, y] = PEPTO_PALETTE[15]
+            for x in range(200, 240):
+                px[x, y] = PEPTO_PALETTE[11]
+        # Smaller than a cell, so the lamp shares its cell with the dial.
+        for y in range(130, 134):
+            for x in range(82, 86):
+                px[x, y] = PEPTO_PALETTE[LAMP_COLOR]
+        img.save(path)
+
+    def test_pin_moves_the_color_and_changes_no_pixel(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            src = os.path.join(tmp_dir, "lamp.png")
+            self._image_with_lamp(src)
+
+            free_koa = os.path.join(tmp_dir, "free.koa")
+            free_png = os.path.join(tmp_dir, "free.png")
+            pinned_koa = os.path.join(tmp_dir, "pinned.koa")
+            pinned_png = os.path.join(tmp_dir, "pinned.png")
+            convert_png_to_koala(input_path=src, koa_output_path=free_koa,
+                                 png_output_path=free_png, bg_color=0)
+            convert_png_to_koala(input_path=src, koa_output_path=pinned_koa,
+                                 png_output_path=pinned_png, bg_color=0,
+                                 pin_color_ram=frozenset({LAMP_COLOR}))
+
+            _, screen, color, _ = read_koa(pinned_koa)
+            self.assertIn(LAMP_COLOR, [c & 0x0F for c in color],
+                          "the pinned color should be in color RAM somewhere")
+            for idx, byte in enumerate(screen):
+                self.assertNotEqual(byte >> 4, LAMP_COLOR,
+                                    f"cell {idx} holds the pinned color in screen RAM")
+                self.assertNotEqual(byte & 0x0F, LAMP_COLOR,
+                                    f"cell {idx} holds the pinned color in screen RAM")
+
+            # Pinning only relabels slots, so the picture must be untouched.
+            self.assertEqual(Image.open(free_png).convert("RGB").tobytes(),
+                             Image.open(pinned_png).convert("RGB").tobytes())
+
+    def test_two_pinned_colors_in_one_cell_is_an_error(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            src = os.path.join(tmp_dir, "lamp.png")
+            self._image_with_lamp(src)
+            with self.assertRaises(ValueError):
+                convert_png_to_koala(
+                    input_path=src,
+                    koa_output_path=os.path.join(tmp_dir, "out.koa"),
+                    bg_color=0,
+                    # Light grey is the dial the lamp sits on: no cell can put
+                    # both in the one color RAM nibble.
+                    pin_color_ram=frozenset({LAMP_COLOR, 15}),
+                )
+
+
+class TestShippedPanel(unittest.TestCase):
+    """
+    The checked-in panel image against the code that lights it. This is the
+    test that would have caught the nav lamps going dead: the encoder had moved
+    light red from one screen RAM nibble to the other, and gfx.cc was writing
+    the nibble it used to be in.
+    """
+
+    def test_lamp_cells_carry_the_lamp_color_in_color_ram(self):
+        _, screen, color, _ = read_koa(PANEL_KOA)
+        for row, col in lamp_cells_from_gfx_cc():
+            idx = row * 40 + col
+            self.assertEqual(color[idx] & 0x0F, LAMP_COLOR,
+                             f"lamp cell at row {row} col {col} does not have the "
+                             f"lamp color in color RAM - gfx.cc would switch "
+                             f"color {color[idx] & 0x0F} instead")
+            self.assertNotEqual(screen[idx] >> 4, LAMP_COLOR)
+            self.assertNotEqual(screen[idx] & 0x0F, LAMP_COLOR)
+
+    def test_lamp_color_is_nowhere_in_screen_ram(self):
+        _, screen, _, _ = read_koa(PANEL_KOA)
+        stray = [i for i, b in enumerate(screen)
+                 if b >> 4 == LAMP_COLOR or b & 0x0F == LAMP_COLOR]
+        self.assertEqual(
+            stray, [],
+            "panel.koa was re-encoded without --pin-color-ram "
+            f"{LAMP_COLOR}; run `make panel`")
 
 
 if __name__ == "__main__":

@@ -103,8 +103,8 @@ static void _copy_and_fill(bool is_left_view) {
     } else {
       _fill_with_pattern(bmp_fill, (const char *)kFillPattern + row * 8);
     }
-    // For simplicity don't touch color for 01, which is manipulated
-    // when toggling lights on the panel.
+    // The fill leaves color 01 black rather than picking something for it:
+    // kFillPattern uses only the 10 and 11 pairs, so 01 never appears.
     memcpy(screen_dst, screen_src, kCopyWidthChars);
     memset(screen_fill, kColorMedGray, kFillWidthChars);
     memcpy(color_dst, color_src, kCopyWidthChars);

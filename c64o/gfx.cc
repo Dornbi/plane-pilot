@@ -216,30 +216,47 @@ inline void gfx_update_heading_bitmap(uint8_t heading) {
   }
 }
 
-static void _set_ptr_color(uint8_t *screen_ptr, bool on) {
-  // Looks like Albert always puts light red as color 10.
-  *screen_ptr =
-      *screen_ptr & 0x0F | (on ? kColorLightRed << 4 : kColorBlack << 4);
+// The indicator lamps are lit by recoloring one bit pair of their char cell,
+// and that pair is 11 — color RAM, a whole byte per cell — so switching a lamp
+// is a plain store with nothing to preserve.
+//
+// The two screen RAM colors would do the job too, but they share a byte, and
+// which of them a cell's colors land in is png2koa.py's choice, not ours: it
+// re-labels the slots for compression and has already swapped a lamp's nibbles
+// once, silently. `make panel` therefore passes `--pin-color-ram 10`, which
+// keeps light red in color RAM wherever the panel uses it, and
+// tests/test_png2koa.py checks that the shipped panel.koa still honors it.
+static void _set_lamp(uint8_t *color_ptr, bool on) {
+  *color_ptr = on ? kColorLightRed : kColorBlack;
+}
+
+// Only the center view shows the lamps. A side view keeps 8 of the panel's 40
+// columns and fills the rest with a pattern, and every lamp is in the filled
+// part — where color RAM is what the fill draws its own pixels with, so a lamp
+// written there would be a red speck on the gradient. The heading strip bails
+// out on the same test, for the same kind of reason.
+static inline bool _lamps_live(void) {
+  return !mem_debug_enabled && view_state == VIEW_CENTER;
 }
 
 void gfx_update_nav_heading(uint8_t heading) {
-  static uint8_t *const kHdgPtr = kScreenRamAlt + 15 * kScreenWidth + 21;
-  if (!mem_debug_enabled) {
-    _set_ptr_color(kHdgPtr, heading == 0 || heading > kHeadingMax / 2);
-    _set_ptr_color(kHdgPtr + 1, heading < kHeadingMax / 2);
+  static uint8_t *const kHdgPtr = kColorRam + 15 * kScreenWidth + 21;
+  if (_lamps_live()) {
+    _set_lamp(kHdgPtr, heading == 0 || heading > kHeadingMax / 2);
+    _set_lamp(kHdgPtr + 1, heading < kHeadingMax / 2);
   }
 }
 
 void gfx_update_flap(bool flap) {
-  static uint8_t *const kFlapPtr = kScreenRamAlt + 16 * kScreenWidth + 13;
-  if (!mem_debug_enabled) {
-    _set_ptr_color(kFlapPtr, flap);
+  static uint8_t *const kFlapPtr = kColorRam + 16 * kScreenWidth + 13;
+  if (_lamps_live()) {
+    _set_lamp(kFlapPtr, flap);
   }
 }
 
 void gfx_update_gear(bool gear) {
-  static uint8_t *const kGearPtr = kScreenRamAlt + 17 * kScreenWidth + 13;
-  if (!mem_debug_enabled) {
-    _set_ptr_color(kGearPtr, gear);
+  static uint8_t *const kGearPtr = kColorRam + 17 * kScreenWidth + 13;
+  if (_lamps_live()) {
+    _set_lamp(kGearPtr, gear);
   }
 }
