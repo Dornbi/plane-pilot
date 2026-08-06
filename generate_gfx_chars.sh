@@ -1,1 +1,0 @@
-python3 generate_gfx_chars.py
