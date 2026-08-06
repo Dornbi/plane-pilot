@@ -209,7 +209,7 @@ const uint8_t kMissionStartFuel[kMissionCount] = {
     0x22, // 07
     0x22, // 08
     0x22, // 09
-    0x02, // 10
+    0x04, // 10
 };
 
 const uint8_t kMissionWindX[kMissionCount] = {
