@@ -339,9 +339,38 @@ extracted sequence costs more there than the bytes are worth.
 
 ### `mission.cc`
 
-Two missions (takeoff, landing), each with a start position, speed, throttle
-and fuel. `model_init_from_mission()` applies them; starting at zero altitude
-implies gear down and on-ground state.
+Ten missions (`kMissionCount`), from "01 AIRBORNE" through "10 FUEL
+CHALLENGE". There is no per-mission struct: everything is held in parallel
+arrays indexed by mission, which keeps each table a flat run of bytes the
+6510 can index directly.
+
+- **Start state** — `kMissionStartX/Y/Z`, `kMissionStartSpeed`,
+  `kMissionStartThrottle`, `kMissionStartFuel`, plus `kMissionWindX/Y`
+  (declared and zero everywhere; nothing reads them yet). The scale factors
+  are documented per array in `mission.h` — e.g. `flight_eye_x = start_x << 16`.
+- **Text** — `kMissionTitles` and `kMissionDesc`, shown by `menu.cc`.
+- **Progress** — `mission_completed[]`, rendered as `@` or `.` in the menu's
+  mission list.
+
+**Waypoints** live in a second set of arrays, `kMissionWpX/Y` and
+`kMissionWpConstraint`, pooled across all missions
+(`kMissionWpCount` = 17). Each mission owns a half-open slice of that pool
+given by `kMissionWpBegin[]` and `kMissionWpEnd[]`, so missions can share
+waypoints — the runway-2 landing appears in four of them. `kWaypointDefault`
+is the fallback nav target for a mission whose slice yields no usable point.
+
+A constraint (`MissionWaypointConstraint`) says what has to be true at the
+waypoint: nothing, landed, a minimum altitude, below 125 ft, or inverted.
+
+`flight_init_from_mission()` applies the start state and unpacks the slice
+into `flight_nav_point_x/y[6]` — hence at most six navpoints, which is what
+the `N` key cycles through. Waypoints at `(0, 0)` are position-free
+(altitude-only goals such as "climb to 1000 ft") and are skipped when building
+the nav list; `flight_waypoint_nav[]` records which nav point, if any, each
+waypoint maps to. `flight_current_wp` tracks progress, advanced in
+`flight.cc` when the aircraft is inside the waypoint's tolerance box and
+satisfies its constraint. Unmet constraints surface as warning text through
+`flight_status_text()` and `msg_show()`.
 
 ---
 
@@ -432,16 +461,13 @@ Tests live in `tests/` and run with `make test`.
 
 ## 11. Known gaps and inconsistencies
 
-- **Missions are a skeleton.** `mission_waypoint_t`, `kMissionWaypoints`,
-  `num_waypoints`, `wind_x`/`wind_y` and `kMissionMsg` are declared but nothing
-  reads them; only the start state is applied. `kMissionMsg` has no definition
-  at all.
-- **A crash is silent.** `_model_crashed` freezes the simulation with no
-  message and no prompt; the only way out is `R` or `Q`.
-- **Dead code.** `model_init_alt()` is unused since missions replaced the fixed
-  start states, and the `T` key it backed is gone from `sim.cc` and `help.cc`.
+- **Wind is unimplemented.** `kMissionWindX` / `kMissionWindY` are defined and
+  zero for every mission; nothing reads them.
 - **Map view is a placeholder.** Every non-ground cell renders as `.`; polygon
-  objects, the plane's position and the nav points are not shown.
+  objects, the plane's position, the nav points and the flight path are not
+  shown. See [map.md](map.md) for the plan to replace it, which also lists
+  three gaps in `screen_restore_simulation()` that the current char-mode map
+  happens not to expose.
 - **Prototype and C64 viewports differ.** `renderer_engine.py` uses a 32 × 15
   character viewport; the C64 uses 40 × 14. The Python renderer is a design
   tool, not a mirror of the shipped renderer.
