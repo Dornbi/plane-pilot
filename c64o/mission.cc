@@ -144,7 +144,7 @@ const uint8_t kMissionStartX[kMissionCount] = {
     0x40, // 07
     0x10, // 08
     0x10, // 09
-    0x60, // 10
+    0x50, // 10
 };
 
 const uint8_t kMissionStartY[kMissionCount] = {
@@ -157,7 +157,7 @@ const uint8_t kMissionStartY[kMissionCount] = {
     0xBF, // 07
     0x50, // 08
     0x88, // 09
-    0x60, // 10
+    0x90, // 10
 };
 
 const uint8_t kMissionStartZ[kMissionCount] = {
