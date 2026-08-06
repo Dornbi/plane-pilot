@@ -92,14 +92,44 @@ are in [tools/](../tools). The most important ones:
 
 - [generate_sprites.py](../tools/generate_sprites.py): Generates sprite data for the C64 code.
 
+- [generate_map_tiles.py](../tools/generate_map_tiles.py): Turns the map view's
+  tile sheet, [gfx/ppilot_map_tiles.png](../gfx/ppilot_map_tiles.png), into
+  `c64o/mapdefs.{cc,h}`. The PNG is the source of truth — edit it in GIMP and
+  re-run `make map-tiles`. See [map.md](map.md) for the format and the color
+  budget the generator enforces.
+
+- [make_map_tiles_draft.py](../tools/make_map_tiles_draft.py): Lays down the
+  first version of that tile sheet from ASCII art. It refuses to overwrite an
+  existing sheet without `--force`, since the PNG outranks it once drawn.
+
+- [render_map_preview.py](../tools/render_map_preview.py): Composites the
+  generated tiles over `kWorldMap` to `out/map_preview.png`, so the tile sheet
+  can be judged as a whole map. A verification tool, not part of the build.
+
 The tools take their canonical flags from the [Makefile](../Makefile) in the repo
 root, so prefer the make targets over calling the scripts by hand:
 
 ```bash
-make data       # regenerate chardefs, boxdefs, gfx chars and sprites
-make render     # render all roll angles to out/
-make prg        # build the C64 binaries via c64o/Makefile
-make help       # list everything
+make data        # regenerate chardefs, boxdefs, gfx chars, sprites, map tiles
+make map-tiles   # just the map tiles, after editing the tile sheet
+make map-preview # render out/map_preview.png from the current tiles
+make render      # render all roll angles to out/
+make prg         # build the C64 binaries via c64o/Makefile
+make help        # list everything
+```
+
+### Python dependencies
+
+The scripts target a plain Python 3 install plus:
+
+| Package  | Needed by                                              |
+| -------- | ------------------------------------------------------ |
+| `pillow` | everything that reads or writes a PNG — most of `lib/` and `tools/` |
+| `pytest` | `make test`                                            |
+| `pygame` | `make demo` only                                       |
+
+```bash
+pip install pillow pytest pygame
 ```
 
 Generated images and frames are written to `out/`, which is gitignored. The

@@ -15,7 +15,7 @@ RENDER_CENTERS = 160,100;160,96;164,100
 # c64o/ (build output, gitignored) to bin/ (checked in, what README links to).
 PROGRAMS = ppilot polydemo vecdemo vectest
 
-.PHONY: help data chardefs gfx-chars sprites map-tiles map-tiles-draft render demo prg release test clean
+.PHONY: help data chardefs gfx-chars sprites map-tiles map-tiles-draft map-preview render demo prg release test clean
 
 help:
 	@echo "Data generation:"
@@ -26,6 +26,7 @@ help:
 	@echo "  make map-tiles  - c64o/mapdefs.{cc,h} from gfx/ppilot_map_tiles.png"
 	@echo ""
 	@echo "Preview and build:"
+	@echo "  make map-preview- render out/map_preview.png from the current map tiles"
 	@echo "  make render     - render all roll angles to out/rendered_frames"
 	@echo "  make demo       - interactive roll/pitch demo (needs pygame)"
 	@echo "  make prg        - build the C64 binaries via c64o/Makefile (needs oscar64)"
@@ -57,6 +58,9 @@ map-tiles-draft:
 	$(PYTHON) tools/make_map_tiles_draft.py
 
 # --- Preview and build -----------------------------------------------------
+
+map-preview:
+	$(PYTHON) tools/render_map_preview.py
 
 render:
 	$(PYTHON) tools/render_all.py --centers "$(RENDER_CENTERS)" --debug
