@@ -75,6 +75,11 @@ extern uint8_t flight_num_nav_points;
 static const uint8_t kFlightPathLen = 128;
 extern uint8_t flight_path_px[kFlightPathLen];
 extern uint8_t flight_path_py[kFlightPathLen];
+// Where the aircraft is now, in the same pixel space. Updated every sample,
+// including the ones the ring drops as a repeat, so the map can place the
+// aircraft marker without repeating the conversion.
+extern uint8_t flight_map_px;
+extern uint8_t flight_map_py;
 // Entries 0 .. flight_path_count - 1 are live in both cases: before the ring
 // wraps, count is the write position; after it, every slot is live.
 extern uint8_t flight_path_count;

@@ -24,6 +24,8 @@ uint8_t flight_active_mission_idx = 0;
 uint8_t flight_path_px[kFlightPathLen];
 uint8_t flight_path_py[kFlightPathLen];
 uint8_t flight_path_count = 0;
+uint8_t flight_map_px = 0;
+uint8_t flight_map_py = 0;
 // Next slot to write. Wraps at kFlightPathLen, which is a power of two, so
 // the wrap is a mask.
 static uint8_t flight_path_head = 0;
@@ -80,6 +82,8 @@ static void _flight_path_sample() {
   const uint8_t py = 127 - ((uint8_t)((flight_eye_x >> 16) + 0x04) & 0x7F);
   const uint8_t px =
       127 - (((uint8_t)((flight_eye_y >> 16) + 0x04) >> 1) & 0x7F);
+  flight_map_px = px;
+  flight_map_py = py;
   if (flight_path_count != 0) {
     const uint8_t last = (flight_path_head - 1) & kFlightPathMask;
     if (flight_path_px[last] == px && flight_path_py[last] == py) {

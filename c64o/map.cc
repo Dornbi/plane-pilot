@@ -17,6 +17,7 @@ static char mmap_set(char pla) { return pla; }
 #include "mapdefs.h"
 #include "mem.h"
 #include "screen.h"
+#include "spritedef.h"
 #include "vic.h"
 #include "view.h"
 #include "world.h"
@@ -180,6 +181,51 @@ static void _draw_navpoints(void) {
   }
 }
 
+// --- Aircraft marker ------------------------------------------------------
+//
+// Sprites survive map mode: their bitmaps live at $D7C0..$DFFF, outside the
+// $E000..$FF3F the map bitmap claims, so the pre-rotated instrument needles
+// are still loaded and free to reuse. spr_multi is never set anywhere, so
+// they are hires with an independent color each and can be light red without
+// competing for a bit pair.
+//
+// The marker is two crossed long arms. Directions d and d ^ 16 share a
+// bitmap_idx and differ only in pivot, so a bitmap is a line segment spanning
+// between the two pivots and the pivot table only picks which end anchors to
+// the hub. Placing the sprite by the *midpoint* of those two pivots therefore
+// renders the whole 14 px segment instead of a half-length needle -- and that
+// midpoint is (12, 10) for all 32 directions of both arm tables, so centring
+// needs no table and no arithmetic.
+static const uint8_t kMapSprBody = 0;
+static const uint8_t kMapSprWing = 1;
+static const uint8_t kMapSprCenterX = 12;
+static const uint8_t kMapSprCenterY = 10;
+
+// Sprite register coordinates of map pixel (0, 0). The registers are offset
+// from the display by the 24 x 50 pixel border, and the marker is placed by
+// its centre rather than its top left corner.
+static const uint8_t kMapSprOriginX =
+    kMapOriginCol * 8 + 24 - kMapSprCenterX;  // 44
+static const uint8_t kMapSprOriginY =
+    kMapOriginRow * 8 + 50 - kMapSprCenterY;  // 72
+
+// Sprite pointers sit at video matrix + 1016, which in map mode is
+// $D3F8..$D3FF -- RAM under I/O, so they are written in pass B with the rest
+// of the screen RAM.
+static const uint16_t kMapSprPtrOffset = 1016;
+
+// Positions one sprite, handling the $D010 MSB. The map spans sprite x
+// 44..298, so both sprites cross 255.
+static void _set_sprite_pos(uint8_t idx, int16_t x, uint8_t y) {
+  vic.spr_pos[idx].x = (uint8_t)x;
+  vic.spr_pos[idx].y = y;
+  if (x > 255) {
+    vic.spr_msbx |= 1 << idx;
+  } else {
+    vic.spr_msbx &= ~(1 << idx);
+  }
+}
+
 // Maps a WorldMapType to a tile index. Empty ground carries the dotted
 // gridline, whose art has a two-cell period, so it picks one of the four
 // grid variants by the parity of its *map* row and column -- matching
@@ -259,7 +305,8 @@ void map_enter() {
   // pass B safe for free.
   gfx_stop_raster_irqs();
 
-  // Disable sprites. The aircraft marker (phase 6) turns two back on.
+  // Drop the instrument sprites; the aircraft marker turns two back on at the
+  // end, once its pointers are in place.
   vic.spr_enable = 0x00;
 
   // Blank the display for the build. Three passes over 8000, 1000 and 1000
@@ -288,13 +335,46 @@ void map_enter() {
   _draw_navpoints();
   _draw_compass();
 
+  // The aircraft marker. _get_heading() runs 0..47 clockwise from north and
+  // the sprite tables 0..31 clockwise from up, and the map puts north up, so
+  // the conversion is just a change of scale: round(heading * 32 / 48), which
+  // is (2 * heading + 1) / 3. map.md proposed a 48-byte lookup table to avoid
+  // the divide, but this runs once per map_enter(), not per frame, so 48
+  // bytes of the scarce region to save one division is the wrong way round.
+  const uint8_t dir = (2 * flight_true_heading + 1) / 3;
+  const sprite_meta_t *body = &kSpriteDefMetaLongArm[dir];
+  const sprite_meta_t *wing = &kSpriteDefMetaLongArm[(dir + 8) & 0x1F];
+  // pivot[d ^ 16] - centre is the fore vector at half the arm length, 7 px.
+  // Halving it again puts the wing a little ahead of the body, which is what
+  // makes the cross read as an aircraft rather than a plus sign -- and it
+  // needs no table of its own.
+  const sprite_meta_t *fore = &kSpriteDefMetaLongArm[dir ^ 16];
+  const int8_t fx = (fore->pivot_x - kMapSprCenterX) >> 1;
+  const int8_t fy = (fore->pivot_y - kMapSprCenterY) >> 1;
+
+  const int16_t body_x = kMapSprOriginX + 2 * (int16_t)flight_map_px;
+  const uint8_t body_y = kMapSprOriginY + flight_map_py;
+
   // Pass B -- screen RAM at $D000, which the CPU can only reach with I/O
   // banked out. Interrupts are already masked (see gfx_stop_raster_irqs()
   // above), so no handler can touch $D000..$DFFF while it is RAM.
   mmap_set(MMAP_RAM);
   memset(kMapScreenRam, kMapScreenSurround, kMapScreenSize);
   _draw_screen_layer();
+  // Sprite pointers live past the 1000 bytes the memset covers, so only the
+  // two in use are written; the other six are left as they are and stay
+  // disabled.
+  kMapScreenRam[kMapSprPtrOffset + kMapSprBody] = body->bitmap_idx;
+  kMapScreenRam[kMapSprPtrOffset + kMapSprWing] = wing->bitmap_idx;
   mmap_set(MMAP_NO_ROM);
+
+  // I/O is back, so the VIC registers are reachable again. The simulation is
+  // frozen while the map is up, so this is the only time they are set.
+  _set_sprite_pos(kMapSprBody, body_x, body_y);
+  _set_sprite_pos(kMapSprWing, body_x + fx, body_y + fy);
+  vic.spr_color[kMapSprBody] = kColorLightRed;
+  vic.spr_color[kMapSprWing] = kColorLightRed;
+  vic.spr_enable = (1 << kMapSprBody) | (1 << kMapSprWing);
 
   vic.ctrl1 = 0x3b;  // bitmap mode, screen on
 

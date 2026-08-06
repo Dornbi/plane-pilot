@@ -113,8 +113,9 @@ Two free colours remain per cell for the object art, chosen independently. The
 tile generator enforces this: a tile using more than two colours besides green
 and white is a build error.
 
-The aircraft is a sprite (§9), so it can be white without competing for a bit
-pair.
+The aircraft is a sprite (§9), so it carries its own colour and competes for
+no bit pair at all. It is light red, which also keeps it distinct from the
+white trail it sits on the end of.
 
 Border is black. The 8-cell-wide surround outside the map is bitmap `0xFF`
 (all `11`) with colour RAM black, matching the existing `kCharSolid11` idiom.
@@ -551,8 +552,23 @@ lookups, no new data at all.
 
 ### Details
 
-- **Heading conversion.** `_get_heading()` has 48 steps; sprites have 32. A
-  48-byte lookup table is exact and cheaper than dividing by 3.
+- **Colour.** Light red (`kColorLightRed`), not white. White is the overlay
+  layer, so a white marker would be indistinguishable from the flight path it
+  sits on the end of. Sprites carry their own colour, so this costs nothing.
+- **Heading conversion.** `_get_heading()` has 48 steps; sprites have 32, and
+  both run clockwise from up once the map's 180° rotation is applied, so the
+  conversion is a pure change of scale: `round(heading * 32 / 48)`, which is
+  `(2 * heading + 1) / 3`. An earlier draft of this section proposed a 48-byte
+  lookup table to avoid the division — but this runs once per `map_enter()`,
+  not per frame, so spending 48 bytes of the scarce region to save one
+  division is the wrong way round. The divide stays.
+- **Sprite pointers.** Video matrix + 1016 is `$D3F8..$D3FF` in map mode —
+  RAM under I/O, so the two pointers are written in pass B with the rest of
+  the screen RAM. They sit past the 1000 bytes the `memset` covers, so only
+  the two in use are touched; the other six stay disabled.
+- **No cleanup on exit.** `sprites_show_*()` park every unused sprite at x=0
+  and clear `$D010` every frame, and `sprites_init()` resets all eight
+  colours, so the restore path already covers the marker.
 - **X coordinate.** The map spans screen x 32–288, so sprite x runs 56–312 with
   the 24 px border offset. Both sprites cross 255 — `$D010` MSB handling is
   required.
@@ -576,30 +592,28 @@ lookups, no new data at all.
 | 3 | ~~MCBM `map_enter()` / `map_exit()`, object layer only~~ | **done** — verified pixel-identical to `render_map_preview.py` |
 | 4 | ~~Overlay layer: `set_overlay_pixel()` + digit stencils; `kMaxNavPoints = 4` in `flight.cc` + clamp~~ | **done** — verified against `render_map_preview.py`, collision case included |
 | 5 | ~~Flight path ring buffer, cleared by `flight_init_from_mission()`~~ | **done** — 3 new `flight_test` cases |
-| 6 | Aircraft sprites — two centred long arms, 48→32 heading LUT, `$D010` handling | |
+| 6 | ~~Aircraft sprites — two centred long arms, 48→32 heading conversion, `$D010` handling~~ | **done** — light red, not white |
 
 ---
 
 ## 11. Open questions
 
-- **Concept art coverage.** `gfx/ppilot_map2.png` shows the gridlines and the
-  object cells, but no navpoint numbers, no path and no aircraft. The final
-  frame should be mocked up before phase 2 so the colour budget is checked
-  against a real image rather than a table.
-- **Grid colour.** The gridline tile consumes one per-cell pair in every empty
-  cell. Dark grey is the assumption; it should be checked against green at
-  actual size.
 - **White-on-white.** The overlay is a single colour, so where the path crosses
-  a navpoint cell the digit and the trail are indistinguishable. Probably fine —
-  worth confirming on the mock-up. `01` was going to be red, so swapping the two
-  layers back apart later costs nothing but a constant.
+  a navpoint cell the digit and the trail are indistinguishable. The digit wins
+  its own cell — the stencil clears the cell's overlay pairs before drawing —
+  so this only shows as a trail that stops a pixel short. Worth a look on
+  hardware. `01` was going to be red, so swapping the two layers apart later
+  costs nothing but a constant.
 - **Aircraft marker size.** Two crossed 14 px arms make a roughly square marker
-  about 2 × 2 cells on a 256 × 128 map (§9). If that is too heavy, the short
+  about 2 × 2 cells on a 128 × 128 map (§9). If that is too heavy, the short
   arm is the drop-in alternative for one or both.
 
 ### Settled
 
-- Gridlines appear only in cells with nothing else in them (§5).
+- Gridlines appear only in cells with nothing else in them (§5), and the grid
+  colour reads against green at actual size. The concept art in
+  `gfx/ppilot_map2.png` has been superseded by the real tile sheet, which
+  `make map-preview` composites over `kWorldMap` for judging as a whole map.
 - The path is cleared by `flight_init_from_mission()` (§7).
 - **Digit `1` reads fine** without its base serif, on hardware, at actual size.
   Digit contrast over the object art is fine too — the digits overlay rather
