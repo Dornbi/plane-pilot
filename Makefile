@@ -69,28 +69,8 @@ render:
 demo:
 	$(PYTHON) tools/flight_demo.py
 
-# Report the size of a built .prg. A .prg starts with a two-byte little-endian
-# load address, so the image the C64 actually holds is two bytes shorter than
-# the file, and the end address follows from the start plus that image.
-# $(1) is the path to the .prg.
-define prg_size
-	@if [ ! -f "$(1)" ]; then \
-		echo "$(1): missing — build failed?" >&2; exit 1; \
-	fi; \
-	bytes=$$(wc -c < "$(1)" | tr -d ' '); \
-	lo=$$(od -An -tu1 -N1 -j0 "$(1)" | tr -d ' '); \
-	hi=$$(od -An -tu1 -N1 -j1 "$(1)" | tr -d ' '); \
-	start=$$(( hi * 256 + lo )); \
-	image=$$(( bytes - 2 )); \
-	end=$$(( start + image - 1 )); \
-	printf '%-14s %6d bytes on disk, %6d in memory at $$%04X-$$%04X\n' \
-		"$(1)" "$$bytes" "$$image" "$$start" "$$end"
-endef
-
 prg:
 	$(MAKE) -C c64o
-	@echo ""
-	$(call prg_size,c64o/ppilot.prg)
 
 # Publish the freshly built binaries. bin/ is the only copy anyone downloads,
 # so this is the step that keeps it from drifting behind c64o/.

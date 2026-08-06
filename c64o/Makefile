@@ -135,7 +135,33 @@ CFLAGS = -ii=${OSCAR64_INCLUDE} -D__OSCAR64__ -g -xz
 # extracted sequence costs more than the bytes are worth.
 OPTFLAGS = -O2 -Op -Oa -Oi -Oz -Oo
 
+# Report the size of a built .prg. A .prg starts with a two-byte little-endian
+# load address, so the image the C64 actually holds is two bytes shorter than
+# the file, and the last byte used follows from the start plus that image.
+# Read from the file rather than assuming $0801, so the range stays right if
+# the start address ever moves. $(1) is the path to the .prg.
+define prg_size
+	@if [ ! -f "$(1)" ]; then \
+		echo "$(1): missing — build failed?" >&2; exit 1; \
+	fi; \
+	bytes=$$(wc -c < "$(1)" | tr -d ' '); \
+	lo=$$(od -An -tu1 -N1 -j0 "$(1)" | tr -d ' '); \
+	hi=$$(od -An -tu1 -N1 -j1 "$(1)" | tr -d ' '); \
+	start=$$(( hi * 256 + lo )); \
+	image=$$(( bytes - 2 )); \
+	end=$$(( start + image - 1 )); \
+	printf '%-14s %6d bytes on disk, %6d in memory at $$%04X-$$%04X\n' \
+		"$(1)" "$$bytes" "$$image" "$$start" "$$end"
+endef
+
 all: $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg test
+	@echo ""
+	$(call prg_size,$(PPILOT_PROGRAM).prg)
+
+# Standalone, so the size can be checked without provoking a build. Reports
+# whatever is on disk now; run `make` first if that might be stale.
+size:
+	$(call prg_size,$(PPILOT_PROGRAM).prg)
 
 $(PPILOT_PROGRAM).prg: $(PPILOT_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_VIEW__ -D__DEBUG_MODEL__ -D__MAX_RAM__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
@@ -156,4 +182,4 @@ clean:
 	rm -rf $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg *.asm *.dbj *.int *.lbl *.map
 	$(MAKE) -C test clean
 
-.PHONY: all test flight_test msg_test clean
+.PHONY: all size test flight_test msg_test clean
