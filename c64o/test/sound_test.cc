@@ -79,17 +79,15 @@ static uint16_t freq_at_throttle(uint8_t t) {
 }
 
 // How far sound_update() may move the frequency off the table entry, derived
-// from the tuning constants rather than repeated as literals, so turning the
-// roughness up or down does not falsify the test. Proportional in pulse mode,
-// absolute in noise mode - see sound.h for why they cannot be the same.
+// from the tuning constant rather than repeated as a literal, so turning the
+// roughness up or down does not falsify the test.
 static uint16_t jitter_bound(uint16_t base) {
-  return kEngineNoise ? kNoiseJitterAmp : (base >> kEngineJitterShift);
+  return base >> kEngineJitterShift;
 }
 
-// The control register the active mode should be driving voice 1 with.
+// The control register the engine should be driving voice 1 with.
 static uint8_t expected_ctrl(void) {
-  return kEngineNoise ? (SID_CTRL_NOISE | SID_CTRL_GATE)
-                      : (SID_CTRL_RECT | SID_CTRL_GATE);
+  return SID_CTRL_RECT | SID_CTRL_GATE;
 }
 
 int main() {
@@ -243,10 +241,8 @@ int main() {
   flight_throttle = 0x10;
   sound_update();
 
-  // The waveform the active mode asks for, gated on. Any other waveform would
-  // still make a sound, so a listening test would not obviously catch it - but
-  // it would not be the instrument the mode was chosen for. Sawtooth in place
-  // of noise in particular is a plausible slip and sounds like a kazoo.
+  // Pulse, gated on. Noise or sawtooth here would still make a sound, so a
+  // listening test would not catch it - but it would not be a propeller.
   assert(sound_shadow[kSoundRegV1Ctrl] == expected_ctrl());
   // Exactly one waveform bit. The SID treats a combined waveform as a
   // completely different generator, and noise combined with anything else
@@ -274,12 +270,7 @@ int main() {
   assert(sound_shadow[kSoundRegResFilt] == 0);
   assert((sound_shadow[kSoundRegModeVol] & 0xF0) == 0);
 
-  // --- The frequency table -------------------------------------------------
-  //
-  // The register means a pitch in pulse mode and an LFSR clock rate in noise
-  // mode, but every structural property below is wanted either way: the
-  // throttle has to be audible across its whole range, and no region of it may
-  // be mushier than any other.
+  // --- The pitch table -----------------------------------------------------
 
   // Strictly increasing across the whole throttle range.
   uint16_t prev = freq_at_throttle(0);
@@ -296,46 +287,22 @@ int main() {
 
   // The general form of the same check, and the one that actually pins the
   // shape down. Every adjacent pair has to be separated by about the same
-  // ratio, so no region of the throttle is mushier than any other. A linear
-  // table fails this at the top, where the ratio approaches 1.
-  //
-  // The band is wider in noise mode and cannot not be: the registers there are
-  // small integers, so rounding a geometric series onto them is lumpy in a way
-  // it simply is not at values in the hundreds. That lumpiness is the reason
-  // the table's low end cannot be dropped much further - below about 24 the
-  // rounding starts producing equal neighbours outright.
-  {
-    const uint32_t lo_bound = kEngineNoise ? 1035 : 1028;
-    const uint32_t hi_bound = kEngineNoise ? 1060 : 1036;
-    for (uint8_t t = 0; t < kMaxThrottle; ++t) {
-      uint32_t lo = freq_at_throttle(t);
-      uint32_t hi = freq_at_throttle(t + 1);
-      uint32_t permille = (hi * 1000) / lo;
-      assert(permille >= lo_bound && permille <= hi_bound);
-    }
+  // musical interval, so no region of the throttle is mushier than any other.
+  // A linear table fails this at the top, where the ratio approaches 1.
+  for (uint8_t t = 0; t < kMaxThrottle; ++t) {
+    uint32_t lo = freq_at_throttle(t);
+    uint32_t hi = freq_at_throttle(t + 1);
+    uint32_t permille = (hi * 1000) / lo;
+    assert(permille >= 1028 && permille <= 1036);
   }
 
-  // Idle and full sit at the ends of a wide span, which is what makes the
-  // throttle audible as a throttle rather than as a detune. Pulse mode is the
-  // roughly 2:1 a real propeller covers; noise mode is wider, because the
-  // register is driving a crackle rate rather than a pitch and the ear reads
-  // proportional change in it far less sharply.
+  // Idle and full sit at the ends of a roughly 2:1 span, which is what makes
+  // the throttle audible as a throttle rather than as a detune.
   {
     uint32_t idle = freq_at_throttle(0);
     uint32_t full = freq_at_throttle(kMaxThrottle);
-    uint32_t pct = full * 100 / idle;
-    if (kEngineNoise) {
-      assert(pct >= 250 && pct <= 450);
-    } else {
-      assert(pct >= 200 && pct <= 215);
-    }
+    assert(full * 100 / idle >= 200 && full * 100 / idle <= 215);
   }
-
-  // Both ends of the throttle are reachable and distinct. Trivially true, and
-  // asserted anyway because the noise table's endpoints are also its two
-  // published tuning constants: if a future edit moves one of them without
-  // regenerating the interior, this and the ratio check above are what notice.
-  assert(freq_at_throttle(0) < freq_at_throttle(kMaxThrottle));
 
   // Out-of-range throttle clamps instead of reading past the table. The flight
   // model does not produce this, which is precisely why nothing else would
@@ -351,11 +318,11 @@ int main() {
   // A clean table plus a clean sweep is audibly a synthesizer. Both are
   // perturbed every frame, and these are the properties that has to keep.
   // Checked at idle, mid and full throttle, not at one sample point. Idle is
-  // the one that matters most and the one a single mid-throttle sample misses:
-  // it is where the register values are smallest, so it is where a jitter
-  // scheme that does not suit the mode collapses to nothing first. It is also
-  // where a real engine is roughest, so an idle that goes glassy while full
-  // power stays unsteady is audibly backwards.
+  // the one a single mid-throttle sample misses: it is where the register
+  // values are smallest, so it is where a jitter scheme that does not suit
+  // their magnitude collapses to nothing first. It is also where a real engine
+  // is roughest, so an idle that goes glassy while full power stays unsteady
+  // is audibly backwards.
   static const uint8_t kRoughnessThrottles[] = {0, 0x0C, kMaxThrottle};
   for (uint8_t ti = 0; ti < 3; ++ti) {
     const uint8_t t = kRoughnessThrottles[ti];
@@ -392,14 +359,10 @@ int main() {
       if (f > f_max) f_max = f;
     }
 
-    // It has to actually move, and over several distinct values rather than
+    // It has to actually move, and over many distinct values rather than
     // toggling between two. A stuck LFSR - the failure mode of seeding it
     // zero - would leave exactly one.
-    //
-    // Fewer are reachable in noise mode, and unavoidably so: the deviation
-    // there spans a handful of integers rather than tens, so the 32 draws
-    // collapse onto far fewer outputs.
-    assert(n_seen >= (kEngineNoise ? 6 : 20));
+    assert(n_seen >= 20);
     // And it has to move in both directions off the table entry, or the
     // jitter is a detune rather than a wobble.
     assert(f_min < base && f_max > base);
