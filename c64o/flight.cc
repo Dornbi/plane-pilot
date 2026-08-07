@@ -698,8 +698,16 @@ void flight_advance() {
       }
     }
   } else {
-    // Paused: the physics is frozen, but keep the vertical speed instrument
-    // live so it still reflects any attitude change the pilot makes.
+    // Paused: the physics is frozen, so recompute the vertical speed
+    // instrument from the attitude rather than leaving it at whatever the last
+    // running step produced.
+    //
+    // This used to matter because the controls still worked while paused and
+    // the pilot could pitch the nose. They no longer do (see flight_input),
+    // and neither input that survives a pause moves front.z or flight_speed,
+    // so in practice this now recomputes the same value every frame. It stays
+    // as the one place vspeed is derived: it costs a multiply and it means the
+    // instrument cannot disagree with the state it is displaying.
     flight_vspeed = vec_fastmul8p8(flight_cam.front.z, flight_speed);
   }
 
@@ -726,6 +734,26 @@ void flight_input(enum flight_input_t input) {
       nav_msg_buf[9] = '0' + (flight_nav + 1);
       msg_show(nav_msg_buf);
     }
+    return;
+  }
+
+  // Paused freezes the aircraft, and that has to include the controls. Without
+  // this, pause was a way to reconfigure in stopped time - roll, retrim, drop
+  // the gear and change the throttle with the physics not running - and then
+  // resume already set up. The instruments moved while the world did not.
+  //
+  // Z and X are the exception, and the only one. They exist precisely to
+  // reposition the aircraft while frozen, and each already tests
+  // flight_paused for itself before doing anything.
+  //
+  // N is not listed here because it never reaches this point: the navpoint
+  // toggle returns above, ahead of even the crash guard. It selects which
+  // waypoint the compass points at, which is map-reading rather than flying.
+  //
+  // The rule lives here rather than in sim.cc's key handling so that it cannot
+  // be bypassed by a future call site, and so flight_test can assert it.
+  if (flight_paused && input != FLIGHT_INPUT_MOVE_FORWARD &&
+      input != FLIGHT_INPUT_MOVE_BACKWARD) {
     return;
   }
 

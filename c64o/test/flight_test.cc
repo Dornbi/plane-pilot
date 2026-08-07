@@ -2248,6 +2248,120 @@ static void test_flight_path_samples_are_connected() {
   printf("  PASS (%d transitions)\n\n", checked);
 }
 
+// Pause freezes the controls as well as the physics.
+//
+// Without this, pause was a way to fly in stopped time: roll, retrim, change
+// the throttle and drop the gear with nothing moving, then resume already set
+// up. Z and X are the deliberate exception - repositioning the aircraft while
+// frozen is what they are for.
+//
+// Asserted against flight_input() rather than against sim.cc's key handling,
+// because that is where the rule lives and it is the layer a future call site
+// would have to go through.
+// Everything the pilot can press that is not Z or X. Each is applied
+// repeatedly, because a single step of some of these is small enough that one
+// application could be lost in rounding even if the guard were missing.
+//
+// The count has to be ODD. Flaps and gear are toggles, so an even number of
+// presses returns them to where they started and the assertions pass whether
+// the guard exists or not. An earlier version of this test used 8 and did not
+// notice a guard that let the gear through.
+static const int kPauseRepeats = 7;
+static const enum flight_input_t kPauseBlocked[] = {
+    FLIGHT_INPUT_ROLL_LEFT,   FLIGHT_INPUT_ROLL_RIGHT,
+    FLIGHT_INPUT_PITCH_UP,    FLIGHT_INPUT_PITCH_DOWN,
+    FLIGHT_INPUT_YAW_LEFT,    FLIGHT_INPUT_YAW_RIGHT,
+    FLIGHT_INPUT_THROTTLE_UP, FLIGHT_INPUT_THROTTLE_DOWN,
+    FLIGHT_INPUT_TOGGLE_FLAP, FLIGHT_INPUT_TOGGLE_GEAR,
+    FLIGHT_INPUT_BRAKE,
+};
+static_assert(kPauseRepeats % 2 == 1, "toggles need an odd number of presses");
+
+// Presses every blocked control while paused and requires nothing to move.
+// Called in both flight regimes, because flight_input() dispatches through two
+// entirely separate switch statements and they do not carry the same cases -
+// FLIGHT_INPUT_BRAKE, for one, exists only on the ground.
+static void _assert_pause_blocks_here(void) {
+  assert(flight_paused);
+
+  const mat3_t cam0 = flight_cam;
+  const uint8_t throttle0 = flight_throttle;
+  const uint8_t flap0 = flight_flap;
+  const uint8_t gear0 = flight_gear;
+  const int16_t speed0 = flight_speed;
+
+  for (size_t i = 0; i < sizeof(kPauseBlocked) / sizeof(kPauseBlocked[0]);
+       ++i) {
+    for (int rep = 0; rep < kPauseRepeats; ++rep) {
+      flight_input(kPauseBlocked[i]);
+    }
+  }
+
+  assert(memcmp(&flight_cam, &cam0, sizeof(cam0)) == 0);
+  assert(flight_throttle == throttle0);
+  assert(flight_flap == flap0);
+  assert(flight_gear == gear0);
+  assert(flight_speed == speed0);
+
+  // Z and X still move the aircraft. They are the exception the rule is
+  // written around, so a guard that blocked them too would pass every
+  // assertion above and still be wrong.
+  const int32_t x0 = flight_eye_x, y0 = flight_eye_y;
+  flight_input(FLIGHT_INPUT_MOVE_FORWARD);
+  assert(flight_eye_x != x0 || flight_eye_y != y0);
+
+  const int32_t x1 = flight_eye_x, y1 = flight_eye_y;
+  flight_input(FLIGHT_INPUT_MOVE_BACKWARD);
+  assert(flight_eye_x != x1 || flight_eye_y != y1);
+}
+
+static void test_paused_blocks_controls() {
+  printf("Running test_paused_blocks_controls...\n");
+
+  // Airborne, so the attitude and throttle controls all have something they
+  // could visibly do.
+  flight_init_from_mission(3);
+  flight_eye_z = 0x040000;
+  flight_advance();
+  flight_paused = true;
+  _assert_pause_blocks_here();
+
+  const mat3_t cam0 = flight_cam;
+  const uint8_t throttle0 = flight_throttle;
+  const uint8_t gear0 = flight_gear;
+
+  // The same controls work again the moment the pause lifts, so this is a
+  // pause rule and not an accidental lockout.
+  flight_paused = false;
+  flight_input(FLIGHT_INPUT_THROTTLE_UP);
+  assert(flight_throttle == throttle0 + 1);
+  flight_input(FLIGHT_INPUT_TOGGLE_GEAR);
+  assert(flight_gear != gear0);
+  flight_input(FLIGHT_INPUT_ROLL_LEFT);
+  assert(memcmp(&flight_cam, &cam0, sizeof(cam0)) != 0);
+
+  // Now on the ground, rolling. This is the branch that owns the brake and the
+  // nose wheel steering, and neither of them exists in the airborne switch at
+  // all - so a guard that let the brake through would be invisible to the
+  // checks above.
+  flight_init_from_mission(0);
+  flight_speed = 0x0400;
+  flight_paused = true;
+  _assert_pause_blocks_here();
+
+  // Prove the regime was live rather than inert: unpaused, the brake really
+  // does bite here. Without this the ground half could be asserting that
+  // nothing happens in a state where nothing was going to happen anyway.
+  flight_paused = false;
+  {
+    const int16_t before = flight_speed;
+    flight_input(FLIGHT_INPUT_BRAKE);
+    assert(flight_speed < before);
+  }
+
+  printf("  PASS\n\n");
+}
+
 // Ring behaviour: repeats are dropped, the buffer saturates rather than
 // overflowing, and restarting the mission wipes the trail.
 static void test_flight_path_ring_buffer() {
@@ -2415,6 +2529,7 @@ int main(int argc, char **argv) {
   test_runway_1_bounds_alignment();
   test_landing_off_runway_crash();
   test_low_altitude_approach_warnings();
+  test_paused_blocks_controls();
   test_flight_path_pixel_cell_agreement();
   test_flight_path_samples_are_connected();
   test_flight_path_ring_buffer();
