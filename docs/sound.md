@@ -229,13 +229,14 @@ With 11 KB free (§8) this is not a trade.
 | --------------------- | ----: | ---------------: | ------: |
 | Shadow register block |    25 |               25 |      25 |
 | Pitch table           |    50 |                — |      50 |
-| Driver state          |   ~16 |    2 (zero page) |       3 |
+| Driver state          |   ~16 |    2 (zero page) |       4 |
 | Code                  |  ~500 |              229 |     TBM |
 
 Phase 1 cost 256 bytes all in, leaving the heap at `a460 - d000`, 10.7 KB.
 
 Phase 2 added the pitch table at its predicted 50 bytes exactly (25 entries,
-16-bit) and one byte of driver state for the PWM sweep phase. Code growth is
+16-bit) and two bytes of driver state: the PWM sweep phase and the LFSR. Code
+growth is
 **not yet measured** — the phase 2 work was done without an oscar64 build to
 hand, so `ppilot.map` has not been re-read. Do that before treating this phase
 as closed; the number to check is whether `sound_update()` acquired an
@@ -389,9 +390,58 @@ per frame, so a full cycle is about 4 seconds. Both ends of the 12-bit range
 are avoided deliberately — at 0 and `$FFF` a pulse wave is DC and the voice
 goes silent, so a sweep that touched them would drop the engine out once a
 cycle. The phase advances even while the driver is silent, so unpausing does
-not restart the timbre from the same point every time. Frame jitter (§2) makes
-the sweep slightly uneven, which is closer to a real engine than a metronomic
-one and is left alone.
+not restart the timbre from the same point every time.
+
+### Roughness
+
+The first audible build of the above was correct and sounded like a
+synthesizer holding a note. A clean pitch table plus a clean triangle is too
+steady to be a machine with moving parts, so both are perturbed every frame
+from a pseudo-random source.
+
+**What this can be is set by where it runs.** `sound_update()` is on the main
+line at ~10 Hz, so this is a *flutter* — an engine running rough — and not a
+texture. Per-cycle grit would have to happen at audio rate, which means in the
+blit, and §3 requires the blit to stay a flat store sequence with no state.
+Two alternatives that would have given genuine noise were both rejected:
+
+- **`RECT|NOISE` as a combined waveform.** On the 6581 this zeroes the noise
+  LFSR and silences the voice until the TEST bit is toggled to reseed it —
+  precisely the chip-revision dependency §3 spent a page avoiding.
+- **Putting the engine on a noise waveform outright.** Prop-like on its own,
+  but voice 2 is noise already (wind, phase 3) and the two would mush into a
+  single texture.
+
+**The source** is an 8-bit Galois LFSR, taps x⁸ + x⁶ + x⁵ + x⁴ + 1. Maximal
+length: 255 non-zero states before repeating, about 25 seconds at frame rate,
+long enough that the engine never audibly loops. Zero is the one state it can
+neither enter nor leave, which is why `sound_init()` seeds it non-zero.
+
+Two draws per frame, not one. A single byte does not have enough independent
+bits for both jobs, and sharing them would tie the timbre to the pitch — the
+two moving together every frame is a pattern the ear picks out as machinery of
+the wrong kind. The LFSR advances whether or not anything is audible, so a
+pause does not freeze the engine into the same few states each flight.
+
+**Pitch** is perturbed by up to `base >> kEngineJitterShift`, so the deviation
+is proportional and idle is as unsteady as full power. At the shipped value of
+5 that measures ±3.1% peak and 1.5% mean, which is a quarter-tone of wobble.
+`kEngineJitterShift` is the knob: 6 halves it, 4 doubles it into a struggling
+engine.
+
+One consequence worth knowing before retuning it. A throttle step is 0.54
+semitones and the peak wobble is about 0.5, so at full deflection the jitter
+very nearly spans one step. That is fine for an engine — the ear tracks the
+centre, not the excursion — but it does slightly blur how distinctly a single
+throttle keypress reads. If throttle changes become hard to hear, this is the
+first thing to turn down.
+
+**Pulse width** is roughened twice over: the phase step varies between 6 and 9
+per frame, and a `kPwmJitterMask` offset knocks the result off the triangle.
+The varying step is what makes the sweep aperiodic, and that matters more than
+it looks — with a fixed step of 6 the 8-bit phase returns to exactly where it
+was every 128 frames, and four seconds is slow enough that the ear hears a
+period that exact as a repeating figure rather than as drift.
 
 Frequency comes from the 25-entry table indexed by throttle (§3), spanning
 50 Hz at idle to 105 Hz at full power — the roughly 2:1 ratio §3 argued for.
@@ -517,6 +567,21 @@ cases:
 - Throttle above `kMaxThrottle` clamps rather than reading past the table. The
   flight model cannot produce this, which is exactly why nothing else would
   catch the table and `kMaxThrottle` drifting apart.
+- Over a full LFSR period the engine frequency takes many distinct values, on
+  both sides of the table entry, and never leaves the bound the tuning
+  constant sets. One value means a stuck generator — the failure mode of
+  seeding it zero — and an unbounded excursion would eventually read as a
+  different throttle setting.
+- The pulse width lands off the triangle's multiple-of-8 grid, so the jitter
+  is not being swallowed by the sweep.
+- The pulse width at frame *i* and frame *i + 128* are frequently further
+  apart than the jitter alone could account for. That lag is where a fixed
+  phase step would make the sweep exactly periodic, so this is the test for
+  the aperiodicity §6 asks for.
+
+The bounds in these come from `kEngineJitterShift` and `kPwmJitterMask` rather
+than from repeated literals, which is why both live in `sound.h`. Retuning the
+roughness moves the test with it instead of falsifying it.
 - Touchdown and flaps in one generation produce the touchdown effect.
 - A held event across generations does not retrigger.
 - `flight_stall` set produces a voice-3 gate that goes off and on again over a
@@ -651,11 +716,26 @@ Each phase leaves the program in a working, committable state.
    buffer, which is what lets `sound_test.cc` call `sound_silence()` — the
    write-through would otherwise be a store to address `0xD400` on a PC.
 
-   Verified: host tests pass, including five deliberate mutations of
-   `sound.cc` (volume never written, linear pitch table, PWM derived from
-   throttle, gate never set, fuel predicate dropped) which `sound_test.cc`
-   catches individually. **Not** verified: the oscar64 build, `ppilot.map`, and
-   how any of it sounds.
+   **2a — roughness.** The first build was correct and sounded like a
+   synthesizer. Pitch and pulse width are now both perturbed every frame from
+   an 8-bit LFSR; see the roughness part of §6 for what was chosen and what
+   was rejected. `sound_engine_base_freq()` was exported at the same time,
+   because once the emitted frequency is deliberately never the table value, a
+   test that can only see the output cannot tell a correct table from a broken
+   one.
+
+   Verified: host tests pass, including ten deliberate mutations of `sound.cc`
+   that `sound_test.cc` catches individually — volume never written, linear
+   pitch table, PWM derived from throttle, gate never set, fuel predicate
+   dropped, LFSR seeded zero, pitch jitter disabled, jitter bound widened,
+   PWM jitter removed, PWM phase step fixed. **Not** caught by any test:
+   feeding both jitter terms from the same LFSR draw, which correlates timbre
+   with pitch. It is audible rather than incorrect, and testing for it means
+   reconstructing the draw from the output, which fits the test to one
+   mutation rather than to the property.
+
+   **Not** verified at all: the oscar64 build, `ppilot.map`, and how any of it
+   sounds.
 3. **Wind.** Voice 2 noise, intensity from `flight_speed` by the §6 mechanism.
 4. **Flight model interface.** `flight_events` and `flight_gen` in `flight.cc`;
    confirm `make -C test flight_test` still builds and passes.
