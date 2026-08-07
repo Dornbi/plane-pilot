@@ -866,8 +866,10 @@ void flight_input(enum flight_input_t input) {
       model_pending_events |= FLIGHT_EV_FLAP;
       break;
     case FLIGHT_INPUT_TOGGLE_GEAR:
-      flight_gear = 1 - flight_gear;
-      model_pending_events |= FLIGHT_EV_GEAR;
+      if (!flight_gear) {
+        flight_gear = 1;
+        model_pending_events |= FLIGHT_EV_GEAR;
+      }
       break;
     case FLIGHT_INPUT_MOVE_BACKWARD:
     case FLIGHT_INPUT_MOVE_FORWARD:

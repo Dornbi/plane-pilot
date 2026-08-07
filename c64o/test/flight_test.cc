@@ -2514,11 +2514,34 @@ static void test_low_altitude_approach_warnings() {
   printf("  PASS\n\n");
 }
 
+static void test_ground_gear_retraction_blocked() {
+  printf("Running test_ground_gear_retraction_blocked...\n");
+
+  // On ground with gear down: toggle gear should NOT retract gear
+  _put_on_ground(0x0300);
+  assert(flight_gear == 1);
+  flight_input(FLIGHT_INPUT_TOGGLE_GEAR);
+  assert(flight_gear == 1);
+
+  // On ground with gear up (manually forced): toggle gear SHOULD extend gear
+  flight_gear = 0;
+  flight_input(FLIGHT_INPUT_TOGGLE_GEAR);
+  assert(flight_gear == 1);
+
+  // In air with gear down: toggle gear SHOULD retract gear
+  flight_init_from_mission(3); // Airborne
+  flight_gear = 1;
+  flight_input(FLIGHT_INPUT_TOGGLE_GEAR);
+  assert(flight_gear == 0);
+
+  printf("  PASS\n\n");
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   mem_screen_row_ptrs[0] = test_screen_row;
-  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (55 TESTS) ===\n\n");
+  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (56 TESTS) ===\n\n");
   test_host_multiply_matches_c64();
   test_level_cruise_equilibrium();
   test_trim_speed_boundary();
@@ -2578,6 +2601,7 @@ int main(int argc, char **argv) {
   test_flight_path_pixel_cell_agreement();
   test_flight_path_samples_are_connected();
   test_flight_path_ring_buffer();
-  printf("ALL 55 TESTS PASSED SUCCESSFULLY!\n");
+  test_ground_gear_retraction_blocked();
+  printf("ALL 56 TESTS PASSED SUCCESSFULLY!\n");
   return 0;
 }
