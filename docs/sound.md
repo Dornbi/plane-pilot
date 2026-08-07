@@ -225,14 +225,22 @@ With 11 KB free (§8) this is not a trade.
 **RAM.** Trivial against what is available. Before phase 1 the heap was
 `a360 - d000` — 11.0 KB contiguous, with nothing allocating from it.
 
-| Item                  | Bytes | Phase 1 measured |
-| --------------------- | ----: | ---------------: |
-| Shadow register block |    25 |               25 |
-| Pitch table           |    50 |                — |
-| Driver state          |   ~16 |    2 (zero page) |
-| Code                  |  ~500 |              229 |
+| Item                  | Bytes | Phase 1 measured | Phase 2 |
+| --------------------- | ----: | ---------------: | ------: |
+| Shadow register block |    25 |               25 |      25 |
+| Pitch table           |    50 |                — |      50 |
+| Driver state          |   ~16 |    2 (zero page) |       3 |
+| Code                  |  ~500 |              229 |     TBM |
 
 Phase 1 cost 256 bytes all in, leaving the heap at `a460 - d000`, 10.7 KB.
+
+Phase 2 added the pitch table at its predicted 50 bytes exactly (25 entries,
+16-bit) and one byte of driver state for the PWM sweep phase. Code growth is
+**not yet measured** — the phase 2 work was done without an oscar64 build to
+hand, so `ppilot.map` has not been re-read. Do that before treating this phase
+as closed; the number to check is whether `sound_update()` acquired an
+`@stack` frame large enough to matter, and it should not have, since it has
+one small helper and no recursion.
 
 **Cycles.** The blit runs at raster 250. On PAL (312 lines) that leaves ~3900
 cycles before the frame ends; on NTSC (263 lines) only ~800. This is the reason
@@ -376,10 +384,22 @@ Pulse width is swept slowly and *independently of RPM*. This is what stops a
 constant-throttle cruise — the majority of any flight — from degenerating into a
 dead drone.
 
-Frequency comes from the 25-entry table indexed by throttle (§3).
+As built: a triangle over `$0400`–`$0BF0`, driven by an 8-bit phase advanced 6
+per frame, so a full cycle is about 4 seconds. Both ends of the 12-bit range
+are avoided deliberately — at 0 and `$FFF` a pulse wave is DC and the voice
+goes silent, so a sweep that touched them would drop the engine out once a
+cycle. The phase advances even while the driver is silent, so unpausing does
+not restart the timbre from the same point every time. Frame jitter (§2) makes
+the sweep slightly uneven, which is closer to a real engine than a metronomic
+one and is left alone.
 
-Whether the table is indexed by `flight_throttle` directly or by a lagged value
-is **open** — see §10.
+Frequency comes from the 25-entry table indexed by throttle (§3), spanning
+50 Hz at idle to 105 Hz at full power — the roughly 2:1 ratio §3 argued for.
+The steps are geometric, 0.54 semitones apart, so the throttle sounds equally
+responsive across its whole range.
+
+The table is indexed by `flight_throttle` **directly**, with no spool-up lag.
+See §10 for what was decided and what the alternative costs.
 
 ### Wind — voice 2, noise
 
@@ -460,8 +480,15 @@ well as by rhythm.
 ## 7. Testing
 
 `c64o/test/` already builds `flight_test`, `map_test` and `msg_test` natively
-against the host, driven by `make -C test`. A `sound_test.cc` drops into that
-pattern unchanged.
+against the host, driven by `make -C test`. `sound_test.cc` drops into that
+pattern unchanged and landed in phase 2.
+
+It links `sound.cc` **and nothing else from the simulation**. The four flight
+globals `sound.cc` reads are defined in the test file instead of coming from
+`flight.cc`. That keeps it a unit test of the register mapping rather than a
+second copy of `flight_test`, and it lets the test set input combinations
+directly — full throttle while crashed, fuel of exactly 1 — that the flight
+model would need a contrived trajectory to produce.
 
 The split in §3 is what makes this possible: `sound_update()` is a pure function
 from `(throttle, speed, stall, events, paused / crashed / fuel)` to 25 bytes.
@@ -472,10 +499,24 @@ is silence**, which no amount of playing the game reliably surfaces. Minimum
 cases:
 
 - Paused produces gated-off voices.
-- Crashed produces gated-off voices.
-- Fuel exhausted produces gated-off voices.
+- Crashed produces gated-off voices — but `FLIGHT_MISSION_COMPLETED` does
+  *not*, since it is a record of an achievement and not a stop state. That is
+  the case a plain truth test on `flight_status` gets wrong.
+- Fuel exhausted produces gated-off voices; fuel of exactly 1 does not.
 - Throttle `0x18` and throttle `0x12` produce *different* voice-1 frequencies —
   the regression test for the pitch-compression bug a linear map would ship.
+  The stronger form of the same check, which is the one that actually pins the
+  table's shape down, is that *every* adjacent pair is separated by about the
+  same ratio. A linear table passes the first check and fails this one.
+- Master volume is non-zero. A perfectly correct voice behind a zeroed `$D418`
+  is the single most likely way for this module to ship silent.
+- The pulse width never reaches either end of the 12-bit range, where a pulse
+  wave is DC and the voice drops out once per sweep.
+- Voice 1's frequency does not move while the pulse width sweeps — the §6
+  independence claim, and the thing that keeps a cruise from droning.
+- Throttle above `kMaxThrottle` clamps rather than reading past the table. The
+  flight model cannot produce this, which is exactly why nothing else would
+  catch the table and `kMaxThrottle` drifting apart.
 - Touchdown and flaps in one generation produce the touchdown effect.
 - A held event across generations does not retrigger.
 - `flight_stall` set produces a voice-3 gate that goes off and on again over a
@@ -595,8 +636,26 @@ Each phase leaves the program in a working, committable state.
    invariant holding, since `screen_enter_static_mccm()` has no other caller;
    `check_zeropage.py` still passes with 5 bytes of headroom; and all four
    programs plus the three host tests build and pass.
-2. **Engine.** Pitch table, pulse waveform, PWM sweep, the derived silence
-   predicates. First audible phase.
+2. **Engine.** ✅ Done. The 25-entry pitch table, pulse waveform on voice 1,
+   the independent PWM sweep, and the three derived silence predicates
+   (`flight_paused`, `flight_crashed()`, `flight_fuel == 0`). Master volume on.
+   First audible phase.
+
+   `kMaxThrottle` moved from `flight.cc` to `flight.h` so the table is sized by
+   the throttle range rather than by a second copy of `0x18`; a table one entry
+   short would read past its end at full power, and nothing in the game would
+   have shown it.
+
+   `sid.h` gained `SID_REGS`, the register block as flat bytes, replacing the
+   two hard-coded `0xD400` casts. On the host build it points at the test's
+   buffer, which is what lets `sound_test.cc` call `sound_silence()` — the
+   write-through would otherwise be a store to address `0xD400` on a PC.
+
+   Verified: host tests pass, including five deliberate mutations of
+   `sound.cc` (volume never written, linear pitch table, PWM derived from
+   throttle, gate never set, fuel predicate dropped) which `sound_test.cc`
+   catches individually. **Not** verified: the oscar64 build, `ppilot.map`, and
+   how any of it sounds.
 3. **Wind.** Voice 2 noise, intensity from `flight_speed` by the §6 mechanism.
 4. **Flight model interface.** `flight_events` and `flight_gen` in `flight.cc`;
    confirm `make -C test flight_test` still builds and passes.
@@ -609,7 +668,10 @@ Each phase leaves the program in a working, committable state.
 6. **One-shots.** The rest of voice 3 — the generation handshake and the
    priority table from §6, with the stall already in place to arbitrate
    against.
-7. **Tests.** `c64o/test/sound_test.cc` per §7.
+7. **Tests.** `c64o/test/sound_test.cc` per §7. Partly done: the file landed
+   in phase 2 rather than waiting, covering the register block layout, the
+   silence predicates and the whole engine voice. Each later phase extends it
+   rather than creating it.
 8. **Verification.** Both PAL and NTSC in VICE; both 6581 and 8580 as a
    sanity check even though §3 removes the dependency.
 
@@ -624,18 +686,25 @@ already exists rather than an imagined one.
 
 ## 10. Open questions
 
-**Engine: instant or lagged?** Currently specified as instant — the pitch table
-indexed directly by `flight_throttle`. The alternative is one byte of state and
-three instructions per frame:
+**~~Engine: instant or lagged?~~ Resolved in phase 2: instant.** The pitch
+table is indexed directly by `flight_throttle`. The alternative was one byte of
+state and three instructions per frame:
 
 ```c
 rpm += (target - rpm) >> 2;
 ```
 
-That is the entire cost, and it is the largest single difference between "this
-is an engine" and "this is a synthesizer following my keypresses." A real engine
-spooling up is the sound of mass. Recommend revisiting during phase 2, when it
-can be judged by ear rather than argued.
+The argument for it was that a real engine spooling up is the sound of mass,
+and that this is the largest single difference between "an engine" and "a
+synthesizer following my keypresses." That argument still stands and this is
+worth revisiting in phase 8, by ear. It was not taken now for two reasons.
+Throttle is a keypress-at-a-time control, so a step is one table entry — 0.54
+semitones, small enough that instant does not read as a jump. And a lag term
+is state, which means it needs a defined value after `R`, after a crash, and
+across the menu; adding it while the driver is one voice old buys a
+correctness question in exchange for a nuance nobody has heard yet. It is a
+three-line change to add later, and `sound_test.cc` already pins the mapping
+it would have to preserve.
 
 **Wind intensity: filter sweep or noise frequency?** §6 options 1 and 3. Option
 1 sounds better; option 3 removes the SID-revision dependency entirely and is

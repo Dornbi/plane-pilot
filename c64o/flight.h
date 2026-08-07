@@ -42,6 +42,12 @@ extern mat3_t flight_cam;
 
 extern int16_t flight_speed;
 extern int16_t flight_vspeed;
+
+// Throttle runs 0 .. kMaxThrottle inclusive, so 25 discrete steps. Exported
+// rather than kept private to flight.cc because sound.cc sizes its engine
+// pitch table by it - a table one entry short of the throttle range would
+// read past its end at full power.
+static const uint8_t kMaxThrottle = 0x18;
 extern uint8_t flight_throttle;
 extern uint32_t flight_fuel;
 extern uint8_t flight_flap;

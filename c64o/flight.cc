@@ -128,7 +128,7 @@ static const uint16_t kStallSpeedWithFlaps = 0x0340;
 static const uint16_t kMaxSpeed = 0x0F00;
 static const int16_t kTrimLift = 0x1000;
 static const uint8_t kMinThrottle = 0x00;
-static const uint8_t kMaxThrottle = 0x18;
+// kMaxThrottle lives in flight.h: sound.cc sizes its engine pitch table by it.
 static const int16_t kMoveForwardBackwardSpeed = 0x4000;
 
 // Nose attitude above which the stall pitch down has to be done as a rotation

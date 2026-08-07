@@ -3,6 +3,11 @@
 
 #ifdef __OSCAR64__
 #include <c64/sid.h>
+
+// The register block as flat bytes, which is how sound.cc and sound_blit()
+// address it: 25 consecutive stores, no struct layout assumptions.
+#define SID_REGS ((volatile uint8_t *)0xD400)
+
 #else
 #include <stdint.h>
 
@@ -30,8 +35,13 @@ struct SID {
   volatile byte env3;
 };
 
+// Where the host build's "chip" lives. The test defines it and points it at a
+// 29-byte buffer, so a write-through is an array store rather than a segfault
+// at address 0xD400, and the test can assert on what reached the chip as well
+// as on what is in the shadow.
 extern struct SID *sid_host;
 #define sid (*sid_host)
+#define SID_REGS ((volatile uint8_t *)sid_host)
 
 #define SID_CTRL_GATE 0x01
 #define SID_CTRL_SYNC 0x02

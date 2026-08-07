@@ -31,11 +31,34 @@
 // (paddles, noise, envelope 3) and are not part of the block.
 static const uint8_t kSoundRegCount = 25;
 
-// Indices into sound_shadow of the three voice control registers, which is
-// where the gate bit lives. Voices are 7 registers apart.
-static const uint8_t kSoundRegV1Ctrl = 4;
-static const uint8_t kSoundRegV2Ctrl = 11;
-static const uint8_t kSoundRegV3Ctrl = 18;
+// Indices into sound_shadow. A voice is 7 consecutive registers and the three
+// blocks sit back to back, so a voice is addressed by its base plus one of the
+// kSoundVoice* offsets below.
+static const uint8_t kSoundRegV1 = 0;
+static const uint8_t kSoundRegV2 = 7;
+static const uint8_t kSoundRegV3 = 14;
+
+static const uint8_t kSoundVoiceFreqLo = 0;
+static const uint8_t kSoundVoiceFreqHi = 1;
+static const uint8_t kSoundVoicePwLo = 2;
+static const uint8_t kSoundVoicePwHi = 3;
+static const uint8_t kSoundVoiceCtrl = 4;
+static const uint8_t kSoundVoiceAttDec = 5;
+static const uint8_t kSoundVoiceSusRel = 6;
+
+// The three gate bits, spelled out because sound_blit() needs them as
+// compile-time constants to stay a flat store sequence.
+static const uint8_t kSoundRegV1Ctrl = kSoundRegV1 + kSoundVoiceCtrl;   // 4
+static const uint8_t kSoundRegV2Ctrl = kSoundRegV2 + kSoundVoiceCtrl;   // 11
+static const uint8_t kSoundRegV3Ctrl = kSoundRegV3 + kSoundVoiceCtrl;   // 18
+
+// The five global registers after the voices.
+static const uint8_t kSoundRegCutoffLo = 21;
+static const uint8_t kSoundRegCutoffHi = 22;
+static const uint8_t kSoundRegResFilt = 23;
+// Filter mode in the high nibble, master volume in the low one. There is no
+// per-voice volume; see ../docs/sound.md section 2.
+static const uint8_t kSoundRegModeVol = 24;
 
 // What the SID should hold. Written by sound_update() and sound_silence() on
 // the main line, read by sound_blit() from the interrupt. A torn read is
@@ -103,9 +126,21 @@ inline void sound_blit(void) {
     sid.voices[2].ctrl = sound_shadow[kSoundRegV3Ctrl] & ~SID_CTRL_GATE;
   }
 
+  // The full unroll is what keeps this a flat store sequence with no loop
+  // counter to spill, which is the whole reason the blit is interrupt-safe.
+  //
+  // Guarded because clang - which is what `g++` is on macOS, and therefore
+  // what builds the host tests there - has its own `#pragma unroll` taking
+  // either no argument or a count. It parses this one and rejects `full` as an
+  // undeclared identifier, and -Wno-unknown-pragmas does not help: the pragma
+  // is not unknown to clang, only its argument is wrong. GCC ignores it, so
+  // the error only appears on a Mac. None of the other oscar64 pragmas in the
+  // headers have this problem; `compile` is genuinely unknown to both.
+#ifdef __OSCAR64__
 #pragma unroll(full)
+#endif
   for (uint8_t i = 0; i < kSoundRegCount; ++i) {
-    ((volatile uint8_t *)0xD400)[i] = sound_shadow[i];
+    SID_REGS[i] = sound_shadow[i];
   }
 }
 
