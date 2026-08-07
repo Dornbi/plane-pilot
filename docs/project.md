@@ -433,6 +433,10 @@ are kept last in the enum so that predicate stays a single comparison.
 - **`fmath.cc`** — `_get_msb`, a division-free `_get_ratio` (6-bit
   shift-subtract), and LUT-based `_get_heading` (48 steps) and
   `_get_roll_angle` (60 steps).
+- **`sound.cc`** — flight audio. Split by rate: `sound_update()` computes a
+  25-byte shadow on the main line, `sound_blit()` copies it to `$D400` from
+  `_switch_to_terrain`. See [sound.md](sound.md). A menu tune is planned as a
+  separate module with its own owner — see [music.md](music.md).
 - **`print.cc`** — screen text, plus a double-dabble BCD converter in assembly
   for the debug readouts.
 - **`benchmark.cc`** — CIA2 timer A/B chained to a 32-bit cycle counter; all
@@ -525,4 +529,6 @@ Tests live in `tests/` and run with `make test`.
 - **Prototype and C64 viewports differ.** `renderer_engine.py` uses a 32 × 15
   character viewport; the C64 uses 40 × 14. The Python renderer is a design
   tool, not a mirror of the shipped renderer.
-- No sound, no joystick, no takeoff/landing interaction with objects.
+- **The menu is silent.** Flight audio ships (`sound.cc`, [sound.md](sound.md));
+  the title tune is planned but not built — see [music.md](music.md).
+- No joystick, no takeoff/landing interaction with objects.
