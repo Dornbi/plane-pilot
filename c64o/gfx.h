@@ -28,10 +28,21 @@ void gfx_init_raster_irqs(void);
 void gfx_stop_raster_irqs(void);
 
 // Blocks until one vertical blank has passed: waits for the raster to reach
-// line 255, then waits for it to leave line 255 again. Used to pace screens
-// that don't render every frame (menu, help) and by mem_switch_buffer() to
-// avoid flipping the screen mid-frame.
+// line 255, then waits for it to leave line 255 again.
+//
+// Only for the screens that do not render every frame - menu, help, and the
+// map - where it is a 50 Hz pacing tick and nothing more. All three run with
+// the raster interrupts stopped, which this relies on: a handler that
+// straddled line 255 would make the first loop miss the line and cost a whole
+// frame. The simulation keeps its interrupts, so it uses the window below.
 void gfx_wait_vsync(void);
+
+// Blocks until the raster is somewhere it is safe to swap the screen buffers
+// and rewrite the viewport's color RAM. Unlike gfx_wait_vsync() this is a
+// window, not a line, so it usually returns without waiting at all and can
+// never be stepped over by a long interrupt handler. See gfx.cc for the two
+// deadlines that define it. Interrupt-safe; used by mem_switch_buffer().
+void gfx_wait_flip_window(void);
 
 // Project and draw a single point using vec_project().
 // If color < 8, it uses kGfxColorPoints and sets the color ram.

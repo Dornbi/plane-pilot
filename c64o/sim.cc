@@ -224,9 +224,6 @@ void sim_run(uint8_t selected_mission) {
     view_update_cam();
     world_update_roll_state();
     world_update_sun_pos();
-    panel_update_instruments();
-
-    panel_maybe_print_debug();
 
     render_snap_center_chars();
     msg_restore_color();
@@ -235,6 +232,24 @@ void sim_run(uint8_t selected_mission) {
     box_draw();
     world_render_grid();
     msg_render();
+
+    // Everything above draws the viewport, so it has to finish before
+    // mem_switch_buffer() puts that buffer on screen. The panel does not: its
+    // bitmap at $F000 and the sprite registers are single-buffered and belong
+    // to the raster handlers, not to either screen buffer. Running it here
+    // rather than before the render spends it in the gap between the last
+    // drawing call and the raster reaching the flip window, which is time
+    // mem_switch_buffer() would otherwise spin away.
+    //
+    // Note it still reads this iteration's flight state - world_update_roll_state()
+    // above produced roll_angle - so nothing is pipelined and no input gets a
+    // frame staler. Moving flight_advance() or view_update_cam() down here
+    // would fill the gap more completely, but only by rendering the previous
+    // iteration's state, and at a ~10 Hz frame rate that added latency costs
+    // more at the controls than the cycles are worth.
+    panel_update_instruments();
+    panel_maybe_print_debug();
+
     bm_total(990, "TOT:");
     mem_switch_buffer();
   }

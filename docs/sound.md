@@ -54,10 +54,18 @@ gets tight, raising the stack region's top in `mem.h:19` and bss2's start in
 `mem.h:22` by the same amount converts bss2 space into frame space — at the cost
 of relocating that much data from bss2 into `main`. Two numbers in one file.
 
-**Frames are slow and jittery.** `mem_switch_buffer()` waits on
-`gfx_wait_vsync()`, so a frame is a whole number of 20 ms ticks and the count
-varies with roll angle and polygon load. `flight_advance()` therefore runs at a
-wobbling ~10 Hz — too slow and too irregular to drive a SID directly.
+**Frames are slow and jittery.** `flight_advance()` runs at a wobbling ~10 Hz,
+varying with roll angle and polygon load — too slow and too irregular to drive
+a SID directly.
+
+Note that a frame is *not* a whole number of 20 ms ticks. It was when
+`mem_switch_buffer()` waited on `gfx_wait_vsync()`, but it now waits on
+`gfx_wait_flip_window()`, an 81-line raster range that most frames are already
+inside. Frame length is free-running, so nothing downstream may assume frames
+quantize to the video clock or count them as a 50 Hz timebase. This does not
+affect the design below, which deliberately drives the SID from the raster
+interrupt rather than from the frame — if anything it strengthens the argument
+in §3, since the frame is now an even worse clock than it looked.
 
 **Every non-flight screen masks interrupts** — by choice, and reversibly; see
 §8 for what it would take to change. oscar64's `rirq_stop()` is a bare
@@ -109,6 +117,19 @@ split, and would drop audio in debug view. `_switch_to_panel_bottom` also
 early-returns in debug. `_switch_to_terrain` is the shortest handler, has no
 debug early-return, and runs after its register writes are done, in the lower
 border where there is slack.
+
+How much slack is worth being explicit about, because it used to be five lines
+and is not any more. `_switch_to_terrain` fires at raster 250 and
+`mem_switch_buffer()` used to wait for the line-255 edge; a handler that ran
+past 255 would make that wait miss the line and stall a whole frame, which
+~200 cycles of `sound_blit` came uncomfortably close to doing. That wait is now
+`gfx_wait_flip_window()`, a range that closes at 242, so no amount of work at
+250 can be stepped over.
+
+What the handler must still do promptly is its *first* job — latching
+`mem_using_alt_buffer` into `$d018`. Keep the blit after the mode-switch writes,
+as §3 already specifies, and a late blit only delays itself, in the border,
+where nothing is watching.
 
 ### Silence is an invariant, not eight function calls
 

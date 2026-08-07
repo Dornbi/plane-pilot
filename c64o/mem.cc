@@ -103,6 +103,15 @@ static const uint8_t kVicMemScreenMain = 0xA8;
 // static uint8_t *const kScreenRamAlt = (uint8_t *)0xEC00;
 static const uint8_t kVicMemScreenAlt = 0xB8;
 
+// Only mem_use_main_buffer() writes $d018 from here, and only to establish a
+// starting state. Per frame the register belongs to gfx.cc: _switch_to_panel_top
+// forces the alt value at raster 161 so the panel bitmap always reads its colors
+// from $EC00, and _switch_to_terrain puts the double-buffered value back at 250.
+// mem_switch_buffer() deliberately does not touch it - a write of its own would
+// have to land inside the panel and would repoint the panel's video matrix
+// mid-screen. Toggling mem_using_alt_buffer and letting raster 250 latch it is
+// the same flip, one frame-accurate instead of two writes racing.
+
 // Startup and mode-switch helpers; none of these run per frame.
 #pragma optimize(push, outline)
 
@@ -163,33 +172,37 @@ static void _copy_color_ram(void) {
 }
 
 void mem_switch_buffer(void) {
-  gfx_wait_vsync();
+  gfx_wait_flip_window();
 
-  bm_view_start();
-  _copy_color_ram();
-  bm_view_end(950, "COL:");
+  // The toggle goes before the copy, and the order is load-bearing. Only one
+  // of the two has a near deadline: _switch_to_terrain() latches
+  // mem_using_alt_buffer into $d018 at raster 250, and if the toggle missed
+  // that latch the frame would be shown with the previous buffer's characters
+  // and this frame's colors. The copy has until the next frame's first
+  // viewport line, hundreds of cycles later, so it is the one that waits.
+  //
+  // mem_using_alt_buffer is also the only thing here the interrupt reads, and
+  // it is a single byte, so the store is atomic on its own. That is what the
+  // sei/cli pair around this used to be for. The three below are main-line
+  // state that no handler touches, and they can take as long as they like.
+  mem_using_alt_buffer = !mem_using_alt_buffer;
 
-  __asm {
-    sei;
-  }
   if (mem_using_alt_buffer) {
-    // Switch to main buffer.
-    vic_memptr = kVicMemScreenAlt;
-    mem_screen_ram = kScreenRamMain;
-    mem_screen_row_ptrs = kScreenRowPtrsMain;
-    mem_box_char_start = 0x01;
-  }
-  else {
-    // Switch to alt buffer.
-    vic_memptr = kVicMemScreenMain;
+    // Now rendering into the alt buffer; _switch_to_terrain() will put the
+    // main buffer on screen.
     mem_screen_ram = kScreenRamAlt;
     mem_screen_row_ptrs = kScreenRowPtrsAlt;
     mem_box_char_start = 0x61;
   }
-  __asm {
-    cli;
+  else {
+    mem_screen_ram = kScreenRamMain;
+    mem_screen_row_ptrs = kScreenRowPtrsMain;
+    mem_box_char_start = 0x01;
   }
-  mem_using_alt_buffer = !mem_using_alt_buffer;
+
+  bm_view_start();
+  _copy_color_ram();
+  bm_view_end(950, "COL:");
 }
 
 // Startup and mode-switch helpers; none of these run per frame.

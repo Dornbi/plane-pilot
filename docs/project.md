@@ -136,18 +136,27 @@ model_advance()                        MDL
 view_update_cam()
 world_update_roll_state()
 world_update_sun_pos()                 UPD
-model_update_instruments()
 render_snap_center_chars()             SNP
 render_fill_sky_ground()               BGR
 box_prepare()                          CHR, PRP
 box_draw()                             DRW
 world_render_grid()                    GRD
+model_update_instruments()
                                        TOT
 mem_switch_buffer()                    COL
 ```
 
 The right-hand labels are the cycle counters shown in the debug view (`D`);
 `benchmark.cc` reads the chained CIA2 timers around each phase.
+
+The instrument update sits *after* the drawing calls on purpose. Everything
+above it writes the viewport, so it has to be finished before
+`mem_switch_buffer()` shows that buffer; the panel does not, because its bitmap
+and the sprite registers are single-buffered and owned by the raster handlers.
+Placing it last spends it in the gap between the final drawing call and the
+raster reaching the flip window — time `mem_switch_buffer()` would otherwise
+spin away. It still reads the same iteration's flight state, so nothing is
+pipelined and no control input is a frame staler.
 
 Map mode short-circuits the whole render path and just waits for vsync.
 
@@ -284,9 +293,24 @@ matrix from drifting.
 
 ### `mem.cc` — buffers and modes
 
-`mem_switch_buffer()` is the frame boundary: wait for vsync, copy the color
-buffer to `$D800`, then flip `vic_memptr`, `mem_screen_ram`, the row-pointer
-table, and `mem_box_char_start` between the two slots.
+`mem_switch_buffer()` is the frame boundary: wait for the flip window, toggle
+`mem_using_alt_buffer`, point `mem_screen_ram`, the row-pointer table and
+`mem_box_char_start` at the other slot, then copy the color buffer to `$D800`.
+
+The wait is `gfx_wait_flip_window()`, not `gfx_wait_vsync()`, and it is a raster
+*range* rather than a line — see the constants in `gfx.cc`. It opens at 162, the
+first line past the viewport, because the copy rewrites the color RAM lines
+50–161 are still fetching; it closes at 242, because `_switch_to_terrain()`
+latches `mem_using_alt_buffer` into `$d018` at raster 250 and the toggle has to
+beat it. Most frames are already inside the window and never wait at all, and
+because it is a range no interrupt handler can straddle it and cost a frame the
+way a single-line wait can.
+
+That latch is also why nothing here writes `$d018` directly any more. A write of
+its own would have to land inside the window, which is the middle of the panel,
+where it would repoint the panel's video matrix mid-screen. And since
+`mem_using_alt_buffer` is one byte and the only state the handler reads, the
+store is atomic on its own — the `sei`/`cli` pair this used to need is gone.
 
 The color buffer (40 × 14 = 560 bytes) is aliased onto
 `kSpriteDataCompressed` — the compressed sprite blob is dead once it has been

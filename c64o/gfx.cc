@@ -127,6 +127,45 @@ void gfx_init_chars(void) {
 
 #pragma optimize(pop)
 
+// The raster window in which mem_switch_buffer() may do its work. Two
+// deadlines bracket it, and neither of them is the vertical blank:
+//
+//   Opens at 162. _copy_color_ram() rewrites $D800-$DA2F, the color RAM the
+//   viewport fetches while it is on screen on lines 50..161. The first line
+//   past the viewport is the earliest the copy can start without recoloring
+//   the picture out from under the beam.
+//
+//   Closes at 242. _switch_to_terrain() runs at raster 250 and latches
+//   mem_using_alt_buffer into $d018 for the next frame's viewport, so the
+//   toggle has to land before 250 or the new colors are shown against the old
+//   characters for a frame. Eight lines of margin, which is ~500 cycles for a
+//   store that needs about ten.
+//
+// The copy itself is ~5760 cycles, near enough 92 lines, and it is allowed to
+// run right through 250 and into the border - it only has to be finished by
+// the next frame's line 50. Starting as late as 242 that lands around line 24
+// of the following frame, 26 lines clear on PAL. NTSC has 263 lines rather
+// than 312 and only 69 of them left at that point, so this constant would
+// have to come down to about 215 there. It does not today: the old line-255
+// wait left the copy just 57 lines on NTSC, so that path was already over
+// budget before this change.
+static const uint8_t kFlipWindowFirst =
+    kRasterScreenYStart + kViewportEndYPixels;
+static const uint8_t kFlipWindowLast =
+    kRasterScreenYStart + kScreenHeightPixels - 8;
+static const uint8_t kFlipWindowSpan = kFlipWindowLast - kFlipWindowFirst;
+
+// A range test rather than an edge, which is the point of it. Waiting for one
+// specific raster line means a handler that happens to straddle that line
+// costs a whole frame; an 81-line window cannot be stepped over. $d012 is only
+// the low byte of the raster counter, but every line in the window is below
+// 256 and PAL's lines 256..311 read back as 0..55, so the unsigned compare
+// rejects them along with the top border.
+inline void gfx_wait_flip_window(void) {
+  while ((uint8_t)(vic.raster - kFlipWindowFirst) > kFlipWindowSpan)
+    ;
+}
+
 static inline void _draw_ground_point(int16_t px, int16_t py) {
   uint8_t cx = (uint16_t)px >> 3;
   uint8_t cy = (uint8_t)py >> 3;
