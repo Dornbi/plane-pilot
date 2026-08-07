@@ -30,6 +30,22 @@ Alternatively, download the [ppilot.prg](bin/ppilot.prg) binary and upload it to
 
 ## Updates
 
+### 2026-08-07
+
+- **Missions & Objectives System**: Added 10 playable missions (Takeoff, Landing, Solo Flight, Find Runway, Ferry Flight, Area Patrol, Airshow, Aerial Recon, Crop Duster, Fuel Challenge) with waypoint navigation and altitude/attitude constraint checking.
+- **Main Menu**: Interactive mission selection menu with scrolling support and in-game help screen (`H`).
+- **Sound Engine**: Integrated SID sound effects including throttle-based engine sound, stall warning alarm, touchdown squeal, mechanical flap/gear clicks, crash sounds, and volume control (`V`).
+- **Complete Flight & Ground Physics**:
+  - Full takeoff roll, touchdown flare, and rollout physics.
+  - Realistic landing envelope checks (sink rate, bank angle, touchdown speed, runway alignment).
+  - Flap lift & drag mechanics (+50% lift, stall speed reduction).
+  - Gear drag penalty and ground wheel braking (`B`).
+  - Nose-wheel steering remapped on ground.
+  - Safety lockout preventing landing gear retraction while on the ground.
+- **Map View & Flight Path Tracking**: Full-screen map view (`M`) rendering terrain features, mission waypoints, current aircraft position marker, and flight path breadcrumb trail.
+- **HUD & Warning Messages**: On-screen messages for approach warnings (`GEAR RETRACTED`, `NOT ON RUNWAY`), mission status/waypoint alerts, fuel depletion notices, crash reasons, and pause indicator (`PAUSED`).
+- **Testing**: Added a comprehensive 56-test host verification suite.
+
 ### 2026-07-05
 
 - Added support for polygons: runway, lakes
@@ -45,21 +61,22 @@ Alternatively, download the [ppilot.prg](bin/ppilot.prg) binary and upload it to
 
 What you can do in Plane Pilot:
 
-- Fly around in the world
-- Render the horizon with gradients
-- Basic 3D feel by rendering moving dots on the ground
-- Some objects (runway, lakes, etc.) as polygons
-- Dashboard and basic instrument panel
-- Basic flight model: speed, altitude, movement, roll, pitch, yaw, stall.
-- Keyboard controls
-- Maintain around 10 frames per second
+- Select and play from 10 distinct flight missions with waypoint objectives
+- Interactive main menu and mission selection
+- Take off, navigate, flare, land, and taxi on runways
+- Dynamic flight model: speed, altitude, pitch/roll/yaw, stall recovery, flap lift/drag, gear drag, and fuel consumption
+- SID sound effects: engine roar, stall alarm, touchdown squeal, flap/gear clicks, crash sound effects
+- Full-screen 128x128 map view (`M`) displaying world terrain, numbered mission waypoints, aircraft location marker, and real-time flight path tracking trail
+- Dashboard instrument panel with working indicator lamps (flaps, gear, stall warning, nav points)
+- Look forward, left, right, and toggle HUD debug info (`D`)
+- On-screen HUD notifications, approach warnings, and crash diagnostics
+- Wheel braking (`B`) and ground nose-wheel steering
+- Maintain ~10 frames per second on standard C64 hardware
 
 What you cannot do:
 
-- There are no goals or opponents
-- No interaction with the objects - no takeoff, no landing
-- No joystick support
-- No sound
+- No joystick support (keyboard controls only)
+- No combat / dogfighting opponents
 
 Instrument panel:
 
