@@ -53,8 +53,11 @@ PPILOT_SRC = \
 		print.cc \
 		screen.h \
 		screen.cc \
+		sid.h \
 		sim.h \
 		sim.cc \
+		sound.h \
+		sound.cc \
 		spritedef.h \
 		spritedef.cc \
 		spritedef.bin \
@@ -93,6 +96,9 @@ POLYDEMO_SRC = \
 		poly.h \
 		poly.cc \
 		polydemo.cc \
+		sid.h \
+		sound.h \
+		sound.cc \
 		vec.h \
 		vec_asm.cc \
 		vec_lut.cc \

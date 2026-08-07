@@ -16,6 +16,7 @@
 #include "panel.h"
 #include "render.h"
 #include "screen.h"
+#include "sound.h"
 #include "sprites.h"
 #include "view.h"
 #include "world.h"
@@ -39,6 +40,9 @@ static void _enter_simulation(uint8_t selected_mission) {
   mem_use_main_buffer();
 
   sprites_init();
+  // Before the interrupts start, so the first sound_blit() has a defined
+  // shadow to push rather than whatever the chip was left holding.
+  sound_init();
   gfx_init_raster_irqs();
   render_snap_center_chars();
 }
@@ -249,6 +253,11 @@ void sim_run(uint8_t selected_mission) {
     // more at the controls than the cycles are worth.
     panel_update_instruments();
     panel_maybe_print_debug();
+
+    // Same gap, and for the same reason: sound_update() writes only
+    // sound_shadow, which belongs to the raster handler rather than to either
+    // screen buffer, so it has no business holding up the flip.
+    sound_update();
 
     bm_total(990, "TOT:");
     mem_switch_buffer();

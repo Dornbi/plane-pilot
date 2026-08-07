@@ -6,6 +6,7 @@
 #include "color.h"
 #include "fmath.h"
 #include "mem.h"
+#include "sound.h"
 #include "sprites.h"
 #include "vec.h"
 #include "vic.h"
@@ -80,6 +81,13 @@ static void _switch_to_terrain() {
   vic.color_back = kColorGrad2;
   vic.ctrl1 = 0x1b; // Multicolor character mode
   vic_memptr = mem_using_alt_buffer ? 0xA8 : 0xB8;
+
+  // Last, and only after the $d018 latch above, which is the one write here
+  // with a deadline. The blit is ~200 cycles at raster 250; on PAL that ends
+  // around line 254 with 58 lines of border left, on NTSC around 254 with 9.
+  // Nothing waits on a raster line past this one - gfx_wait_flip_window()
+  // closes at 242 - so overrunning only delays the blit itself.
+  sound_blit();
 }
 
 #pragma optimize(pop)
@@ -107,7 +115,19 @@ void gfx_init_raster_irqs(void) {
   rirq_start();
 }
 
-inline void gfx_stop_raster_irqs(void) { rirq_stop(); }
+// The sound driver's release point, and the reason it needs no other. Because
+// sound_blit() lives in _switch_to_terrain, "raster interrupts masked" and
+// "the driver has stopped running" are the same statement, and this is the
+// only place that makes it true - reached from screen_enter_static_mccm()
+// (menu, help) and map_enter(), and nowhere else. Silencing here therefore
+// covers all three without any of them knowing about sound.
+//
+// Before the rirq_stop(), not after: map_enter() goes on to bank I/O out, and
+// sound_silence() writes $D400 directly.
+inline void gfx_stop_raster_irqs(void) {
+  sound_silence();
+  rirq_stop();
+}
 
 inline void gfx_wait_vsync(void) {
   while (vic.raster != 255)

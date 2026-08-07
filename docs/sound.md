@@ -211,20 +211,28 @@ With 11 KB free (§8) this is not a trade.
 
 ## 4. Budgets
 
-**RAM.** Trivial against what is available. `ppilot.map` reports the heap as
-`a3c0 - d000` — 11.3 KB contiguous, with nothing allocating from it.
+**RAM.** Trivial against what is available. Before phase 1 the heap was
+`a360 - d000` — 11.0 KB contiguous, with nothing allocating from it.
 
-| Item                  | Bytes |
-| --------------------- | ----: |
-| Shadow register block |    25 |
-| Pitch table           |    50 |
-| Driver state          |   ~16 |
-| Code                  |  ~500 |
+| Item                  | Bytes | Phase 1 measured |
+| --------------------- | ----: | ---------------: |
+| Shadow register block |    25 |               25 |
+| Pitch table           |    50 |                — |
+| Driver state          |   ~16 |    2 (zero page) |
+| Code                  |  ~500 |              229 |
+
+Phase 1 cost 256 bytes all in, leaving the heap at `a460 - d000`, 10.7 KB.
 
 **Cycles.** The blit runs at raster 250. On PAL (312 lines) that leaves ~3900
-cycles before the frame ends; on NTSC (263 lines) only ~800. A 25-byte unrolled
-blit plus the generation check is ~250 cycles, so both targets fit. This is the
-reason the blit must stay a flat store sequence and not grow into a driver.
+cycles before the frame ends; on NTSC (263 lines) only ~800. This is the reason
+the blit must stay a flat store sequence and not grow into a driver.
+
+Measured on the phase 1 build, counting straight-line cost through
+`_switch_to_terrain`: 147 cycles before, 331 after, so the blit is **184
+cycles** with the generation check and about 214 on a tick that retriggers.
+The handler therefore ends around raster 255 — 57 lines of border left on PAL,
+8 on NTSC. Comfortable, but the NTSC margin is the number to watch if anything
+is ever added here.
 
 `sound_update()` on the main line is uncounted noise against a ~100 ms frame.
 
@@ -476,10 +484,20 @@ plays ~20% fast on NTSC. Not worth a fractional-tick counter.
 
 Each phase leaves the program in a working, committable state.
 
-1. **Plumbing, silent.** `sound.h` / `sound.cc`, the shadow block,
-   `sound_silence()` in `gfx_stop_raster_irqs()`, the blit in
-   `_switch_to_terrain`. Everything gated off. Confirm `ppilot.map` shows no
-   `@stack` entry for the blit, and that frame timing is unchanged.
+1. **Plumbing, silent.** ✅ Done. `sid.h`, `sound.h` / `sound.cc`, the shadow
+   block, `sound_silence()` in `gfx_stop_raster_irqs()`, the blit in
+   `_switch_to_terrain`, `sound_update()` in the frame loop next to
+   `panel_update_instruments()`. Everything gated off.
+
+   Verified: `ppilot.map` has no `sound_blit@stack` entry (the blit inlines
+   fully — 25 `lda`/`sta` pairs, no loop, no call); `STACK` is unchanged at
+   `0200 - 025e`, so no new static frame was allocated; the generated code
+   writes `$D400`–`$D418` in ascending order with the three gate-off writes
+   ahead of them; `sound_silence()` has exactly three call sites —
+   `_enter_simulation`, `screen_begin_text_page` and `map_enter` — which is the
+   invariant holding, since `screen_enter_static_mccm()` has no other caller;
+   `check_zeropage.py` still passes with 5 bytes of headroom; and all four
+   programs plus the three host tests build and pass.
 2. **Engine.** Pitch table, pulse waveform, PWM sweep, the derived silence
    predicates. First audible phase.
 3. **Wind.** Voice 2 noise, intensity from `flight_speed` by the §6 mechanism.
