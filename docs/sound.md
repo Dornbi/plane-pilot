@@ -988,6 +988,12 @@ reading the build or by ear:
 
 ## 8. Reserving room for a menu tune
 
+> **Superseded in part by [music.md](music.md)**, which plans the tune itself.
+> The ownership argument below is what that plan builds on and is unchanged;
+> the load-address paragraph no longer applies, because the tune is compiled in
+> rather than ripped. Read this section for the reasoning and music.md for what
+> is actually being built.
+
 A SID tune for the menu is possible later. It is not in scope, but two decisions
 are cheaper to make now than to retrofit.
 
@@ -1388,8 +1394,12 @@ off screen, so it reaches every value in the range.
 replaced over each operand's full range, asserting nothing about what the call
 sites are believed to stay inside. That is the test that would have caught it.
 
-**Does the menu tune play under the help screen?** §8. Not answerable until the
-tune exists.
+**~~Does the menu tune play under the help screen?~~ Answered in
+[music.md](music.md) §3: yes, when help was opened from the menu.** The catch
+that makes it a real question rather than a call site is that `help_run()` has
+*two* callers — `menu.cc:144` and `sim.cc:229` — and the in-flight one must stay
+silent. A `music_playing` flag set only by `menu_run()` covers both, since help
+then ticks whatever is already running rather than starting anything.
 
 **~~A mute key?~~ Done: `V`, and it is a volume rather than a mute.** Three
 steps — off, low, full — because "too loud" and "off" are different complaints

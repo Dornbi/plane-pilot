@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PLANE PILOT - SID INTRO THEME (3 VOICES)</title>
+<style>
+  :root{
+    --c64-blue:#40318d;
+    --c64-lblue:#7c70da;
+    --c64-cyan:#8ff2f2;
+    --c64-yellow:#e8e46a;
+    --c64-red:#e05a5a;
+    --c64-green:#7ce07c;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:#1a1440;min-height:100%}
+  body{
+    font-family:"Menlo","Consolas","Courier New",monospace;
+    color:var(--c64-lblue);
+    display:flex;align-items:flex-start;justify-content:center;
+    padding:24px;
+  }
+  .screen{
+    width:100%;max-width:700px;
+    background:var(--c64-blue);
+    border:14px solid var(--c64-lblue);
+    border-radius:6px;
+    padding:20px;
+    box-shadow:0 0 0 3px #1a1440, 0 20px 60px rgba(0,0,0,.6);
+  }
+  h1{font-size:15px;letter-spacing:1px;margin:0 0 2px;color:var(--c64-cyan);
+     text-transform:uppercase;font-weight:700}
+  .sub{font-size:11px;margin:0 0 14px;text-transform:uppercase;letter-spacing:.5px}
+  .sub b{color:var(--c64-yellow);font-weight:400}
+
+  canvas{display:block;width:100%;height:110px;background:#2a2166;
+    border:2px solid var(--c64-lblue);image-rendering:pixelated}
+
+  .meters{display:flex;gap:6px;margin-top:8px}
+  .meter{flex:1;text-align:center}
+  .meter .bar{height:10px;background:#2a2166;border:2px solid var(--c64-lblue);
+    position:relative;overflow:hidden}
+  .meter .bar i{position:absolute;inset:0;width:0%;background:var(--c64-cyan);
+    transition:width .04s linear}
+  .meter.v2 .bar i{background:var(--c64-green)}
+  .meter.v3 .bar i{background:var(--c64-yellow)}
+  .meter span{font-size:9px;display:block;margin-top:4px;letter-spacing:.5px}
+  .meter span em{font-style:normal;color:var(--c64-cyan)}
+
+  .regs{margin-top:12px;border:2px solid var(--c64-lblue);background:#2a2166;padding:8px}
+  .regs .rt{font-size:9px;letter-spacing:.5px;margin-bottom:6px;color:var(--c64-lblue)}
+  .regrow{display:flex;gap:4px;font-size:11px;line-height:1.5;flex-wrap:nowrap}
+  .regrow .lbl{color:var(--c64-lblue);width:44px;flex:none}
+  .regrow b{color:var(--c64-cyan);font-weight:400;width:22px;text-align:center;flex:none}
+  .regrow b.hot{color:var(--c64-yellow)}
+
+  .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:14px}
+  button{font-family:inherit;font-size:12px;text-transform:uppercase;letter-spacing:1px;
+    background:var(--c64-lblue);color:var(--c64-blue);border:0;padding:10px 16px;
+    cursor:pointer;font-weight:700}
+  button:hover{background:var(--c64-cyan)}
+  button.off{background:#584bb0;color:#2a2166}
+  label{font-size:11px;text-transform:uppercase;letter-spacing:.5px;
+    display:flex;align-items:center;gap:8px}
+  input[type=range]{width:100px;accent-color:var(--c64-cyan)}
+
+  .status{margin-top:12px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;
+    display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;
+    border-top:2px solid var(--c64-lblue);padding-top:10px}
+  .status b{color:var(--c64-yellow);font-weight:400}
+  .note{margin-top:12px;font-size:10px;line-height:1.6;letter-spacing:.3px;
+    border-top:2px solid var(--c64-lblue);padding-top:10px}
+  .note b{color:var(--c64-cyan);font-weight:400}
+</style>
+</head>
+<body>
+<div class="screen">
+  <h1>&#9608; Plane Pilot &mdash; Intro Theme &#9608;</h1>
+  <p class="sub">MOS 6581 model / <b>3 voices</b> / 150 BPM / 5 frames per row / PAL 50 Hz</p>
+
+  <canvas id="scope" width="660" height="110"></canvas>
+
+  <div class="meters">
+    <div class="meter v1"><div class="bar"><i id="m1"></i></div><span>V1 LEAD &mdash; <em id="w1">---</em></span></div>
+    <div class="meter v2"><div class="bar"><i id="m2"></i></div><span>V2 BASS &mdash; <em id="w2">---</em></span></div>
+    <div class="meter v3"><div class="bar"><i id="m3"></i></div><span>V3 <em id="w3">ARP</em></span></div>
+  </div>
+
+  <div class="regs">
+    <div class="rt">$D400 SHADOW &mdash; WHAT THE C64 PLAYER WOULD WRITE EACH FRAME</div>
+    <div class="regrow"><span class="lbl">$D400</span><b id="r0">00</b><b id="r1">00</b><b id="r2">00</b><b id="r3">00</b><b id="r4">00</b><b id="r5">00</b><b id="r6">00</b><span class="lbl">V1</span></div>
+    <div class="regrow"><span class="lbl">$D407</span><b id="r7">00</b><b id="r8">00</b><b id="r9">00</b><b id="r10">00</b><b id="r11">00</b><b id="r12">00</b><b id="r13">00</b><span class="lbl">V2</span></div>
+    <div class="regrow"><span class="lbl">$D40E</span><b id="r14">00</b><b id="r15">00</b><b id="r16">00</b><b id="r17">00</b><b id="r18">00</b><b id="r19">00</b><b id="r20">00</b><span class="lbl">V3</span></div>
+    <div class="regrow"><span class="lbl">$D415</span><b id="r21">00</b><b id="r22">00</b><b id="r23">00</b><b id="r24">00</b><span class="lbl">FLT/VOL</span></div>
+  </div>
+
+  <div class="controls">
+    <button id="play">&#9654; Play</button>
+    <button id="stop">&#9632; Stop</button>
+    <button id="loop">&#8635; Loop: On</button>
+    <button id="drums">&#9679; Drum steal: On</button>
+    <label>Vol <input id="vol" type="range" min="0" max="100" value="70"></label>
+  </div>
+
+  <div class="status">
+    <span>BAR <b id="stBar">--</b>/16</span>
+    <span>ROW <b id="stRow">---</b>/256</span>
+    <span>FRAME <b id="stFrame">----</b>/1280</span>
+    <span>CHORD <b id="stChord">--</b></span>
+    <span>LOOP <b>25.6</b>S</span>
+  </div>
+
+  <div class="note">
+    <b>What this is.</b> A model of the C64 player planned in <b>music.md</b>, not a
+    generic synth. Three voices, one oscillator each. The player runs on a 50 Hz
+    frame tick and writes a 25-byte shadow of $D400; the audio engine only reacts
+    to those registers, so what you hear is what the SID would be told to do.<br>
+    <b>Pitches</b> come from the octave-6 note table right-shifted per octave, exactly
+    as the plan specifies &mdash; the same truncation the 6510 will produce.<br>
+    <b>Voice 3 is shared.</b> Kick, snare and hat steal it from the arpeggio for
+    5, 4 and 2 frames. Turn the steal off to hear the arpeggio uninterrupted.<br>
+    <b>No filter.</b> The SID filter is chip-dependent and the design avoids it;
+    the only shaping here is a fixed output limiter.
+  </div>
+</div>
+
+<script>
+/* ==========================================================================
+   PLANE PILOT - title theme, 3-voice SID model.
+   Reference implementation for docs/music.md. See that document for why
+   every number below is the number it is.
+
+   Architecture mirrors the planned C64 player:
+     _tick()      runs once per 50 Hz frame, writes regs[25]  (the "player")
+     _apply()     turns register changes into Web Audio        (the "SID")
+   Nothing in the audio path knows about notes, bars or patterns.
+   ========================================================================== */
+
+// ---------- SID constants ----------
+const PAL_CLK = 985248, SID_K = 16777216 / PAL_CLK;     // 17.02841
+const CTRL_GATE=0x01, CTRL_TRI=0x10, CTRL_SAW=0x20, CTRL_PULSE=0x40, CTRL_NOISE=0x80;
+
+// Octave-6 note table, exactly as docs/music.md lists it. Lower octaves are a
+// right shift; the truncation that introduces is at worst 0.142% over the range
+// this tune uses, which is why there is no 60-entry table.
+const NOTE6 = [17820,18880,20003,21192,22452,23787,25202,26700,28288,29970,31752,33640];
+function midiToReg(m){
+  const pc = ((m % 12) + 12) % 12, oct = Math.floor(m/12) - 1;
+  const sh = 6 - oct;
+  return sh >= 0 ? (NOTE6[pc] >> sh) : (NOTE6[pc] << -sh);
+}
+const regToHz = r => r / SID_K;
+
+// Real 6581 envelope rates, in seconds. Decay and release are 3x attack.
+const ATK = [0.002,0.008,0.016,0.024,0.038,0.056,0.068,0.080,
+             0.100,0.250,0.500,0.800,1.000,3.000,5.000,8.000];
+const DCY = ATK.map(v => v*3);
+
+// ---------- note names ----------
+const NI = {C:0,'C#':1,D:2,'D#':3,E:4,F:5,'F#':6,G:7,'G#':8,A:9,'A#':10,B:11};
+const nameToMidi = n => {
+  const m = /^([A-G]#?)(-?\d)$/.exec(n);
+  return NI[m[1]] + (parseInt(m[2],10)+1)*12;
+};
+
+// ==========================================================================
+//  SONG DATA  - generated from lib/music.py once phase 1 of music.md lands.
+// ==========================================================================
+const SPEED = 5;                 // frames per row -> 150 BPM at 50 Hz
+const ROWS_PER_BAR = 16, BARS = 16;
+const TOTAL_ROWS = BARS*ROWS_PER_BAR, TOTAL_FRAMES = TOTAL_ROWS*SPEED;  // 1280
+
+// [name, bass root midi, arp triad midis]
+const CHORDS = [
+  ['Am',33,[57,60,64]], ['F',29,[53,57,60]], ['G',31,[55,59,62]], ['Am',33,[57,60,64]],
+  ['Am',33,[57,60,64]], ['F',29,[53,57,60]], ['G',31,[55,59,62]], ['E',28,[52,56,59]],
+  ['C',36,[48,52,55]],  ['G',31,[55,59,62]], ['Am',33,[57,60,64]],['F',29,[53,57,60]],
+  ['F',29,[53,57,60]],  ['G',31,[55,59,62]], ['Am',33,[57,60,64]],['G',31,[55,59,62]]
+];
+
+// Lead: "NOTE:rows", "-" = rest. Every bar sums to 16.
+const MELODY = [
+  "E4:2 A4:2 C5:2 B4:2 A4:4 -:2 G4:2",
+  "A4:2 F4:2 A4:2 C5:2 D5:4 C5:2 A4:2",
+  "B4:2 G4:2 B4:2 D5:2 G5:4 D5:2 B4:2",
+  "C5:2 B4:2 A4:2 G4:2 A4:6 -:2",
+  "E5:2 A4:2 C5:2 B4:2 A4:4 E5:2 C5:2",
+  "A4:2 F4:2 A4:2 C5:2 F5:4 E5:2 C5:2",
+  "D5:2 B4:2 D5:2 G5:2 F5:2 E5:2 D5:2 B4:2",
+  "E5:2 B4:2 G#4:2 B4:2 E5:4 D5:2 C5:2",
+  "G5:4 E5:4 C5:4 E5:2 G5:2",
+  "D5:4 B4:4 G4:4 B4:2 D5:2",
+  "E5:4 C5:4 A4:4 C5:2 E5:2",
+  "F5:4 C5:4 A4:4 C5:2 F5:2",
+  "A5:2 G5:2 F5:2 E5:2 F5:4 C5:4",
+  "B5:2 A5:2 G5:2 F5:2 G5:4 D5:4",
+  "A5:2 E5:2 C5:2 A4:2 C5:2 E5:2 A5:4",
+  "G5:2 F5:2 E5:2 D5:2 C5:2 B4:2 -:2 E4:2"
+];
+
+// Bass rhythm patterns: [row, semitones above root, rows]
+const BASS_A = [[0,0,2],[2,0,2],[4,0,2],[6,12,2],[8,0,2],[10,0,2],[12,7,2],[14,12,2]];
+const BASS_B = [[0,0,2],[2,0,2],[4,0,1],[5,0,1],[6,12,2],[8,0,2],[10,7,2],[12,12,2],
+                [14,10,1],[15,12,1]];
+
+// Drums. Priority kick > snare > hat; only one can hold voice 3.
+const KICK_A=[0,6,8], KICK_B=[0,6,8,10,14];
+const SNR_A =[4,12],  SNR_B =[4,12,13,14,15];
+const HAT   =[0,2,4,6,8,10,12,14];
+const isFill = b => (b===7 || b===15);
+const isPush = b => (b===3 || b===11 || isFill(b));
+
+// ---------- flatten to per-row tables ----------
+const leadStart = new Array(TOTAL_ROWS).fill(0);   // midi, or 0
+const leadOn    = new Array(TOTAL_ROWS).fill(false);
+MELODY.forEach((s,bar)=>{
+  let r = bar*ROWS_PER_BAR;
+  s.trim().split(/\s+/).forEach(tok=>{
+    const [n,l] = tok.split(':'); const d = parseInt(l,10);
+    if(n !== '-'){ leadStart[r] = nameToMidi(n); for(let i=0;i<d;i++) leadOn[r+i]=true; }
+    r += d;
+  });
+});
+
+const bassStart = new Array(TOTAL_ROWS).fill(0);
+const bassOn    = new Array(TOTAL_ROWS).fill(false);
+for(let bar=0;bar<BARS;bar++){
+  const root = CHORDS[bar][1];
+  for(const [row,off,len] of (isPush(bar)?BASS_B:BASS_A)){
+    const r = bar*ROWS_PER_BAR + row;
+    bassStart[r] = root + off;
+    for(let i=0;i<len;i++) bassOn[r+i] = true;
+  }
+}
+
+const drumAt = new Array(TOTAL_ROWS).fill(null);   // 'kick' | 'snare' | 'hat'
+for(let bar=0;bar<BARS;bar++){
+  const kick = isPush(bar)?KICK_B:KICK_A, snr = isFill(bar)?SNR_B:SNR_A;
+  for(const s of HAT)  drumAt[bar*ROWS_PER_BAR+s] = 'hat';
+  for(const s of snr)  drumAt[bar*ROWS_PER_BAR+s] = 'snare';
+  for(const s of kick) drumAt[bar*ROWS_PER_BAR+s] = 'kick';
+}
+
+// ---------- instruments: [attack, decay, sustain, release] nibbles ----------
+const INS = {
+  lead : {ad:0x05, sr:0xC5, wave:CTRL_PULSE},
+  bass : {ad:0x06, sr:0x84, wave:CTRL_PULSE},
+  arp  : {ad:0x00, sr:0xF3, wave:CTRL_SAW},
+  kick : {ad:0x00, sr:0xF0, wave:CTRL_NOISE, frames:5, from:0x1000, to:0x0300},
+  snare: {ad:0x00, sr:0xF0, wave:CTRL_NOISE, frames:4, from:0x3800, to:0x3800},
+  hat  : {ad:0x00, sr:0xF0, wave:CTRL_NOISE, frames:2, from:0x5000, to:0x5000}
+};
+const BASS_PW = 0x0500;
+
+// ==========================================================================
+//  THE PLAYER - pure function of frame -> regs[25]. No audio here at all.
+// ==========================================================================
+const regs = new Uint8Array(25);
+const V = [0,7,14];                                   // voice register bases
+const RA = {FLO:0,FHI:1,PLO:2,PHI:3,CTL:4,AD:5,SR:6}; // offsets within a voice
+const R_VOL = 24;
+
+let ps = null;
+function playerReset(){
+  ps = { frame:0, arpIdx:0, v3owner:'arp', v3timer:0, v3drum:null, pwmPhase:0 };
+  regs.fill(0);
+}
+function setFreq(v,r){ regs[V[v]+RA.FLO]=r&0xFF; regs[V[v]+RA.FHI]=(r>>8)&0xFF; }
+function setPw(v,p){ regs[V[v]+RA.PLO]=p&0xFF; regs[V[v]+RA.PHI]=(p>>8)&0x0F; }
+function setEnv(v,ad,sr){ regs[V[v]+RA.AD]=ad; regs[V[v]+RA.SR]=sr; }
+function setCtrl(v,c){ regs[V[v]+RA.CTL]=c; }
+function gateOff(v){ regs[V[v]+RA.CTL] &= ~CTRL_GATE; }
+
+// Hard restart: gate down and the envelope registers to zero, one frame ahead
+// of the note. Without it a new note starts from wherever the old envelope
+// happened to be. See music.md section 3.
+function hardRestart(v){ gateOff(v); setEnv(v,0x00,0x00); }
+
+function playerTick(){
+  const f = ps.frame;
+  const row = (f/SPEED)|0, rf = f%SPEED;
+  const bar = (row/ROWS_PER_BAR)|0;
+  const nrow = (row+1) % TOTAL_ROWS;
+  const last = (rf === SPEED-1);
+
+  // --- voice 1: lead ---
+  if(last && leadStart[nrow])            hardRestart(0);
+  if(rf===0 && leadStart[row]){
+    setFreq(0, midiToReg(leadStart[row]));
+    setEnv(0, INS.lead.ad, INS.lead.sr);
+    setCtrl(0, INS.lead.wave | CTRL_GATE);
+  } else if(rf===0 && !leadOn[row])      gateOff(0);
+  // Pulse width sweeps independently of the note, so a held note keeps moving.
+  // This is the only timbral movement the design allows itself - the SID filter
+  // is off limits (music.md section 3).
+  // Step 8 over a 0x800 triangle is a 256-frame cycle, which divides the
+  // 1280-frame loop exactly 5 times. A step that did not divide it would leave
+  // the pulse width somewhere different on every pass and the loop would not
+  // be bit-identical - which is the property section 7 of music.md tests.
+  ps.pwmPhase = (ps.pwmPhase + 8) & 0x7FF;
+  const tri = ps.pwmPhase < 0x400 ? ps.pwmPhase : (0x800 - ps.pwmPhase);
+  setPw(0, 0x0300 + (tri >> 1));
+
+  // --- voice 2: bass ---
+  if(last && bassStart[nrow])            hardRestart(1);
+  if(rf===0 && bassStart[row]){
+    setFreq(1, midiToReg(bassStart[row]));
+    setPw(1, BASS_PW);
+    setEnv(1, INS.bass.ad, INS.bass.sr);
+    setCtrl(1, INS.bass.wave | CTRL_GATE);
+  } else if(rf===0 && !bassOn[row])      gateOff(1);
+
+  // --- voice 3: arpeggio, stolen by drums ---
+  const hit = drumsOn ? drumAt[row] : null;
+  let v3restarted = false;
+  if(last && drumsOn && drumAt[nrow]){ hardRestart(2); v3restarted = true; }
+
+  if(rf===0 && hit){
+    const d = INS[hit];
+    ps.v3owner = hit; ps.v3drum = d; ps.v3timer = d.frames;
+    setFreq(2, d.from);
+    setEnv(2, d.ad, d.sr);
+    setCtrl(2, d.wave | CTRL_GATE);
+  } else if(ps.v3owner !== 'arp' && ps.v3timer === 0 && !v3restarted){
+    // Hand the voice back. A fresh gate, so the arp envelope restarts - audible
+    // as a small swell, which is why the arp envelope has no decay in it.
+    ps.v3owner = 'arp';
+    setEnv(2, INS.arp.ad, INS.arp.sr);
+    setCtrl(2, INS.arp.wave | CTRL_GATE);
+  }
+
+  if(ps.v3owner === 'arp'){
+    // One chord tone per frame, gate held. Rewriting the frequency does not
+    // retrigger the envelope, which is what makes this a shimmer and not a
+    // machine gun.
+    const triad = CHORDS[bar][2];
+    setFreq(2, midiToReg(triad[ps.arpIdx % 3]));
+    ps.arpIdx++;
+    // Only ever re-gate on a row boundary. The hard restart above lands on the
+    // LAST frame of a row, so a re-gate here would immediately undo it.
+    if(rf===0 && !(regs[V[2]+RA.CTL] & CTRL_GATE)){
+      setEnv(2, INS.arp.ad, INS.arp.sr);
+      setCtrl(2, INS.arp.wave | CTRL_GATE);
+    }
+  } else {
+    const d = ps.v3drum, t = d.frames - ps.v3timer;
+    if(d.from !== d.to){                    // the kick sweeps out of the way
+      setFreq(2, d.from + ((d.to - d.from) * t / d.frames) | 0);
+    }
+    ps.v3timer--;
+    if(ps.v3timer <= 0){ gateOff(2); ps.v3timer = 0; }
+  }
+
+  // --- master volume. $D418 low nibble, from the same table sound.cc uses. ---
+  regs[R_VOL] = [0,7,15][2];
+
+  ps.frame++;
+  if(ps.frame >= TOTAL_FRAMES){
+    // arpIdx resets with the frame counter so the loop point is bit-identical.
+    // 1280 is not a multiple of 3, so a free-running index would phase-shift
+    // the arpeggio a little further on every pass.
+    if(looping){ ps.frame = 0; ps.arpIdx = 0; }
+  }
+  return { row, bar, chord: CHORDS[bar][0], frame: f };
+}
+
+// ==========================================================================
+//  THE "SID" - reacts to register changes only.
+// ==========================================================================
+let ctx=null, master=null, limiter=null, analyser=null, noiseBuf=null;
+const voices = [];
+
+function makeNoiseBuffer(ac){
+  const len = ac.sampleRate*2, b = ac.createBuffer(1,len,ac.sampleRate);
+  const d = b.getChannelData(0);
+  let reg = 0x7ffff8;                       // 23-bit LFSR, as in the 6581
+  for(let i=0;i<len;i++){
+    const bit = ((reg>>22) ^ (reg>>17)) & 1;
+    reg = ((reg<<1)|bit) & 0x7fffff;
+    d[i] = ((reg>>8 & 0xff)/127.5) - 1;
+  }
+  return b;
+}
+
+// One oscillator per voice, as the chip has. The pulse is saw(t) - saw(t-d),
+// so the delay time is the pulse width; the saw output is the same oscillator
+// tapped before the subtraction. Noise is a separate looping buffer, since a
+// sawtooth cannot be made into one.
+function makeVoice(ac, out){
+  const osc = ac.createOscillator(); osc.type='sawtooth'; osc.frequency.value=440;
+  const dly = ac.createDelay(0.08);   dly.delayTime.value = 0.001;
+  const inv = ac.createGain(); inv.gain.value = -1;
+  const pulse = ac.createGain(); pulse.gain.value = 0.5;
+  osc.connect(pulse); osc.connect(dly); dly.connect(inv); inv.connect(pulse);
+  const dc = ac.createBiquadFilter(); dc.type='highpass'; dc.frequency.value=22;
+  pulse.connect(dc);
+
+  const saw = ac.createGain(); saw.gain.value = 0.45; osc.connect(saw);
+
+  const noise = ac.createBufferSource();
+  noise.buffer = noiseBuf; noise.loop = true; noise.playbackRate.value = 1;
+  const noiseG = ac.createGain(); noiseG.gain.value = 0.5; noise.connect(noiseG);
+
+  const wPulse = ac.createGain(); wPulse.gain.value = 0;
+  const wSaw   = ac.createGain(); wSaw.gain.value   = 0;
+  const wNoise = ac.createGain(); wNoise.gain.value = 0;
+  dc.connect(wPulse); saw.connect(wSaw); noiseG.connect(wNoise);
+
+  const env = ac.createGain(); env.gain.value = 0;
+  wPulse.connect(env); wSaw.connect(env); wNoise.connect(env);
+  env.connect(out);
+
+  osc.start(); noise.start();
+  return {osc, dly, noise, wPulse, wSaw, wNoise, env,
+          pts:[{t:0,v:0}], prevCtrl:0, prevFreq:-1, prevPw:-1};
+}
+
+// Envelope value at a time, from the ramps already scheduled. Needed because a
+// gate can arrive mid-attack and the new segment has to start where the old one
+// actually is.
+function envAt(v, t){
+  const p = v.pts;
+  if(t <= p[0].t) return p[0].v;
+  for(let i=p.length-1;i>=0;i--){
+    if(p[i].t <= t){
+      if(i === p.length-1) return p[i].v;
+      const a=p[i], b=p[i+1];
+      return a.v + (b.v-a.v) * ((t-a.t)/Math.max(b.t-a.t,1e-6));
+    }
+  }
+  return 0;
+}
+function envPush(v, t, val){
+  v.pts.push({t, v:val});
+  while(v.pts.length > 8) v.pts.shift();
+}
+function envGate(v, t, on, ad, sr){
+  const g = v.env.gain, v0 = envAt(v, t);
+  g.cancelScheduledValues(t);
+  g.setValueAtTime(v0, t);
+  v.pts = [{t, v:v0}];
+  if(on){
+    const a = ATK[(ad>>4)&15], d = DCY[ad&15], s = ((sr>>4)&15)/15;
+    g.linearRampToValueAtTime(1, t+a);       envPush(v, t+a, 1);
+    g.linearRampToValueAtTime(s, t+a+d);     envPush(v, t+a+d, s);
+  } else {
+    const r = DCY[sr&15];
+    g.linearRampToValueAtTime(0, t+r);       envPush(v, t+r, 0);
+  }
+}
+
+// Apply the shadow to the chip at time t. Only differences matter, which is
+// also why the C64 blit can re-write every register every frame for free.
+function applyRegs(t){
+  for(let i=0;i<3;i++){
+    const v = voices[i], b = V[i];
+    const freq = regs[b+RA.FLO] | (regs[b+RA.FHI]<<8);
+    const pw   = regs[b+RA.PLO] | (regs[b+RA.PHI]<<8);
+    const ctrl = regs[b+RA.CTL];
+
+    if(freq !== v.prevFreq){
+      const hz = Math.max(regToHz(freq), 1);
+      v.osc.frequency.setValueAtTime(Math.min(hz, 12000), t);
+      // SID noise is the same oscillator clocking an LFSR, so its "pitch" is
+      // the same register. Mapped to playback rate here.
+      v.noise.playbackRate.setValueAtTime(
+        Math.max(0.04, Math.min(4, freq/6000)), t);
+      v.prevFreq = freq;
+    }
+    if(pw !== v.prevPw){
+      const duty = Math.max(0.02, Math.min(0.98, pw/4096));
+      const hz = Math.max(regToHz(freq), 1);
+      v.dly.delayTime.setValueAtTime(Math.min(0.07, duty/hz), t);
+      v.prevPw = pw;
+    }
+    if(ctrl !== v.prevCtrl){
+      v.wPulse.gain.setValueAtTime(ctrl & CTRL_PULSE ? 1 : 0, t);
+      v.wSaw.gain  .setValueAtTime(ctrl & CTRL_SAW   ? 1 : 0, t);
+      v.wNoise.gain.setValueAtTime(ctrl & CTRL_NOISE ? 1 : 0, t);
+      const was = v.prevCtrl & CTRL_GATE, now = ctrl & CTRL_GATE;
+      if(was !== now) envGate(v, t, !!now, regs[b+RA.AD], regs[b+RA.SR]);
+      v.prevCtrl = ctrl;
+    }
+  }
+  master.gain.setValueAtTime((regs[R_VOL] & 15)/15 * outVol * 0.30, t);
+}
+
+function initAudio(){
+  if(ctx) return;
+  ctx = new (window.AudioContext||window.webkitAudioContext)();
+  noiseBuf = makeNoiseBuffer(ctx);
+
+  master = ctx.createGain(); master.gain.value = 0;
+  limiter = ctx.createWaveShaper();
+  const n=1024, c=new Float32Array(n);
+  for(let i=0;i<n;i++){ const x=i/(n-1)*2-1; c[i]=Math.tanh(x*1.6)/Math.tanh(1.6); }
+  limiter.curve=c; limiter.oversample='2x';
+  analyser = ctx.createAnalyser(); analyser.fftSize = 2048;
+
+  const bus = ctx.createGain(); bus.gain.value = 1;
+  for(let i=0;i<3;i++) voices.push(makeVoice(ctx, bus));
+  bus.connect(master); master.connect(limiter);
+  limiter.connect(analyser); analyser.connect(ctx.destination);
+}
+
+// ==========================================================================
+//  SCHEDULER - drives the player at a fixed 50 Hz, exactly like gfx_wait_vsync
+// ==========================================================================
+const FRAME = 1/50, LOOKAHEAD = 0.18, TICK_MS = 25;
+let playing=false, looping=true, drumsOn=true, outVol=0.7;
+let nextTime=0, timer=null;
+const dq = [];   // display events, drained by the animation frame
+
+function scheduler(){
+  while(nextTime < ctx.currentTime + LOOKAHEAD){
+    if(ps.frame >= TOTAL_FRAMES){ stop(0.4); return; }
+    const info = playerTick();
+    applyRegs(nextTime);
+    dq.push({t:nextTime, info, regs:regs.slice(), owner:ps.v3owner});
+    nextTime += FRAME;
+  }
+}
+
+function start(){
+  initAudio();
+  if(ctx.state==='suspended') ctx.resume();
+  if(playing) return;
+  playerReset();
+  for(const v of voices){ v.prevCtrl=0; v.prevFreq=-1; v.prevPw=-1; }
+  playing = true;
+  nextTime = ctx.currentTime + 0.10;
+  timer = setInterval(scheduler, TICK_MS);
+  playBtn.textContent = '▶ Playing';
+}
+
+function stop(fade){
+  if(timer){ clearInterval(timer); timer=null; }
+  playing = false;
+  playBtn.textContent = '▶ Play';
+  if(ctx && master){
+    const t = ctx.currentTime;
+    master.gain.cancelScheduledValues(t);
+    master.gain.setValueAtTime(master.gain.value, t);
+    master.gain.linearRampToValueAtTime(0, t + (fade||0.06));
+  }
+  dq.length = 0;
+  regs.fill(0);
+  stBar.textContent='--'; stRow.textContent='---';
+  stFrame.textContent='----'; stChord.textContent='--';
+}
+
+// ==========================================================================
+//  UI
+// ==========================================================================
+const $ = id => document.getElementById(id);
+const playBtn=$('play'), stopBtn=$('stop'), loopBtn=$('loop'), drumBtn=$('drums'),
+      volEl=$('vol'), stBar=$('stBar'), stRow=$('stRow'), stFrame=$('stFrame'),
+      stChord=$('stChord'),
+      meters=[$('m1'),$('m2'),$('m3')], wLbl=[$('w1'),$('w2'),$('w3')],
+      regEls = Array.from({length:25},(_,i)=>$('r'+i));
+
+playBtn.onclick = start;
+stopBtn.onclick = () => stop(0.06);
+loopBtn.onclick = () => { looping=!looping;
+  loopBtn.textContent='↻ Loop: '+(looping?'On':'Off'); loopBtn.classList.toggle('off',!looping); };
+drumBtn.onclick = () => { drumsOn=!drumsOn;
+  drumBtn.textContent='● Drum steal: '+(drumsOn?'On':'Off'); drumBtn.classList.toggle('off',!drumsOn); };
+volEl.oninput = () => { outVol = volEl.value/100; };
+document.addEventListener('keydown', e=>{
+  if(e.code==='Space'){ e.preventDefault(); playing?stop(0.06):start(); }
+});
+
+const WAVE_NAME = c => c&CTRL_NOISE?'NOISE' : c&CTRL_PULSE?'PULSE'
+                     : c&CTRL_SAW?'SAW' : c&CTRL_TRI?'TRI' : '---';
+
+const cv=$('scope'), cx=cv.getContext('2d');
+let scopeData=null;
+const level=[0,0,0];
+
+function draw(){
+  requestAnimationFrame(draw);
+  if(!ctx) return;
+  const now = ctx.currentTime;
+
+  let latest=null;
+  while(dq.length && dq[0].t <= now) latest = dq.shift();
+  if(latest){
+    const {info, regs:R, owner} = latest;
+    stBar.textContent   = String(info.bar+1).padStart(2,'0');
+    stRow.textContent   = String(info.row).padStart(3,'0');
+    stFrame.textContent = String(info.frame).padStart(4,'0');
+    stChord.textContent = info.chord;
+    for(let i=0;i<25;i++){
+      const el=regEls[i]; if(!el) continue;
+      const hex = R[i].toString(16).toUpperCase().padStart(2,'0');
+      if(el.textContent !== hex) el.textContent = hex;
+      el.classList.toggle('hot', (i===4||i===11||i===18) && (R[i]&CTRL_GATE));
+    }
+    for(let i=0;i<3;i++){
+      const c = R[V[i]+RA.CTL];
+      wLbl[i].textContent = i===2
+        ? (owner==='arp' ? 'ARP' : owner.toUpperCase())
+        : WAVE_NAME(c);
+      if(c & CTRL_GATE) level[i] = Math.max(level[i], 0.95);
+    }
+  }
+
+  if(!scopeData) scopeData = new Uint8Array(analyser.fftSize);
+  analyser.getByteTimeDomainData(scopeData);
+  const w=cv.width, h=cv.height;
+  cx.fillStyle='#2a2166'; cx.fillRect(0,0,w,h);
+  cx.strokeStyle='#3a2f80'; cx.lineWidth=1;
+  for(let x=0;x<w;x+=41){ cx.beginPath(); cx.moveTo(x+.5,0); cx.lineTo(x+.5,h); cx.stroke(); }
+  cx.beginPath(); cx.moveTo(0,h/2+.5); cx.lineTo(w,h/2+.5); cx.stroke();
+  cx.strokeStyle='#8ff2f2'; cx.lineWidth=2; cx.beginPath();
+  const sp = scopeData.length/w;
+  for(let x=0;x<w;x++){
+    const y = h/2 + (scopeData[(x*sp)|0]/128-1)*h*0.44;
+    x ? cx.lineTo(x,y) : cx.moveTo(x,y);
+  }
+  cx.stroke();
+
+  for(let i=0;i<3;i++){ level[i]*=0.88; meters[i].style.width = (level[i]*100)+'%'; }
+}
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
