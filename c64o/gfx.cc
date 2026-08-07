@@ -308,14 +308,14 @@ void gfx_update_nav_heading(uint8_t heading) {
 }
 
 void gfx_update_flap(bool flap) {
-  static uint8_t *const kFlapPtr = kColorRam + 16 * kScreenWidth + 13;
+  static uint8_t *const kFlapPtr = kColorRam + 17 * kScreenWidth + 13;
   if (_lamps_live()) {
     _set_lamp(kFlapPtr, flap);
   }
 }
 
 void gfx_update_gear(bool gear) {
-  static uint8_t *const kGearPtr = kColorRam + 17 * kScreenWidth + 13;
+  static uint8_t *const kGearPtr = kColorRam + 18 * kScreenWidth + 13;
   if (_lamps_live()) {
     _set_lamp(kGearPtr, gear);
   }
