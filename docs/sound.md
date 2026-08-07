@@ -352,19 +352,39 @@ where zero page actually buys something.
 cycles before the frame ends; on NTSC (263 lines) only ~800. This is the reason
 the blit must stay a flat store sequence and not grow into a driver.
 
-Measured on the phase 1 build, counting straight-line cost through
-`_switch_to_terrain`: 147 cycles before, 331 after, so the blit is **184
-cycles** with the generation check and about 214 on a tick that retriggers.
-The handler therefore ends around raster 255 — 57 lines of border left on PAL,
-8 on NTSC. Comfortable, but the NTSC margin is the number to watch if anything
-is ever added here.
+Measured by counting straight-line cost through `_switch_to_terrain`:
+
+| Build              | Handler | Blit | Ends at | PAL left | NTSC left |
+| ------------------ | ------: | ---: | ------: | -------: | --------: |
+| Before sound       |     147 |    — |       — |        — |         — |
+| Phase 1            |     331 |  184 |    ~255 |       57 |         8 |
+| Phases 1–6         |     311 |  164 |    ~254 |       58 |         9 |
+
+The blit got *cheaper* across five phases of feature work, which is worth
+knowing was not luck: narrowing the retrigger pass from all three voices to
+voice 3 alone (phase 5, §6) removed two `lda`/`and`/`sta` triples from the
+mismatch path and more than paid for everything since. The 25 register stores
+are a fixed 200 cycles and cannot change; everything else here is the
+generation check and the gate-off pass.
+
+**The NTSC margin is nine lines**, and it is the tightest constraint in the
+design. Nothing waits on a raster line past 242, so overrunning only delays the
+blit itself — but nine lines is roughly 580 cycles, which is about three more
+registers' worth of gate handling. Anything added to this handler should be
+measured, not estimated.
 
 `sound_update()` on the main line is uncounted noise against a ~100 ms frame.
 
 **Verification.** After building, `ppilot.map` must show **no `@stack` entry**
-for the blit. That check belongs in the review, not in someone's memory — the
-failure mode is silent corruption of an unrelated render frame, appearing once
-every few thousand frames.
+for the blit, and `STACK` must still read `0200 - 025e`. That check belongs in
+the review, not in someone's memory — the failure mode is silent corruption of
+an unrelated render frame, appearing once every few thousand frames, in a
+module with nothing to do with sound.
+
+Both hold as of phases 1–6: `sound_blit` is inlined with no frame, and the
+dynamic stack is untouched at 94 bytes. The `@stack` entries that do appear —
+`sound_update@stack`, `sound_silence@stack` — are zero-size and main-line, which
+is the harmless case.
 
 ---
 
@@ -1102,8 +1122,9 @@ Each phase leaves the program in a working, committable state.
    reconstructing the draw from the output, which fits the test to one
    mutation rather than to the property.
 
-   **Not** verified at all: the oscar64 build, `ppilot.map`, and how any of it
-   sounds.
+   **Not** verified at the time: the oscar64 build, `ppilot.map`, and how any
+   of it sounds. The first two have since been checked — see the build note at
+   the end of this section.
 3. **Wind.** ✅ Done. Voice 2 noise, brightness from `flight_speed` through a
    16-entry geometric table (§6 option 3), gated off below `kWindMinSpeed`, and
    balanced under the engine by a static sustain difference.
@@ -1122,8 +1143,9 @@ Each phase leaves the program in a working, committable state.
    `flight_speed` is signed and a negative right-shift stays negative; exactly
    one gate crossing, so there is no band where the wind flutters on and off;
    wind sustain strictly below the engine's; the silence predicates zeroing
-   voice 2 along with everything else. **Not** verified: the oscar64 build, and
-   how it sounds against the engine.
+   voice 2 along with everything else. **Not** verified at the time: the
+   oscar64 build, since checked, and how it sounds against the engine, which is
+   still phase 8.
 
    **3a — the dropout.** Testing in VICE turned up one or both continuous
    voices going silent during flight and returning seconds later. Cause: a torn
@@ -1195,20 +1217,52 @@ Each phase leaves the program in a working, committable state.
    stall on the wrong waveform, events consumed without the generation check,
    gear promoted above stall, touchdown demoted below it, the generation check
    removed, silence letting voice 3 run on, and flap made identical to gear.
-   **Not** verified: the oscar64 build, and how any of it sounds.
-7. **Tests.** `c64o/test/sound_test.cc` per §7. Partly done: the file landed
-   in phase 2 rather than waiting, covering the register block layout, the
-   silence predicates and the whole engine voice. Each later phase extends it
-   rather than creating it.
-8. **Verification.** Both PAL and NTSC in VICE; both 6581 and 8580 as a
-   sanity check even though §3 removes the dependency.
+   **Not** verified at the time: the oscar64 build, since checked, and how any
+   of it sounds, which is still phase 8.
+7. **Tests.** ✅ Done. `c64o/test/sound_test.cc` per §7. It landed in phase 2
+   rather than waiting, covering the register block layout, the silence
+   predicates and the engine voice; each later phase extended it rather than
+   creating it. It now covers §7's whole minimum list plus the exhaustive
+   interleaving sweep that came out of 3a, and it runs under `make test`
+   alongside `flight_test`, `msg_test` and `map_test`.
+8. **Verification.** ⬜ Not started, and now the only phase that is. Both PAL
+   and NTSC in VICE; both 6581 and 8580 as a sanity check even though §3
+   removes the dependency. Everything still open in §10 is queued behind this,
+   because all of it is a judgement by ear.
 
-Phase 4 is the only remaining one that touches tested code, and it is
-deliberately placed after the audio path is proven, so a `flight_test` failure
-has one obvious cause. Phase 5 before phase 6 is also deliberate: the stall is
-the harder consumer of voice 3 — it is the one with a rhythm — so building it
-first means the priority logic in phase 6 is written against a case that
-already exists rather than an imagined one.
+### The oscar64 build
+
+Phases 2, 3 and 6 each recorded "**not** verified: the oscar64 build" — the
+work was done against the host tests, which compile `sound.cc` with `g++` and
+never touch the cross-compiler. That gap is now closed, at the state after
+phase 6:
+
+- All four programs build: `ppilot`, `polydemo`, `vecdemo`, `vectest`.
+- `check_zeropage.py` passes on all four; `ppilot` still has 5 bytes of
+  headroom between the runtime's high water mark at `$5A` and the region start
+  at `$60`.
+- All four host suites pass, `sound_test` included.
+- The §4 stack and cycle gates hold — see there for the numbers.
+- `ppilot.prg` is 40,859 bytes, `$0801–$A799`, leaving the heap at
+  `a890 - d000`: **9.9 KB free**.
+
+What this does *not* cover is anything about how it sounds, which is phase 8
+and cannot be automated. A clean build and a passing test suite are consistent
+with a driver that is inaudible, deafening, or playing the wrong thing.
+
+Two orderings in that list were deliberate and both paid off. Phase 4 was the
+only one touching tested code and was placed after the audio path was proven,
+so a `flight_test` failure would have had one obvious cause; it passed
+unchanged. And phase 5 came before phase 6 because the stall is the harder
+consumer of voice 3 — it is the one with a rhythm — so the priority logic in
+phase 6 was written against a case that already existed rather than an imagined
+one.
+
+What the ordering did *not* protect against is the two defects that actually
+turned up, 3a and 6a/6b. Both were found by listening, neither was reachable
+from the host tests as written, and both were in the layer the plan spent least
+time on: 3a in the shadow's write ordering, 6a/6b in envelope shapes. That is
+the argument for phase 8 being a real phase rather than a formality.
 
 ---
 
