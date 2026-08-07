@@ -47,6 +47,14 @@ extern uint32_t flight_fuel;
 extern uint8_t flight_flap;
 extern uint8_t flight_gear;
 
+// True while the aircraft is below its stall speed - the same condition that
+// drives the nose-down break in flight_advance(), published rather than
+// recomputed so the panel lamp and the stall warning in sound.cc cannot drift
+// from the physics. Always false in ground mode (there is no stall on the
+// runway), and false on reset. It holds its last value while paused or
+// crashed, since flight_advance() does no physics in either case.
+extern uint8_t flight_stall;
+
 // Navigation state
 extern uint8_t flight_nav;
 extern int16_t flight_nav_x;

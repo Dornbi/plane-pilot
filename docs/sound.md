@@ -1,9 +1,9 @@
 # Sound — Implementation Plan
 
 Plane Pilot is silent. This document plans flight audio: a propeller engine
-that tracks throttle, wind that tracks speed, buffet near the stall, and
-one-shot effects for touchdown, gear and flaps. Sound plays only while
-actually flying — not in the menu, not on the map, not while paused.
+that tracks throttle, wind that tracks speed, a stall warning, and one-shot
+effects for touchdown, gear and flaps. Sound plays only while actually flying
+— not in the menu, not on the map, not while paused.
 
 See [project.md](project.md) for the surrounding architecture.
 
@@ -11,14 +11,14 @@ See [project.md](project.md) for the surrounding architecture.
 
 ## 1. Scope
 
-| In                                              | Out (for now)                              |
-| ----------------------------------------------- | ------------------------------------------ |
-| Engine tone, tracking throttle                  | Menu / mission music (§8 reserves room)    |
-| Wind, tracking airspeed                         | Per-voice mixing beyond three fixed roles  |
-| Stall buffet, as a modulation of the wind voice | Stereo / dual-SID                          |
-| One-shots: touchdown, gear, flaps               | Digi samples, `$D418` tricks               |
-| Explicit silence on every screen transition     | Doppler, ground rumble, crash sound        |
-| Host tests over the register mapping            | A user-facing mute key                     |
+| In                                            | Out (for now)                             |
+| --------------------------------------------- | ----------------------------------------- |
+| Engine tone, tracking throttle                | Menu / mission music (§8 reserves room)   |
+| Wind, tracking airspeed                       | Per-voice mixing beyond three fixed roles |
+| Stall warning, a repeating warble on voice 3  | Stereo / dual-SID                         |
+| One-shots: touchdown, gear, flaps             | Digi samples, `$D418` tricks              |
+| Explicit silence on every screen transition   | Doppler, ground rumble, crash sound       |
+| Host tests over the register mapping          | A user-facing mute key                    |
 
 ---
 
@@ -162,23 +162,34 @@ watch for when adding screens.
 
 ### Three voices, three fixed roles
 
-| Voice | Role                    | Waveform | Continuous? |
-| ----- | ----------------------- | -------- | ----------- |
-| 1     | Engine                  | Pulse    | yes         |
-| 2     | Wind, modulated by buffet | Noise  | yes         |
-| 3     | One-shots               | varies   | no          |
+| Voice | Role                          | Waveform | Continuous? |
+| ----- | ----------------------------- | -------- | ----------- |
+| 1     | Engine                        | Pulse    | yes         |
+| 2     | Wind                          | Noise    | yes         |
+| 3     | Stall warning and one-shots   | varies   | no          |
 
-Buffet is *continuous* — it lasts as long as the aircraft is near the stall — so
-giving it its own voice would leave nothing for one-shots. It is also a
-noise-family sound, the same family as wind. Folding it into voice 2 as a
-modulation collapses the contention entirely and is closer to what buffet
-physically is: the airflow over the wing going rough.
+Only voices 1 and 2 hold a note indefinitely. Voice 3 is the transient voice:
+every effect on it is a discrete burst with a beginning and an end, which is
+what lets one voice carry four unrelated sounds.
 
-That leaves voice 3 for transients only, which sidesteps a second problem.
-Priority between a continuous bed and a 200 ms one-shot is the wrong frame; had
-buffet preempted a gear sound, buffet would vanish during gear-down on
-approach — exactly backwards from what the pilot needs to hear — and retrigger
-with a click when the gear sound ended.
+That is the reason the stall lives on voice 3 rather than being folded into
+the wind. **The stall is a warning, and a warning is a repeating alarm, not a
+texture.** Continuous modulation of the wind bed says "the air is rough";
+a warble that keeps re-announcing itself says "you are about to fall out of
+the sky", which is the message. Real light aircraft agree — a stall warner is
+a horn, not a rumble.
+
+The contention this creates is real but resolves cleanly, because the stall
+and the one-shots are not equals. §6 gives voice 3 a priority order with the
+stall above gear and flaps: a gear or flap click is confirmation of something
+the pilot just did and is safely dropped, while a stall warning is news. The
+one case that would have been backwards under the old design — buffet
+vanishing during a gear-down on approach — is exactly the case this ordering
+gets right.
+
+Touchdown outranks the stall. It is a single unmissable event, it is over in
+200 ms, and by definition the aircraft is on the ground when it fires, where
+`flight_stall` is already false on the very next step.
 
 ### Do not depend on the filter
 
@@ -245,24 +256,48 @@ every few thousand frames.
 
 ## 5. The interface out of `flight.cc`
 
-Today `model_on_ground` is `static`, there is no exported stall condition, and
-the only status signal is the `flight_status` crash latch. Three things are
-added.
+Today `model_on_ground` is `static` and the only status signal is the
+`flight_status` crash latch. Two things are added; the first already exists.
 
-### `flight_buffet` — a magnitude, not a flag
-
-`flight.cc` already computes a local `stall_speed` (`kStallSpeedWithoutFlaps`
-`0x0400`, `kStallSpeedWithFlaps` `0x0340`, plus an altitude penalty). Export the
-*deficit*, scaled to a byte:
+### `flight_stall` — the flag the physics already computes
 
 ```c
-extern uint8_t flight_buffet;   // 0 = clean, 255 = deep stall
+extern uint8_t flight_stall;    // 0 = flying, 1 = below stall speed
 ```
 
-A boolean would chatter at the threshold and give a hard on/off. A magnitude
-lets buffet build as margin decays, which is both more useful to the pilot and
-more realistic. Ground mode already has no stall (`flight.cc:579`), so it is
-silent on the runway for free.
+**Already implemented**, because the panel needs it too: the STALL lamp at row
+15 column 13 is driven by `gfx_update_stall(flight_stall)` from
+`panel_update_instruments()`. The sound driver reads the same byte, which is
+the point — a lamp and a warning horn that disagree about whether the aircraft
+is stalled would be worse than either alone.
+
+It is not a new computation. `flight_advance()` already derives a local
+`stall_speed` (`kStallSpeedWithoutFlaps` `0x0400`, `kStallSpeedWithFlaps`
+`0x0340`, an inverted-with-flaps case at `0x0480`, plus an altitude penalty)
+and tests `flight_speed` against it to decide whether to break the nose down.
+`flight_stall` is that same test, assigned to a global instead of living in an
+`if`. Ground mode sets it false explicitly, so the runway is silent and the
+lamp is dark for free.
+
+**Why a flag and not a magnitude.** An earlier draft exported the *deficit*
+below stall speed as a 0–255 byte, so buffet could build smoothly as margin
+decayed. That is the right interface for a texture and the wrong one for a
+warning. A warning has to be unambiguous: it is sounding or it is not, and the
+pilot should never have to judge how loudly. The magnitude also bought a
+resolution the delivery could not use — at ~10 Hz through a 20 ms blit, the
+audible difference between deficit 40 and deficit 60 is nil.
+
+The one real objection to a boolean is **chatter at the threshold**, and it is
+worth being precise about why it does not bite here. `flight_speed` crossing
+`stall_speed` back and forth on successive steps would strobe the lamp and
+machine-gun the horn. But the stall break is not a passive threshold: below it
+the model pitches the nose down every step, which trades altitude for speed
+and pushes `flight_speed` *up*, away from the boundary. The condition is
+self-clearing rather than marginally stable, so a recovery crosses once and
+leaves. If a flight profile is ever found that does sit on the line, the fix
+is hysteresis in `flight.cc` — set at `stall_speed`, clear at `stall_speed +
+delta` — which keeps the lamp and the horn consistent because they read the
+same byte. It is deliberately not solved in the sound driver.
 
 ### `flight_events` — one-shots
 
@@ -301,6 +336,13 @@ set. Two bytes of state, no locks, no disabled interrupts.
 **Priority within a generation is touchdown > gear > flaps**, and lower-priority
 events are **dropped, not queued**. Queuing would surface a flap click 200 ms
 after the key press, which reads as a bug rather than as feedback.
+
+`flight_stall` sits in this priority order too, between touchdown and gear —
+see §6. It is not a member of `flight_events`, though, and deliberately so: it
+is a *level*, not an edge. The event bytes exist to carry things that happen
+once and would otherwise be missed between two frames; a level can simply be
+read every tick, and giving it an event bit would mean tracking its falling
+edge as well.
 
 ### Retriggering across the shadow block
 
@@ -352,13 +394,55 @@ mechanism (sustain-level modulation) only works *downward*. Three options:
    and more intense. Not literally louder, but for "wind rises with speed" it
    sells. One register, no retrigger, chip-independent.
 
-Option 3 also composes cleanly with buffet: buffet drops the noise frequency and
-adds a low-rate wobble, which is what buffet sounds like. The choice is **open**
-— see §10.
+The choice is **open** — see §10.
 
 `flight_speed` runs to `kMaxSpeed` (`0x0F00`); the mapping uses its top bits.
 
-### One-shots — voice 3
+Note that voice 2 now carries wind and nothing else. Wind no longer has to
+reserve headroom in whatever parameter it modulates for a buffet term on top,
+so the speed mapping can use the full range of the mechanism it picks.
+
+### Voice 3 — stall warning and one-shots
+
+Voice 3 runs a small state machine, driven once per `sound_update()`. Its
+inputs are `flight_stall` and, via the generation handshake in §5, at most one
+event per frame. Priority when more than one wants the voice:
+
+```
+touchdown  >  stall  >  gear  >  flaps
+```
+
+A one-shot that loses is dropped, not queued (§5). A stall that loses is not
+dropped in any meaningful sense — it is a level, so it simply gets the voice
+back on the next tick that nothing outranks it, which for touchdown is
+immediately and for gear or flaps is 200 ms later.
+
+**The stall warble.** While `flight_stall` is set, voice 3 retriggers a short
+tone every N ticks — bumping `sound_gen` so §5's blit-side gate cycle fires —
+and stops when the flag clears. Two constants, a period and a duration, both
+tuned by ear in phase 5.
+
+The gap between bursts is the whole point and is worth defending. A tone held
+continuously stops being information after about two seconds: the ear adapts,
+and the pilot is left with a drone under the engine that no longer means
+anything. Re-onset does not adapt. It is also the only way the warning can
+share a voice with the one-shots at all — a held gate would have to be torn
+down and rebuilt around every gear click, which is both more code and audibly
+worse than a gap that was going to be there anyway.
+
+A pulse or triangle tone, not noise: it has to be distinguishable from the
+wind bed on voice 2, and the wind is the loudest thing near the stall the
+warning is competing with. Rate is around 3–4 Hz, the same territory as a real
+cockpit warner.
+
+Because it is a *level*, no falling-edge handling is needed. `sound_update()`
+sees `flight_stall == 0` on some tick, stops scheduling retriggers, and the
+last burst decays on its own envelope. Pause, crash and fuel exhaustion are
+covered by the same derived-silence predicates as everything else (§3), so a
+crash while stalled does not leave the horn sounding even though
+`flight_stall` itself holds its last value.
+
+**One-shots.**
 
 | Event     | Character                                          |
 | --------- | -------------------------------------------------- |
@@ -367,7 +451,9 @@ adds a low-rate wobble, which is what buffet sounds like. The choice is **open**
 | Flaps     | Same family as gear, shorter and quieter            |
 
 Gear and flaps sharing a family is deliberate: they are the same class of event
-to the pilot, and differentiating them costs bytes for no information gain.
+to the pilot, and differentiating them costs bytes for no information gain. All
+three are noise-family, which separates them from the stall tone by waveform as
+well as by rhythm.
 
 ---
 
@@ -378,7 +464,7 @@ against the host, driven by `make -C test`. A `sound_test.cc` drops into that
 pattern unchanged.
 
 The split in §3 is what makes this possible: `sound_update()` is a pure function
-from `(throttle, speed, buffet, events, paused / crashed / fuel)` to 25 bytes.
+from `(throttle, speed, stall, events, paused / crashed / fuel)` to 25 bytes.
 The test asserts on the bytes.
 
 This matters more here than elsewhere, because **the failure mode of audio code
@@ -392,6 +478,17 @@ cases:
   the regression test for the pitch-compression bug a linear map would ship.
 - Touchdown and flaps in one generation produce the touchdown effect.
 - A held event across generations does not retrigger.
+- `flight_stall` set produces a voice-3 gate that goes off and on again over a
+  run of ticks — the regression test for a stall warning that silently becomes
+  a held tone.
+- `flight_stall` clearing stops the retriggers, and nothing re-arms them.
+- A gear event during a stall yields the gear effect on that tick and the
+  warble again afterwards — the §6 priority order, and the case the old
+  voice-2 buffet design got backwards.
+- Crashed while `flight_stall` is still set produces gated-off voices. The
+  flag holds its last value after a crash (`flight_advance()` returns early),
+  so this only works if the derived-silence predicates are checked before the
+  stall logic, and that ordering is the thing being tested.
 
 ---
 
@@ -501,17 +598,27 @@ Each phase leaves the program in a working, committable state.
 2. **Engine.** Pitch table, pulse waveform, PWM sweep, the derived silence
    predicates. First audible phase.
 3. **Wind.** Voice 2 noise, intensity from `flight_speed` by the §6 mechanism.
-4. **Flight model interface.** `flight_buffet`, `flight_events`, `flight_gen`;
+4. **Flight model interface.** `flight_events` and `flight_gen` in `flight.cc`;
    confirm `make -C test flight_test` still builds and passes.
-5. **Buffet.** Fold `flight_buffet` into voice 2.
-6. **One-shots.** Voice 3, the generation handshake, the priority table.
+
+   `flight_stall` is **already done** — it landed with the STALL panel lamp,
+   ahead of the audio work, because the panel needed the same byte. What is
+   left for this phase is the event bitfield and the generation counter.
+5. **Stall warning.** The voice-3 warble from `flight_stall`: period, burst
+   length, waveform and pitch, all tuned by ear.
+6. **One-shots.** The rest of voice 3 — the generation handshake and the
+   priority table from §6, with the stall already in place to arbitrate
+   against.
 7. **Tests.** `c64o/test/sound_test.cc` per §7.
 8. **Verification.** Both PAL and NTSC in VICE; both 6581 and 8580 as a
    sanity check even though §3 removes the dependency.
 
-Phase 4 is the only one that touches tested code, and it is deliberately placed
-after the audio path is proven, so a `flight_test` failure has one obvious
-cause.
+Phase 4 is the only remaining one that touches tested code, and it is
+deliberately placed after the audio path is proven, so a `flight_test` failure
+has one obvious cause. Phase 5 before phase 6 is also deliberate: the stall is
+the harder consumer of voice 3 — it is the one with a rhythm — so building it
+first means the priority logic in phase 6 is written against a case that
+already exists rather than an imagined one.
 
 ---
 
@@ -534,6 +641,19 @@ can be judged by ear rather than argued.
 1 sounds better; option 3 removes the SID-revision dependency entirely and is
 cheaper. Recommend building option 3 in phase 3 and only reaching for option 1
 if it disappoints.
+
+**Stall warble rate and burst length?** §6 suggests 3–4 Hz. At a 20 ms blit
+tick that is a period of 12–16 ticks, but the burst length interacts with the
+envelope: too long and the gap closes up into a held tone, too short and it
+clicks. Judge by ear in phase 5.
+
+**Should the stall warning duck the engine?** Not currently specified, and
+probably not worth it — `$D418` is master volume only (§2), so ducking one
+voice is not available, and dropping the master would duck the warning along
+with everything else. Noted because it is the obvious thing to reach for when
+the warble turns out to be hard to hear over the engine, and it is a dead end.
+The lever that does work is voice 3's pitch: put it where the engine's
+harmonic stack is thin.
 
 **Does the menu tune play under the help screen?** §8. Not answerable until the
 tune exists.

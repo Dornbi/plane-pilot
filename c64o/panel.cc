@@ -22,6 +22,7 @@ void panel_update_instruments() {
   sprites_set_fuel(flight_fuel);
   gfx_update_heading_bitmap(flight_true_heading);
   gfx_update_nav_heading(flight_nav_heading);
+  gfx_update_stall(flight_stall);
   gfx_update_flap(flight_flap);
   gfx_update_gear(flight_gear);
 }

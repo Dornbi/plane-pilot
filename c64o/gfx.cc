@@ -283,7 +283,7 @@ inline void gfx_update_heading_bitmap(uint8_t heading) {
 // which of them a cell's colors land in is png2koa.py's choice, not ours: it
 // re-labels the slots for compression and has already swapped a lamp's nibbles
 // once, silently. `make panel` therefore pins light red to color RAM in these
-// four cells, by the same row and column as the pointers below, and
+// five cells, by the same row and column as the pointers below, and
 // tests/test_png2koa.py checks all three lists still agree. Only these cells
 // are pinned; light red elsewhere in the panel is the encoder's business.
 static void _set_lamp(uint8_t *color_ptr, bool on) {
@@ -304,6 +304,13 @@ void gfx_update_nav_heading(uint8_t heading) {
   if (_lamps_live()) {
     _set_lamp(kHdgPtr, heading == 0 || heading > kHeadingMax / 2);
     _set_lamp(kHdgPtr + 1, heading < kHeadingMax / 2);
+  }
+}
+
+void gfx_update_stall(bool stall) {
+  static uint8_t *const kStallPtr = kColorRam + 15 * kScreenWidth + 13;
+  if (_lamps_live()) {
+    _set_lamp(kStallPtr, stall);
   }
 }
 

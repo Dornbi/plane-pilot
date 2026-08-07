@@ -13,6 +13,7 @@ RENDER_CENTERS = 160,100;160,96;164,100
 PANEL_FLAGS = --bg-color 0 --optimize-slots \
 	--embed 4098:3904 --embed 8562:440 --embed 9562:440 \
 	--pin-color-ram 10@15,21 --pin-color-ram 10@15,22 \
+	--pin-color-ram 10@15,13 \
 	--pin-color-ram 10@17,13 --pin-color-ram 10@18,13
 
 # The programs c64o/Makefile builds. `make release` publishes these from
@@ -66,11 +67,11 @@ map-tiles-draft:
 # The instrument panel. --embed names the three byte ranges view.cc actually
 # embeds, so the optimizer works on what reaches the binary and nothing else.
 #
-# The four --pin-color-ram cells are the indicator lamps: nav left and right,
-# flaps, gear. gfx.cc switches those by storing light red or black into color
-# RAM, so light red has to be the color RAM color there and nowhere else in the
-# cell; without the pin the slot optimizer is free to put it in either screen
-# RAM nibble instead. Keep in sync with the lamp pointers in gfx.cc -
+# The five --pin-color-ram cells are the indicator lamps: nav left and right,
+# stall, flaps, gear. gfx.cc switches those by storing light red or black into
+# color RAM, so light red has to be the color RAM color there and nowhere else
+# in the cell; without the pin the slot optimizer is free to put it in either
+# screen RAM nibble instead. Keep in sync with the lamp pointers in gfx.cc -
 # tests/test_png2koa.py checks that they still agree.
 panel:
 	$(PYTHON) tools/png2koa.py gfx/ppilot_panel_40.png gfx/ppilot_panel_40.koa \

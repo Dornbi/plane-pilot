@@ -47,6 +47,7 @@ uint8_t flight_throttle;
 uint32_t flight_fuel;
 uint8_t flight_flap;
 uint8_t flight_gear;
+uint8_t flight_stall;
 
 uint8_t flight_nav = 0;
 int16_t flight_nav_x = 0;
@@ -181,6 +182,7 @@ void flight_init() {
   model_need_normalize = false;
   flight_flap = false;
   flight_gear = false;
+  flight_stall = false;
   flight_fuel = 0x21FFF;
   model_on_ground = false;
   flight_nav_point_x[0] = 0x2000;
@@ -219,6 +221,7 @@ void flight_init_from_mission(uint8_t mission_idx) {
   model_need_normalize = false;
   flight_flap = false;
   flight_gear = model_on_ground;
+  flight_stall = false;
   flight_num_nav_points = 0;
   uint8_t wp_begin = kMissionWpBegin[mission_idx];
   uint8_t wp_end = kMissionWpEnd[mission_idx];
@@ -543,7 +546,8 @@ void flight_advance() {
       if (flight_speed < 0) {
         flight_speed = 0;
       }
-      if (flight_speed < stall_speed) {
+      flight_stall = flight_speed < stall_speed;
+      if (flight_stall) {
         if (flight_cam.front.z > kMaxStallPitchZ) {
           // Dead spot. front is a unit vector, so with the nose this high its
           // horizontal part is almost nothing, and vec_orthonormalize scales
@@ -577,6 +581,7 @@ void flight_advance() {
       }
     } else {
       // In ground mode: no stall
+      flight_stall = false;
       if (flight_throttle == 0 && flight_speed > 0) {
         flight_speed -= 2;
       }
