@@ -754,6 +754,14 @@ void flight_advance() {
   _flight_path_sample();
   _flight_check_mission_waypoints();
 
+  // Reaching here while wrecked means the crash happened during *this* step:
+  // the guard at the top of this function returns early on every later frame.
+  // So the transition needs no remembered flag of its own, and there is no
+  // path by which the event can fire twice.
+  if (flight_crashed()) {
+    model_pending_events |= FLIGHT_EV_CRASH;
+  }
+
   // Publish the frame's events, then bump the generation - in that order, and
   // last of all. An observer that sees a new generation is then guaranteed to
   // see the complete set that belongs to it.

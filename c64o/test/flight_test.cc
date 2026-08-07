@@ -2248,6 +2248,50 @@ static void test_flight_path_samples_are_connected() {
   printf("  PASS (%d transitions)\n\n", checked);
 }
 
+// The crash event fires exactly once, on the step that wrecks the aircraft.
+//
+// It carries no flag of its own: flight_advance() returns early on every frame
+// after the crash, so simply reaching the end of a step while crashed means it
+// happened during that step. That is only true as long as the early return
+// stays at the top, which is what this pins down.
+static void test_crash_event_fires_once() {
+  printf("Running test_crash_event_fires_once...\n");
+
+  flight_init_from_mission(3);
+  flight_eye_z = 0x040000;
+  flight_advance();
+  assert(!flight_crashed());
+  assert((flight_events & FLIGHT_EV_CRASH) == 0);
+
+  // Drive it into the ground hard enough to fail the landing envelope.
+  int steps = 0;
+  while (!flight_crashed() && steps < 4000) {
+    flight_input(FLIGHT_INPUT_PITCH_DOWN);
+    flight_advance();
+    ++steps;
+  }
+  assert(flight_crashed());
+
+  // The wrecking step published it, alongside a bumped generation.
+  assert((flight_events & FLIGHT_EV_CRASH) != 0);
+  const uint8_t gen_at_crash = flight_gen;
+
+  // Every later frame publishes nothing at all - not the crash again, and not
+  // a new generation. Without that, a consumer keyed on the generation would
+  // retrigger the crash sound on every frame for the rest of the flight.
+  for (int i = 0; i < 20; ++i) {
+    flight_advance();
+    assert(flight_gen == gen_at_crash);
+  }
+
+  // A restart clears it, so the next attempt does not begin wrecked.
+  flight_init_from_mission(3);
+  assert(!flight_crashed());
+  assert((flight_events & FLIGHT_EV_CRASH) == 0);
+
+  printf("  PASS (crashed after %d steps)\n\n", steps);
+}
+
 // Pause freezes the controls as well as the physics.
 //
 // Without this, pause was a way to fly in stopped time: roll, retrim, change
@@ -2529,6 +2573,7 @@ int main(int argc, char **argv) {
   test_runway_1_bounds_alignment();
   test_landing_off_runway_crash();
   test_low_altitude_approach_warnings();
+  test_crash_event_fires_once();
   test_paused_blocks_controls();
   test_flight_path_pixel_cell_agreement();
   test_flight_path_samples_are_connected();

@@ -71,6 +71,10 @@ extern uint8_t flight_stall;
 #define FLIGHT_EV_TOUCHDOWN 0x01
 #define FLIGHT_EV_GEAR 0x02
 #define FLIGHT_EV_FLAP 0x04
+// Set on the step in which the aircraft is wrecked, and never again: the guard
+// at the top of flight_advance() returns early on every later frame, so
+// reaching the end of a step while crashed means it happened during that step.
+#define FLIGHT_EV_CRASH 0x08
 
 // What happened during the step that flight_gen counts. Unlike flight_stall
 // this is an edge, not a level: it is true for exactly the one step in which

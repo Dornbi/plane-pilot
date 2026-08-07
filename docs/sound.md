@@ -16,8 +16,8 @@ See [project.md](project.md) for the surrounding architecture.
 | Engine tone, tracking throttle                | Menu / mission music (§8 reserves room)   |
 | Wind, tracking airspeed                       | Per-voice mixing beyond three fixed roles |
 | Stall warning, a repeating warble on voice 3  | Stereo / dual-SID                         |
-| One-shots: touchdown, gear, flaps             | Digi samples, `$D418` tricks              |
-| Explicit silence on every screen transition   | Doppler, ground rumble, crash sound       |
+| One-shots: touchdown, gear, flaps, crash      | Digi samples, `$D418` tricks              |
+| Explicit silence on every screen transition   | Doppler, ground rumble                    |
 | Host tests over the register mapping          | Per-effect volume or a mix menu           |
 | A volume key (`V`): off / low / full          |                                           |
 
@@ -196,13 +196,35 @@ simulation loop keeps running in those cases:
 | `Q` to main menu   | `sound_silence()` via `gfx_stop_raster_irqs()`        |
 | `P` paused         | derived: `flight_paused`                              |
 | `V` at step 0      | derived: `sound_volume == 0`                          |
-| Crashed            | derived: `flight_crashed()`                           |
+| Crashed            | derived: `flight_crashed()` — **except the crash**    |
 | Out of fuel        | derived: `flight_fuel == 0`                           |
 | `R` reset          | derived: state is re-read next frame                  |
 
-Nine cases, one call site and one predicate. **The invariant fails if a future
-screen stops the driver without masking interrupts** — that is the thing to
-watch for when adding screens.
+Nine cases, one call site and **two** predicates. **The invariant fails if a
+future screen stops the driver without masking interrupts** — that is the thing
+to watch for when adding screens.
+
+### Two predicates, because the crash has to be heard
+
+The derived rules were one predicate until the crash sound arrived, and the
+split is worth stating plainly because collapsing it back is an easy tidy-up
+that would silence the crash entirely:
+
+- **`_driver_live()`** — `sound_volume != 0 && !flight_paused`. Both terms are
+  the player's own doing, which is what makes this the level at which "no
+  sound" means no sound. Nothing survives it.
+- **`_flying()`** — additionally `!flight_crashed() && flight_fuel > 0`. The
+  aircraft is in a state that makes flying noises. Voices 1 and 2 key off this.
+
+Voice 3 keys off `_driver_live()`, so the crash burst plays with the engine and
+the wind already gated off. Pausing still silences it: the crash outlives the
+*aircraft*, not the player's controls.
+
+Master volume follows `_driver_live() && (flying || something on voice 3)`. The
+second term is what keeps silence expressible as a single property of the
+register set — otherwise a wreck whose burst had finished would sit at gates
+clear with the volume still up, and "is this silent" would become "gates clear,
+and also check whether anything is mid-release".
 
 The volume key's *off* step is in the derived column deliberately. Giving it
 its own silencing path would mean every voice added in phases 3 to 6 has to
@@ -303,8 +325,10 @@ frames.
 Phases 4–6 added four bytes of driver state (the active voice-3 effect, its
 remaining frames, the warble phase, and the seen generation) plus two bytes in
 `flight.cc` for `flight_events` and `flight_gen`, and one more private byte for
-`model_pending_events`. The one-shots need no tables: four effects at three
-registers each is cheaper as a `switch` than as a lookup.
+`model_pending_events`. The effects need no tables: five of them at three
+registers each is cheaper as a `switch` than as a lookup, and the crash added
+no state at all — its sweep is interpolated from the frame counter that was
+already there.
 
 Phase 1 cost 256 bytes all in, leaving the heap at `a460 - d000`, 10.7 KB.
 
@@ -600,7 +624,7 @@ inputs are `flight_stall` and, via the generation handshake in §5, at most one
 event per frame. Priority when more than one wants the voice:
 
 ```
-touchdown  >  stall  >  gear  >  flaps
+crash  >  touchdown  >  stall  >  gear  >  flaps
 ```
 
 A one-shot that loses is dropped, not queued (§5). A stall that loses is not
@@ -684,11 +708,31 @@ crash while stalled does not leave the horn sounding even though
 
 **One-shots.**
 
-| Event     | Freq    | LFSR rate  | Length          | Character                    |
-| --------- | ------- | ---------- | --------------- | ---------------------------- |
-| Touchdown | `$1800` | 5773 / sec | 3 fr (~300 ms)  | bright, an impact            |
-| Gear      | `$0900` | 2165 / sec | 5 fr (~500 ms)  | low, mechanical, the longest |
-| Flaps     | `$0C00` | 2886 / sec | 4 fr (~400 ms)  | between the two, shorter     |
+| Event     | Freq            | LFSR rate       | Length           | Character                |
+| --------- | --------------- | --------------- | ---------------- | ------------------------ |
+| Crash     | `$1000`→`$0200` | 3850→481 / sec  | 16 fr (~1.6 s)   | a collapsing rumble      |
+| Touchdown | `$1800`         | 5773 / sec      | 3 fr (~300 ms)   | bright, an impact        |
+| Gear      | `$0900`         | 2165 / sec      | 5 fr (~500 ms)   | low, mechanical, longest |
+| Flaps     | `$0C00`         | 2886 / sec      | 4 fr (~400 ms)   | between the two, shorter |
+
+**The crash is the only one that sweeps**, and the only one with the chip to
+itself. The engine and the wind are gated off the moment `flight_crashed()`
+goes true, so none of the "stay out of the engine's fundamental" reasoning that
+pushed gear up to `$0900` applies — it can go as low as it likes. Its noise
+clock falls across the burst, so the rumble collapses rather than sitting on
+one note, which is the difference between an impact and a long hiss. The
+amplitude does not fall: this is a pitch sweep under a held sustain, not a
+decay.
+
+It needs no flag in `flight.cc` to fire exactly once. `flight_advance()`
+returns early on every frame after the crash, so simply reaching the end of a
+step while `flight_crashed()` is what identifies the step that did it.
+
+Nothing preempts it once started, and nothing needs to — the model stops
+publishing events the moment the aircraft is wrecked. It does drop itself if
+`flight_crashed()` goes false, which is what `R` does: a restart clears the
+status without going near the sound driver, and a wreck still rumbling over the
+first two seconds of the next attempt would be a strange thing to hear.
 
 Gear and flaps sharing a family is deliberate: they are the same class of event
 to the pilot, and differentiating them costs bytes for no information gain. All
@@ -812,6 +856,26 @@ cases:
   its last value after a crash (`flight_advance()` returns early), so this only
   works if the derived-silence predicates are checked before the stall logic,
   and that ordering is what is being tested.
+- The crash burst plays **while the engine and wind are gated off**, with the
+  master volume non-zero throughout. This is the property that fails the moment
+  someone collapses `_driver_live()` and `_flying()` back into one predicate,
+  and the symptom would be no crash sound at all.
+- It runs at least 11 frames, so over a second, and its frequency at the end is
+  lower than at the start.
+- Crashed with **no** crash event published is still silent — the case a test
+  that only ever published the event would miss.
+- The crash outranks a stall in progress; hitting the ground while the warning
+  sounds is the common case, not a corner one.
+- Pausing during the burst silences it, and `flight_status` returning to
+  `FLIGHT_ONGOING` drops it, so an `R` restart does not carry a rumble into the
+  next attempt.
+- Once the burst ends the shadow is silent by the strict test — gates clear
+  *and* master volume zero, not merely inaudible.
+- In `flight_test`: the crash event fires on exactly the step that wrecks the
+  aircraft, and no later frame publishes anything or bumps the generation
+  again. That is what stops the crash sound retriggering on every frame for the
+  rest of the flight, and it rests entirely on the early return staying at the
+  top of `flight_advance()`.
 - Each event produces a burst on the noise waveform.
 - Every one-shot sits at **at least the engine's sustain** and has a non-zero
   release. This is the regression test for the first version, where they used
@@ -1105,6 +1169,19 @@ Each phase leaves the program in a working, committable state.
    warble's gap is now a gate-off rather than an envelope running out — which
    is also what let §7 assert on the gate bit instead of counting retriggers,
    and what let the interleaving invariant widen back to all three voices.
+
+   **6c — the crash.** A ~1.6 s collapsing rumble on voice 3, swept from
+   `$1000` down to `$0200`. `FLIGHT_EV_CRASH` needs no transition flag: the
+   early return at the top of `flight_advance()` means reaching the end of a
+   step while wrecked identifies the step that did it.
+
+   This is the change that split the derived-silence rule into
+   `_driver_live()` and `_flying()` (§3), because `flight_crashed()` was
+   already a silence condition and the crash sound has to survive it. Nine
+   further mutations fail the tests, including the crash event never published,
+   the crash gated behind `_flying()`, the sweep flattened, the burst
+   shortened, the two predicates collapsed back into one, and the crash left
+   running through an `R` restart.
 
    Verified across phases 4–6: nine mutations of the arbitration each fail the
    test individually — stall held rather than retriggered, gate never set,

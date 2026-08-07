@@ -243,10 +243,34 @@ static const uint8_t kGearFrames = 5;
 static const uint8_t kFlapFrames = 4;
 
 
+// The crash. The one sound that outlives the aircraft, and the only effect on
+// this voice that plays while _flying() is false.
+//
+// It has the chip to itself, and that changes what is worth doing with it. The
+// engine and the wind are gated off the moment flight_crashed() goes true, so
+// none of the "stay out of the engine's fundamental" reasoning that pushed
+// gear up to $0900 applies here - the crash can be as low as it likes.
+//
+// It also sweeps. The noise clock falls from kCrashFreqStart to kCrashFreqEnd
+// across the burst, so the rumble collapses rather than sitting on one note,
+// which is the difference between an impact and a long hiss. Amplitude still
+// does not fall: this is a pitch sweep under a held sustain, not a decay.
+//
+// 16 frames is around 1.6 s at the wobbling ~10 Hz frame rate. A power of two
+// so the interpolation below is a shift; the arithmetic stays in 16 bits
+// because the span times the frame count is 3584 * 16 = 57344.
+static const uint8_t kCrashFrames = 16;
+static const uint8_t kCrashShift = 4;  // log2(kCrashFrames)
+static const uint16_t kCrashFreqStart = 0x1000;  // 3850 shifts/sec, a crunch
+static const uint16_t kCrashFreqEnd = 0x0200;    //  481 shifts/sec, a rumble
+static const uint8_t kCrashAttDec = 0x00;  // attack 0, decay 0 -> sustain
+static const uint8_t kCrashSusRel = 0xF9;  // sustain 15, release 9 (750 ms)
+
 // Which effect owns voice 3 right now.
 enum Voice3Effect {
   V3_NONE = 0,
   V3_STALL,
+  V3_CRASH,
   V3_TOUCHDOWN,
   V3_GEAR,
   V3_FLAP,
@@ -375,9 +399,21 @@ static void _set_voice(uint8_t base, uint16_t freq, uint16_t pw, uint8_t ctrl,
 // this function holds whatever value it had at the moment of the crash - a
 // stalled aircraft that hits the ground would otherwise leave its engine and,
 // its stall warning running forever.
-static bool _audible(void) {
-  return sound_volume != 0 && !flight_paused && !flight_crashed() &&
-         flight_fuel > 0;
+// Hard silence: nothing plays at all, not even the crash. Both terms are the
+// player's own doing - the volume key and the pause key - which is what makes
+// this the level at which "no sound" means no sound.
+static bool _driver_live(void) { return sound_volume != 0 && !flight_paused; }
+
+// The aircraft is in a state that makes flying noises. The continuous voices
+// key off this; voice 3 does not, because the crash sound has to outlive it.
+//
+// Crashed is checked here rather than trusted to the flight state going quiet
+// on its own: flight_advance() returns early once wrecked, so every input to
+// this function holds whatever value it had at the moment of the crash - a
+// stalled aircraft that hits the ground would otherwise leave its engine and
+// its stall warning running forever.
+static bool _flying(void) {
+  return _driver_live() && !flight_crashed() && flight_fuel > 0;
 }
 
 // Cycling up and wrapping, so from the default of full the first press is
@@ -473,7 +509,8 @@ void sound_update(void) {
   // not, and silence is expressed as gates clear and master volume zero rather
   // than as an absence of writes. A torn read then mixes two valid register
   // sets instead of a valid one with a blank.
-  const bool audible = _audible();
+  const bool driver_live = _driver_live();
+  const bool flying = _flying();
 
   // Triangle from the 8-bit phase: count up over the bottom half, back down
   // over the top. Scaled by 8 into the 12-bit pulse width register, then
@@ -496,7 +533,12 @@ void sound_update(void) {
 
   // --- Voice 3 arbitration -------------------------------------------------
   //
-  // Priority, from section 6:  touchdown > stall > gear > flap
+  // Priority, from section 6:  crash > touchdown > stall > gear > flap
+  //
+  // The crash sits above all of it and is the only effect that plays while
+  // _flying() is false. Nothing preempts it once started - there is nothing
+  // left that could, since flight_advance() stops publishing events the moment
+  // the aircraft is wrecked.
   //
   // A one-shot already in progress keeps the voice until it expires; only
   // touchdown preempts. A gear or flap event that arrives while something
@@ -527,9 +569,33 @@ void sound_update(void) {
     --_v3_frames;
   }
 
-  if (!audible) {
-    // Nothing survives silence. Dropping the effect here rather than letting
-    // it run down means unpausing does not resume a half-finished gear click.
+  if (!driver_live) {
+    // Nothing survives a pause or the volume key. Dropping the effect here
+    // rather than letting it run down means unpausing does not resume a
+    // half-finished gear click.
+    _v3_effect = V3_NONE;
+    _v3_frames = 0;
+    _stall_phase = 0;
+  } else if (events & FLIGHT_EV_CRASH) {
+    _v3_effect = V3_CRASH;
+    _v3_frames = kCrashFrames;
+    retrigger = true;
+  } else if (_v3_effect == V3_CRASH && _v3_frames != 0 && flight_crashed()) {
+    // The crash burst runs to the end, uninterrupted.
+    //
+    // The flight_crashed() term is what stops it running on past an `R`
+    // restart: that clears the status without going near the sound driver, and
+    // a wreck still rumbling over the first two seconds of the next attempt
+    // would be a strange thing to hear.
+  } else if (_v3_effect == V3_CRASH) {
+    // Either the burst is over or the aircraft is no longer wrecked. Dropped
+    // explicitly rather than left to fall through: the "a one-shot is still
+    // running" branch below would otherwise adopt it and keep it going, since
+    // a crash looks exactly like a long one-shot from there.
+    _v3_effect = V3_NONE;
+    _v3_frames = 0;
+  } else if (!flying) {
+    // Out of fuel, or wrecked with the crash burst already finished.
     _v3_effect = V3_NONE;
     _v3_frames = 0;
     _stall_phase = 0;
@@ -592,6 +658,17 @@ void sound_update(void) {
       v3_attdec = kStallAttDec;
       v3_susrel = kStallSusRel;
       break;
+    case V3_CRASH:
+      // Sweeps down as the burst runs. _v3_frames counts from kCrashFrames to
+      // zero, so this is a plain interpolation and the shift is exact.
+      v3_freq = kCrashFreqEnd + (uint16_t)(((uint32_t)(kCrashFreqStart -
+                                                       kCrashFreqEnd) *
+                                            _v3_frames) >>
+                                           kCrashShift);
+      v3_wave = SID_CTRL_NOISE;
+      v3_attdec = kCrashAttDec;
+      v3_susrel = kCrashSusRel;
+      break;
     case V3_TOUCHDOWN:
       v3_freq = kTouchdownFreq;
       v3_wave = SID_CTRL_NOISE;
@@ -626,12 +703,12 @@ void sound_update(void) {
   // blanked, so the envelope releases instead of being cut dead, and so the
   // sustain register is never zero underneath a gate that is about to be set.
   _set_voice(kSoundRegV1, freq, pw,
-             audible ? (SID_CTRL_RECT | SID_CTRL_GATE) : SID_CTRL_RECT,
+             flying ? (SID_CTRL_RECT | SID_CTRL_GATE) : SID_CTRL_RECT,
              kEngineAttDec, kEngineSusRel);
 
   // Voice 2: wind, which additionally gates off below the speed threshold.
   _set_voice(kSoundRegV2, sound_wind_freq(flight_speed), 0,
-             (audible && sound_wind_audible(flight_speed))
+             (flying && sound_wind_audible(flight_speed))
                  ? (SID_CTRL_NOISE | SID_CTRL_GATE)
                  : SID_CTRL_NOISE,
              kWindAttDec, kWindSusRel);
@@ -652,9 +729,17 @@ void sound_update(void) {
   // key handler, and an out-of-range value would index past the table and put
   // an arbitrary byte in $D418 - where the high nibble is the filter mode, so
   // the symptom would be a filter switching on rather than a wrong volume.
+  //
+  // On whenever something could be sounding, which is no longer the same as
+  // "flying": the crash burst plays with the continuous voices already gated
+  // off. Zeroing it once nothing is left keeps silence expressible as a single
+  // property of the register set rather than as "gates clear, and also check
+  // whether anything is mid-release".
+  const bool anything_sounding = flying || _v3_effect != V3_NONE;
   _poke(kSoundRegModeVol,
-        audible ? kMasterVolume[sound_volume < kSoundVolumeSteps
-                                    ? sound_volume
-                                    : kSoundVolumeDefault]
-                : 0);
+        (driver_live && anything_sounding)
+            ? kMasterVolume[sound_volume < kSoundVolumeSteps
+                                ? sound_volume
+                                : kSoundVolumeDefault]
+            : 0);
 }

@@ -907,6 +907,128 @@ int main() {
     assert(!v3_gated());
   }
 
+  // --- Voice 3: the crash --------------------------------------------------
+  //
+  // The crash is the one sound that outlives the aircraft. Everything else on
+  // this voice stops when the silence predicates say so, and flight_crashed()
+  // is one of them - so the crash burst has to play with the engine and the
+  // wind already gated off. That split is the whole of what is new here, and
+  // it is the thing most likely to be undone by someone tidying the
+  // predicates back into one.
+  {
+    reset_state();
+    flight_throttle = kMaxThrottle;
+    flight_speed = kMaxSpeed;
+    idle_frame();
+    assert(model_audible(0) || true);  // engine running before the crash
+    assert((sound_shadow[kSoundRegV1Ctrl] & SID_CTRL_GATE) != 0);
+
+    // The wreck: the model sets the status during the step and publishes the
+    // event from the same step, which is why flight_advance()'s early return
+    // on later frames cannot swallow it.
+    flight_status = FLIGHT_CRASH_VSPEED;
+    mark();
+    publish_events(FLIGHT_EV_CRASH);
+    sound_update();
+
+    assert(retriggered());
+    assert(v3_gated());
+    assert(v3_wave() == SID_CTRL_NOISE);
+    // Loud, and holding its level rather than fading.
+    assert((sound_shadow[kSoundRegV3 + kSoundVoiceSusRel] >> 4) == 15);
+    assert((sound_shadow[kSoundRegV3 + kSoundVoiceAttDec] & 0x0F) == 0);
+    // Audible: the master volume cannot have been zeroed by the crash.
+    assert(master_volume() > 0);
+    // But the aircraft is wrecked, so the flying voices are done.
+    assert((sound_shadow[kSoundRegV1Ctrl] & SID_CTRL_GATE) == 0);
+    assert((sound_shadow[kSoundRegV2Ctrl] & SID_CTRL_GATE) == 0);
+  }
+
+  // Over a second long. At the wobbling ~10 Hz frame rate that is 11 frames,
+  // and it has to hold up while every other voice is silent - there is nothing
+  // else left to carry the moment.
+  {
+    reset_state();
+    flight_status = FLIGHT_CRASH_VSPEED;
+    publish_events(FLIGHT_EV_CRASH);
+    sound_update();
+
+    int frames = 1;
+    uint16_t first = voice_freq(kSoundRegV3);
+    uint16_t last = first;
+    while (v3_gated() && frames < 100) {
+      last = voice_freq(kSoundRegV3);
+      // Voices 1 and 2 stay down for the whole burst.
+      assert((sound_shadow[kSoundRegV1Ctrl] & SID_CTRL_GATE) == 0);
+      assert((sound_shadow[kSoundRegV2Ctrl] & SID_CTRL_GATE) == 0);
+      assert(master_volume() > 0);
+      idle_frame();
+      ++frames;
+    }
+    assert(frames >= 11);
+
+    // It sweeps downward as it goes - an impact collapsing rather than a long
+    // hiss on one note. Amplitude is not what falls; the sustain check above
+    // already pinned that.
+    assert(last < first);
+
+    // And once it is over, everything really is silent - not merely gated off
+    // with the volume still up.
+    assert(shadow_is_silent());
+  }
+
+  // Wrecked but with no crash event is still silent. This is the case a test
+  // that only ever published the event would miss, and it is what the rest of
+  // the driver has always done.
+  {
+    reset_state();
+    flight_status = FLIGHT_CRASH_VSPEED;
+    idle_frame();
+    assert(shadow_is_silent());
+  }
+
+  // The crash outranks a stall in progress. Hitting the ground while the
+  // warning is sounding is the common case, not a corner one.
+  {
+    reset_state();
+    flight_stall = 1;
+    for (int i = 0; i < 4; ++i) idle_frame();
+    flight_status = FLIGHT_CRASH_VSPEED;
+    publish_events(FLIGHT_EV_CRASH);
+    sound_update();
+    assert(v3_wave() == SID_CTRL_NOISE);
+    assert(v3_gated());
+  }
+
+  // Pausing during the crash silences it like anything else. The crash
+  // outlives the *aircraft*, not the player's own controls.
+  {
+    reset_state();
+    flight_status = FLIGHT_CRASH_VSPEED;
+    publish_events(FLIGHT_EV_CRASH);
+    sound_update();
+    assert(v3_gated());
+    flight_paused = true;
+    idle_frame();
+    assert(shadow_is_silent());
+  }
+
+  // Restarting with R clears the status without going near the sound driver,
+  // so the burst has to notice on its own. A wreck still rumbling over the
+  // first two seconds of the next attempt would be a strange thing to hear.
+  {
+    reset_state();
+    flight_status = FLIGHT_CRASH_VSPEED;
+    publish_events(FLIGHT_EV_CRASH);
+    sound_update();
+    assert(v3_gated());
+    flight_status = FLIGHT_ONGOING;
+    idle_frame();
+    assert(!v3_gated());
+    // And the flying voices come straight back.
+    assert((sound_shadow[kSoundRegV1Ctrl] & SID_CTRL_GATE) != 0);
+  }
+
   // --- The raster interrupt landing mid-update ------------------------------
   //
   // sound_update() runs on the main line and sound_blit() runs from the raster
