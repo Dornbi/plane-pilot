@@ -26,34 +26,41 @@ See [project.md](project.md) for the surrounding architecture.
 
 Four facts about the existing program drive nearly every decision below.
 
-**The software stack has zero headroom.** `ppilot.map`:
-
-```
-0200 - 025e : STACK,  stack      (CPU stack, 94 bytes)
-025e - 0280 : SSTACK             (oscar64 frames — deepest reaches 025e exactly)
-0280 - 0800 : bss2               (full to the byte)
-```
+**An interrupt handler must not allocate a stack frame.** This is a correctness
+constraint, not a space one.
 
 oscar64 allocates `@stack` frames **statically, by call graph**, overlaying
 frames it believes cannot be live at the same time. The raster handlers are
 installed as function pointers through `rirq_call()`, so they are invisible to
 that analysis. Any interrupt-side function needing a frame may be overlaid onto
 `world_render_grid@stack` or `vec_transform3_inv@stack` and corrupt them when
-the interrupt fires mid-render. None of the three existing handlers has an
-`@stack` entry — that is what makes them safe, and it is a constraint the sound
-code inherits.
+the interrupt fires mid-render — a fault that appears once every few thousand
+frames, in a module unrelated to sound. None of the three existing handlers has
+an `@stack` entry; that is what makes them safe, and it is a constraint the
+sound code inherits.
 
-Note also that the usual escape hatch does not exist: the sstack grows *down*
-from `$0280` while bss2 grows *up* from it, so freeing bss2 space adds room on
-the wrong side. The only lever is *lowering* `stacksize`, trading CPU stack for
-software stack.
+Space is a secondary concern, and it is adjustable. `mem.h:19` declares the
+stack region as `$0200–$0280`; oscar64 carves the static frames out of the top
+of it and lets the dynamic stack grow down from there. Today:
+
+```
+0200 - 025e : STACK,  stack      (dynamic stack, 94 bytes)
+025e - 0280 : SSTACK             (static frames, 34 bytes, fully allocated)
+0280 - 0800 : bss2               (full to the byte)
+```
+
+A new frame pushes `StackEnd` down and shrinks the dynamic stack. If that ever
+gets tight, raising the stack region's top in `mem.h:19` and bss2's start in
+`mem.h:22` by the same amount converts bss2 space into frame space — at the cost
+of relocating that much data from bss2 into `main`. Two numbers in one file.
 
 **Frames are slow and jittery.** `mem_switch_buffer()` waits on
 `gfx_wait_vsync()`, so a frame is a whole number of 20 ms ticks and the count
 varies with roll angle and polygon load. `flight_advance()` therefore runs at a
 wobbling ~10 Hz — too slow and too irregular to drive a SID directly.
 
-**Every non-flight screen masks interrupts.** oscar64's `rirq_stop()` is a bare
+**Every non-flight screen masks interrupts** — by choice, and reversibly; see
+§8 for what it would take to change. oscar64's `rirq_stop()` is a bare
 `sei`. It is reached from exactly two places: `screen_enter_static_mccm()`
 (`screen.cc:23`, which serves both the menu and the help screen) and
 `map_enter()` (`map.cc:303`). Map mode additionally banks I/O out with
@@ -371,6 +378,22 @@ interrupt to drive it. The answer is that the tune is a *different owner* under
 §3's ownership rule, driven from `menu_run()`'s own `gfx_wait_vsync()` loop
 (`menu.cc:149`) at a stable 50 Hz with no interrupts involved. The flight
 driver's invariant is unaffected.
+
+**The `sei` is a choice, not a law — but polling is still the better one here.**
+`rirq_stop()` masks *all* interrupts only because the raster split must not run;
+`map.cc:295` spells out why (a stray `cli` restarts the split and redraws the
+map in three bands). Nothing stops a non-flight screen from stopping the split
+and installing a plain single raster IRQ that drives only the player. For the
+menu that is easy — `screen_begin_text_page()` does nothing but `memset`s — it
+is simply more machinery than a `gfx_wait_vsync()` poll for the same 50 Hz tick.
+
+It would earn its keep in one case: keeping music **gapless across screen
+transitions**, where a polling loop necessarily stops. If that is ever wanted,
+the hazard to plan around is map mode. `map_enter()` banks I/O out
+(`mmap_set(MMAP_RAM)`) for pass B, and an interrupt firing during that window
+can reach neither the SID nor `$D019` — it cannot even acknowledge itself.
+Interrupts would have to be masked explicitly around the banked-out passes, and
+the tune would stutter through the map's multi-frame rebuild regardless.
 
 The tune has no equivalent chokepoint, though: `help_run()` has its own
 `gfx_wait_vsync()` loop (`help.cc:59`) and help is reachable from the menu.
