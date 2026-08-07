@@ -20,7 +20,7 @@ PANEL_FLAGS = --bg-color 0 --optimize-slots \
 # c64o/ (build output, gitignored) to bin/ (checked in, what README links to).
 PROGRAMS = ppilot polydemo vecdemo vectest
 
-.PHONY: help data chardefs gfx-chars sprites map-tiles map-tiles-draft panel map-preview render demo prg release test clean
+.PHONY: help data chardefs gfx-chars sprites map-tiles map-tiles-draft panel map-preview render demo prg ram release test clean
 
 help:
 	@echo "Data generation:"
@@ -37,6 +37,7 @@ help:
 	@echo "  make demo        - interactive roll/pitch demo (needs pygame)"
 	@echo "  make prg         - build the C64 binaries via c64o/Makefile (needs oscar64),"
 	@echo "                     then report ppilot.prg's size and load range"
+	@echo "  make ram         - report RAM usage breakdown by feature from c64o/ppilot.map"
 	@echo "  make release     - build, then publish the .prg files to bin/"
 	@echo ""
 	@echo "  make test        - run the Python test suite"
@@ -91,6 +92,9 @@ demo:
 
 prg:
 	$(MAKE) -C c64o
+
+ram:
+	$(PYTHON) tools/analyze_ram.py c64o/ppilot.map
 
 # Publish the freshly built binaries. bin/ is the only copy anyone downloads,
 # so this is the step that keeps it from drifting behind c64o/.
