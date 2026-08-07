@@ -147,6 +147,7 @@ OPTFLAGS = -O2 -Op -Oa -Oi -Oz -Oo
 # and an overrun corrupts globals silently, so every link is followed by this.
 PYTHON ?= python3
 ZPCHECK = $(PYTHON) ../tools/check_zeropage.py
+RAMANALYSIS = $(PYTHON) ../tools/analyze_ram.py
 
 # Report the size of a built .prg. A .prg starts with a two-byte little-endian
 # load address, so the image the C64 actually holds is two bytes shorter than
@@ -176,6 +177,9 @@ all: $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECT
 size:
 	$(call prg_size,$(PPILOT_PROGRAM).prg)
 
+ram:
+	$(RAMANALYSIS) $(PPILOT_PROGRAM).map
+
 $(PPILOT_PROGRAM).prg: $(PPILOT_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_VIEW__ -D__DEBUG_MODEL__ -D__MAX_RAM__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(PPILOT_PROGRAM).asm
@@ -204,7 +208,7 @@ clean:
 	rm -rf $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg *.asm *.dbj *.int *.lbl *.map
 	$(MAKE) -C test clean
 
-.PHONY: all size zpcheck test flight_test msg_test clean
+.PHONY: all size ram zpcheck test flight_test msg_test clean
 
 # ZPCHECK runs after the link, so a program that fails it already exists on
 # disk. Without this, the next make would find the .prg newer than its sources,
