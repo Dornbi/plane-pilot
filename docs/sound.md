@@ -110,6 +110,47 @@ Re-blitting every register every tick is safe. Rewriting frequency, pulse
 width, ADSR and a *held* gate bit changes nothing; only a 0→1 gate transition
 or the TEST bit would retrigger, and neither happens by accident.
 
+### Torn reads are safe only by construction
+
+The interrupt can land between any two of the stores `sound_update()` makes, so
+it can blit a half-written register set. An earlier version of this document
+called that harmless, reasoning that "the two halves are both valid register
+sets and the next tick corrects it 20 ms later".
+
+**The second clause is false for sustain.** §2 already establishes that sustain
+is asymmetric — lowering it drops the level, raising it does nothing until the
+voice is retriggered — which makes it *latching*. A voice gated on at an
+instant when its sustain register reads 0 lands on silence, and every later
+frame rewrites the correct sustain to no effect, because nothing produces the
+gate edge the chip needs to act on it. The voice stays dead until something
+unrelated cycles its gate.
+
+That shipped, and it is what caused one or both continuous voices to drop out
+during flight in VICE and return seconds later — the return being a second torn
+read that happened to catch a wider window and clear the gate. Two properties
+now prevent it, and both are easy to undo by accident:
+
+- **No blanking pass.** Every register is written every frame with its final
+  value, silent or not; silence is gates clear and master volume zero, not an
+  absence of writes. A torn read then mixes two valid register sets.
+- **The control register is written last** within a voice, after the envelope
+  it will latch. A torn read then sees either the old gate with the new
+  envelope or the new gate with the new envelope — never a gate raised ahead of
+  its sustain.
+
+Either one alone fixes the steady state, and it is worth knowing why both are
+kept. `sound_silence()` *does* blank the shadow — it has to, since it runs on
+the way to an `sei` with the chip about to be banked out — so on the first
+frame after it, sustain genuinely reads zero. That frame is every return from
+the map, the help screen and the main menu, with the raster interrupt already
+running again. Without the ordering, a voice stranded there would be silent for
+the whole next flight.
+
+The stores go through a volatile pointer so an optimiser cannot reorder them.
+Nothing else in the program can observe the difference, so without that the
+ordering is not something the compiler is obliged to preserve. This is the one
+part of the fix a host test cannot check — see §7.
+
 ### `_switch_to_terrain`, not the other two handlers
 
 `_switch_to_panel_top` is cycle-counted with 16 hand-placed `nop`s and
@@ -684,6 +725,46 @@ Bounds in these come from the tuning constants — `kEngineJitterShift`,
 in `sound.h`. Retuning the roughness moves the test with it instead of
 falsifying it.
 
+### Interleaving with the interrupt
+
+The cases above all look at the shadow before and after an update, and a whole
+class of bug is invisible from there: the raster interrupt can land *between*
+two of the stores that build it. That is what caused the dropout described in
+§3, and no amount of before-and-after checking would have found it.
+
+`sound.h` therefore declares a `sound_shadow_observer` hook, compiled out of
+the C64 build entirely, which `sound.cc` calls after every individual byte it
+writes into the shadow. The test uses it two ways:
+
+- **A model of the SID envelope**, deep enough to represent the one rule that
+  matters — a gate edge latches the level from whatever sustain reads at that
+  instant, and sustain never raises the level afterwards. Levels only, no
+  attack or decay rates: the question is never how fast a voice reaches its
+  level, only whether it ever leaves zero again.
+- **An exhaustive sweep.** For every instant a blit could occur during
+  `sound_update()`, fire one there and then run thirty more clean frames.
+  Both continuous voices must be audible at the end. A dropout that recovers
+  on the next frame is a click; one that is still silent thirty frames later
+  is the bug.
+
+  The sweep runs from **two** starting points, and the second is the one that
+  earns its keep. From steady-state flight, every register already holds a sane
+  value and only the no-blanking-pass property is under test. From the frame
+  immediately after `sound_silence()`, sustain genuinely reads zero going in,
+  and only the write-ordering saves it. Testing just the first would have
+  passed a build that goes silent every time you come back from the map.
+
+Two invariants are also asserted directly, so a failure names the cause rather
+than only reporting that something went quiet: no instant may show a voice's
+gate set over a zeroed sustain, and no instant during an audible update may
+show master volume at zero.
+
+**What this cannot check** is the volatile qualifier on the stores. Host g++
+does not reorder them either way, so the test passes with or without it; it is
+protection against the *target* compiler, and the only way to confirm it is to
+read `ppilot.asm` and check the stores come out in source order — with the
+control register last for each voice.
+
 ---
 
 ## 8. Reserving room for a menu tune
@@ -844,6 +925,20 @@ Each phase leaves the program in a working, committable state.
    wind sustain strictly below the engine's; the silence predicates zeroing
    voice 2 along with everything else. **Not** verified: the oscar64 build, and
    how it sounds against the engine.
+
+   **3a — the dropout.** Testing in VICE turned up one or both continuous
+   voices going silent during flight and returning seconds later. Cause: a torn
+   read gating a voice on over a zeroed sustain, which the chip latches at zero
+   and never lifts. See §3 for the mechanism and §7 for how it is now tested;
+   the fix is that the shadow has no blanking pass and the control register is
+   written last within a voice.
+
+   Worth recording that this was a *design* error rather than a slip. `sound.h`
+   asserted torn reads were harmless and the code was written to that
+   assumption; §2 already contained the fact that falsified it. The exhaustive
+   sweep found 4 of 40 possible interrupt instants stranded a voice — stores 29
+   and 30 for the engine, 36 and 37 for the wind, which is exactly the two-store
+   window between a voice's control register and its sustain.
 4. **Flight model interface.** `flight_events` and `flight_gen` in `flight.cc`;
    confirm `make -C test flight_test` still builds and passes.
 

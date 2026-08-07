@@ -62,9 +62,24 @@ static const uint8_t kSoundRegResFilt = 23;
 static const uint8_t kSoundRegModeVol = 24;
 
 // What the SID should hold. Written by sound_update() and sound_silence() on
-// the main line, read by sound_blit() from the interrupt. A torn read is
-// harmless: the two halves are both valid register sets and the next tick
-// corrects it 20 ms later.
+// the main line, read by sound_blit() from the interrupt.
+//
+// A torn read is harmless, but only because sound_update() is written to make
+// it so, and the two properties it depends on are easy to break by accident:
+//
+//   - Every register is written every frame with its final value. There is no
+//     blanking pass, so a torn read mixes two valid register sets rather than
+//     a valid one with a hole in it.
+//   - Within a voice the control register is written LAST, after the envelope
+//     it is going to latch. See _set_voice() in sound.cc.
+//
+// This used to read "the two halves are both valid register sets and the next
+// tick corrects it 20 ms later". The second clause is false for sustain, which
+// latches on the gate edge and only ever falls afterwards - so a torn read
+// that gated a voice on over a zeroed sustain stranded it at silence until
+// something unrelated cycled its gate. That was a real dropout in VICE, on
+// both continuous voices, lasting seconds. sound_test.cc now fires a modelled
+// blit at every instant one could occur and requires the sound to survive it.
 extern uint8_t sound_shadow[kSoundRegCount];
 
 // The retrigger handshake. A held gate blits harmlessly every tick, but a new
@@ -78,6 +93,17 @@ extern uint8_t sound_shadow[kSoundRegCount];
 // either side.
 extern uint8_t sound_gen;
 extern uint8_t sound_gen_seen;
+
+#ifndef __OSCAR64__
+// Test-only observer, compiled out of the C64 build entirely.
+//
+// sound.cc calls this after every individual byte it writes into the shadow,
+// which is precisely the set of instants at which a raster interrupt could
+// fire and blit a half-written register set. Interleaving hazards are
+// unreachable from a test that can only look at the shadow before and after,
+// so sound_test.cc uses this to fire a modelled blit at each instant in turn.
+extern void (*sound_shadow_observer)(void);
+#endif
 
 // How rough the engine runs. The frequency is perturbed every frame by up to
 // base >> kEngineJitterShift, so the deviation is proportional and the engine

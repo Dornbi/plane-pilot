@@ -174,6 +174,36 @@ static uint8_t _next_rand(void) {
 
 // --- Driver ----------------------------------------------------------------
 
+#ifndef __OSCAR64__
+void (*sound_shadow_observer)(void) = nullptr;
+#define SHADOW_OBSERVE()                 \
+  do {                                   \
+    if (sound_shadow_observer)           \
+      sound_shadow_observer();           \
+  } while (0)
+#else
+#define SHADOW_OBSERVE() \
+  do {                   \
+  } while (0)
+#endif
+
+// Every write into the shadow goes through here. On the C64 build it is a
+// plain store; on the host it additionally notifies the test observer, so a
+// test can simulate the raster interrupt landing between any two stores.
+//
+// The store is through a volatile pointer, and that is load-bearing rather
+// than decorative. The safety of a torn read (see _set_voice) depends on the
+// order these stores actually happen in, and nothing else in the program can
+// tell the difference - so an optimiser is entitled to reorder or coalesce
+// them. Volatile stores may not be reordered against each other, which pins
+// the order without making sound_shadow volatile outright: that would also
+// make all 25 of sound_blit()'s reads volatile, and the blit's code generation
+// is the one thing in this module that must not be disturbed.
+static void _poke(uint8_t idx, uint8_t val) {
+  ((volatile uint8_t *)sound_shadow)[idx] = val;
+  SHADOW_OBSERVE();
+}
+
 // Writes the chip directly, bypassing the shadow. Only for the two callers
 // below, both of which run when sound_blit() either has not started yet or is
 // about to be masked - so nothing else is going to push the shadow out.
@@ -183,15 +213,35 @@ static void _write_through(void) {
   }
 }
 
+// Writes one voice. The control register goes LAST, and that ordering is the
+// whole reason this function exists rather than seven assignments at the call
+// site.
+//
+// sound_blit() can fire between any two of these stores, so it can copy a
+// half-written voice to the chip. Most of the registers do not care: a torn
+// read that pairs a new frequency with an old pulse width is one frame of a
+// slightly wrong timbre, corrected 20 ms later.
+//
+// Sustain is the exception, because it *latches*. Section 2: lowering sustain
+// during the sustain phase drops the level, but raising it does nothing until
+// the voice is retriggered. So a voice whose gate is set at the instant its
+// sustain register reads 0 goes silent and stays silent - every later frame
+// rewrites the correct sustain, and the chip ignores all of them, because
+// nothing produces the gate edge it needs to act. The voice is dead until
+// something unrelated cycles its gate, which during flight might be seconds.
+//
+// Writing the control register last means a torn read sees either the old
+// gate with the new envelope, or the new gate with the new envelope. It can
+// never see a gate turned on ahead of the sustain that gate is going to latch.
 static void _set_voice(uint8_t base, uint16_t freq, uint16_t pw, uint8_t ctrl,
                        uint8_t attdec, uint8_t susrel) {
-  sound_shadow[base + kSoundVoiceFreqLo] = (uint8_t)freq;
-  sound_shadow[base + kSoundVoiceFreqHi] = (uint8_t)(freq >> 8);
-  sound_shadow[base + kSoundVoicePwLo] = (uint8_t)pw;
-  sound_shadow[base + kSoundVoicePwHi] = (uint8_t)(pw >> 8) & 0x0F;
-  sound_shadow[base + kSoundVoiceCtrl] = ctrl;
-  sound_shadow[base + kSoundVoiceAttDec] = attdec;
-  sound_shadow[base + kSoundVoiceSusRel] = susrel;
+  _poke(base + kSoundVoiceFreqLo, (uint8_t)freq);
+  _poke(base + kSoundVoiceFreqHi, (uint8_t)(freq >> 8));
+  _poke(base + kSoundVoicePwLo, (uint8_t)pw);
+  _poke(base + kSoundVoicePwHi, (uint8_t)(pw >> 8) & 0x0F);
+  _poke(base + kSoundVoiceAttDec, attdec);
+  _poke(base + kSoundVoiceSusRel, susrel);
+  _poke(base + kSoundVoiceCtrl, ctrl);
 }
 
 // The derived half of the silence rule. The other half - menu, help and map -
@@ -283,14 +333,18 @@ void sound_update(void) {
   // slow enough to be heard as a repeating figure rather than as drift.
   _pwm_phase += kPwmStep + (r_pw & 3);
 
-  // Zeroing first means every register this function does not set is silent by
-  // default, rather than holding the previous frame's value. Phases 3 to 6 add
-  // voices 2 and 3 on top; until then they are gated off by this memset and
-  // not by anything anyone has to remember to write.
-  memset(sound_shadow, 0, kSoundRegCount);
-  if (!_audible()) {
-    return;
-  }
+  // No zeroing pass. An earlier version wiped the whole shadow here and then
+  // filled in whatever was audible, which read well but left the shadow
+  // momentarily all zeros - and an interrupt landing in that window blitted
+  // master volume 0 and every gate clear to the chip. That much was
+  // self-correcting, but it also meant every voice was written from a zeroed
+  // sustain, which is not (see _set_voice).
+  //
+  // So every register is written every frame with its final value, silent or
+  // not, and silence is expressed as gates clear and master volume zero rather
+  // than as an absence of writes. A torn read then mixes two valid register
+  // sets instead of a valid one with a blank.
+  const bool audible = _audible();
 
   // Triangle from the 8-bit phase: count up over the bottom half, back down
   // over the top. Scaled by 8 into the 12-bit pulse width register, then
@@ -311,25 +365,44 @@ void sound_update(void) {
   int16_t n = (int16_t)(r_pitch & 0x1F) - 16;
   uint16_t freq = (uint16_t)((int16_t)base + ((amp * n) >> 4));
 
-  _set_voice(kSoundRegV1, freq, pw, SID_CTRL_RECT | SID_CTRL_GATE,
+  // Voice 3 is unclaimed until the stall warning in phase 5. Written every
+  // frame anyway, so it holds a defined gate-clear state rather than whatever
+  // happened to be there.
+  _set_voice(kSoundRegV3, 0, 0, 0, 0, 0);
+
+  // Voice 1: engine. Gate clear when inaudible rather than the whole voice
+  // blanked, so the envelope releases instead of being cut dead, and so the
+  // sustain register is never zero underneath a gate that is about to be set.
+  _set_voice(kSoundRegV1, freq, pw,
+             audible ? (SID_CTRL_RECT | SID_CTRL_GATE) : SID_CTRL_RECT,
              kEngineAttDec, kEngineSusRel);
 
-  // Voice 2: wind. Below the threshold the voice is still written, with the
-  // waveform and envelope intact but the gate clear, rather than left to the
-  // memset above. That is what lets it release over kWindSusRel's ~200 ms
-  // instead of being cut dead - the memset would zero the release nibble too,
-  // and a bed that stops instantly on touchdown is audibly a bug.
+  // Voice 2: wind, which additionally gates off below the speed threshold.
   _set_voice(kSoundRegV2, sound_wind_freq(flight_speed), 0,
-             sound_wind_audible(flight_speed)
+             (audible && sound_wind_audible(flight_speed))
                  ? (SID_CTRL_NOISE | SID_CTRL_GATE)
                  : SID_CTRL_NOISE,
              kWindAttDec, kWindSusRel);
 
-  // Guarded rather than trusted: sound_volume is written from the key handler,
-  // and an out-of-range value here would index past the table and put an
-  // arbitrary byte in $D418 - where the high nibble is the filter mode, so the
-  // symptom would be a filter switching on rather than a wrong volume.
-  sound_shadow[kSoundRegModeVol] =
-      kMasterVolume[sound_volume < kSoundVolumeSteps ? sound_volume
-                                                    : kSoundVolumeDefault];
+  // The filter is deliberately unused - section 3 on why depending on it is a
+  // portability trap - but the registers still have to be written, since
+  // nothing zeroes them for us any more.
+  _poke(kSoundRegCutoffLo, 0);
+  _poke(kSoundRegCutoffHi, 0);
+  _poke(kSoundRegResFilt, 0);
+
+  // Master volume last. It is the one register with no latching behaviour, so
+  // a torn read that catches the old value is a single frame at the wrong
+  // level and nothing more - which makes it the safest thing to leave until
+  // the end.
+  //
+  // The index is guarded rather than trusted: sound_volume is written from the
+  // key handler, and an out-of-range value would index past the table and put
+  // an arbitrary byte in $D418 - where the high nibble is the filter mode, so
+  // the symptom would be a filter switching on rather than a wrong volume.
+  _poke(kSoundRegModeVol,
+        audible ? kMasterVolume[sound_volume < kSoundVolumeSteps
+                                    ? sound_volume
+                                    : kSoundVolumeDefault]
+                : 0);
 }

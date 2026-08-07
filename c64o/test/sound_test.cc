@@ -57,6 +57,83 @@ static uint8_t master_volume(void) {
   return sound_shadow[kSoundRegModeVol] & 0x0F;
 }
 
+// --- A model of the SID envelope, just deep enough to show a stuck voice ----
+//
+// One rule from section 2 is what this exists for: $D418 is master only, and a
+// voice's sustain level "is asymmetric - lowering sustain during the sustain
+// phase drops the level, but *raising* it does nothing until the voice is
+// retriggered."
+//
+// That makes sustain latching, not levelling. A voice that is gated on at the
+// instant its sustain register reads 0 goes to silence and stays there, and
+// every later write of the correct sustain has no effect, because nothing
+// produces the gate edge the chip needs. Only the level is modelled - not the
+// attack and decay rates - because the question is never how fast a voice
+// reaches its level, only whether it ever leaves zero again.
+
+static const uint8_t kVoiceBase[3] = {kSoundRegV1, kSoundRegV2, kSoundRegV3};
+
+struct EnvModel {
+  uint8_t level;
+  bool gated;
+};
+
+static EnvModel env[3];
+static uint8_t env_volume;
+
+static void model_reset(void) {
+  for (int v = 0; v < 3; ++v) {
+    env[v].level = 0;
+    env[v].gated = false;
+  }
+  env_volume = 0;
+}
+
+// What the chip does when sound_blit() copies the shadow to $D400.
+static void model_blit(void) {
+  env_volume = sound_shadow[kSoundRegModeVol] & 0x0F;
+  for (int v = 0; v < 3; ++v) {
+    uint8_t ctrl = sound_shadow[kVoiceBase[v] + kSoundVoiceCtrl];
+    uint8_t sustain = sound_shadow[kVoiceBase[v] + kSoundVoiceSusRel] >> 4;
+    bool gate = (ctrl & SID_CTRL_GATE) != 0;
+
+    if (gate && !env[v].gated) {
+      // Gate edge: attack to peak, then decay to whatever sustain says right
+      // now. If sustain reads 0 at this instant, the voice lands on silence.
+      env[v].level = sustain;
+    } else if (gate) {
+      // Held gate. Sustain can pull the level down and never pushes it up.
+      if (env[v].level > sustain) {
+        env[v].level = sustain;
+      }
+    } else {
+      env[v].level = 0;
+    }
+    env[v].gated = gate;
+  }
+}
+
+// Is this voice actually making a sound?
+static bool model_audible(int v) { return env_volume > 0 && env[v].level > 0; }
+
+// --- Simulating a raster interrupt at an arbitrary instant ------------------
+
+static long observer_writes;
+static long observer_fire_at;
+
+static void observer(void) {
+  if (observer_writes++ == observer_fire_at) {
+    model_blit();
+  }
+}
+
+// One update with no interrupt during it, then the blit that follows it.
+static void quiet_frame(void) {
+  sound_shadow_observer = nullptr;
+  sound_update();
+  model_blit();
+}
+
 static uint16_t voice_freq(uint8_t base) {
   return (uint16_t)sound_shadow[base + kSoundVoiceFreqLo] |
          ((uint16_t)sound_shadow[base + kSoundVoiceFreqHi] << 8);
@@ -67,6 +144,25 @@ static uint16_t voice_pw(uint8_t base) {
          ((uint16_t)sound_shadow[base + kSoundVoicePwHi] << 8);
 }
 
+// Silence is a property of the register set, not a particular byte pattern.
+//
+// It used to be "every byte is zero", because sound_update() wiped the shadow
+// and filled in only what was audible. That is no longer how silence is
+// expressed - blanking the shadow is what made a torn read able to gate a
+// voice on over a zeroed sustain - so the test asks the question directly:
+// master volume off, and no voice gated.
+static bool shadow_is_silent(void) {
+  if ((sound_shadow[kSoundRegModeVol] & 0x0F) != 0) {
+    return false;
+  }
+  return (sound_shadow[kSoundRegV1Ctrl] & SID_CTRL_GATE) == 0 &&
+         (sound_shadow[kSoundRegV2Ctrl] & SID_CTRL_GATE) == 0 &&
+         (sound_shadow[kSoundRegV3Ctrl] & SID_CTRL_GATE) == 0;
+}
+
+// Still needed for sound_silence(), which really does blank everything - it
+// runs on the way to an sei with the chip about to be banked out, so there is
+// no later blit to rely on and nothing to be torn against.
 static bool shadow_all_zero(void) {
   for (uint8_t i = 0; i < kSoundRegCount; ++i) {
     if (sound_shadow[i] != 0) {
@@ -122,13 +218,13 @@ int main() {
   flight_throttle = kMaxThrottle;
   flight_paused = true;
   sound_update();
-  assert(shadow_all_zero());
+  assert(shadow_is_silent());
 
   reset_state();
   flight_throttle = kMaxThrottle;
   flight_status = FLIGHT_CRASH_VSPEED;
   sound_update();
-  assert(shadow_all_zero());
+  assert(shadow_is_silent());
 
   // A completed mission is not a crash: the simulation keeps running and so
   // does the engine. This is the case a plain truth test on flight_status
@@ -137,13 +233,13 @@ int main() {
   flight_throttle = kMaxThrottle;
   flight_status = FLIGHT_MISSION_COMPLETED;
   sound_update();
-  assert(!shadow_all_zero());
+  assert(!shadow_is_silent());
 
   reset_state();
   flight_throttle = kMaxThrottle;
   flight_fuel = 0;
   sound_update();
-  assert(shadow_all_zero());
+  assert(shadow_is_silent());
 
   // Fuel of 1 is still fuel. The boundary matters because the flight model
   // drains toward zero rather than jumping to it.
@@ -151,7 +247,7 @@ int main() {
   flight_throttle = kMaxThrottle;
   flight_fuel = 1;
   sound_update();
-  assert(!shadow_all_zero());
+  assert(!shadow_is_silent());
 
   // --- The V key -----------------------------------------------------------
 
@@ -176,7 +272,7 @@ int main() {
   flight_throttle = kMaxThrottle;
   sound_volume = 0;
   sound_update();
-  assert(shadow_all_zero());
+  assert(shadow_is_silent());
 
   // The two audible steps have to be audible, ordered, and distinct. A middle
   // step equal to full is a control that does nothing on two of its three
@@ -187,7 +283,7 @@ int main() {
     flight_throttle = kMaxThrottle;
     sound_volume = step;
     sound_update();
-    assert(!shadow_all_zero());
+    assert(!shadow_is_silent());
     vol_at_step[step] = master_volume();
     assert(vol_at_step[step] > 0);
     // The high nibble of $D418 is the filter mode. Volume must not leak into
@@ -223,7 +319,7 @@ int main() {
     sound_update();
     // And it is still in force, not merely still stored.
     if (step == 0) {
-      assert(shadow_all_zero());
+      assert(shadow_is_silent());
     } else {
       assert(master_volume() == vol_at_step[step]);
     }
@@ -437,7 +533,7 @@ int main() {
   flight_throttle = kMaxThrottle;
   flight_paused = true;
   sound_update();
-  assert(shadow_all_zero());
+  assert(shadow_is_silent());
 
   // --- Roughness: the engine must not hold a steady note -------------------
   //
@@ -492,6 +588,138 @@ int main() {
     // And it has to move in both directions off the table entry, or the
     // jitter is a detune rather than a wobble.
     assert(f_min < base && f_max > base);
+  }
+
+  // --- The raster interrupt landing mid-update ------------------------------
+  //
+  // sound_update() runs on the main line and sound_blit() runs from the raster
+  // interrupt, so the interrupt can land between any two of the stores that
+  // build the shadow. sound.h used to claim this was harmless, on the grounds
+  // that "the two halves are both valid register sets and the next tick
+  // corrects it 20 ms later".
+  //
+  // The second half of that is false for exactly one register. Sustain latches
+  // on the gate edge and only ever falls afterwards (section 2), so a torn
+  // read that gates a voice on while its sustain still reads 0 strands it at
+  // silence - and every later frame rewrites the correct sustain with no gate
+  // edge, so the chip never acts on it. The voice stays dead until something
+  // unrelated happens to cycle its gate.
+  //
+  // That is the reported symptom: one or both channels drop out during flight
+  // and come back a while later. This sweep fires the interrupt at every
+  // instant it could possibly occur and requires the sound to survive each
+  // one.
+  {
+    // How many stores one update makes, measured rather than assumed.
+    reset_state();
+    flight_throttle = 0x10;
+    flight_speed = kMaxSpeed;
+    observer_writes = 0;
+    observer_fire_at = -1;
+    sound_shadow_observer = observer;
+    sound_update();
+    sound_shadow_observer = nullptr;
+    const long writes_per_update = observer_writes;
+    assert(writes_per_update > 0);
+
+    // Two starting points, because they are different hazards.
+    //
+    // warmup 4 is steady-state flight: every register already holds a sane
+    // value from the previous frame, so a torn read mixes two valid sets.
+    //
+    // warmup 0 is the frame immediately after sound_silence(), which really
+    // does blank the shadow - so sustain genuinely reads zero going in. That
+    // is not a corner case: it is every return from the map, the help screen
+    // and the main menu, and the raster interrupt is running again by then.
+    // A voice stranded here would be silent for the whole next flight.
+    static const int kWarmups[] = {4, 0};
+    for (int w = 0; w < 2; ++w) {
+      for (long k = 0; k < writes_per_update; ++k) {
+        reset_state();
+        model_reset();
+        flight_throttle = 0x10;
+        flight_speed = kMaxSpeed;
+
+        for (int i = 0; i < kWarmups[w]; ++i) {
+          quiet_frame();
+        }
+
+        // Now the interrupt lands after store number k.
+        observer_writes = 0;
+        observer_fire_at = k;
+        sound_shadow_observer = observer;
+        sound_update();
+        sound_shadow_observer = nullptr;
+        model_blit();
+
+        // Give it far longer than 20 ms to put itself right. A dropout that
+        // recovers on the next frame is a click; one that is still silent 30
+        // frames later is the bug.
+        for (int i = 0; i < 30; ++i) {
+          quiet_frame();
+        }
+
+        assert(model_audible(0));
+        assert(model_audible(1));
+      }
+    }
+
+    sound_shadow_observer = nullptr;
+  }
+
+  // The two invariants underneath that sweep, asserted directly so a failure
+  // says what is wrong rather than only that something went quiet.
+  {
+    reset_state();
+    flight_throttle = 0x10;
+    flight_speed = kMaxSpeed;
+
+    static bool saw_gate_over_zero_sustain;
+    static bool saw_silent_volume;
+    saw_gate_over_zero_sustain = false;
+    saw_silent_volume = false;
+
+    // Warm up first, with the observer off. reset_state() goes through
+    // sound_init() and therefore sound_silence(), which really does blank the
+    // shadow - so the very first update legitimately starts from master volume
+    // zero and only writes it at the end. Observing that would be observing
+    // the transition out of silence, not a glitch inside a steady state.
+    for (int i = 0; i < 3; ++i) {
+      sound_update();
+    }
+    assert(master_volume() > 0);
+
+    sound_shadow_observer = []() {
+      // 1. A gate set over a zeroed sustain. This is the one that strands a
+      //    voice: the gate edge latches the level at 0 and no later write of
+      //    the correct sustain can lift it.
+      for (int v = 0; v < 3; ++v) {
+        uint8_t ctrl = sound_shadow[kVoiceBase[v] + kSoundVoiceCtrl];
+        uint8_t sustain = sound_shadow[kVoiceBase[v] + kSoundVoiceSusRel] >> 4;
+        if ((ctrl & SID_CTRL_GATE) && sustain == 0) {
+          saw_gate_over_zero_sustain = true;
+        }
+      }
+      // 2. Master volume reading zero at any instant. Starting audible and
+      //    ending audible, it has no business passing through silence in
+      //    between. This one recovers on the next blit, so it is a click
+      //    rather than a dropout - but it is a click every time the interrupt
+      //    lands in the window, and the fix is free: do not blank a register
+      //    you are about to rewrite.
+      if ((sound_shadow[kSoundRegModeVol] & 0x0F) == 0) {
+        saw_silent_volume = true;
+      }
+    };
+
+    // Every update here both starts and ends audible - full fuel, flying, not
+    // paused - so neither condition has any legitimate reason to appear.
+    for (int i = 0; i < 20; ++i) {
+      sound_update();
+    }
+    sound_shadow_observer = nullptr;
+
+    assert(!saw_gate_over_zero_sustain);
+    assert(!saw_silent_volume);
   }
 
   // --- The pulse width sweep -----------------------------------------------
@@ -581,7 +809,7 @@ int main() {
   reset_state();
   flight_throttle = kMaxThrottle;
   sound_update();
-  assert(!shadow_all_zero());
+  assert(!shadow_is_silent());
 
   sound_silence();
   assert(shadow_all_zero());
