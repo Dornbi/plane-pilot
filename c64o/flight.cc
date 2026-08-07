@@ -49,6 +49,22 @@ uint8_t flight_flap;
 uint8_t flight_gear;
 uint8_t flight_stall;
 
+uint8_t flight_events;
+uint8_t flight_gen;
+
+// Events accumulated so far in the current frame, before they are published.
+//
+// A separate byte is needed because the frame does not collect them all in one
+// place. sim_run() calls flight_input() for the keys first and flight_advance()
+// afterwards, so gear and flap are recorded before the step that publishes
+// them even begins - clearing flight_events at the top of flight_advance(),
+// which is the obvious reading of docs/sound.md section 5, would throw them
+// away every time.
+//
+// Both writers are on the main line and run in a fixed order within the frame,
+// so this needs no synchronisation of its own.
+static uint8_t model_pending_events;
+
 uint8_t flight_nav = 0;
 int16_t flight_nav_x = 0;
 int16_t flight_nav_y = 0;
@@ -183,6 +199,12 @@ void flight_init() {
   flight_flap = false;
   flight_gear = false;
   flight_stall = false;
+  // flight_gen is deliberately NOT reset. It is a free-running counter whose
+  // only job is to differ from the last value a consumer saw, and restarting
+  // it at zero could land on exactly the value already recorded - dropping one
+  // event set on the first frame of a mission.
+  flight_events = 0;
+  model_pending_events = 0;
   flight_fuel = 0x21FFF;
   model_on_ground = false;
   flight_nav_point_x[0] = 0x2000;
@@ -222,6 +244,12 @@ void flight_init_from_mission(uint8_t mission_idx) {
   flight_flap = false;
   flight_gear = model_on_ground;
   flight_stall = false;
+  // flight_gen is deliberately NOT reset. It is a free-running counter whose
+  // only job is to differ from the last value a consumer saw, and restarting
+  // it at zero could land on exactly the value already recorded - dropping one
+  // event set on the first frame of a mission.
+  flight_events = 0;
+  model_pending_events = 0;
   flight_num_nav_points = 0;
   uint8_t wp_begin = kMissionWpBegin[mission_idx];
   uint8_t wp_end = kMissionWpEnd[mission_idx];
@@ -655,6 +683,12 @@ void flight_advance() {
         flight_status = touchdown_fault;
       }
 
+      if (!was_on_ground) {
+        // The arrival, not the rollout: this block runs on every frame at
+        // ground level, so the transition is what the sound wants.
+        model_pending_events |= FLIGHT_EV_TOUCHDOWN;
+      }
+
       model_on_ground = true;
       // Touched down: the descent is over. Zeroed after the envelope check
       // above, which needs the sink rate the aircraft arrived with.
@@ -719,6 +753,17 @@ void flight_advance() {
   _flight_update_nav();
   _flight_path_sample();
   _flight_check_mission_waypoints();
+
+  // Publish the frame's events, then bump the generation - in that order, and
+  // last of all. An observer that sees a new generation is then guaranteed to
+  // see the complete set that belongs to it.
+  //
+  // This is past the crash guard at the top, so a wrecked aircraft publishes
+  // nothing further and its last generation stands. That is what stops the
+  // final event of a flight from being retriggered on every frame afterwards.
+  flight_events = model_pending_events;
+  model_pending_events = 0;
+  ++flight_gen;
 }
 
 void flight_input(enum flight_input_t input) {
@@ -810,9 +855,11 @@ void flight_input(enum flight_input_t input) {
       break;
     case FLIGHT_INPUT_TOGGLE_FLAP:
       flight_flap = 1 - flight_flap;
+      model_pending_events |= FLIGHT_EV_FLAP;
       break;
     case FLIGHT_INPUT_TOGGLE_GEAR:
       flight_gear = 1 - flight_gear;
+      model_pending_events |= FLIGHT_EV_GEAR;
       break;
     case FLIGHT_INPUT_MOVE_BACKWARD:
     case FLIGHT_INPUT_MOVE_FORWARD:
@@ -874,9 +921,11 @@ void flight_input(enum flight_input_t input) {
     break;
   case FLIGHT_INPUT_TOGGLE_FLAP:
     flight_flap = 1 - flight_flap;
+    model_pending_events |= FLIGHT_EV_FLAP;
     break;
   case FLIGHT_INPUT_TOGGLE_GEAR:
     flight_gear = 1 - flight_gear;
+    model_pending_events |= FLIGHT_EV_GEAR;
     break;
   case FLIGHT_INPUT_MOVE_BACKWARD:
   case FLIGHT_INPUT_MOVE_FORWARD:

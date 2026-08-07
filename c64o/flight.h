@@ -66,6 +66,28 @@ extern uint8_t flight_gear;
 // crashed, since flight_advance() does no physics in either case.
 extern uint8_t flight_stall;
 
+// One-shot events, for the audio driver. Set during a step of
+// flight_advance(), published as a complete set at the end of it.
+#define FLIGHT_EV_TOUCHDOWN 0x01
+#define FLIGHT_EV_GEAR 0x02
+#define FLIGHT_EV_FLAP 0x04
+
+// What happened during the step that flight_gen counts. Unlike flight_stall
+// this is an edge, not a level: it is true for exactly the one step in which
+// the thing occurred.
+extern uint8_t flight_events;
+
+// Incremented once per completed step, and always *after* flight_events has
+// been written, so an observer that sees a new generation is guaranteed to see
+// the complete event set that goes with it.
+//
+// The counter is what makes each set consumable exactly once, and that is not
+// merely tidy. flight_advance() returns early once the aircraft is wrecked, so
+// flight_events keeps its last value forever afterwards; without the
+// generation a consumer would retrigger that final event on every frame for
+// the rest of the flight.
+extern uint8_t flight_gen;
+
 // Navigation state
 extern uint8_t flight_nav;
 extern int16_t flight_nav_x;

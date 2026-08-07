@@ -19,9 +19,9 @@ uint8_t sound_volume = kSoundVolumeDefault;
 //
 // 7 rather than 8 for the middle step: it is half amplitude, about -6 dB, and
 // it stays clear of the bottom of the range where the 6581 in particular gets
-// noisy. Step 0 never actually reaches the chip through here - the predicate
-// below zeroes the whole shadow first - but it is in the table so the mapping
-// from step to volume is complete in one place.
+// noisy. Step 0 does reach the chip: silence is expressed as gates clear and
+// master volume zero rather than as a blanked shadow, for the torn-read reason
+// in section 3.
 static const uint8_t kMasterVolume[kSoundVolumeSteps] = {0, 7, 15};
 
 // --- Voice 1: engine -------------------------------------------------------
@@ -135,6 +135,127 @@ static const uint16_t kWindMinSpeed = 0x0080;
 static const uint8_t kWindAttDec = 0x60;  // attack 6, decay 0
 static const uint8_t kWindSustain = 10;
 static const uint8_t kWindSusRel = (kWindSustain << 4) | 0x06;
+
+// --- Voice 3: stall warning and one-shots ----------------------------------
+//
+// The transient voice. Everything on it is a burst with a beginning and an
+// end, which is what lets one voice carry four unrelated sounds.
+//
+// Nothing on this voice decays. Every effect is attack 0, decay 0, sustain 15
+// - straight to full level and held there - and ends by being gated off, with
+// the release nibble giving it a tail. Length is always a frame count.
+//
+// An earlier version made the stall a decaying beep and the one-shots a
+// plateau, on the theory that a repeating alarm wants to end itself. In
+// practice a decay is just a quieter sound: the level is falling for most of
+// the time the effect is audible, and it is competing with an engine at
+// sustain 15 and a wind bed at 10 that never decay. That is what made gear and
+// flap almost inaudible, and the same argument applies to a warning horn.
+//
+// The consequence for the stall is that its gap is now expressed by the gate
+// rather than implied by the decay: the warble gates ON for kStallOnFrames and
+// OFF for the rest of kStallPeriodFrames. That is more honest - the silence
+// between beeps is the information, so it should be something the code states
+// rather than a side effect of an envelope running out.
+//
+// It also means no effect on voice 3 relies on sustain 0 under a set gate, so
+// section 7's interleaving invariant now covers all three voices rather than
+// excusing this one. Anything added here that *does* decay to zero would have
+// to re-open that exemption.
+//
+// sound_gen is still bumped at the start of every burst. Gating off between
+// beeps already produces an edge on its own, so for the warble the bump is
+// belt and braces; it earns its keep for one-shots, where two events in
+// consecutive frames would otherwise leave the gate continuously set and the
+// second sound would never restart its envelope.
+
+// The stall warning. A pulse tone rather than noise: it has to be
+// distinguishable from the wind bed on voice 2, and near the stall the wind is
+// the loudest thing it is competing with.
+//
+// ~840 Hz, which is up where the engine's harmonic stack is thin. Section 10
+// records why that is the lever to reach for rather than ducking the engine -
+// $D418 is master only, so ducking one voice is not available at all.
+static const uint16_t kStallFreq = 0x3800;
+static const uint16_t kStallPw = 0x0800;   // square, the most cutting duty
+static const uint8_t kStallAttDec = 0x00;  // attack 0, decay 0 -> sustain
+static const uint8_t kStallSusRel = 0xF3;  // sustain 15, release 3 (72 ms)
+
+// The warble, in frames: gated on for kStallOnFrames, off for the remainder of
+// kStallPeriodFrames. At the wobbling ~10 Hz frame rate that is about 200 ms
+// of tone and 200 ms of silence, so 2.5 Hz - cockpit warner territory.
+//
+// The gap is the point. A tone held continuously stops being information after
+// about two seconds: the ear adapts and it becomes a drone under the engine
+// that no longer means anything. Re-onset does not adapt.
+//
+// The release above has to fit inside the gap or the beeps run together. 72 ms
+// of tail into a 200 ms silence leaves plenty; shortening the gap is the thing
+// to be careful about when retuning these.
+static const uint8_t kStallOnFrames = 2;
+static const uint8_t kStallPeriodFrames = 4;
+
+// The one-shots. All noise-family, which separates them from the stall tone by
+// waveform as well as by rhythm.
+//
+// Unlike the stall these hold a PLATEAU rather than decaying to nothing: decay
+// 0 and sustain 15, so the envelope goes straight to full and stays there
+// until the voice is gated off, at which point the release nibble gives it a
+// tail. Length is therefore a frame count, not a decay rate.
+//
+// The first version used the same decay-to-zero envelope as the stall, and the
+// gear and flap clicks were almost inaudible. Two reasons, both fixed here.
+// The burst began decaying 2 ms after it started, so its *average* level over
+// the sound was a fraction of its peak - and it was competing with an engine
+// held at sustain 15 and a wind bed at 10, neither of which ever decays. Flap
+// in particular was decay 3, gone in 72 ms.
+static const uint8_t kOneShotAttDec = 0x00;  // attack 0, decay 0 -> sustain
+
+// Frequencies. On a noise voice these clock the LFSR (see the wind table), so
+// low is a rumble and high is a hiss.
+//
+// Gear is the lowest, per section 6 - mechanical, not impact - but no longer
+// as low as it was. 0x0300 put its energy under about 360 Hz, right on top of
+// the engine's fundamental and first harmonics, which is the worst place to
+// put a sound that has to be noticed over the engine.
+static const uint16_t kTouchdownFreq = 0x1800;  // bright, an impact
+static const uint16_t kGearFreq = 0x0900;       // low, mechanical
+static const uint16_t kFlapFreq = 0x0C00;       // between the two
+
+// Sustain 15 on all three: they are brief, and the whole complaint was that
+// they could not be heard against the continuous voices. The release nibble is
+// the tail after the gate drops.
+static const uint8_t kTouchdownSusRel = 0xF5;  // release 5 (168 ms)
+static const uint8_t kGearSusRel = 0xF6;       // release 6 (204 ms), longest
+static const uint8_t kFlapSusRel = 0xF4;       // release 4 (114 ms)
+
+// How many frames each one-shot holds the voice. At the wobbling ~10 Hz frame
+// rate these are roughly 300, 500 and 400 ms - all comfortably past the 200 ms
+// the first version was aiming at, and that was the other half of why they
+// went unheard.
+//
+// Gear is the longest, which is also what keeps it distinguishable from flap
+// now that both sit at full sustain: section 6 asks for flap to be "shorter
+// and quieter", and quieter is still not available on a chip with no per-voice
+// volume, so shorter carries the whole difference along with pitch.
+static const uint8_t kTouchdownFrames = 3;
+static const uint8_t kGearFrames = 5;
+static const uint8_t kFlapFrames = 4;
+
+
+// Which effect owns voice 3 right now.
+enum Voice3Effect {
+  V3_NONE = 0,
+  V3_STALL,
+  V3_TOUCHDOWN,
+  V3_GEAR,
+  V3_FLAP,
+};
+
+static uint8_t _v3_effect;      // enum Voice3Effect
+static uint8_t _v3_frames;      // frames left before a one-shot releases
+static uint8_t _stall_phase;    // counts frames within one warble cycle
+static uint8_t _flight_gen_seen;
 
 // --- Roughness -------------------------------------------------------------
 //
@@ -253,7 +374,7 @@ static void _set_voice(uint8_t base, uint16_t freq, uint16_t pw, uint8_t ctrl,
 // on its own: flight_advance() returns early once wrecked, so every input to
 // this function holds whatever value it had at the moment of the crash - a
 // stalled aircraft that hits the ground would otherwise leave its engine and,
-// from phase 5, its stall warning running forever.
+// its stall warning running forever.
 static bool _audible(void) {
   return sound_volume != 0 && !flight_paused && !flight_crashed() &&
          flight_fuel > 0;
@@ -302,6 +423,14 @@ void sound_init(void) {
   sound_gen_seen = 0;
   _pwm_phase = 0;
   _rng = kRngSeed;
+  _v3_effect = V3_NONE;
+  _v3_frames = 0;
+  _stall_phase = 0;
+  // Deliberately synchronised with whatever the model has published so far,
+  // rather than zeroed. Starting from a stale value would make the first frame
+  // of a flight look like a new generation and fire whatever event happened to
+  // be left in flight_events from the previous one.
+  _flight_gen_seen = flight_gen;
   sound_silence();
 }
 
@@ -365,10 +494,133 @@ void sound_update(void) {
   int16_t n = (int16_t)(r_pitch & 0x1F) - 16;
   uint16_t freq = (uint16_t)((int16_t)base + ((amp * n) >> 4));
 
-  // Voice 3 is unclaimed until the stall warning in phase 5. Written every
-  // frame anyway, so it holds a defined gate-clear state rather than whatever
-  // happened to be there.
-  _set_voice(kSoundRegV3, 0, 0, 0, 0, 0);
+  // --- Voice 3 arbitration -------------------------------------------------
+  //
+  // Priority, from section 6:  touchdown > stall > gear > flap
+  //
+  // A one-shot already in progress keeps the voice until it expires; only
+  // touchdown preempts. A gear or flap event that arrives while something
+  // outranks it is DROPPED, not queued - queuing would surface a flap click
+  // hundreds of milliseconds after the key press, which reads as a bug rather
+  // than as feedback.
+  //
+  // The stall is not dropped in any meaningful sense, because it is a level
+  // rather than an edge: it simply takes the voice back on the first frame
+  // nothing outranks it.
+
+  // Consume this frame's events, at most once. Reading the generation first is
+  // what makes that true - flight_advance() bumps it after writing the set, so
+  // a new generation guarantees a complete one, and a wrecked aircraft stops
+  // bumping it and therefore stops retriggering its last event forever.
+  uint8_t events = 0;
+  if (flight_gen != _flight_gen_seen) {
+    _flight_gen_seen = flight_gen;
+    events = flight_events;
+  }
+
+  bool retrigger = false;
+  // Only meaningful while the stall owns the voice. The warble spends part of
+  // each period gated off, which is where its gap comes from.
+  bool stall_sounding = false;
+
+  if (_v3_frames != 0) {
+    --_v3_frames;
+  }
+
+  if (!audible) {
+    // Nothing survives silence. Dropping the effect here rather than letting
+    // it run down means unpausing does not resume a half-finished gear click.
+    _v3_effect = V3_NONE;
+    _v3_frames = 0;
+    _stall_phase = 0;
+  } else if (events & FLIGHT_EV_TOUCHDOWN) {
+    // Outranks everything, including a stall in progress. It is a single
+    // unmissable event, it is over in a fraction of a second, and by
+    // definition the aircraft is on the ground - where flight_stall is already
+    // false on the very next step.
+    _v3_effect = V3_TOUCHDOWN;
+    _v3_frames = kTouchdownFrames;
+    retrigger = true;
+  } else if (_v3_frames != 0 && _v3_effect != V3_STALL) {
+    // A one-shot still running. Left alone.
+  } else if (flight_stall) {
+    // The warble: gated on for the first kStallOnFrames of each period, off
+    // for the rest. Both halves are stated here rather than one being left to
+    // an envelope running out.
+    if (_v3_effect != V3_STALL) {
+      _stall_phase = 0;
+    }
+    _v3_effect = V3_STALL;
+    if (_stall_phase == 0) {
+      retrigger = true;
+    }
+    stall_sounding = _stall_phase < kStallOnFrames;
+    if (++_stall_phase >= kStallPeriodFrames) {
+      _stall_phase = 0;
+    }
+  } else if (events & FLIGHT_EV_GEAR) {
+    _v3_effect = V3_GEAR;
+    _v3_frames = kGearFrames;
+    retrigger = true;
+  } else if (events & FLIGHT_EV_FLAP) {
+    _v3_effect = V3_FLAP;
+    _v3_frames = kFlapFrames;
+    retrigger = true;
+  } else if (_v3_frames == 0) {
+    _v3_effect = V3_NONE;
+    _stall_phase = 0;
+  }
+
+  // Only the main line writes sound_gen; only sound_blit() writes
+  // sound_gen_seen. One writer per byte, so neither side needs to mask
+  // interrupts around it.
+  if (retrigger) {
+    ++sound_gen;
+  }
+
+  {
+    uint16_t v3_freq = 0;
+    uint16_t v3_pw = 0;
+    uint8_t v3_wave = 0;
+    uint8_t v3_attdec = 0;
+    uint8_t v3_susrel = 0;
+    switch (_v3_effect) {
+    case V3_STALL:
+      v3_freq = kStallFreq;
+      v3_pw = kStallPw;
+      v3_wave = SID_CTRL_RECT;
+      v3_attdec = kStallAttDec;
+      v3_susrel = kStallSusRel;
+      break;
+    case V3_TOUCHDOWN:
+      v3_freq = kTouchdownFreq;
+      v3_wave = SID_CTRL_NOISE;
+      v3_attdec = kOneShotAttDec;
+      v3_susrel = kTouchdownSusRel;
+      break;
+    case V3_GEAR:
+      v3_freq = kGearFreq;
+      v3_wave = SID_CTRL_NOISE;
+      v3_attdec = kOneShotAttDec;
+      v3_susrel = kGearSusRel;
+      break;
+    case V3_FLAP:
+      v3_freq = kFlapFreq;
+      v3_wave = SID_CTRL_NOISE;
+      v3_attdec = kOneShotAttDec;
+      v3_susrel = kFlapSusRel;
+      break;
+    default:
+      break;
+    }
+    // A one-shot sounds for the whole time it owns the voice; the stall only
+    // sounds during the on-half of its warble.
+    const bool gate_open =
+        _v3_effect == V3_STALL ? stall_sounding : _v3_effect != V3_NONE;
+    _set_voice(kSoundRegV3, v3_freq, v3_pw,
+               gate_open ? (v3_wave | SID_CTRL_GATE) : v3_wave, v3_attdec,
+               v3_susrel);
+  }
 
   // Voice 1: engine. Gate clear when inaudible rather than the whole voice
   // blanked, so the envelope releases instead of being cut dead, and so the

@@ -200,12 +200,19 @@ void sound_silence(void);
 inline void sound_blit(void) {
   if (sound_gen != sound_gen_seen) {
     sound_gen_seen = sound_gen;
-    // Gate off. The full copy below immediately re-writes these three with
-    // the gate bit as the shadow has it, so a voice whose gate is set sees a
-    // 1 -> 0 -> 1 edge and retriggers its envelope. Several register writes
-    // separate the two, which is far more than the one cycle the SID needs.
-    sid.voices[0].ctrl = sound_shadow[kSoundRegV1Ctrl] & ~SID_CTRL_GATE;
-    sid.voices[1].ctrl = sound_shadow[kSoundRegV2Ctrl] & ~SID_CTRL_GATE;
+    // Gate off. The full copy below immediately re-writes this with the gate
+    // bit as the shadow has it, so the voice sees a 1 -> 0 -> 1 edge and
+    // retriggers its envelope. Several register writes separate the two, which
+    // is far more than the one cycle the SID needs.
+    //
+    // Voice 3 ONLY. An earlier version cycled all three, which was harmless
+    // while sound_gen never moved but would be ruinous now that it does: the
+    // stall warning bumps it several times a second, and voices 1 and 2 are
+    // continuous. Retriggering the engine three times a second is a stutter,
+    // and the wind's 68 ms attack would turn it into a pulsing wash.
+    //
+    // Voice 3 is the only transient voice, and that is exactly why the
+    // retrigger handshake belongs to it alone.
     sid.voices[2].ctrl = sound_shadow[kSoundRegV3Ctrl] & ~SID_CTRL_GATE;
   }
 

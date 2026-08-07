@@ -30,6 +30,9 @@ enum FlightStatus flight_status = FLIGHT_ONGOING;
 uint8_t flight_throttle = 0;
 uint32_t flight_fuel = 0x21FFF;
 int16_t flight_speed = 0;
+uint8_t flight_stall = 0;
+uint8_t flight_events = 0;
+uint8_t flight_gen = 0;
 
 // The host build's stand-in for the chip. sid.h points SID_REGS at this, so
 // sound_silence()'s write-through is an array store instead of a segfault, and
@@ -48,6 +51,9 @@ static void reset_state(void) {
   // voices running and a test that forgets to set a speed still exercises
   // voice 2 rather than silently skipping it.
   flight_speed = kMaxSpeed / 2;
+  flight_stall = 0;
+  flight_events = 0;
+  flight_gen = 0;
   memset(sid_regs, 0xAA, sizeof(sid_regs));
   sound_volume = kSoundVolumeDefault;
   sound_init();
@@ -189,6 +195,55 @@ static uint16_t jitter_bound(uint16_t base) {
 // The control register the engine should be driving voice 1 with.
 static uint8_t expected_ctrl(void) {
   return SID_CTRL_RECT | SID_CTRL_GATE;
+}
+
+// --- Voice 3 helpers -------------------------------------------------------
+
+static bool v3_gated(void) {
+  return (sound_shadow[kSoundRegV3Ctrl] & SID_CTRL_GATE) != 0;
+}
+static uint8_t v3_wave(void) { return sound_shadow[kSoundRegV3Ctrl] & 0xF0; }
+
+// Publish an event set the way flight_advance() does: the bits first, then the
+// generation. sound_update() keys off the generation changing.
+static void publish_events(uint8_t bits) {
+  flight_events = bits;
+  ++flight_gen;
+}
+
+// One frame with no events at all - the generation still advances, because
+// flight_advance() bumps it every step whether anything happened or not.
+static void idle_frame(void) {
+  publish_events(0);
+  sound_update();
+}
+
+// Did this frame ask sound_blit() to cycle voice 3's gate? That is what marks
+// the start of a burst.
+//
+// For one-shots it is the only marker available: two events in consecutive
+// frames leave the gate set throughout, so the gate bit alone cannot say that
+// a second sound began. The stall's beeps are also visible on the gate now
+// that its gap is a gate-off, and both are asserted where they apply.
+static uint8_t gen_before;
+static void mark(void) { gen_before = sound_gen; }
+static bool retriggered(void) { return sound_gen != gen_before; }
+
+// How many frames a one-shot holds voice 3 gated, measured rather than read
+// off a constant. This is the property the pilot actually hears, and it is not
+// visible in any single register: the one-shots hold a plateau and are gated
+// off after a frame count, so the decay nibble says nothing about length.
+static int one_shot_frames(uint8_t ev) {
+  reset_state();
+  idle_frame();
+  publish_events(ev);
+  sound_update();
+  int frames = 0;
+  while (v3_gated() && frames < 100) {
+    ++frames;
+    idle_frame();
+  }
+  return frames;
 }
 
 int main() {
@@ -360,9 +415,10 @@ int main() {
   // failure this whole file exists for.
   assert(master_volume() > 0);
 
-  // Voice 3 is still unclaimed - it arrives with the stall warning in phase 5 -
-  // and until then it must be gated off, not left holding whatever the
-  // previous frame put there.
+  // Voice 3 is the transient voice, so with no stall and no events pending it
+  // must be released rather than left holding whatever the previous frame put
+  // there. reset_state() clears flight_stall and flight_events, so this is the
+  // idle case.
   assert((sound_shadow[kSoundRegV3Ctrl] & SID_CTRL_GATE) == 0);
 
   // The filter is deliberately unused; section 3 explains why depending on it
@@ -590,6 +646,267 @@ int main() {
     assert(f_min < base && f_max > base);
   }
 
+  // --- Voice 3: the stall warning ------------------------------------------
+
+  // Nothing on voice 3 decays: every effect goes straight to full sustain and
+  // ends by being gated off. For the stall that means its gap is a gate-off
+  // rather than an envelope running out, so the warble is visible directly on
+  // the gate bit.
+  reset_state();
+  flight_stall = 1;
+  idle_frame();
+  assert(v3_gated());
+  assert(v3_wave() == SID_CTRL_RECT);  // a tone, not noise - it competes with
+                                       // the wind bed on voice 2
+  {
+    // Full sustain and a release, like every other effect on this voice. A
+    // warning horn that fades while it sounds is the same mistake that made
+    // gear and flap inaudible.
+    const uint8_t susrel = sound_shadow[kSoundRegV3 + kSoundVoiceSusRel];
+    assert((susrel >> 4) == 15);
+    assert((susrel & 0x0F) != 0);
+    // Decay 0, so the level never falls while the beep is sounding.
+    assert((sound_shadow[kSoundRegV3 + kSoundVoiceAttDec] & 0x0F) == 0);
+  }
+
+  // It has to re-announce itself rather than sit there, and both halves of the
+  // warble have to appear. A held tone shows the gate always set; a broken
+  // period shows it always clear.
+  {
+    reset_state();
+    flight_stall = 1;
+    int on = 0, off = 0, bursts = 0;
+    for (int i = 0; i < 40; ++i) {
+      mark();
+      idle_frame();
+      if (retriggered()) ++bursts;
+      if (v3_gated()) {
+        ++on;
+      } else {
+        ++off;
+      }
+    }
+    // Both states occur, and neither is a rounding error - this is the whole
+    // difference between a warning and a drone.
+    assert(on >= 8 && off >= 8);
+    // 40 frames is about four seconds. A rate in cockpit-warner territory, so
+    // several beeps but not one per frame.
+    assert(bursts >= 6 && bursts <= 20);
+  }
+
+  // Clearing the flag stops it, and nothing re-arms it afterwards. It is a
+  // level, so there is no falling edge to handle - the last burst simply
+  // decays on its own envelope.
+  {
+    reset_state();
+    flight_stall = 1;
+    for (int i = 0; i < 6; ++i) idle_frame();
+    flight_stall = 0;
+    for (int i = 0; i < 30; ++i) {
+      mark();
+      idle_frame();
+      assert(!retriggered());
+    }
+    assert(!v3_gated());
+  }
+
+  // A crash while stalled must not leave the horn sounding. flight_stall holds
+  // its last value after a crash - flight_advance() returns early - so this
+  // only works if the silence predicates are checked ahead of the stall logic,
+  // and that ordering is what is being tested.
+  {
+    reset_state();
+    flight_stall = 1;
+    for (int i = 0; i < 4; ++i) idle_frame();
+    flight_status = FLIGHT_CRASH_VSPEED;
+    idle_frame();
+    assert(shadow_is_silent());
+    assert(!v3_gated());
+  }
+
+  // --- Voice 3: one-shots and the priority order ---------------------------
+
+  // Each event produces a burst on voice 3, with the noise waveform that
+  // separates the one-shots from the stall tone.
+  {
+    static const uint8_t kEvents[] = {FLIGHT_EV_TOUCHDOWN, FLIGHT_EV_GEAR,
+                                      FLIGHT_EV_FLAP};
+    for (int i = 0; i < 3; ++i) {
+      reset_state();
+      idle_frame();
+      mark();
+      publish_events(kEvents[i]);
+      sound_update();
+      assert(retriggered());
+      assert(v3_gated());
+      assert(v3_wave() == SID_CTRL_NOISE);
+    }
+  }
+
+  // The one-shots have to be loud enough to hear over two continuous voices
+  // that never decay. This is the regression test for the first version, where
+  // gear and flap used the stall's decay-to-zero envelope and were almost
+  // inaudible: the burst started decaying 2 ms in, so its average level over
+  // the sound was a fraction of its peak.
+  //
+  // Full sustain, and at least the engine's - a one-shot quieter than the drone
+  // it has to cut through is the failure being guarded against.
+  {
+    static const uint8_t kOneShots[] = {FLIGHT_EV_TOUCHDOWN, FLIGHT_EV_GEAR,
+                                        FLIGHT_EV_FLAP};
+    for (int i = 0; i < 3; ++i) {
+      reset_state();
+      flight_throttle = kMaxThrottle;
+      idle_frame();
+      publish_events(kOneShots[i]);
+      sound_update();
+      const uint8_t v3_sustain =
+          sound_shadow[kSoundRegV3 + kSoundVoiceSusRel] >> 4;
+      const uint8_t engine_sustain =
+          sound_shadow[kSoundRegV1 + kSoundVoiceSusRel] >> 4;
+      assert(v3_sustain >= engine_sustain);
+      // And a non-zero release, so gating off fades rather than chopping.
+      assert((sound_shadow[kSoundRegV3 + kSoundVoiceSusRel] & 0x0F) != 0);
+    }
+  }
+
+  // Long enough to register. The frame rate wobbles around 10 Hz, so two
+  // frames is roughly 200 ms - the length the first version aimed at and which
+  // turned out to be too short to notice.
+  {
+    const int touchdown_len = one_shot_frames(FLIGHT_EV_TOUCHDOWN);
+    const int gear_len = one_shot_frames(FLIGHT_EV_GEAR);
+    const int flap_len = one_shot_frames(FLIGHT_EV_FLAP);
+
+    assert(touchdown_len >= 2);
+    assert(gear_len >= 2);
+    assert(flap_len >= 2);
+
+    // Gear and flap are distinguishable. They share a character deliberately -
+    // the same class of event to the pilot - but if they produced identical
+    // sounds there would be no information in having two. Section 6 asks for
+    // flap to be "shorter and quieter"; quieter is not available on a chip
+    // with no per-voice volume, so length and pitch carry the whole
+    // difference.
+    assert(gear_len > flap_len);
+  }
+
+  {
+    reset_state();
+    idle_frame();
+    publish_events(FLIGHT_EV_GEAR);
+    sound_update();
+    const uint16_t gear_freq = voice_freq(kSoundRegV3);
+
+    reset_state();
+    idle_frame();
+    publish_events(FLIGHT_EV_FLAP);
+    sound_update();
+    assert(voice_freq(kSoundRegV3) != gear_freq);
+    // Gear is the lower of the two - section 6 wants it mechanical rather than
+    // an impact.
+    assert(voice_freq(kSoundRegV3) > gear_freq);
+  }
+
+  // Touchdown outranks a stall in progress.
+  {
+    reset_state();
+    flight_stall = 1;
+    for (int i = 0; i < 6; ++i) idle_frame();
+    publish_events(FLIGHT_EV_TOUCHDOWN);
+    sound_update();
+    assert(v3_wave() == SID_CTRL_NOISE);  // the impact, not the warning
+  }
+
+  // Gear and flap do NOT outrank a stall, and are dropped rather than queued.
+  // Queuing would surface a gear click hundreds of milliseconds after the key
+  // press, which reads as a bug rather than as feedback. This is also the case
+  // the abandoned voice-2 buffet design got backwards: buffet would have
+  // vanished during gear-down on approach, exactly when it is most wanted.
+  {
+    reset_state();
+    flight_stall = 1;
+    for (int i = 0; i < 6; ++i) idle_frame();
+    publish_events(FLIGHT_EV_GEAR);
+    sound_update();
+    assert(v3_wave() == SID_CTRL_RECT);  // still the stall tone
+    // And it is gone, not deferred: many quiet frames later, no noise burst
+    // ever appears.
+    for (int i = 0; i < 20; ++i) {
+      idle_frame();
+      assert(v3_wave() == SID_CTRL_RECT);
+    }
+  }
+
+  // A stall beginning while a one-shot is still running waits for it, rather
+  // than cutting it off mid-burst.
+  {
+    reset_state();
+    idle_frame();
+    publish_events(FLIGHT_EV_GEAR);
+    sound_update();
+    assert(v3_wave() == SID_CTRL_NOISE);
+    flight_stall = 1;
+    idle_frame();
+    assert(v3_wave() == SID_CTRL_NOISE);  // the gear burst still owns it
+    // But the stall does get the voice back shortly afterwards.
+    bool got_it = false;
+    for (int i = 0; i < 10 && !got_it; ++i) {
+      idle_frame();
+      if (v3_wave() == SID_CTRL_RECT) got_it = true;
+    }
+    assert(got_it);
+  }
+
+  // An event set is consumed exactly once. Without the generation check the
+  // same bits would refire on every frame - and flight_advance() stops bumping
+  // the generation once the aircraft is wrecked, so the last event of a flight
+  // would repeat forever.
+  {
+    reset_state();
+    idle_frame();
+    publish_events(FLIGHT_EV_GEAR);
+    sound_update();
+    // flight_events still holds the bits; only the generation says they are
+    // stale. Run well past the one-shot's own lifetime.
+    int refires = 0;
+    for (int i = 0; i < 20; ++i) {
+      mark();
+      sound_update();  // deliberately NOT publish_events: no new generation
+      if (retriggered()) ++refires;
+    }
+    assert(refires == 0);
+  }
+
+  // Voice 3 releases when nothing owns it, so an idle flight is not sitting on
+  // a gated voice.
+  {
+    reset_state();
+    idle_frame();
+    publish_events(FLIGHT_EV_FLAP);
+    sound_update();
+    for (int i = 0; i < 20; ++i) idle_frame();
+    assert(!v3_gated());
+  }
+
+  // Silence drops whatever voice 3 was doing rather than letting it run down,
+  // so unpausing does not resume a half-finished gear click.
+  {
+    reset_state();
+    idle_frame();
+    publish_events(FLIGHT_EV_GEAR);
+    sound_update();
+    assert(v3_gated());
+    flight_paused = true;
+    idle_frame();
+    assert(shadow_is_silent());
+    flight_paused = false;
+    mark();
+    idle_frame();
+    assert(!retriggered());
+    assert(!v3_gated());
+  }
+
   // --- The raster interrupt landing mid-update ------------------------------
   //
   // sound_update() runs on the main line and sound_blit() runs from the raster
@@ -693,6 +1010,13 @@ int main() {
       // 1. A gate set over a zeroed sustain. This is the one that strands a
       //    voice: the gate edge latches the level at 0 and no later write of
       //    the correct sustain can lift it.
+      //
+      //    All three voices. This was scoped to the continuous pair while
+      //    voice 3's effects decayed to zero, where sustain 0 under a set gate
+      //    is the intended envelope rather than a stranding. Nothing on voice 3
+      //    decays any more - every effect holds a level and ends by being gated
+      //    off - so the invariant is universal again. Anything added there that
+      //    does decay to nothing would have to re-open the exemption.
       for (int v = 0; v < 3; ++v) {
         uint8_t ctrl = sound_shadow[kVoiceBase[v] + kSoundVoiceCtrl];
         uint8_t sustain = sound_shadow[kVoiceBase[v] + kSoundVoiceSusRel] >> 4;

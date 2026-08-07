@@ -288,17 +288,23 @@ With 11 KB free (§8) this is not a trade.
 **RAM.** Trivial against what is available. Before phase 1 the heap was
 `a360 - d000` — 11.0 KB contiguous, with nothing allocating from it.
 
-| Item                  | Bytes | Phase 1 measured | Phase 2 | Phase 3 |
-| --------------------- | ----: | ---------------: | ------: | ------: |
-| Shadow register block |    25 |               25 |      25 |      25 |
-| Pitch table           |    50 |                — |      50 |      50 |
-| Wind table            |     — |                — |       — |      32 |
-| Driver state          |   ~16 |    2 (zero page) |       4 |       4 |
-| Code                  |  ~500 |              229 |     TBM |     TBM |
+| Item                  | Bytes | Phase 1 measured | Phase 2 | Phase 3 | Phases 4–6 |
+| --------------------- | ----: | ---------------: | ------: | ------: | ---------: |
+| Shadow register block |    25 |               25 |      25 |      25 |         25 |
+| Pitch table           |    50 |                — |      50 |      50 |         50 |
+| Wind table            |     — |                — |       — |      32 |         32 |
+| Driver state          |   ~16 |    2 (zero page) |       4 |       4 |          8 |
+| Code                  |  ~500 |              229 |     TBM |     TBM |        TBM |
 
-Phase 3 added a 16-entry 16-bit wind table and no new driver state at all —
-the wind is a pure function of `flight_speed`, with nothing to remember between
+Phase 3 added a 16-entry 16-bit wind table and no new driver state at all — the
+wind is a pure function of `flight_speed`, with nothing to remember between
 frames.
+
+Phases 4–6 added four bytes of driver state (the active voice-3 effect, its
+remaining frames, the warble phase, and the seen generation) plus two bytes in
+`flight.cc` for `flight_events` and `flight_gen`, and one more private byte for
+`model_pending_events`. The one-shots need no tables: four effects at three
+registers each is cheaper as a `switch` than as a lookup.
 
 Phase 1 cost 256 bytes all in, leaving the heap at `a460 - d000`, 10.7 KB.
 
@@ -398,13 +404,30 @@ bug waiting for the worst possible moment. It is avoided by giving every byte
 exactly one writer.
 
 ```
-flight_advance():          clears flight_events at the top of the step,
-                           sets bits during it,
+flight_input():            records gear and flap into a private pending byte.
+
+flight_advance():          sets touchdown during the step,
+                           publishes flight_events from the pending byte,
                            flips flight_gen LAST.
 
 sound_update():            compares flight_gen against its own copy;
                            acts only on a change.
 ```
+
+**The pending byte is not in the original sketch and is unavoidable.** That
+sketch had `flight_advance()` clear `flight_events` at the top of the step,
+which reads well until you look at the order `sim_run()` actually calls things:
+the keys are polled and `flight_input()` runs *first*, `flight_advance()`
+second. Clearing at the top of the step would throw away every gear and flap
+event before the step that publishes them had begun. `model_pending_events` is
+private to `flight.cc` and both its writers are on the main line in a fixed
+order within the frame, so it needs no synchronisation of its own.
+
+`flight_gen` is deliberately **not** reset by `flight_init_from_mission()`. It
+is a free-running counter whose only job is to differ from the last value a
+consumer saw; restarting it at zero could land on exactly the value already
+recorded and drop one event set on the first frame of a mission. For the same
+reason `sound_init()` seeds its copy from `flight_gen` rather than from zero.
 
 Flipping `flight_gen` after the event bits acts as a release barrier: an
 observer that sees the new generation is guaranteed to see the complete event
@@ -585,10 +608,59 @@ dropped in any meaningful sense — it is a level, so it simply gets the voice
 back on the next tick that nothing outranks it, which for touchdown is
 immediately and for gear or flaps is 200 ms later.
 
-**The stall warble.** While `flight_stall` is set, voice 3 retriggers a short
-tone every N ticks — bumping `sound_gen` so §5's blit-side gate cycle fires —
-and stops when the flag clears. Two constants, a period and a duration, both
-tuned by ear in phase 5.
+**Nothing on voice 3 decays.** Every effect is attack 0, decay 0, sustain 15 —
+straight to full level and held there — and ends by being gated off, with the
+release nibble giving it a tail. Length is always a frame count.
+
+Both earlier attempts got this wrong in the same direction. The first gave
+every effect a decay-to-zero envelope, which is the obvious reading of "short
+noise burst, fast attack, medium decay" below, and gear and flap came out
+almost inaudible. The second fixed the one-shots but left the stall decaying,
+on the theory that a repeating alarm wants to end itself.
+
+**A decay is simply a quieter sound.** The level is falling for most of the
+time the effect is audible, and it is competing with an engine held at sustain
+15 and a wind bed at 10, neither of which ever decays. That reasoning does not
+stop at the one-shots — a warning horn has more reason to carry, not less.
+
+For the stall the consequence is that its gap is now expressed by the gate:
+the warble gates **on** for `kStallOnFrames` and **off** for the rest of
+`kStallPeriodFrames`, about 200 ms of tone and 200 ms of silence. That is
+better than the decay version even setting loudness aside — the silence between
+beeps is the information, so it should be something the code states rather than
+a side effect of an envelope running out. It is also directly testable: §7 can
+now assert on the gate bit, where before it had to count retriggers.
+
+The release has to fit inside the gap or the beeps run together. 72 ms of tail
+into 200 ms of silence leaves room; shortening the gap is the thing to watch
+when retuning.
+
+`sound_gen` is still bumped at the start of every burst. Gating off between
+beeps produces an edge on its own, so for the warble the bump is belt and
+braces — it earns its keep for one-shots, where two events in consecutive
+frames would otherwise leave the gate set throughout and the second sound would
+never restart its envelope.
+
+One further consequence: no effect on voice 3 now relies on sustain 0 under a
+set gate, so §7's interleaving invariant covers all three voices again instead
+of excusing this one. Anything added here that *does* decay to nothing would
+have to re-open that exemption.
+
+**The retrigger pass in `sound_blit()` touches voice 3 only.** It cycled all
+three in phase 1, which was harmless while `sound_gen` never moved. Now that
+the stall warning bumps it several times a second, widening it back would
+retrigger the engine and the wind on every burst — a stutter on voice 1, and on
+voice 2 a pulsing wash, since its attack is 68 ms. Voice 3 is the only
+transient voice, which is precisely why the handshake belongs to it alone.
+
+**The stall warble.** While `flight_stall` is set, voice 3 gates on for
+`kStallOnFrames` and off for the rest of `kStallPeriodFrames` — 2 on, 4 total,
+so about 200 ms of tone and 200 ms of silence at the wobbling ~10 Hz frame
+rate. That is 2.5 Hz, cockpit-warner territory. As emitted:
+
+```
+##..##..##..##..      # tone   . silence
+```
 
 The gap between bursts is the whole point and is worth defending. A tone held
 continuously stops being information after about two seconds: the ear adapts,
@@ -612,16 +684,34 @@ crash while stalled does not leave the horn sounding even though
 
 **One-shots.**
 
-| Event     | Character                                          |
-| --------- | -------------------------------------------------- |
-| Touchdown | Short noise burst, fast attack, medium decay        |
-| Gear      | Lower, longer noise burst — mechanical, not impact  |
-| Flaps     | Same family as gear, shorter and quieter            |
+| Event     | Freq    | LFSR rate  | Length          | Character                    |
+| --------- | ------- | ---------- | --------------- | ---------------------------- |
+| Touchdown | `$1800` | 5773 / sec | 3 fr (~300 ms)  | bright, an impact            |
+| Gear      | `$0900` | 2165 / sec | 5 fr (~500 ms)  | low, mechanical, the longest |
+| Flaps     | `$0C00` | 2886 / sec | 4 fr (~400 ms)  | between the two, shorter     |
 
 Gear and flaps sharing a family is deliberate: they are the same class of event
 to the pilot, and differentiating them costs bytes for no information gain. All
 three are noise-family, which separates them from the stall tone by waveform as
 well as by rhythm.
+
+**"Quieter" for flaps was not achievable.** There is no per-voice volume (§2)
+and all three now sit at full sustain because that is what made them audible at
+all, so the only levers left are pitch and length. Flap is shorter and higher
+than gear; a shorter, higher sound reads as smaller, which is the nearest this
+chip gets to the intent.
+
+**Gear moved up from `$0300`.** That put its energy under about 360 Hz —
+directly on the engine's fundamental and first harmonics, which is the worst
+place to put a sound whose whole job is to be noticed over the engine. It is
+still the lowest of the three, as §6 asks, just no longer inside the drone.
+
+A one-shot owns the voice for its own frame count and is then released, with
+the release nibble giving it a tail rather than chopping it. Only touchdown
+preempts something already running; a stall beginning mid-burst waits for it.
+Going silent — paused, crashed, out of fuel, `V` at step 0 — drops the effect
+outright rather than letting it run down, so unpausing does not resume a
+half-finished gear click.
 
 ---
 
@@ -706,19 +796,46 @@ cases:
 - Out-of-range speeds clamp at both ends, negative included. `flight_speed` is
   signed and a negative right-shift stays negative, so this one is a real
   crash rather than a wrong note.
-- Touchdown and flaps in one generation produce the touchdown effect.
-- A held event across generations does not retrigger.
-- `flight_stall` set produces a voice-3 gate that goes off and on again over a
-  run of ticks — the regression test for a stall warning that silently becomes
-  a held tone.
-- `flight_stall` clearing stops the retriggers, and nothing re-arms them.
-- A gear event during a stall yields the gear effect on that tick and the
-  warble again afterwards — the §6 priority order, and the case the old
-  voice-2 buffet design got backwards.
-- Crashed while `flight_stall` is still set produces gated-off voices. The
-  flag holds its last value after a crash (`flight_advance()` returns early),
-  so this only works if the derived-silence predicates are checked before the
-  stall logic, and that ordering is the thing being tested.
+- `flight_stall` set produces a warble with **both halves present**: over 40
+  frames the gate must be seen set at least 8 times and clear at least 8 times,
+  and the burst count must land in warner territory rather than one per frame.
+  A held tone fails the first check outright. This became assertable on the
+  gate only once the stall stopped decaying — while its gap came from an
+  envelope running out, the gate stayed set throughout and the test had to
+  count `sound_gen` instead.
+- The stall's envelope is full sustain, decay 0 and a non-zero release, like
+  every other effect on the voice. A warning horn that fades while it sounds is
+  the same mistake that made gear and flap inaudible.
+- `flight_stall` clearing stops the retriggers, nothing re-arms them, and the
+  voice ends up released.
+- Crashed while `flight_stall` is still set produces silence. The flag holds
+  its last value after a crash (`flight_advance()` returns early), so this only
+  works if the derived-silence predicates are checked before the stall logic,
+  and that ordering is what is being tested.
+- Each event produces a burst on the noise waveform.
+- Every one-shot sits at **at least the engine's sustain** and has a non-zero
+  release. This is the regression test for the first version, where they used
+  the stall's decay-to-zero envelope and were almost inaudible under the
+  continuous voices.
+- Every one-shot holds the voice for at least two frames, so roughly 200 ms.
+  The length is *measured* — counting frames until the voice releases — rather
+  than read off a register, because with a plateau envelope no single register
+  encodes it.
+- Gear is longer than flap and lower in pitch, which is the whole of what
+  distinguishes them once "quieter" is off the table.
+- Touchdown preempts a stall in progress. Gear and flap do not, and are
+  **dropped** rather than queued — checked by running many frames afterwards
+  and confirming the burst never turns up late. This is the case the abandoned
+  voice-2 buffet design got backwards: buffet would have vanished during
+  gear-down on approach, exactly when it is most wanted.
+- A stall beginning mid-burst waits for the one-shot rather than cutting it
+  off, and does get the voice back shortly after.
+- An event set is consumed exactly once. Calling `sound_update()` repeatedly
+  without a new generation must produce no further retriggers — without which
+  the last event of a flight would repeat forever, since `flight_advance()`
+  stops bumping the generation once the aircraft is wrecked.
+- Going silent drops voice 3 outright rather than letting it run down, so
+  unpausing does not resume a half-finished gear click.
 
 Bounds in these come from the tuning constants — `kEngineJitterShift`,
 `kPwmJitterMask` — rather than from repeated literals, which is why those live
@@ -759,11 +876,22 @@ than only reporting that something went quiet: no instant may show a voice's
 gate set over a zeroed sustain, and no instant during an audible update may
 show master volume at zero.
 
-**What this cannot check** is the volatile qualifier on the stores. Host g++
-does not reorder them either way, so the test passes with or without it; it is
-protection against the *target* compiler, and the only way to confirm it is to
-read `ppilot.asm` and check the stores come out in source order — with the
-control register last for each voice.
+**Two things this cannot check**, both of which have to be confirmed by
+reading the build or by ear:
+
+- **The volatile qualifier on the stores.** Host g++ does not reorder them
+  either way, so the test passes with or without it. It is protection against
+  the *target* compiler, and the only confirmation is to read `ppilot.asm` and
+  check the stores come out in source order, with the control register last for
+  each voice.
+- **That `sound_blit()`'s retrigger pass touches voice 3 alone.** The pass
+  clears a gate and the full copy restores it a few stores later, so nothing
+  observable survives the call for a test to assert on. Widening it back to all
+  three voices — which is what it did in phase 1, harmlessly, because
+  `sound_gen` never moved then — would now retrigger the engine and the wind
+  several times a second while the stall warning sounds. That is a stutter on
+  voice 1 and a pulsing wash on voice 2's 68 ms attack. It is very audible, and
+  it is the one regression in this module that only a listen will catch.
 
 ---
 
@@ -939,17 +1067,51 @@ Each phase leaves the program in a working, committable state.
    sweep found 4 of 40 possible interrupt instants stranded a voice — stores 29
    and 30 for the engine, 36 and 37 for the wind, which is exactly the two-store
    window between a voice's control register and its sustain.
-4. **Flight model interface.** `flight_events` and `flight_gen` in `flight.cc`;
-   confirm `make -C test flight_test` still builds and passes.
+4. **Flight model interface.** ✅ Done. `flight_events` and `flight_gen` in
+   `flight.cc`, plus the private `model_pending_events` the frame ordering
+   forced (§5). Touchdown is set on the `!was_on_ground` transition; gear and
+   flap in both branches of `flight_input()`, since the ground and airborne
+   switches are separate and each has its own cases.
 
-   `flight_stall` is **already done** — it landed with the STALL panel lamp,
-   ahead of the audio work, because the panel needed the same byte. What is
-   left for this phase is the event bitfield and the generation counter.
-5. **Stall warning.** The voice-3 warble from `flight_stall`: period, burst
-   length, waveform and pitch, all tuned by ear.
-6. **One-shots.** The rest of voice 3 — the generation handshake and the
-   priority table from §6, with the stall already in place to arbitrate
-   against.
+   `flight_stall` was already done — it landed with the STALL panel lamp,
+   ahead of the audio work, because the panel needed the same byte.
+
+   `flight_test` still passes unchanged, which was the point of putting this
+   phase after the audio path was proven.
+5. **Stall warning.** ✅ Done. A ~840 Hz pulse tone on voice 3, retriggered
+   every 3 frames while `flight_stall` is set. Pulse rather than noise so it
+   is distinct from the wind bed; up where the engine's harmonic stack is thin,
+   which §10 gives as the lever to reach for instead of ducking the engine.
+
+   `sound_blit()`'s retrigger pass was narrowed to voice 3 as part of this —
+   see §6. That is the change most likely to be undone by accident and the one
+   the tests cannot catch.
+6. **One-shots.** ✅ Done. Touchdown, gear and flap on voice 3, the generation
+   handshake, and the priority order `touchdown > stall > gear > flap`. Losing
+   one-shots are dropped rather than queued; a losing stall simply takes the
+   voice back on the first frame nothing outranks it.
+
+   **6a — audibility.** First listen: gear and flap were barely audible. Both
+   causes were in the envelope rather than the mix — they used a decay-to-zero
+   shape, so the sound was already fading 2 ms in, and at 72 ms flap was over
+   before it registered. One-shots now hold a plateau at full sustain and are
+   gated off after a per-effect frame count of 300–500 ms. `kGearFreq` also
+   moved up from `$0300`, which had put it underneath the engine's fundamental.
+
+   **6b — the stall too.** The same fix, applied to the one effect 6a left
+   behind: the warning kept its decaying envelope on the theory that a
+   repeating alarm should end itself. A decay is just a quieter sound, and a
+   warning horn has more reason to carry than a gear click, not less. The
+   warble's gap is now a gate-off rather than an envelope running out — which
+   is also what let §7 assert on the gate bit instead of counting retriggers,
+   and what let the interleaving invariant widen back to all three voices.
+
+   Verified across phases 4–6: nine mutations of the arbitration each fail the
+   test individually — stall held rather than retriggered, gate never set,
+   stall on the wrong waveform, events consumed without the generation check,
+   gear promoted above stall, touchdown demoted below it, the generation check
+   removed, silence letting voice 3 run on, and flap made identical to gear.
+   **Not** verified: the oscar64 build, and how any of it sounds.
 7. **Tests.** `c64o/test/sound_test.cc` per §7. Partly done: the file landed
    in phase 2 rather than waiting, covering the register block layout, the
    silence predicates and the whole engine voice. Each later phase extends it
@@ -1001,10 +1163,25 @@ what a speed sounds like. Worth noting that option 1 would apply the filter to
 voice 2 alone, so the chip dependency would be confined to one sound rather
 than reintroduced across the design.
 
-**Stall warble rate and burst length?** §6 suggests 3–4 Hz. At a 20 ms blit
-tick that is a period of 12–16 ticks, but the burst length interacts with the
-envelope: too long and the gap closes up into a held tone, too short and it
-clicks. Judge by ear in phase 5.
+**~~Stall warble rate and burst length?~~ Built, not yet judged.** Two frames on
+out of four, so roughly 200 ms of tone and 200 ms of silence at 2.5 Hz. Both are
+frame counts now — `kStallOnFrames` and `kStallPeriodFrames`, next to each other
+in `sound.cc`. The constraint to respect when retuning is that the release
+(`kStallSusRel`, 72 ms) has to fit inside the gap, or consecutive beeps run
+together and the rhythm that carries the warning is lost.
+
+**Are the one-shot pitches right?** `kTouchdownFreq`, `kGearFreq` and
+`kFlapFreq` were picked to be distinct and out of the engine's way, not by
+listening. Gear is the lowest and longest because §6 asks for "mechanical, not
+impact"; touchdown is the brightest.
+
+The first set was judged by ear and failed — gear and flap were barely
+audible — but the fix was the envelope rather than the pitches (§6), so the
+pitches themselves are still only half-tested. Gear and flap now sit inside the
+wind's noise band (1443–5773 shifts/sec); they are transients at full sustain
+against a bed at 10, which should be enough, but if they sound muddy on
+approach rather than quiet, that is the thing to change and moving them *above*
+the wind is the direction.
 
 **Should the stall warning duck the engine?** Not currently specified, and
 probably not worth it — `$D418` is master volume only (§2), so ducking one
