@@ -263,6 +263,15 @@ static const uint8_t kCrashFrames = 16;
 static const uint8_t kCrashShift = 4;  // log2(kCrashFrames)
 static const uint16_t kCrashFreqStart = 0x1000;  // 3850 shifts/sec, a crunch
 static const uint16_t kCrashFreqEnd = 0x0200;    //  481 shifts/sec, a rumble
+
+// The sweep below is written as (n << 8) - (n << 5), which is only the right
+// interpolation while the span per frame is exactly 256 - 32. Retuning either
+// endpoint or the frame count without checking this is an easy mistake, and it
+// would go unnoticed - the sound would still sweep, just to the wrong places.
+static_assert(((kCrashFreqStart - kCrashFreqEnd) >> kCrashShift) == 256 - 32,
+              "crash sweep constants no longer match the shift form");
+static_assert((1u << kCrashShift) == kCrashFrames,
+              "kCrashShift must be log2(kCrashFrames)");
 static const uint8_t kCrashAttDec = 0x00;  // attack 0, decay 0 -> sustain
 static const uint8_t kCrashSusRel = 0xF9;  // sustain 15, release 9 (750 ms)
 
@@ -660,11 +669,20 @@ void sound_update(void) {
       break;
     case V3_CRASH:
       // Sweeps down as the burst runs. _v3_frames counts from kCrashFrames to
-      // zero, so this is a plain interpolation and the shift is exact.
-      v3_freq = kCrashFreqEnd + (uint16_t)(((uint32_t)(kCrashFreqStart -
-                                                       kCrashFreqEnd) *
-                                            _v3_frames) >>
-                                           kCrashShift);
+      // zero, so this is a plain linear interpolation across the span.
+      //
+      // Written as shifts rather than as a multiply, and that is worth the
+      // ugliness. The span divided by the frame count is
+      // (kCrashFreqStart - kCrashFreqEnd) >> kCrashShift = 0xE00 >> 4 = 224,
+      // and 224 is 256 - 32 - so the whole interpolation is two shifts and a
+      // subtract. The obvious spelling with a 32-bit cast pulled oscar64's
+      // mul32by8 runtime routine into the binary for this one line, and
+      // nothing else in the program used it.
+      //
+      // kCrashSweepCheck below fails the build if the constants ever stop
+      // satisfying the identity.
+      v3_freq = kCrashFreqEnd + ((uint16_t)_v3_frames << 8) -
+                ((uint16_t)_v3_frames << 5);
       v3_wave = SID_CTRL_NOISE;
       v3_attdec = kCrashAttDec;
       v3_susrel = kCrashSusRel;

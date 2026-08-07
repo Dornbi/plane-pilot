@@ -310,36 +310,43 @@ With 11 KB free (§8) this is not a trade.
 **RAM.** Trivial against what is available. Before phase 1 the heap was
 `a360 - d000` — 11.0 KB contiguous, with nothing allocating from it.
 
-| Item                  | Bytes | Phase 1 measured | Phase 2 | Phase 3 | Phases 4–6 |
-| --------------------- | ----: | ---------------: | ------: | ------: | ---------: |
-| Shadow register block |    25 |               25 |      25 |      25 |         25 |
-| Pitch table           |    50 |                — |      50 |      50 |         50 |
-| Wind table            |     — |                — |       — |      32 |         32 |
-| Driver state          |   ~16 |    2 (zero page) |       4 |       4 |          8 |
-| Code                  |  ~500 |              229 |     TBM |     TBM |        TBM |
+| Item                   | Estimated | Measured (all phases) |
+| ---------------------- | --------: | --------------------: |
+| Shadow register block  |        25 |                    25 |
+| Pitch table            |        50 |                    50 |
+| Wind table             |         — |                    32 |
+| Other tables / strings |         — |                    41 |
+| Driver state           |       ~16 |         11 (zeropage) |
+| Code                   |      ~500 |                 1,018 |
+| **Total**              |  **~590** |            **1,177** |
 
-Phase 3 added a 16-entry 16-bit wind table and no new driver state at all — the
-wind is a pure function of `flight_speed`, with nothing to remember between
-frames.
+Measured from `ppilot.map`, so these are what actually shipped rather than a
+projection. The code line breaks down as:
 
-Phases 4–6 added four bytes of driver state (the active voice-3 effect, its
-remaining frames, the warble phase, and the seen generation) plus two bytes in
-`flight.cc` for `flight_events` and `flight_gen`, and one more private byte for
-`model_pending_events`. The effects need no tables: five of them at three
-registers each is cheaper as a `switch` than as a lookup, and the crash added
-no state at all — its sweep is interpolated from the frame counter that was
-already there.
+| | Bytes |
+| ---------------------------------- | ----: |
+| `sound_update` | 733 |
+| `sound_blit`, inlined into `_switch_to_terrain` | 166 |
+| `_set_voice` | 40 |
+| `sound_wind_freq` | 33 |
+| `sound_silence` (with `_write_through` inlined) | 29 |
+| `_next_rand` | 17 |
 
-Phase 1 cost 256 bytes all in, leaving the heap at `a460 - d000`, 10.7 KB.
+`sound_init`, `sound_cycle_volume`, `sound_engine_base_freq`,
+`sound_wind_audible`, `_poke`, `_driver_live` and `_flying` do not appear at
+all — oscar64 inlined every one of them into its callers.
 
-Phase 2 added the pitch table at its predicted 50 bytes exactly (25 entries,
-16-bit) and two bytes of driver state: the PWM sweep phase and the LFSR. Code
-growth is
-**not yet measured** — the phase 2 work was done without an oscar64 build to
-hand, so `ppilot.map` has not been re-read. Do that before treating this phase
-as closed; the number to check is whether `sound_update()` acquired an
-`@stack` frame large enough to matter, and it should not have, since it has
-one small helper and no recursion.
+**Code came in at twice the estimate**, and `sound_update` is nearly three
+quarters of it. §10 carries what could be done about that. The estimate was not
+unreasonable for what §3 described; the growth is the volume key, the crash,
+and the arbitration between five effects on one voice, none of which existed
+when the number was written.
+
+**Zero page is the expensive line, not the code.** Eleven bytes, in a region
+(`$60–$FC`, 156 bytes) that the map shows is **100% allocated**. Nine of those
+eleven are touched only by `sound_update` on the main line and have no reason
+to be there; only `sound_gen` and `sound_gen_seen` are read by the interrupt,
+where zero page actually buys something.
 
 **Cycles.** The blit runs at raster 250. On PAL (312 lines) that leaves ~3900
 cycles before the frame ends; on NTSC (263 lines) only ~800. This is the reason
@@ -1267,6 +1274,37 @@ with everything else. Noted because it is the obvious thing to reach for when
 the warble turns out to be hard to hear over the engine, and it is a dead end.
 The lever that does work is voice 3's pitch: put it where the engine's
 harmonic stack is thin.
+
+**What is worth optimising?** §4 has the measurements. In descending order of
+value, and none of it urgent — the heap still has ~9.7 KB free:
+
+1. **Move nine bytes out of zero page.** `_pwm_phase`, `_rng`, `_v3_effect`,
+   `_v3_frames`, `_stall_phase`, `_flight_gen_seen`, `flight_events`,
+   `flight_gen` and `flight_stall` are main-line only, and the zero page region
+   is 100% allocated. Only `sound_gen` and `sound_gen_seen` are read from the
+   interrupt and earn their place. This costs a few bytes of code (absolute
+   rather than zero-page addressing) to buy back the scarcest RAM in the
+   program.
+2. **Turn the voice-3 parameter `switch` into a table.** Five effects × five
+   registers is 101 bytes of comparison chains and immediate loads between the
+   first and last `_set_voice` call. A `const` table indexed by the effect enum
+   would be about 30 bytes of data and a handful of code, with the crash's
+   swept frequency staying the one computed exception. This document asserted
+   the opposite when the switch was written — "cheaper as a `switch` than as a
+   lookup" — on no evidence.
+3. **The jitter multiply.** `amp * n` calls `mul16`, which is shared with
+   `render_fill_sky_ground` so removing it frees only the call setup, not the
+   66-byte routine. Expressing the jitter as shifts the way the crash sweep now
+   does would save perhaps 20 bytes.
+4. **`sound_wind_freq` is exported only so the test can assert on it**, which
+   costs it 33 bytes as a real function plus a call. Making it `static` under
+   `__OSCAR64__` would let oscar64 inline it as it did with every other
+   accessor.
+
+Already done: the crash sweep dragged in `mul32by8`, a 54-byte runtime routine
+nothing else in the program used, because it was written with a 32-bit cast in
+a comment block explaining that the arithmetic fits in 16 bits. It is now two
+shifts and a subtract, producing byte-identical output.
 
 **Does the menu tune play under the help screen?** §8. Not answerable until the
 tune exists.
