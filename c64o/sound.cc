@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "flight.h"
+#include "vec.h"
 
 uint8_t sound_shadow[kSoundRegCount];
 uint8_t sound_gen;
@@ -535,10 +536,23 @@ void sound_update(void) {
   // Both fit comfortably in 16 bits: amp is at most 1788 >> 5 = 55 and n is
   // -16 .. 15, so the product never leaves a signed byte's worth of headroom.
   // A different jitter shift changes amp, not the arithmetic.
+  //
+  // n is data, not a constant, so there is no shift chain that computes this;
+  // the product goes through vec_fastmul8p8 instead of oscar64's mul16, which
+  // is what lets mul16 drop out of the link entirely (docs/sound.md section 9
+  // costed this as a shift rewrite, but that would have to change the jitter's
+  // distribution to get rid of the variable multiplier). Shifting n up by 8
+  // makes the routine's trunc(a * b / 256) an exact product, and the >> 4 then
+  // happens in C exactly as before, so the register value is unchanged.
+  //
+  // vec_fastmul8p8 clobbers the shared zero-page scratch in vec_asm.cc. That
+  // is safe here for the same reason the rest of this function is main-line
+  // only: sound_update() is called from sim_frame(), never from a raster IRQ.
   uint16_t base = sound_engine_base_freq(flight_throttle);
   int16_t amp = (int16_t)(base >> kEngineJitterShift);
   int16_t n = (int16_t)(r_pitch & 0x1F) - 16;
-  uint16_t freq = (uint16_t)((int16_t)base + ((amp * n) >> 4));
+  uint16_t freq =
+      (uint16_t)((int16_t)base + (vec_fastmul8p8(amp, n << 8) >> 4));
 
   // --- Voice 3 arbitration -------------------------------------------------
   //

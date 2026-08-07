@@ -9,6 +9,7 @@
 #include "fmath.h"
 #include "mem.h"
 #include "roll.h"
+#include "vec.h"
 
 // Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
 #pragma optimize(push, nooutline)
@@ -43,6 +44,31 @@ static inline int16_t _render_rshift(int16_t x) {
   }
 }
 
+// Plain 16x16 -> low 16 product, routed through the quarter-square routine
+// instead of oscar64's mul16. vec_fastmul8p8 returns trunc(a * b / 256), so
+// pre-shifting b by 8 recovers a * b exactly - the remainder is zero, so the
+// truncation never rounds.
+//
+// b is int8_t, so b << 8 always fits and the whole int8_t range is usable -
+// including -128. Callers must therefore pass the raw value and negate the
+// product afterwards rather than negating the operand first: 0 - (-128) is
+// 128, which does not survive the parameter, and the sign flip that follows
+// is silent. That mistake is what put diagonal bands through the sky fill.
+//
+// The routine also builds the product from the magnitudes and applies the sign
+// last, so it wraps sign-magnitude where mul16 wrapped two's complement. Both
+// of these are checked rather than argued: each call site below was compared
+// exhaustively against the expression it replaced, over the operand's full
+// range, overflow included.
+static inline int16_t _mul(int16_t a, int8_t b) {
+  return vec_fastmul8p8(a, (int16_t)b << 8);
+}
+
+// _fill_sky_ground_* negates the _mul result in place of the subtraction the
+// horizon term used to spell out. (oscar64 only takes static_assert at file
+// scope, so it lives here rather than next to the code it guards.)
+static_assert(kViewportStartY == 0, "the horizon term assumes it");
+
 // Finds a point (px, py) on the horizon line that is shifted by an
 // integer number of major axis steps to be close to the viewport center.
 static void _pull_to_center() {
@@ -53,14 +79,14 @@ static void _pull_to_center() {
     if (roll_dx < 0) {
       dx = -dx;
     }
-    render_py_pixels = render_cy_pixels + (dx * (int16_t)roll_dy << 3);
+    render_py_pixels = render_cy_pixels + (_mul(dx, roll_dy) << 3);
   } else {
     int16_t dx = _render_rshift(64 - render_cy_pixels + dy);
     render_py_pixels = render_cy_pixels + _render_lshift(dx);
     if (roll_dy < 0) {
       dx = -dx;
     }
-    render_px_pixels = render_cx_pixels + (dx * (int16_t)roll_dx << 3);
+    render_px_pixels = render_cx_pixels + (_mul(dx, roll_dx) << 3);
   }
 }
 
@@ -193,7 +219,12 @@ static inline void _fill_sky_ground_with_skip() {
     }
   } else {
     // 12.4 fixpoint representation of the divider x between sky and ground.
-    int16_t dx = (int16_t)roll_dx_div_dy * (kViewportStartY - render_cy_chars) +
+    //
+    // render_cy_chars is a truncating int8_t cast of a horizon that can sit far
+    // off screen, so it really does reach -128 and the old product really did
+    // overflow there. Negating the result rather than the operand keeps both
+    // cases identical to the mul16 version; see the note on _mul.
+    int16_t dx = -_mul(roll_dx_div_dy, render_cy_chars) +
                  ((render_cx_chars - kViewportStartX) << 4);
     if (roll_dx_div_dy > 0) {
       // Hack to make sure the boxes always cover the horizon.
@@ -298,7 +329,12 @@ static inline void _fill_sky_ground_no_skip() {
     }
   } else {
     // 12.4 fixpoint representation of the divider x between sky and ground.
-    int16_t dx = (int16_t)roll_dx_div_dy * (kViewportStartY - render_cy_chars) +
+    //
+    // render_cy_chars is a truncating int8_t cast of a horizon that can sit far
+    // off screen, so it really does reach -128 and the old product really did
+    // overflow there. Negating the result rather than the operand keeps both
+    // cases identical to the mul16 version; see the note on _mul.
+    int16_t dx = -_mul(roll_dx_div_dy, render_cy_chars) +
                  ((render_cx_chars - kViewportStartX) << 4);
     if (roll_dx_div_dy > 0) {
       // Hack to make sure the boxes always cover the horizon.

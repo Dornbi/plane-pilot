@@ -9,6 +9,7 @@
 #include "color.h"
 #include "mem.h"
 #include "render.h"
+#include "vec.h"
 
 // Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
 #pragma optimize(push, nooutline)
@@ -128,8 +129,13 @@ static void _draw_one_box(int8_t cx, int8_t cy) {
   int8_t h = boxdef.h;
   if (cy < 0) {
     h += cy;
-    src_chr -= (int16_t)cy * boxdef.w;
-    src_col -= (int16_t)cy * boxdef.w;
+    // cy * boxdef.w via the quarter-square routine rather than oscar64's
+    // mul16by8. vec_fastmul8p8 returns trunc(a * b / 256), so shifting cy up
+    // by 8 gives back the exact product. cy is a negative int8_t, so cy << 8
+    // stays in range, and w * h <= kMaxBoxCharCount bounds the result.
+    const int16_t skip = vec_fastmul8p8((int16_t)cy << 8, boxdef.w);
+    src_chr -= skip;
+    src_col -= skip;
     cy = 0;
   }
   int8_t x = cy + h - kViewportHeight;

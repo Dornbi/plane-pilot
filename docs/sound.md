@@ -1346,11 +1346,7 @@ value, and none of it urgent — the heap still has ~9.7 KB free:
    swept frequency staying the one computed exception. This document asserted
    the opposite when the switch was written — "cheaper as a `switch` than as a
    lookup" — on no evidence.
-3. **The jitter multiply.** `amp * n` calls `mul16`, which is shared with
-   `render_fill_sky_ground` so removing it frees only the call setup, not the
-   66-byte routine. Expressing the jitter as shifts the way the crash sweep now
-   does would save perhaps 20 bytes.
-4. **`sound_wind_freq` is exported only so the test can assert on it**, which
+3. **`sound_wind_freq` is exported only so the test can assert on it**, which
    costs it 33 bytes as a real function plus a call. Making it `static` under
    `__OSCAR64__` would let oscar64 inline it as it did with every other
    accessor.
@@ -1359,6 +1355,38 @@ Already done: the crash sweep dragged in `mul32by8`, a 54-byte runtime routine
 nothing else in the program used, because it was written with a 32-bit cast in
 a comment block explaining that the arithmetic fits in 16 bits. It is now two
 shifts and a subtract, producing byte-identical output.
+
+Also done, and the reason the jitter multiply is no longer on the list above:
+`amp * n` now goes through `vec_fastmul8p8` rather than `mul16`. The shift
+rewrite this section originally proposed was the wrong fix — `n` is a random
+draw, not a constant, so no shift chain computes the product without changing
+the jitter's distribution. Routing it through the quarter-square routine keeps
+the arithmetic exactly as it was. `vec_fastmul8p8` returns `trunc(a * b / 256)`,
+so shifting `n` up by 8 recovers the exact product and the `>> 4` still happens
+in C; every `amp`/`n` pair produces the same register value as before.
+
+The win was not the call setup. `render_fill_sky_ground`, `_pull_to_center` and
+`_draw_one_box` were converted the same way in the same pass, which was the
+point: `mul16` (66 bytes), `mul16by8` (56) and `mul16@proxy` (8) are all
+unreferenced now and the linker drops them. Together with the smaller call
+setup at each site that is 137 bytes off `ppilot.prg`.
+
+Two things make the conversion non-obvious, and the first one is not the one
+that bit. `vec_fastmul8p8` builds the product from the magnitudes and applies
+the sign last, so it wraps sign-magnitude where `mul16` wrapped two's
+complement — the documented hazard, and in the end not a problem at any of the
+four sites. What actually shipped broken was the operand shift: only an
+`int8_t` survives `<< 8` intact, and the horizon term negated its operand
+*before* passing it, so `render_cy_chars == -128` became 128, wrapped back to
+-128, and flipped the sign of the product. Diagonal bands through the sky fill.
+Negating the result instead fixes it, and the reason it got through was a check
+that assumed `render_cy_chars` could not reach -128 and skipped the case —
+`render_cy_chars` is a truncating `int8_t` cast of a horizon that can sit far
+off screen, so it reaches every value in the range.
+
+`test/mul_test.cc` now replays all four conversions against the products they
+replaced over each operand's full range, asserting nothing about what the call
+sites are believed to stay inside. That is the test that would have caught it.
 
 **Does the menu tune play under the help screen?** §8. Not answerable until the
 tune exists.
