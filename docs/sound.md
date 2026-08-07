@@ -18,7 +18,8 @@ See [project.md](project.md) for the surrounding architecture.
 | Stall warning, a repeating warble on voice 3  | Stereo / dual-SID                         |
 | One-shots: touchdown, gear, flaps             | Digi samples, `$D418` tricks              |
 | Explicit silence on every screen transition   | Doppler, ground rumble, crash sound       |
-| Host tests over the register mapping          | A user-facing mute key                    |
+| Host tests over the register mapping          | Per-effect volume or a mix menu           |
+| A volume key (`V`): off / low / full          |                                           |
 
 ---
 
@@ -140,7 +141,8 @@ where nothing is watching.
 Because the blit lives in a raster handler, "IRQs masked" and "driver not
 running" are the same statement. So a single `sound_silence()` at the top of
 `gfx_stop_raster_irqs()` — *before* the `sei`, and before `map_enter()` banks
-I/O out — covers the menu, the help screen and the map. No un-mute is needed;
+I/O out — covers the menu, the help screen and the map. No un-silencing call is
+needed;
 the driver resumes on the next interrupt after `gfx_init_raster_irqs()`.
 
 Everything else is derived state, requiring no call at all, because the
@@ -152,13 +154,33 @@ simulation loop keeps running in those cases:
 | Help screen        | `sound_silence()` via `gfx_stop_raster_irqs()`        |
 | `Q` to main menu   | `sound_silence()` via `gfx_stop_raster_irqs()`        |
 | `P` paused         | derived: `flight_paused`                              |
+| `V` at step 0      | derived: `sound_volume == 0`                          |
 | Crashed            | derived: `flight_crashed()`                           |
 | Out of fuel        | derived: `flight_fuel == 0`                           |
 | `R` reset          | derived: state is re-read next frame                  |
 
-Eight cases, one call site and one predicate. **The invariant fails if a future
+Nine cases, one call site and one predicate. **The invariant fails if a future
 screen stops the driver without masking interrupts** — that is the thing to
 watch for when adding screens.
+
+The volume key's *off* step is in the derived column deliberately. Giving it
+its own silencing path would mean every voice added in phases 3 to 6 has to
+remember to consult it; folding it into the predicate means they cannot
+forget. It also needs no write-through of its own — `sound_update()` rewrites
+the shadow on the next frame and the blit pushes it 20 ms later, which at a
+~10 Hz simulation rate is as immediate as any other control.
+
+The other two steps are not a silencing question at all: they differ only in
+what reaches `$D418`, from a three-entry table `{0, 7, 15}`. 7 rather than 8
+for the middle step because it is half amplitude, about -6 dB, and stays clear
+of the bottom of the range where the 6581 in particular gets noisy. `$D418` is
+global, so this scales every voice together — the *mix between* voices is
+still set entirely by waveform and envelope, and §2's point about there being
+no per-voice volume is unaffected.
+
+`sound_volume` is the one piece of driver state that survives `sound_init()`.
+It is a setting rather than flight state: a player who turned the sound down
+does not want it back up every time they restart a mission.
 
 ### Three voices, three fixed roles
 
@@ -548,6 +570,17 @@ This matters more here than elsewhere, because **the failure mode of audio code
 is silence**, which no amount of playing the game reliably surfaces. Minimum
 cases:
 
+- Volume step 0 produces gated-off voices; steps 1 and 2 do not, and step 2 is
+  strictly louder than step 1. A middle step equal to full is a control that
+  does nothing on two of its three settings, and a middle step of 0 is a
+  second, silent "off" — both are the kind of thing that survives a listening
+  test.
+- `V` cycles 2 → 0 → 1 → 2 and wraps, rather than sticking at either end.
+- The volume survives `sound_init()`, which is what stops the setting from
+  being quietly undone on entry to every flight.
+- An out-of-range step does not index past the volume table. The symptom if it
+  did would be a stray high nibble in `$D418` switching a filter on, which
+  reads as a bug in a completely different module.
 - Paused produces gated-off voices.
 - Crashed produces gated-off voices — but `FLIGHT_MISSION_COMPLETED` does
   *not*, since it is a record of an achievement and not a stop state. That is
@@ -807,6 +840,17 @@ harmonic stack is thin.
 **Does the menu tune play under the help screen?** §8. Not answerable until the
 tune exists.
 
-**A mute key?** Not in scope, but `C`, `E`, `O`, `T`, `U`, `V`, `W`, `Y` and
-`0`, `4`–`9` are unbound if one is wanted. A continuous wind bed over a
-3.5-minute flight is the kind of thing players ask to turn off.
+**~~A mute key?~~ Done: `V`, and it is a volume rather than a mute.** Three
+steps — off, low, full — because "too loud" and "off" are different complaints
+and a plain mute only answers one of them. Step 0 is one more term in the
+`_audible()` predicate (§3); steps 1 and 2 differ only in `$D418`.
+
+It cycles upward and wraps from a default of full, so the first press from a
+fresh start still silences the game, which is what a player reaching for an
+unfamiliar key most likely wants. Each press shows `SOUND OFF` / `SOUND LOW` /
+`SOUND FULL` — with three steps the key alone no longer says where you ended
+up, and without any message at all an accidental press is indistinguishable
+from the sound having broken, which is the failure mode this whole module has
+to design around.
+
+`C`, `E`, `O`, `T`, `U`, `W`, `Y` and `0`, `4`–`9` remain unbound.

@@ -8,10 +8,21 @@ uint8_t sound_shadow[kSoundRegCount];
 uint8_t sound_gen;
 uint8_t sound_gen_seen;
 
-// Master volume. $D418 is the only volume the SID has - it is global, not per
-// voice - so this is a constant and the mix between voices is set entirely by
-// waveform and envelope. See ../docs/sound.md section 2.
-static const uint8_t kMasterVolume = 15;
+// Not reset by sound_init(): see the comment in sound.h. This is the only
+// piece of driver state that outlives a flight.
+uint8_t sound_volume = kSoundVolumeDefault;
+
+// What each step of the V key puts in $D418. This is the only volume the SID
+// has - it is global, not per voice - so the mix *between* voices is still set
+// entirely by waveform and envelope, and this scales all of them together.
+// See ../docs/sound.md section 2.
+//
+// 7 rather than 8 for the middle step: it is half amplitude, about -6 dB, and
+// it stays clear of the bottom of the range where the 6581 in particular gets
+// noisy. Step 0 never actually reaches the chip through here - the predicate
+// below zeroes the whole shadow first - but it is in the table so the mapping
+// from step to volume is complete in one place.
+static const uint8_t kMasterVolume[kSoundVolumeSteps] = {0, 7, 15};
 
 // --- Voice 1: engine -------------------------------------------------------
 
@@ -133,7 +144,24 @@ static void _set_voice(uint8_t base, uint16_t freq, uint16_t pw, uint8_t ctrl,
 // stalled aircraft that hits the ground would otherwise leave its engine and,
 // from phase 5, its stall warning running forever.
 static bool _audible(void) {
-  return !flight_paused && !flight_crashed() && flight_fuel > 0;
+  return sound_volume != 0 && !flight_paused && !flight_crashed() &&
+         flight_fuel > 0;
+}
+
+// Cycling up and wrapping, so from the default of full the first press is
+// silence.
+//
+// No write-through of its own is needed. sound_update() runs every frame and
+// will rewrite the shadow on the next one, and the blit pushes that to the chip
+// 20 ms later - so the change lands within about a frame, which at the ~10 Hz
+// simulation rate is as immediate as any other control. The write-through in
+// sound_silence() exists only because its callers are about to mask interrupts
+// or bank I/O out, and neither is true here.
+void sound_cycle_volume(void) {
+  ++sound_volume;
+  if (sound_volume >= kSoundVolumeSteps) {
+    sound_volume = 0;
+  }
 }
 
 uint16_t sound_engine_base_freq(uint8_t throttle) {
@@ -210,5 +238,11 @@ void sound_update(void) {
   _set_voice(kSoundRegV1, freq, pw, SID_CTRL_RECT | SID_CTRL_GATE,
              kEngineAttDec, kEngineSusRel);
 
-  sound_shadow[kSoundRegModeVol] = kMasterVolume;
+  // Guarded rather than trusted: sound_volume is written from the key handler,
+  // and an out-of-range value here would index past the table and put an
+  // arbitrary byte in $D418 - where the high nibble is the filter mode, so the
+  // symptom would be a filter switching on rather than a wrong volume.
+  sound_shadow[kSoundRegModeVol] =
+      kMasterVolume[sound_volume < kSoundVolumeSteps ? sound_volume
+                                                    : kSoundVolumeDefault];
 }

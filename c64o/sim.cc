@@ -85,7 +85,13 @@ void sim_run(uint8_t selected_mission) {
   static const uint8_t kToggleKeyN = 0x04;
   static const uint8_t kToggleKeyF = 0x08;
   static const uint8_t kToggleKeyG = 0x10;
+  static const uint8_t kToggleKeyV = 0x20;
   uint8_t prev_toggles = 0;
+
+  // Indexed by sound_volume, so it has to stay kSoundVolumeSteps long and in
+  // the same order as kMasterVolume in sound.cc.
+  static const char *const kSoundVolumeNames[kSoundVolumeSteps] = {
+      "SOUND OFF", "SOUND LOW", "SOUND FULL"};
 
   while (1) {
     keyb_poll();
@@ -106,6 +112,9 @@ void sim_run(uint8_t selected_mission) {
     }
     if (key_pressed(KSCAN_G)) {
       toggles |= kToggleKeyG;
+    }
+    if (key_pressed(KSCAN_V)) {
+      toggles |= kToggleKeyV;
     }
     const uint8_t toggle_edges = keys_edges(toggles, &prev_toggles);
 
@@ -133,6 +142,17 @@ void sim_run(uint8_t selected_mission) {
       } else {
         msg_clear();
       }
+    }
+    // The message is the whole reason this key is worth confirming: the
+    // failure mode of audio is silence, so a V pressed by accident is
+    // indistinguishable from the sound having broken. It also has to name the
+    // step, since with three of them the key alone no longer says where you
+    // ended up. msg_show() declines to overwrite the permanent PAUSED banner,
+    // which is the right outcome here - pausing is already silent, so changing
+    // the volume under it does nothing audible.
+    if (toggle_edges & kToggleKeyV) {
+      sound_cycle_volume();
+      msg_show(kSoundVolumeNames[sound_volume]);
     }
 
     if (key_pressed(KSCAN_Q)) {

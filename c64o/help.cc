@@ -31,6 +31,7 @@ static const char kHelpText[] =
     "N        TOGGLE NAV POINT\n"
     "M        TOGGLE MAP VIEW\n"
     "P        PAUSE / RESUME\n"
+    "V        SOUND OFF / LOW / FULL\n"
     "R        RESTART MISSION\n"
     "Q        QUIT TO MENU\n"
     "\n"

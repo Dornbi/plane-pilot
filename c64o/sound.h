@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#include "bool.h"
 #include "sid.h"
 
 // Flight audio. See ../docs/sound.md for the design; the short version is
@@ -102,8 +103,31 @@ static const uint8_t kPwmJitterMask = 0x7F;
 // broken one.
 uint16_t sound_engine_base_freq(uint8_t throttle);
 
+// The V key. Three steps rather than a plain mute, because "too loud" and
+// "off" are different complaints and only one of them was previously
+// answerable:
+//
+//   0  off     1  low     2  full
+//
+// Step 0 is folded into the predicate sound_update() checks, by the same route
+// as pause and crash, so there is no second silencing path to keep correct.
+// Steps 1 and 2 differ only in what reaches $D418.
+//
+// V cycles upward and wraps, and the default is full - so the first press from
+// a fresh start still silences the game, which is what a player reaching for an
+// unfamiliar key most likely wants.
+//
+// The setting deliberately survives sound_init(): a player who turned the sound
+// down does not want it back up every time they restart a mission.
+static const uint8_t kSoundVolumeSteps = 3;
+static const uint8_t kSoundVolumeDefault = 2;
+
+extern uint8_t sound_volume;
+
+void sound_cycle_volume(void);
+
 // Zeroes the shadow and the chip. Call once before the raster interrupts
-// start.
+// start. Does not touch sound_volume; see above.
 void sound_init(void);
 
 // Recomputes sound_shadow from the current flight state. Main line only,
