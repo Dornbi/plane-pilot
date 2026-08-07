@@ -129,11 +129,18 @@ VECTEST_SRC = 	benchmark.h \
 		vectest.cc
 
 CC = oscar64
+# -g is not optional here: it emits the .asm and .map that ZPCHECK reads.
 CFLAGS = -ii=${OSCAR64_INCLUDE} -D__OSCAR64__ -g -xz
 # -Oo runs the outliner over everything; the per-frame render and math files
 # opt back out with #pragma optimize(nooutline), since there a JSR/RTS per
 # extracted sequence costs more than the bytes are worth.
 OPTFLAGS = -O2 -Op -Oa -Oi -Oz -Oo
+
+# mem.h widens the zeropage region below oscar64's default, into space the
+# compiler's own spilled temporaries grow into. Nothing in oscar64 checks that,
+# and an overrun corrupts globals silently, so every link is followed by this.
+PYTHON ?= python3
+ZPCHECK = $(PYTHON) ../tools/check_zeropage.py
 
 # Report the size of a built .prg. A .prg starts with a two-byte little-endian
 # load address, so the image the C64 actually holds is two bytes shorter than
@@ -165,15 +172,24 @@ size:
 
 $(PPILOT_PROGRAM).prg: $(PPILOT_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_VIEW__ -D__DEBUG_MODEL__ -D__MAX_RAM__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
+	@$(ZPCHECK) $(PPILOT_PROGRAM).asm
 
 $(POLYDEMO_PROGRAM).prg: $(POLYDEMO_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ -D__DEBUG_POLY__ -D__MAX_RAM__ polydemo.cc
+	@$(ZPCHECK) $(POLYDEMO_PROGRAM).asm
 
 $(VECDEMO_PROGRAM).prg: $(VECDEMO_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ vecdemo.cc
+	@$(ZPCHECK) $(VECDEMO_PROGRAM).asm
 
 $(VECTEST_PROGRAM).prg: $(VECTEST_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ vectest.cc
+	@$(ZPCHECK) $(VECTEST_PROGRAM).asm
+
+# Re-run the check on whatever is already built, without provoking a build.
+zpcheck:
+	$(ZPCHECK) $(PPILOT_PROGRAM).asm $(POLYDEMO_PROGRAM).asm \
+		$(VECDEMO_PROGRAM).asm $(VECTEST_PROGRAM).asm
 
 test flight_test msg_test:
 	$(MAKE) -C test $@
@@ -182,4 +198,9 @@ clean:
 	rm -rf $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg *.asm *.dbj *.int *.lbl *.map
 	$(MAKE) -C test clean
 
-.PHONY: all size test flight_test msg_test clean
+.PHONY: all size zpcheck test flight_test msg_test clean
+
+# ZPCHECK runs after the link, so a program that fails it already exists on
+# disk. Without this, the next make would find the .prg newer than its sources,
+# skip the rule, and ship a binary whose check never passed.
+.DELETE_ON_ERROR:

@@ -407,13 +407,44 @@ of the heap keeps the free region below it contiguous and maximally useful for
 everything else. A ripped tune therefore needs relocating (`sidreloc`) or the
 tune needs composing to that address.
 
-**Zero page is available for a player.** The C64 convention that `$02–$7F` is
-off limits comes from BASIC and KERNAL working storage — neither ROM is banked
-in here (`MMAP_NO_ROM`), and no KERNAL interrupt runs (`rirq_init(false)`).
-Confirmed empirically: grepping all 18,796 lines of generated `ppilot.asm` for
-zero-page stores below `$80` returns no matches, and the map confines oscar64 to
-`ZeroStart 0080` / `ZeroEnd 00ff`. That leaves 126 free bytes at `$02–$7F`.
-`$00`/`$01` remain reserved — they are the 6510 I/O port.
+**Zero page is *not* available for a player.** An earlier version of this
+section claimed 126 free bytes at `$02–$7F`, reasoning that the convention
+against touching them comes from BASIC and KERNAL working storage, that neither
+ROM is banked in here (`MMAP_NO_ROM`), and that no KERNAL interrupt runs
+(`rirq_init(false)`). The first two premises hold. The conclusion does not: the
+space is not free, it is oscar64's.
+
+The empirical half of that claim — grepping `ppilot.asm` for zero-page stores
+below `$80` and finding none — was a bad grep. Matching `$xx` as text is mostly
+matching `#$xx` immediates; decoding the opcode byte instead shows the
+compiler's runtime spread across `$02–$5A`. With `-xz` (extended zero page,
+which the Makefile passes) the layout is:
+
+| Range | Contents |
+| ----------- | -------------------------------------------------- |
+| `$00–$01` | 6510 I/O port |
+| `$02–$06` | `WORK` |
+| `$0D–$24` | `FPARAMS`, the call parameter area |
+| `$25`,`$27` | `IP`, `ACCU` |
+| `$2B`,`$2F` | `ADDR`, `sp` |
+| `$31` | `LOCALS` |
+| `$33–$52` | `TMP`, the caller-saved temporaries |
+| `$53–` | spilled temporaries, growing upward |
+
+The last row has no fixed top: it grows with the call graph, and oscar64 does
+not bound it. `$53` is a hard floor in the other direction — `BC_REG_TMP_SAVED`
+is compiled into oscar64 and no pragma moves it.
+
+What was actually free has since been taken: `mem.h` now runs the zeropage
+region from `$60` (the measured spill high water mark is `$5A`, so this is the
+low end plus a little margin) to `$100` rather than `$FF`, since the region end
+is exclusive and the old spelling never allocated `$FF`. That is 32 bytes wider
+than the oscar64 default, all of it spent on `__zeropage` globals, and
+`tools/check_zeropage.py` fails the build if the spill area ever climbs into it.
+
+So a player needing zero page has to take it from the region in `mem.h`, at the
+cost of globals currently living there — not from a hole at `$02–$7F` that does
+not exist.
 
 **NTSC tempo is accepted as-is.** A PAL-composed tune driven once per frame
 plays ~20% fast on NTSC. Not worth a fractional-tick counter.

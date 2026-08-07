@@ -27,10 +27,31 @@
 // switch back and forth.
 #pragma region( main, 0x0860, 0xD000, , , {code, data, data_compr, bss, heap} )
 #endif
-// Region 0x5F..0xFF should be possible, except that the irq trap
-// handles 0x80. This probably depends on that the irq routines
-// should not touch anything below 0x80.
-#pragma region( zeropage, 0x80, 0xFF, , , {zeropage} )
+// Zero page. Wider than oscar64's 0x80..0xFF default, in both directions.
+//
+// Downward: the KERNAL and BASIC are banked out (MMAP_NO_ROM) and no KERNAL
+// interrupt runs, so their zero page is ours - but oscar64's own runtime
+// already lives down there. With -xz (extended zero page, see the Makefile)
+// it lays out: 0x00-0x01 the 6510 port, 0x02-0x06 WORK, 0x0D-0x24 FPARAMS,
+// 0x25 IP, 0x27 ACCU, 0x2B ADDR, 0x2F sp, 0x31 LOCALS, 0x33-0x52 TMP, and
+// from 0x53 upward the spilled temporaries. That last area is the constraint:
+// it grows with the call graph and is not bounded by the compiler, so the
+// safe floor depends on the program rather than being a fixed address.
+// 0x53 is the hard floor regardless - BC_REG_TMP_SAVED is compiled into
+// oscar64 and no pragma moves it.
+//
+// The measured high water mark for the spilled temporaries is 0x5A (ppilot;
+// 0x58 polydemo, 0x54 vecdemo and vectest), so 0x60 leaves a few bytes of
+// headroom. Nothing checks this: if the spill area ever reaches into the
+// region, oscar64 silently writes over the globals allocated here. That is
+// what tools/check_zeropage.py guards, and c64o/Makefile runs it on every
+// build - if it fails, raise this start address, do not lower it.
+//
+// Upward: the end is exclusive, so the 0xFF the default spelling implies is
+// never actually allocated. 0x100 claims it. The startup code clears the
+// region with an X loop that compares against the low byte of the end, and
+// wrapping to 0 terminates it correctly.
+#pragma region( zeropage, 0x60, 0x100, , , {zeropage} )
 
 static const uint8_t kScreenWidth = 40;
 static const uint8_t kScreenHeight = 25;

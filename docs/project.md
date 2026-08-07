@@ -46,7 +46,8 @@ program (`__MAX_RAM__`).
 
 | Address       | Contents                                                   |
 | ------------- | ---------------------------------------------------------- |
-| `$0080–$00FF` | zero page (oscar64 `zeropage` region)                      |
+| `$0002–$005A` | oscar64's own zero page: registers, parameters, temporaries |
+| `$0060–$00FF` | zero page (oscar64 `zeropage` region)                      |
 | `$0200–$0280` | CPU stack (`#pragma stacksize(0x80)`)                      |
 | `$0280–$0800` | `bss2`, a second BSS region — full to the byte             |
 | `$0860–$CFFF` | code, data, bss, heap                                      |
@@ -59,6 +60,15 @@ program (`__MAX_RAM__`).
 | `$EC00`       | screen RAM, alt buffer                                     |
 | `$EE30`       | panel screen rows (= `$EC00 + 14*40`)                      |
 | `$F000–$FF3F` | MCBM bitmap for the instrument panel                       |
+
+The zeropage region starts below oscar64's `$80` default because the KERNAL and
+BASIC are banked out and their zero page is ours to take. The limit is not the
+ROMs but the compiler: its spilled temporaries start at `$53` and grow upward
+with the call graph, unbounded and unchecked, so `$60` is the measured high
+water mark (`$5A`) plus margin rather than a fixed safe address. An overrun
+corrupts globals silently, so `tools/check_zeropage.py` runs on every link and
+fails the build if the two ever meet. If it fires, raise the region start in
+`mem.h` — see the comment there for the full runtime layout.
 
 VIC bank selection is `cia2.pra &= 0xFC` (bank 3, `$C000–$FFFF`). The two
 `vic_memptr` values are `$A8` (screen `$E800`) and `$B8` (screen `$EC00`); both
