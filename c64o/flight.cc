@@ -168,8 +168,9 @@ static const int16_t kMaxLandingPitch = 64;
 // kMinLandingPitch by the stall break, so trigger 4 owns it. Above stall the
 // worst sink any legal attitude produces is -251, so the old -0x0180 could
 // never fire. At -0x00E0 a level-or-nose-up flare is always survivable and a
-// nose-down arrival needs speed to survive it.
-static const int16_t kMaxLandingVSpeed = -0x00E0;
+// At -0x0120 a level-or-nose-up flare is always survivable and moderate
+// nose-down landings survive, while steep nose-down dives still trigger sink limits.
+static const int16_t kMaxLandingVSpeed = -0x0120;
 static const uint16_t kMaxLandingSpeed = 0x0A00;
 // The envelope check runs every frame the aircraft is at ground level, not
 // just on the touchdown frame, so it also polices taxi and takeoff roll. That

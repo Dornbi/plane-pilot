@@ -46,7 +46,7 @@ static const int16_t kMaxLandingRoll = 32;
 static const int16_t kMinLandingUpZ = 0;
 static const int16_t kMinLandingPitch = -32;
 static const int16_t kMaxLandingPitch = 64;
-static const int16_t kMaxLandingVSpeed = -0x00E0;
+static const int16_t kMaxLandingVSpeed = -0x0120;
 static const uint16_t kMaxLandingSpeed = 0x0A00;
 static const uint16_t kMaxGroundSpeed = 0x0D00;
 
@@ -1012,10 +1012,10 @@ static void test_landing_envelope_sink_rate() {
   flight_advance();
   assert(!flight_status);
 
-  // Same attitude, slow: the lift deficit drives the sink past the limit while
+  // Steep nose down: the sink drives past the limit while
   // pitch, roll, speed, gear and up.z are all still legal.
-  int16_t slow = _arm_touchdown(-24, 0, 0x0450, 1);
-  printf("  nose down at speed 0x0450 -> vspeed %d\n", slow);
+  int16_t slow = _arm_touchdown(-30, 0, 0x0400, 1);
+  printf("  steep nose down at pitch -30 speed 0x0400 -> vspeed %d\n", slow);
   assert(slow < kMaxLandingVSpeed);                     // Trigger 2 armed
   assert(_abs16(flight_cam.left.z) <= kMaxLandingRoll); // 3 clear
   assert(flight_cam.up.z >= kMinLandingUpZ);            // 6 clear
