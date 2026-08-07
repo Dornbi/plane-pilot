@@ -29,6 +29,7 @@ bool flight_paused = false;
 enum FlightStatus flight_status = FLIGHT_ONGOING;
 uint8_t flight_throttle = 0;
 uint32_t flight_fuel = 0x21FFF;
+int16_t flight_speed = 0;
 
 // The host build's stand-in for the chip. sid.h points SID_REGS at this, so
 // sound_silence()'s write-through is an array store instead of a segfault, and
@@ -43,6 +44,10 @@ static void reset_state(void) {
   flight_status = FLIGHT_ONGOING;
   flight_throttle = 0;
   flight_fuel = 0x21FFF;
+  // Above the wind gate threshold, so the default state has both continuous
+  // voices running and a test that forgets to set a speed still exercises
+  // voice 2 rather than silently skipping it.
+  flight_speed = kMaxSpeed / 2;
   memset(sid_regs, 0xAA, sizeof(sid_regs));
   sound_volume = kSoundVolumeDefault;
   sound_init();
@@ -259,10 +264,9 @@ int main() {
   // failure this whole file exists for.
   assert(master_volume() > 0);
 
-  // Phase 2 owns voice 1 only. Voices 2 and 3 arrive in phases 3 and 5, and
-  // until then they must be gated off - not left holding whatever the previous
-  // frame put there.
-  assert((sound_shadow[kSoundRegV2Ctrl] & SID_CTRL_GATE) == 0);
+  // Voice 3 is still unclaimed - it arrives with the stall warning in phase 5 -
+  // and until then it must be gated off, not left holding whatever the
+  // previous frame put there.
   assert((sound_shadow[kSoundRegV3Ctrl] & SID_CTRL_GATE) == 0);
 
   // The filter is deliberately unused; section 3 explains why depending on it
@@ -312,6 +316,128 @@ int main() {
     assert(freq_at_throttle(kMaxThrottle + 1) == full);
     assert(freq_at_throttle(0xFF) == full);
   }
+
+  // --- Voice 2: wind -------------------------------------------------------
+
+  // Brightness rises with airspeed, monotonically. This is the whole mechanism
+  // - section 6 option 3 - so a table that ever went backwards would make the
+  // aircraft sound like it was slowing down while accelerating.
+  {
+    uint16_t prev_w = sound_wind_freq(0);
+    for (int16_t s = 0; s <= (int16_t)kMaxSpeed; s += 16) {
+      uint16_t f = sound_wind_freq(s);
+      assert(f >= prev_w);
+      prev_w = f;
+    }
+    // And it has to travel far enough to be heard as a change at all.
+    assert(sound_wind_freq(kMaxSpeed) > sound_wind_freq(0) * 3);
+  }
+
+  // Every adjacent step of the table separated by about the same ratio, for
+  // the same reason as the engine's: a linear ramp would spend most of its
+  // range in the bottom of the speed envelope, where an aircraft rarely is.
+  {
+    const uint16_t step = 1 << 8;  // one table entry
+    for (uint16_t s = 0; s + step <= kMaxSpeed; s += step) {
+      uint32_t lo = sound_wind_freq((int16_t)s);
+      uint32_t hi = sound_wind_freq((int16_t)(s + step));
+      uint32_t permille = (hi * 1000) / lo;
+      assert(permille >= 1085 && permille <= 1110);
+    }
+  }
+
+  // Out-of-range speeds clamp rather than indexing past the table, at both
+  // ends. Negative is the one that matters: flight_speed is signed and the
+  // model clamps it to zero every step, but this function is not entitled to
+  // assume that - a negative shifted right stays negative and would index
+  // wildly.
+  assert(sound_wind_freq(-1) == sound_wind_freq(0));
+  assert(sound_wind_freq(-30000) == sound_wind_freq(0));
+  assert(sound_wind_freq(0x7FFF) == sound_wind_freq(kMaxSpeed));
+
+  // The gate threshold. No airspeed, no wind - a stationary aircraft on the
+  // runway must not hiss at itself, and brightness alone cannot fix that
+  // because option 3 changes the wind's colour and never its level.
+  assert(!sound_wind_audible(0));
+  assert(sound_wind_audible(kMaxSpeed));
+  {
+    // Exactly one crossing, and no gap or overlap at it. Two thresholds that
+    // disagreed by even one unit would leave a band where the wind is neither
+    // on nor off, which shows up as a flutter while accelerating through it.
+    int16_t crossings = 0;
+    bool prev_on = sound_wind_audible(0);
+    for (int16_t s = 1; s <= (int16_t)kMaxSpeed; ++s) {
+      bool on = sound_wind_audible(s);
+      if (on != prev_on) ++crossings;
+      prev_on = on;
+    }
+    assert(crossings == 1);
+  }
+
+  // Now the registers themselves, at a speed that is comfortably flying.
+  reset_state();
+  flight_speed = kMaxSpeed;
+  flight_throttle = kMaxThrottle;
+  sound_update();
+
+  assert(sound_shadow[kSoundRegV2Ctrl] == (SID_CTRL_NOISE | SID_CTRL_GATE));
+  {
+    // One waveform bit, for the reason above: noise combined with anything
+    // else zeroes the 6581's LFSR and the voice goes silent until TEST is
+    // toggled. This is the voice where that actually bites.
+    uint8_t wave = sound_shadow[kSoundRegV2Ctrl] & 0xF0;
+    assert(wave != 0 && (wave & (wave - 1)) == 0);
+  }
+  assert(voice_freq(kSoundRegV2) == sound_wind_freq(kMaxSpeed));
+
+  // Wind is a bed. $D418 is global, so a static sustain difference is the only
+  // balance control the chip offers, and noise reads louder than a pulse tone
+  // at equal envelope level - equal sustains would bury the engine.
+  {
+    uint8_t wind_sustain = sound_shadow[kSoundRegV2 + kSoundVoiceSusRel] >> 4;
+    uint8_t engine_sustain = sound_shadow[kSoundRegV1 + kSoundVoiceSusRel] >> 4;
+    assert(wind_sustain > 0 && wind_sustain < engine_sustain);
+  }
+
+  // A non-zero release, so that dropping below the threshold fades the bed out
+  // rather than cutting it dead.
+  assert((sound_shadow[kSoundRegV2 + kSoundVoiceSusRel] & 0x0F) != 0);
+
+  // Wind must always read as a hiss, never as a chug. The comparison has to go
+  // through the rates rather than the register values: the same number is a
+  // pitch on a pulse voice and an LFSR clock on a noise voice, and the noise
+  // rate is 16x the pulse frequency for equal registers. Comparing the two
+  // tables entry for entry would be a category error - they overlap
+  // numerically and it means nothing.
+  {
+    uint32_t slowest_wind_rate = 16u * sound_wind_freq(0);
+    uint32_t fastest_engine = sound_engine_base_freq(kMaxThrottle);
+    assert(slowest_wind_rate > 10u * fastest_engine);
+  }
+
+  // Below the threshold the voice is still written - waveform and envelope
+  // intact, gate clear - rather than left to the memset. That is what lets it
+  // release instead of being cut dead, and the memset would zero the release
+  // nibble along with everything else.
+  reset_state();
+  flight_speed = 0;
+  flight_throttle = kMaxThrottle;
+  sound_update();
+  assert((sound_shadow[kSoundRegV2Ctrl] & SID_CTRL_GATE) == 0);
+  assert((sound_shadow[kSoundRegV2Ctrl] & 0xF0) == SID_CTRL_NOISE);
+  assert((sound_shadow[kSoundRegV2 + kSoundVoiceSusRel] & 0x0F) != 0);
+  // The engine is unaffected by the wind being silent.
+  assert(sound_shadow[kSoundRegV1Ctrl] == expected_ctrl());
+
+  // The silence predicates own voice 2 as well. This is the property that has
+  // to survive every future voice: silence is one predicate, not one call per
+  // voice that someone has to remember to add.
+  reset_state();
+  flight_speed = kMaxSpeed;
+  flight_throttle = kMaxThrottle;
+  flight_paused = true;
+  sound_update();
+  assert(shadow_all_zero());
 
   // --- Roughness: the engine must not hold a steady note -------------------
   //

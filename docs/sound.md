@@ -247,12 +247,17 @@ With 11 KB free (§8) this is not a trade.
 **RAM.** Trivial against what is available. Before phase 1 the heap was
 `a360 - d000` — 11.0 KB contiguous, with nothing allocating from it.
 
-| Item                  | Bytes | Phase 1 measured | Phase 2 |
-| --------------------- | ----: | ---------------: | ------: |
-| Shadow register block |    25 |               25 |      25 |
-| Pitch table           |    50 |                — |      50 |
-| Driver state          |   ~16 |    2 (zero page) |       4 |
-| Code                  |  ~500 |              229 |     TBM |
+| Item                  | Bytes | Phase 1 measured | Phase 2 | Phase 3 |
+| --------------------- | ----: | ---------------: | ------: | ------: |
+| Shadow register block |    25 |               25 |      25 |      25 |
+| Pitch table           |    50 |                — |      50 |      50 |
+| Wind table            |     — |                — |       — |      32 |
+| Driver state          |   ~16 |    2 (zero page) |       4 |       4 |
+| Code                  |  ~500 |              229 |     TBM |     TBM |
+
+Phase 3 added a 16-entry 16-bit wind table and no new driver state at all —
+the wind is a pure function of `flight_speed`, with nothing to remember between
+frames.
 
 Phase 1 cost 256 bytes all in, leaving the heap at `a460 - d000`, 10.7 KB.
 
@@ -486,13 +491,43 @@ mechanism (sustain-level modulation) only works *downward*. Three options:
    and more intense. Not literally louder, but for "wind rises with speed" it
    sells. One register, no retrigger, chip-independent.
 
-The choice is **open** — see §10.
+**Option 3 is what was built.** Option 1 sounds better and option 3 does not
+depend on the chip revision, and that decided it — see §3 on why the filter is
+not something this design leans on.
 
-`flight_speed` runs to `kMaxSpeed` (`0x0F00`); the mapping uses its top bits.
+`flight_speed` runs to `kMaxSpeed` (`0x0F00`), and the mapping uses its top
+bits: `speed >> 8` indexes a 16-entry table spanning `$0600` to `$1800`, or
+1443 to 5773 LFSR shifts per second. Geometric between the endpoints, for the
+same reason the engine table is — a linear ramp would spend most of its range
+in the bottom of the speed envelope, where an aircraft rarely is.
 
-Note that voice 2 now carries wind and nothing else. Wind no longer has to
-reserve headroom in whatever parameter it modulates for a buffet term on top,
-so the speed mapping can use the full range of the mechanism it picks.
+**The register values overlap the engine table, and that means nothing.** The
+same number is a pitch on a pulse voice and an LFSR clock on a noise voice, and
+the noise rate is 16× the frequency the pulse voice would produce. Comparing
+the two tables entry for entry is a category error. The property that does
+matter is the ratio of the sounds: the slowest wind runs at over ten times the
+fastest engine fundamental, so wind can never be mistaken for a chug. §7 asserts
+that, converted to rates, rather than the register comparison it looks like.
+
+**Wind gates off below `kWindMinSpeed`.** No airspeed, no wind — and brightness
+alone cannot express that, because option 3 changes the wind's colour and never
+its level, so a stationary aircraft would hiss exactly as loudly as one at
+cruise. The threshold is about 3% of the speed envelope, below any speed the
+aircraft can sustain in the air and below a brisk taxi. Attack 6 (~68 ms) and
+release 6 (~200 ms) make the crossing a swell rather than a click, in both
+directions.
+
+Below the threshold the voice is still *written* — waveform and envelope
+intact, gate clear — rather than left to the `memset` at the top of
+`sound_update()`. The memset would zero the release nibble along with
+everything else, and a bed that stops dead on touchdown is audibly a bug.
+
+**Balance is a static sustain difference.** Wind sits at sustain 10 against the
+engine's 15. `$D418` is global (§2), so this is the only mix control the chip
+offers, and noise reads louder than a pulse tone at equal envelope level —
+equal sustains bury the engine. Keeping it *static* is what makes it safe:
+sustain can be lowered at will but only rises on a retrigger, so a value that
+never changes never needs one. That is the trap option 2 above walks into.
 
 ### Voice 3 — stall warning and one-shots
 
@@ -612,9 +647,24 @@ cases:
   phase step would make the sweep exactly periodic, so this is the test for
   the aperiodicity §6 asks for.
 
-The bounds in these come from `kEngineJitterShift` and `kPwmJitterMask` rather
-than from repeated literals, which is why both live in `sound.h`. Retuning the
-roughness moves the test with it instead of falsifying it.
+- Wind brightness rises monotonically with airspeed across the whole envelope,
+  and travels far enough to be heard as a change at all. A table that went
+  backwards anywhere would make the aircraft sound like it was slowing down
+  while accelerating.
+- Wind gates off at zero airspeed and on at cruise, with **exactly one**
+  crossing in between. Two thresholds disagreeing by one unit would leave a
+  band where the wind is neither on nor off, heard as a flutter while
+  accelerating through it.
+- Below the threshold the wind voice keeps its waveform and a non-zero release
+  nibble, so it fades rather than being cut dead.
+- Wind sustain is non-zero and strictly below the engine's — it is a bed, and
+  a static sustain difference is the only mix control the SID offers.
+- The slowest wind runs at more than ten times the fastest engine fundamental,
+  compared as *rates* and not as register values. Wind must never read as a
+  chug.
+- Out-of-range speeds clamp at both ends, negative included. `flight_speed` is
+  signed and a negative right-shift stays negative, so this one is a real
+  crash rather than a wrong note.
 - Touchdown and flaps in one generation produce the touchdown effect.
 - A held event across generations does not retrigger.
 - `flight_stall` set produces a voice-3 gate that goes off and on again over a
@@ -628,6 +678,11 @@ roughness moves the test with it instead of falsifying it.
   flag holds its last value after a crash (`flight_advance()` returns early),
   so this only works if the derived-silence predicates are checked before the
   stall logic, and that ordering is the thing being tested.
+
+Bounds in these come from the tuning constants — `kEngineJitterShift`,
+`kPwmJitterMask` — rather than from repeated literals, which is why those live
+in `sound.h`. Retuning the roughness moves the test with it instead of
+falsifying it.
 
 ---
 
@@ -769,7 +824,26 @@ Each phase leaves the program in a working, committable state.
 
    **Not** verified at all: the oscar64 build, `ppilot.map`, and how any of it
    sounds.
-3. **Wind.** Voice 2 noise, intensity from `flight_speed` by the §6 mechanism.
+3. **Wind.** ✅ Done. Voice 2 noise, brightness from `flight_speed` through a
+   16-entry geometric table (§6 option 3), gated off below `kWindMinSpeed`, and
+   balanced under the engine by a static sustain difference.
+
+   `kMaxSpeed` moved from `flight.cc` to `flight.h` for the same reason
+   `kMaxThrottle` did in phase 2 — the table is sized by the speed envelope
+   rather than by a second copy of `0x0F00`.
+
+   `sound_wind_freq()` and `sound_wind_audible()` are exported alongside
+   `sound_engine_base_freq()`. The gate threshold is a decision rather than an
+   implementation detail, and the table's shape is the thing worth asserting
+   on.
+
+   Verified: the table monotonic and geometric across the whole envelope;
+   clamping at both ends including negative speeds, which matters because
+   `flight_speed` is signed and a negative right-shift stays negative; exactly
+   one gate crossing, so there is no band where the wind flutters on and off;
+   wind sustain strictly below the engine's; the silence predicates zeroing
+   voice 2 along with everything else. **Not** verified: the oscar64 build, and
+   how it sounds against the engine.
 4. **Flight model interface.** `flight_events` and `flight_gen` in `flight.cc`;
    confirm `make -C test flight_test` still builds and passes.
 
@@ -819,10 +893,18 @@ correctness question in exchange for a nuance nobody has heard yet. It is a
 three-line change to add later, and `sound_test.cc` already pins the mapping
 it would have to preserve.
 
-**Wind intensity: filter sweep or noise frequency?** §6 options 1 and 3. Option
-1 sounds better; option 3 removes the SID-revision dependency entirely and is
-cheaper. Recommend building option 3 in phase 3 and only reaching for option 1
-if it disappoints.
+**~~Wind intensity: filter sweep or noise frequency?~~ Resolved in phase 3:
+noise frequency,** §6 option 3. Option 1 — a filter cutoff sweep — sounds
+better and is the standard approach, but it is chip-dependent in exactly the
+way §3 spent a page arguing against, and this is a `.prg` shipping to unknown
+emulators and unknown hardware. Option 3 costs one register, needs no
+retrigger, and behaves identically on a 6581 and an 8580.
+
+It remains the thing to reach for if the wind disappoints by ear, and the cost
+of switching is contained: `sound_wind_freq()` is the only place that decides
+what a speed sounds like. Worth noting that option 1 would apply the filter to
+voice 2 alone, so the chip dependency would be confined to one sound rather
+than reintroduced across the design.
 
 **Stall warble rate and burst length?** §6 suggests 3–4 Hz. At a 20 ms blit
 tick that is a period of 12–16 ticks, but the burst length interacts with the

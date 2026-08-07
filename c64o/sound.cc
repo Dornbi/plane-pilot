@@ -75,6 +75,67 @@ static const uint8_t kPwmStep = 6;
 
 static uint8_t _pwm_phase;
 
+// --- Voice 2: wind ---------------------------------------------------------
+
+// Wind intensity rises with airspeed, and section 2 established that the
+// natural mechanism for "louder" is not available: $D418 is master only, and
+// modulating a voice's sustain works downward but not upward without a
+// retrigger. Of the three candidates in section 6 this is option 3, noise
+// frequency as brightness. Higher noise frequency reads as brighter and more
+// intense; it is not literally louder, but for "wind rises with speed" it
+// sells, and it costs one register, no retrigger and no dependence on the
+// filter - which section 3 spent a page arguing against relying on.
+//
+// The register means the same thing here as it would on any noise voice: it
+// clocks the LFSR, which shifts at freq * 985248 / 2^20, or roughly freq
+// hertz. This table spans 1443 to 5773 shifts per second - fast enough at
+// every setting to be heard as a hiss rather than as the individual steps.
+//
+// Note that these values overlap the engine table numerically, and that this
+// means nothing. The same register is a pitch on a pulse voice and an LFSR
+// clock on a noise voice, a factor of 16 apart in the rate they produce, so
+// comparing the two tables entry for entry is a category error. What does
+// matter is the ratio the two sounds come out at, and sound_test.cc asserts
+// that: the slowest wind is over ten times the fastest engine fundamental, so
+// wind can never be mistaken for a chug.
+//
+// Indexed by flight_speed >> kWindSpeedShift, geometric between the endpoints
+// for the same reason the engine table is - a linear ramp would spend most of
+// its range in the bottom of the envelope, where an aircraft rarely is.
+static const uint8_t kWindSpeedShift = 8;
+static const uint8_t kWindSteps = (kMaxSpeed >> kWindSpeedShift) + 1;
+
+static const uint16_t kWindFreq[kWindSteps] = {
+    0x0600, 0x0695, 0x0738, 0x07EB,  //  0.. 3  1443 .. 1905 shifts/sec
+    0x08AF, 0x0986, 0x0A72, 0x0B75,  //  4.. 7  2089 .. 2756
+    0x0C91, 0x0DC9, 0x0F1E, 0x1095,  //  8..11  3023 .. 3989
+    0x1230, 0x13F3, 0x15E2, 0x1800,  // 12..15  4375 .. 5773
+};
+
+// Below this there is no airspeed worth hearing, and voice 2 gates off. A
+// stationary aircraft on the runway hissing at itself is the first thing
+// anyone would notice, and brightness alone cannot fix it: option 3 changes
+// the colour of the wind, never its level, so the bed at speed zero would be
+// just as loud as the bed at cruise.
+//
+// 0x0080 is about 3% of the speed envelope, below any speed the aircraft can
+// sustain in the air and below a brisk taxi.
+static const uint16_t kWindMinSpeed = 0x0080;
+
+// Attack 6 is about 68 ms, slow enough that crossing the threshold on the
+// takeoff roll swells rather than clicks. Release 6 is about 200 ms, so it
+// fades on the way back down too.
+//
+// Sustain is the mix. It is deliberately below the engine's 15, because $D418
+// is global (section 2) and a static sustain difference is the only balance
+// control the chip offers - wind has to sit under the engine as a bed, and
+// noise reads louder than a pulse tone at equal envelope level. Static is also
+// what keeps this safe: sustain can be lowered at will but only rises on a
+// retrigger, and a value that never changes never needs one.
+static const uint8_t kWindAttDec = 0x60;  // attack 6, decay 0
+static const uint8_t kWindSustain = 10;
+static const uint8_t kWindSusRel = (kWindSustain << 4) | 0x06;
+
 // --- Roughness -------------------------------------------------------------
 //
 // A clean pitch table plus a clean triangle sweep is audibly a synthesizer
@@ -171,6 +232,21 @@ uint16_t sound_engine_base_freq(uint8_t throttle) {
   return kEngineFreq[throttle];
 }
 
+uint16_t sound_wind_freq(int16_t speed) {
+  if (speed < 0) {
+    speed = 0;
+  }
+  uint8_t idx = (uint8_t)((uint16_t)speed >> kWindSpeedShift);
+  if (idx >= kWindSteps) {
+    idx = kWindSteps - 1;
+  }
+  return kWindFreq[idx];
+}
+
+bool sound_wind_audible(int16_t speed) {
+  return speed >= (int16_t)kWindMinSpeed;
+}
+
 void sound_init(void) {
   sound_gen = 0;
   sound_gen_seen = 0;
@@ -237,6 +313,17 @@ void sound_update(void) {
 
   _set_voice(kSoundRegV1, freq, pw, SID_CTRL_RECT | SID_CTRL_GATE,
              kEngineAttDec, kEngineSusRel);
+
+  // Voice 2: wind. Below the threshold the voice is still written, with the
+  // waveform and envelope intact but the gate clear, rather than left to the
+  // memset above. That is what lets it release over kWindSusRel's ~200 ms
+  // instead of being cut dead - the memset would zero the release nibble too,
+  // and a bed that stops instantly on touchdown is audibly a bug.
+  _set_voice(kSoundRegV2, sound_wind_freq(flight_speed), 0,
+             sound_wind_audible(flight_speed)
+                 ? (SID_CTRL_NOISE | SID_CTRL_GATE)
+                 : SID_CTRL_NOISE,
+             kWindAttDec, kWindSusRel);
 
   // Guarded rather than trusted: sound_volume is written from the key handler,
   // and an out-of-range value here would index past the table and put an

@@ -40,6 +40,11 @@ inline bool flight_crashed(void) { return flight_status >= FLIGHT_CRASH_ROLL; }
 
 extern mat3_t flight_cam;
 
+// Airspeed runs 0 .. kMaxSpeed and is clamped to it every step. Exported for
+// the same reason as kMaxThrottle below: sound.cc sizes its wind table by it,
+// and a table that did not cover the whole range would read past its end at
+// the top of the envelope.
+static const uint16_t kMaxSpeed = 0x0F00;
 extern int16_t flight_speed;
 extern int16_t flight_vspeed;
 

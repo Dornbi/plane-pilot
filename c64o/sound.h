@@ -103,6 +103,15 @@ static const uint8_t kPwmJitterMask = 0x7F;
 // broken one.
 uint16_t sound_engine_base_freq(uint8_t throttle);
 
+// The wind voice's frequency for an airspeed, and whether it sounds at all.
+// Exported for the same reason as the engine accessor above: the wind table's
+// shape is the thing worth asserting on, and the gate threshold is a decision
+// rather than an implementation detail.
+//
+// Both clamp, so out-of-range speeds cannot index past the table.
+uint16_t sound_wind_freq(int16_t speed);
+bool sound_wind_audible(int16_t speed);
+
 // The V key. Three steps rather than a plain mute, because "too loud" and
 // "off" are different complaints and only one of them was previously
 // answerable:

@@ -125,7 +125,7 @@ static const mat3_t _m_init = {
 static const uint32_t kMinEyeZ = 0x2000;
 static const uint16_t kStallSpeedWithoutFlaps = 0x0400;
 static const uint16_t kStallSpeedWithFlaps = 0x0340;
-static const uint16_t kMaxSpeed = 0x0F00;
+// kMaxSpeed lives in flight.h: sound.cc sizes its wind table by it.
 static const int16_t kTrimLift = 0x1000;
 static const uint8_t kMinThrottle = 0x00;
 // kMaxThrottle lives in flight.h: sound.cc sizes its engine pitch table by it.
