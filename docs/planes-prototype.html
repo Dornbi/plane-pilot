@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Plane Pilot — traffic sprite prototype</title>
+<style>
+  :root {
+    --bg: #14161c; --panel: #1c1f28; --line: #2b3040;
+    --fg: #d7dae3; --dim: #858c9e; --accent: #b8c76f; --warn: #9a6759;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 20px; background: var(--bg); color: var(--fg);
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  h1 { font-size: 17px; margin: 0 0 2px; font-weight: 600; }
+  .sub { color: var(--dim); margin: 0 0 18px; font-size: 12px; }
+  .sub a { color: var(--accent); }
+  .row { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; padding: 12px;
+  }
+  .card h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--dim); margin: 0 0 10px; font-weight: 600;
+  }
+  canvas { display: block; image-rendering: pixelated; border-radius: 3px; }
+  #viewport { border: 1px solid var(--line); }
+  .ctrls { width: 300px; }
+  .ctrl { margin-bottom: 9px; }
+  .ctrl label {
+    display: flex; justify-content: space-between; font-size: 11px;
+    color: var(--dim); margin-bottom: 2px;
+  }
+  .ctrl label b { color: var(--fg); font-weight: 500; font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--accent); height: 16px; }
+  .chk { display: flex; align-items: center; gap: 6px; font-size: 12px; margin: 5px 0; }
+  .chk input { accent-color: var(--accent); }
+  .grp { border-top: 1px solid var(--line); margin: 12px 0 9px; padding-top: 9px; }
+  table.read { border-collapse: collapse; font-size: 11.5px; width: 100%; }
+  table.read td { padding: 2px 8px 2px 0; vertical-align: top; }
+  table.read td:first-child { color: var(--dim); white-space: nowrap; }
+  table.read td:last-child { font-variant-numeric: tabular-nums; }
+  pre.dump {
+    font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--dim); margin: 0; white-space: pre;
+  }
+  .pill {
+    display: inline-block; padding: 1px 7px; border-radius: 10px;
+    font-size: 10.5px; font-weight: 600; letter-spacing: .03em;
+  }
+  .pill.hit { background: #2c3b22; color: #9ad284; }
+  .pill.miss { background: #3a2a24; color: #c08a76; }
+  .pill.tier { background: #2a2f42; color: #8fa0d8; }
+  .note { color: var(--dim); font-size: 11px; margin-top: 10px; max-width: 340px; }
+  button {
+    background: #2a3040; color: var(--fg); border: 1px solid var(--line);
+    border-radius: 5px; padding: 4px 10px; font-size: 11.5px; cursor: pointer;
+  }
+  button:hover { background: #333a4d; }
+</style>
+</head>
+<body>
+
+<h1>Traffic sprite prototype</h1>
+<p class="sub">
+  Reference implementation of <a href="planes.md">planes.md</a> — same
+  projection, same 8.8 fixed-point arithmetic, same tier ladder, same row-run
+  rasteriser. Everything below the projection runs in integers, so the sprite
+  bytes are the bytes the C64 should produce.
+</p>
+
+<div class="row">
+
+  <div class="card">
+    <h2>Viewport &mdash; 320 &times; 112, shown at 2&times;</h2>
+    <canvas id="viewport" width="640" height="224"></canvas>
+    <div class="note" id="vpnote"></div>
+  </div>
+
+  <div class="card">
+    <h2>Sprite buffer &mdash; 24 columns</h2>
+    <canvas id="buffer" width="336" height="420"></canvas>
+  </div>
+
+  <div class="card ctrls">
+    <h2>Geometry</h2>
+
+    <div class="ctrl"><label>Distance <b><span id="l_dist"></span> m</b></label>
+      <input type="range" id="dist" min="25" max="1200" value="150" step="1"></div>
+    <div class="ctrl"><label>Bearing <b><span id="l_bear"></span>&deg;</b></label>
+      <input type="range" id="bear" min="-30" max="30" value="6" step="1"></div>
+    <div class="ctrl"><label>Elevation <b><span id="l_elev"></span>&deg;</b></label>
+      <input type="range" id="elev" min="-20" max="20" value="3" step="1"></div>
+
+    <div class="grp"></div>
+    <div class="ctrl"><label>Target heading <b><span id="l_thdg"></span>&deg;</b></label>
+      <input type="range" id="thdg" min="-180" max="180" value="120" step="1"></div>
+    <div class="ctrl"><label>Target pitch <b><span id="l_tpit"></span>&deg;</b></label>
+      <input type="range" id="tpit" min="-45" max="45" value="0" step="1"></div>
+    <div class="ctrl"><label>Target bank <b><span id="l_tbnk"></span>&deg;</b></label>
+      <input type="range" id="tbnk" min="-80" max="80" value="20" step="1"></div>
+
+    <div class="grp"></div>
+    <div class="ctrl"><label>Own pitch <b><span id="l_opit"></span>&deg;</b></label>
+      <input type="range" id="opit" min="-30" max="30" value="0" step="1"></div>
+    <div class="ctrl"><label>Own bank <b><span id="l_obnk"></span>&deg;</b></label>
+      <input type="range" id="obnk" min="-55" max="55" value="0" step="1"></div>
+
+    <div class="grp"></div>
+    <div class="ctrl"><label>Wingspan <b><span id="l_span"></span> m</b></label>
+      <input type="range" id="span" min="6" max="20" value="11" step="1"></div>
+    <div class="ctrl"><label>Length <b><span id="l_len"></span> m</b></label>
+      <input type="range" id="len" min="5" max="18" value="8" step="1"></div>
+    <div class="ctrl"><label>Size exaggeration <b><span id="l_scale"></span>&times;</b></label>
+      <input type="range" id="scale" min="10" max="30" value="10" step="1"></div>
+
+    <div class="grp"></div>
+    <label class="chk"><input type="checkbox" id="thick" checked> Widen steep strokes to 2 px</label>
+    <label class="chk"><input type="checkbox" id="fin"> Third stroke: tail fin</label>
+    <label class="chk"><input type="checkbox" id="box"> Show sprite bounds</label>
+    <label class="chk"><input type="checkbox" id="anim"> Animate flyby</label>
+    <button id="reset">Reset</button>
+  </div>
+
+  <div class="card" style="min-width:260px">
+    <h2>Pipeline readout</h2>
+    <table class="read" id="readout"></table>
+    <div class="grp"></div>
+    <h2>Block 0 &mdash; 63 bytes</h2>
+    <pre class="dump" id="dump"></pre>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+
+/* ---------- C64 palette (Pepto) ---------- */
+const PAL = ["#000000","#FFFFFF","#68372B","#70A4B2","#6F3D86","#588D43",
+             "#352879","#B8C76F","#6F4F25","#433900","#9A6759","#444444",
+             "#6C6C6C","#9AD284","#6C5EB5","#959595"];
+const C_SKY = PAL[6], C_GRAD = PAL[14], C_GRAD2 = PAL[3], C_GROUND = PAL[5];
+
+/* ---------- viewport geometry (mem.h) ---------- */
+const VIEW_W = 320, VIEW_H = 112;
+const CX0 = VIEW_W / 2, CY0 = VIEW_H / 2;   // gfx.cc: px = 160 - vec_sx
+const ZOOM = 2;
+const COLS = 24;                            // sprite width in sprite pixels
+
+/* ---------- 6502 fixed point, matching vec_asm.cc ---------- */
+// trunc(a * b / 256), rounding toward zero -- vec_fastmul8p8
+function fmul(a, b) {
+  const p = a * b;
+  return p < 0 ? -Math.floor(-p / 256) : Math.floor(p / 256);
+}
+// trunc((a << 8) / b), rounding toward zero -- vec_div8p8
+function fdiv(a, b) {
+  if (b === 0) return 0;
+  const p = (a * 256) / b;
+  return p < 0 ? -Math.floor(-p) : Math.floor(p);
+}
+
+/* ---------- vectors ---------- */
+const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+const rad = d => d * Math.PI / 180;
+
+// mat3_t: front (x fwd), left (y), up (z). up = front x left.
+function orient(hdg, pitch, bank) {
+  const h = rad(hdg), p = rad(pitch), b = rad(bank);
+  const front = [Math.cos(p)*Math.cos(h), Math.cos(p)*Math.sin(h), Math.sin(p)];
+  const left0 = [-Math.sin(h), Math.cos(h), 0];
+  const up0 = cross(front, left0);
+  const left = [left0[0]*Math.cos(b) + up0[0]*Math.sin(b),
+                left0[1]*Math.cos(b) + up0[1]*Math.sin(b),
+                left0[2]*Math.cos(b) + up0[2]*Math.sin(b)];
+  return { front, left, up: cross(front, left) };
+}
+// vec_transform_inv: world -> camera
+const toCam = (m, v) => [dot(v, m.front), dot(v, m.left), dot(v, m.up)];
+// quantise a unit vector to 8.8, as mat3_t stores it
+const q88 = v => v.map(c => Math.round(c * 256));
+
+/* ---------- run-mask tables (144 bytes on the C64) ---------- */
+const kMaskFrom = [], kMaskTo = [];
+for (let i = 0; i < COLS; i++) {
+  const f = [0,0,0], t = [0,0,0];
+  for (let x = 0; x < COLS; x++) {
+    const bit = 0x80 >> (x & 7), by = x >> 3;
+    if (x >= i) f[by] |= bit;
+    if (x <= i) t[by] |= bit;
+  }
+  kMaskFrom.push(f); kMaskTo.push(t);
+}
+
+/* ---------- sprite buffer ---------- */
+function makeBuf(rows) { return { rows, bytes: new Uint8Array(3 * rows), touched: 0 }; }
+
+function fillRun(buf, y, a, b) {
+  if (y < 0 || y >= buf.rows) return;
+  if (a > b) { const t = a; a = b; b = t; }
+  a = Math.max(0, a); b = Math.min(COLS - 1, b);
+  if (b < a) return;
+  const o = 3 * y, mf = kMaskFrom[a], mt = kMaskTo[b];
+  buf.bytes[o]   |= mf[0] & mt[0];
+  buf.bytes[o+1] |= mf[1] & mt[1];
+  buf.bytes[o+2] |= mf[2] & mt[2];
+  buf.touched++;
+}
+
+const getPix = (buf, x, y) =>
+  (buf.bytes[3*y + (x >> 3)] >> (7 - (x & 7))) & 1;
+
+// planes.md section 6 -- row-run stroke
+function stroke(buf, x0, y0, x1, y1, widenSteep) {
+  if (y1 < y0) { let t; t = x0; x0 = x1; x1 = t; t = y0; y0 = y1; y1 = t; }
+  const dy = y1 - y0, dx = x1 - x0;
+  if (dy === 0) { fillRun(buf, y0, x0, x1); return; }
+  const steep = Math.abs(dx) < dy;
+  const slope = fdiv(dx, dy);
+  let xa = x0 << 8;
+  for (let y = y0; y <= y1; y++) {
+    let xb;
+    if (y === y1) { xa = x1 << 8; xb = xa; } else { xb = xa + slope; }
+    let a = Math.min(xa, xb) >> 8, b = Math.max(xa, xb) >> 8;
+    if (widenSteep && steep && a === b) b = a + 1;
+    fillRun(buf, y, a, b);
+    xa = xb;
+  }
+}
+
+/* ---------- tier selection (planes.md section 4) ----------
+   The two axes are decided independently: width picks X-expansion, height
+   picks the sprite count. A steeply banked aircraft is tall and narrow and
+   must not be X-expanded just because it needs two sprites.               */
+let prevXs = 1, prevRows = 21;
+
+function pickTier(w, h) {
+  if (w <= 3 && h <= 3) {
+    prevXs = 1; prevRows = 21;
+    return { dot: true, xs: 1, rows: 21, sprites: 1, name: "dot" };
+  }
+  let xs = w <= 24 ? 1 : 2;
+  if (prevXs === 2 && xs === 1 && w > 0.87 * 24) xs = 2;      // hysteresis
+  let rows = h <= 21 ? 21 : 42;
+  if (prevRows === 42 && rows === 21 && h > 0.87 * 21) rows = 42;
+  prevXs = xs; prevRows = rows;
+  const sprites = rows / 21;
+  return { dot: false, xs, rows, sprites,
+           name: `${sprites} sprite${sprites > 1 ? "s" : ""}, ${xs === 2 ? "X-exp" : "1:1"}` };
+}
+
+/* ---------- the pipeline ---------- */
+let cache = null;
+let animT = 0;
+
+function compute() {
+  const V = id => parseFloat(document.getElementById(id).value);
+  const scale = V("scale") / 10;
+  const spanM = V("span"), lenM = V("len");
+  const cam = orient(0, V("opit"), V("obnk"));
+
+  // --- target world position, metres (x fwd, y left, z up), eye at origin ---
+  let P, tgt;
+  if (document.getElementById("anim").checked) {
+    const y = 420 - animT * 840;              // crosses left to right
+    P = [200, y, 18];
+    tgt = orient(-90, 0, -18);
+  } else {
+    const D = V("dist"), b = rad(V("bear")), e = rad(V("elev"));
+    P = [D*Math.cos(e)*Math.cos(b), -D*Math.cos(e)*Math.sin(b), D*Math.sin(e)];
+    tgt = orient(V("thdg"), V("tpit"), V("tbnk"));
+  }
+
+  // --- step 1: to render units (2 m each), int16 ---
+  const Pu = P.map(c => Math.round(c / 2));
+  // --- step 3: camera space ---
+  const C = toCam(cam, Pu).map(Math.round);
+
+  const out = { P, C, visible: true };
+  if (C[0] <= 8) { out.visible = false; out.reason = "behind camera"; return out; }
+  if (C[0] > 2000) { out.visible = false; out.reason = "out of range"; return out; }
+
+  // --- step 5: centre ---
+  const cx = CX0 - fdiv(C[1], C[0]);
+  const cy = CY0 - fdiv(C[2], C[0]);
+  // --- step 6: perspective scale, k = 4096 / C.x ---
+  const k = fdiv(16, C[0]);
+
+  // --- step 7: body axes in camera space, 8.8 ---
+  const fore = q88(toCam(cam, tgt.front));
+  const lat  = q88(toCam(cam, tgt.left));
+  const vert = q88(toCam(cam, tgt.up));
+  const hasFin = document.getElementById("fin").checked;
+
+  // --- model, eighths of a metre, int8 ---
+  const H  = Math.round(spanM / 2 * 8 * scale);
+  const LN = Math.round(lenM * 0.55 * 8 * scale);
+  const LT = Math.round(lenM * 0.45 * 8 * scale);
+  const FN = Math.round(spanM * 0.13 * 8 * scale);   // fin height
+
+  // --- step 8: model half-extents in pixels, three multiplies, once ---
+  // vec_fastmul8p8 truncates toward zero, which costs up to a whole pixel out
+  // of a 12 px half-span. Doubling the input and halving the rounded result
+  // recovers it for one shift-and-add per extent.
+  const half = v => (fmul(2 * v, k) + 1) >> 1;
+  const pxH = half(H), pxLN = half(LN), pxLT = half(LT), pxFN = half(FN);
+  // then each endpoint is one multiply per axis against a unit 8.8 vector
+  const pt = (axis, ext) => [cx - fmul(axis[1], ext), cy - fmul(axis[2], ext)];
+  const pts = {
+    nose: pt(fore,  pxLN), tail: pt(fore, -pxLT),
+    tipL: pt(lat,   pxH),  tipR: pt(lat,  -pxH),
+  };
+  if (hasFin) {
+    pts.fin = [pts.tail[0] - fmul(vert[1], pxFN), pts.tail[1] - fmul(vert[2], pxFN)];
+  }
+  const all = [pts.nose, pts.tail, pts.tipL, pts.tipR];
+  if (hasFin) all.push(pts.fin);
+  const minx = Math.min(...all.map(p => p[0])), maxx = Math.max(...all.map(p => p[0]));
+  const miny = Math.min(...all.map(p => p[1])), maxy = Math.max(...all.map(p => p[1]));
+  const bw = maxx - minx, bh = maxy - miny;
+
+  // --- step 9: tier ---
+  const T = pickTier(bw, bh);
+  const originX = Math.round((minx + maxx) / 2) - ((COLS * T.xs) >> 1);
+  const originY = Math.round((miny + maxy) / 2) - (T.rows >> 1);
+
+  const loc = p => [
+    Math.max(0, Math.min(COLS - 1, Math.round((p[0] - originX) / T.xs))),
+    Math.max(0, Math.min(T.rows - 1, p[1] - originY)),
+  ];
+  const L = { nose: loc(pts.nose), tail: loc(pts.tail),
+              tipL: loc(pts.tipL), tipR: loc(pts.tipR) };
+  if (hasFin) L.fin = loc(pts.fin);
+
+  // --- step 10: cache on the eight local bytes + tier ---
+  const key = [T.name, L.nose, L.tail, L.tipL, L.tipR, L.fin || []].flat().join(",");
+  const hit = cache !== null && cache.key === key;
+
+  // --- step 11: rasterise ---
+  let buf;
+  if (hit) {
+    buf = cache.buf;
+  } else {
+    buf = makeBuf(T.rows);
+    if (T.dot) {
+      const mx = Math.round(COLS / 2), my = Math.round(T.rows / 2);
+      fillRun(buf, my, mx, mx + 1); fillRun(buf, my + 1, mx, mx + 1);
+    } else {
+      const wide = document.getElementById("thick").checked;
+      stroke(buf, L.tail[0], L.tail[1], L.nose[0], L.nose[1], wide);
+      stroke(buf, L.tipL[0], L.tipL[1], L.tipR[0], L.tipR[1], wide);
+      if (L.fin) stroke(buf, L.tail[0], L.tail[1], L.fin[0], L.fin[1], wide);
+    }
+    cache = { key, buf };
+  }
+
+  const cycles = hit ? 2100
+    : 2100 + 200 + 60 + (T.dot ? 0 : buf.touched * 35);
+
+  return Object.assign(out, {
+    cx, cy, k, fore, lat, pts, L, bw, bh, T, originX, originY,
+    buf, hit, cycles, H, LN, LT,
+    color: P[2] > 0 ? 0 : 1,          // above the eye -> black, below -> white
+  });
+}
+
+/* ---------- viewport rendering ---------- */
+function drawViewport(r) {
+  const cv = document.getElementById("viewport"), g = cv.getContext("2d");
+  const cam = orient(0, parseFloat(document.getElementById("opit").value),
+                        parseFloat(document.getElementById("obnk").value));
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.fillStyle = C_SKY; g.fillRect(0, 0, cv.width, cv.height);
+  g.scale(ZOOM, ZOOM);
+
+  // horizon: every direction with world z = 0
+  const poly = [];
+  for (let b = -89; b <= 89; b += 2) {
+    const d = [Math.cos(rad(b)), -Math.sin(rad(b)), 0];
+    const c = toCam(cam, d);
+    if (c[0] < 0.12) continue;
+    poly.push([CX0 - 256 * c[1] / c[0], CY0 - 256 * c[2] / c[0]]);
+  }
+  if (poly.length > 1) {
+    g.beginPath();
+    g.moveTo(poly[0][0], poly[0][1]);
+    for (const p of poly) g.lineTo(p[0], p[1]);
+    const last = poly[poly.length - 1], first = poly[0];
+    // close through whichever side is "down" in camera space
+    const down = cam.up[2] >= 0 ? VIEW_H + 200 : -200;
+    g.lineTo(last[0], down); g.lineTo(first[0], down);
+    g.closePath();
+    g.fillStyle = C_GROUND; g.fill();
+    g.lineWidth = 3; g.strokeStyle = C_GRAD2; g.stroke();
+    g.lineWidth = 1; g.strokeStyle = C_GRAD; g.stroke();
+  }
+
+  if (!r.visible) { g.setTransform(1,0,0,1,0,0); return; }
+
+  // the sprite bitmap, at the size and position the VIC would give it
+  g.fillStyle = PAL[r.color];
+  for (let y = 0; y < r.buf.rows; y++) {
+    for (let x = 0; x < COLS; x++) {
+      if (!getPix(r.buf, x, y)) continue;
+      g.fillRect(r.originX + x * r.T.xs, r.originY + y, r.T.xs, 1);
+    }
+  }
+
+  if (document.getElementById("box").checked) {
+    g.strokeStyle = "rgba(184,199,111,.55)"; g.lineWidth = 0.5;
+    for (let s = 0; s < r.T.sprites; s++) {
+      g.strokeRect(r.originX + .25, r.originY + s * 21 + .25,
+                   COLS * r.T.xs - .5, 21 - .5);
+    }
+  }
+  g.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+/* ---------- sprite buffer rendering ---------- */
+function drawBuffer(r) {
+  const cv = document.getElementById("buffer"), g = cv.getContext("2d");
+  g.clearRect(0, 0, cv.width, cv.height);
+  if (!r.visible) return;
+  const rows = r.buf.rows;
+  const cell = Math.floor(Math.min(cv.width / COLS, cv.height / rows));
+  const w = cell * COLS, h = cell * rows;
+  const ox = Math.floor((cv.width - w) / 2), oy = 0;
+
+  g.fillStyle = "#0d0f14"; g.fillRect(ox, oy, w, h);
+  g.strokeStyle = "#232838"; g.lineWidth = 1;
+  for (let x = 0; x <= COLS; x++) {
+    g.beginPath(); g.moveTo(ox + x*cell + .5, oy); g.lineTo(ox + x*cell + .5, oy + h); g.stroke();
+  }
+  for (let y = 0; y <= rows; y++) {
+    g.beginPath(); g.moveTo(ox, oy + y*cell + .5); g.lineTo(ox + w, oy + y*cell + .5); g.stroke();
+  }
+  // byte boundaries and the 21-row sprite split
+  g.strokeStyle = "#39415c"; g.lineWidth = 1.5;
+  for (const x of [8, 16]) {
+    g.beginPath(); g.moveTo(ox + x*cell + .5, oy); g.lineTo(ox + x*cell + .5, oy + h); g.stroke();
+  }
+  if (rows > 21) {
+    g.strokeStyle = "#b8c76f"; g.setLineDash([4, 3]);
+    g.beginPath(); g.moveTo(ox, oy + 21*cell + .5); g.lineTo(ox + w, oy + 21*cell + .5); g.stroke();
+    g.setLineDash([]);
+  }
+
+  g.fillStyle = PAL[r.color] === "#000000" ? "#c9cede" : PAL[r.color];
+  for (let y = 0; y < rows; y++)
+    for (let x = 0; x < COLS; x++)
+      if (getPix(r.buf, x, y)) g.fillRect(ox + x*cell + 1, oy + y*cell + 1, cell - 1, cell - 1);
+
+  // endpoints
+  const marks = [["nose", r.L.nose], ["tail", r.L.tail], ["tipL", r.L.tipL], ["tipR", r.L.tipR]];
+  if (r.L.fin) marks.push(["fin", r.L.fin]);
+  g.font = "9px ui-monospace, monospace";
+  for (const [name, p] of marks) {
+    g.strokeStyle = "#b8c76f"; g.lineWidth = 1;
+    g.strokeRect(ox + p[0]*cell + .5, oy + p[1]*cell + .5, cell - 1, cell - 1);
+    g.fillStyle = "#b8c76f";
+    g.fillText(name, ox + p[0]*cell + cell + 2, oy + p[1]*cell + cell - 1);
+  }
+}
+
+/* ---------- readout ---------- */
+function drawReadout(r) {
+  const t = document.getElementById("readout");
+  const row = (a, b) => `<tr><td>${a}</td><td>${b}</td></tr>`;
+  if (!r.visible) {
+    t.innerHTML = row("state", `<span class="pill miss">${r.reason}</span>`);
+    document.getElementById("dump").textContent = "";
+    document.getElementById("vpnote").textContent = "";
+    return;
+  }
+  const f = a => `${a[0]}, ${a[1]}`;
+  t.innerHTML =
+    row("tier", `<span class="pill tier">${r.T.name}</span> ${COLS*r.T.xs} &times; ${r.T.rows} px`) +
+    row("cache", r.hit ? '<span class="pill hit">HIT</span>' : '<span class="pill miss">MISS</span>') +
+    row("distance", `${Math.round(Math.hypot(...r.P))} m`) +
+    row("C (units)", `${r.C[0]}, ${r.C[1]}, ${r.C[2]}`) +
+    row("k = 4096/C.x", r.k) +
+    row("centre px", `${r.cx}, ${r.cy}`) +
+    row("bbox", `${r.bw} &times; ${r.bh} px`) +
+    row("sprite origin", `${r.originX}, ${r.originY}`) +
+    row("nose (local)", f(r.L.nose)) +
+    row("tail (local)", f(r.L.tail)) +
+    row("tipL (local)", f(r.L.tipL)) +
+    row("tipR (local)", f(r.L.tipR)) +
+    row("rows touched", r.buf.touched) +
+    row("est. cycles", `${r.cycles} &nbsp;<span style="color:#858c9e">(${(r.cycles/98500*100).toFixed(1)}% of a sim frame)</span>`) +
+    row("colour", r.color === 0 ? "black (above eye)" : "white (below eye)");
+
+  const hex = [];
+  for (let y = 0; y < Math.min(21, r.buf.rows); y++) {
+    const b = [r.buf.bytes[3*y], r.buf.bytes[3*y+1], r.buf.bytes[3*y+2]];
+    let bits = "";
+    for (let x = 0; x < COLS; x++) bits += getPix(r.buf, x, y) ? "#" : ".";
+    hex.push(b.map(v => v.toString(16).padStart(2, "0")).join(" ") + "  " + bits);
+  }
+  document.getElementById("dump").textContent = hex.join("\n");
+
+  const spanPx = Math.round(256 * parseFloat(document.getElementById("span").value)
+                  * (parseFloat(document.getElementById("scale").value)/10)
+                  / Math.hypot(...r.P));
+  document.getElementById("vpnote").textContent =
+    `Wingspan subtends ${spanPx} px at this range (256 × S / D). ` +
+    `Sprite occupies ${COLS * r.T.xs} × ${r.T.rows} screen px.`;
+}
+
+/* ---------- glue ---------- */
+const LABELS = { dist:"l_dist", bear:"l_bear", elev:"l_elev", thdg:"l_thdg",
+                 tpit:"l_tpit", tbnk:"l_tbnk", opit:"l_opit", obnk:"l_obnk",
+                 span:"l_span", len:"l_len" };
+
+function render() {
+  for (const id in LABELS)
+    document.getElementById(LABELS[id]).textContent = document.getElementById(id).value;
+  document.getElementById("l_scale").textContent =
+    (parseFloat(document.getElementById("scale").value) / 10).toFixed(1);
+  const r = compute();
+  drawViewport(r); drawBuffer(r); drawReadout(r);
+}
+
+document.querySelectorAll("input").forEach(el => el.addEventListener("input", render));
+document.getElementById("reset").addEventListener("click", () => {
+  const d = { dist:150, bear:6, elev:3, thdg:120, tpit:0, tbnk:20,
+              opit:0, obnk:0, span:11, len:8, scale:10 };
+  for (const id in d) document.getElementById(id).value = d[id];
+  document.getElementById("anim").checked = false;
+  cache = null; prevXs = 1; prevRows = 21; render();
+});
+
+let raf = null;
+function tick() {
+  if (!document.getElementById("anim").checked) { raf = null; return; }
+  animT += 0.0016;
+  if (animT > 1) animT = 0;
+  render();
+  raf = requestAnimationFrame(tick);
+}
+document.getElementById("anim").addEventListener("change", () => {
+  if (document.getElementById("anim").checked && raf === null) { animT = 0; tick(); }
+});
+
+render();
+</script>
+</body>
+</html>

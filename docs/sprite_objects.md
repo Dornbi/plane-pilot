@@ -6,7 +6,8 @@ hardware sprites in the viewport band, generalising what `sprites.cc` currently
 does for the sun alone.
 
 For how sprites are used today see [project.md](project.md); for the raster
-band split see `gfx.cc`.
+band split see `gfx.cc`. For the aircraft case in full — which supersedes §6.2
+and diverges from §3 — see [planes.md](planes.md).
 
 ---
 
@@ -105,6 +106,14 @@ bitmap, not in the sprite count:
 Step 3 is worth having before step 4 because it costs nothing from the budget
 of eight. The 1 × 2 arrangement is the last rung, not the second.
 
+> **Aircraft skip step 3.** [planes.md](planes.md) §4 uses X-expansion only and
+> goes straight from one sprite to a 1 × 2 stack. Y-expansion is free in
+> sprites but not in silhouette: an aircraft is two near-horizontal strokes,
+> and their readability is set by vertical placement precision, which is
+> exactly what Y-expansion halves. X-expansion, by contrast, lands on 2 screen
+> pixels — the same granularity as the world around it, so it costs nothing.
+> A cloud has no silhouette to lose and keeps the free rung.
+
 **Vertical granularity mismatch.** The terrain dot characters
 (`kGfxQuadGround` and friends, 16 variants per group) put each plotted dot in a
 4 × 4 screen-pixel quadrant, i.e. **4 raster lines tall**. Unexpanded sprite
@@ -137,9 +146,20 @@ attached to changing your mind.
 
 Each visible object needs `vec_transform_inv` followed by `vec_project`, and
 `vec_project` carries a 16-bit divide. Estimating around **1,000 cycles per
-object**, eight objects is ~8,000 cycles of a 19,705-cycle PAL frame — on top
-of `flight_advance` (up to ~6,000 on a re-orthonormalising frame, see
-[flight.md](flight.md) §1) and the grid render. **That does not fit.**
+object**, eight objects is ~8,000 cycles.
+
+> **Correction: the denominator is the sim frame, not the PAL frame.** An
+> earlier draft of this section compared 8,000 cycles against a 19,705-cycle
+> PAL frame and concluded it does not fit. But the viewport is rebuilt once per
+> `flight_advance`, at a wobbling ~10 Hz — five PAL frames, ~98,500 cycles. On
+> that budget eight objects is **8%**, alongside `flight_advance` (up to ~6,000
+> on a re-orthonormalising frame, [flight.md](flight.md) §1) and the grid
+> render. Eight is affordable. See [planes.md](planes.md) §11 for a measured-
+> operation breakdown of the two-aircraft case, which comes to ~7,600 cycles.
+
+That does not make the mitigations below pointless — it makes them optional
+rather than load-bearing, and worth adding when the object count grows past a
+handful of clouds.
 
 Design the mitigations in from the start rather than bolting them on:
 
@@ -180,13 +200,20 @@ silhouette across LOD steps rather than popping the sprite on at full size.
 
 ### 6.2. Other aircraft
 
-The genuine sprite consumers, and the reason to keep the budget free. These
-need orientation-dependent silhouettes, which is where the bitmap count can
-explode: a full azimuth × elevation set is not affordable. A workable minimum
-is a generic airframe at three sizes plus a head-on and a tail-on view, around
-six to eight bitmaps at 64 bytes each. Check against
-[memory_map.md](memory_map.md) before expanding; `spritedef` currently holds 33
-bitmaps.
+**Designed in full in [planes.md](planes.md); this section is superseded.**
+
+The reasoning that led here was: aircraft need orientation-dependent
+silhouettes, a full azimuth × elevation set is unaffordable, so approximate it
+with a generic airframe at three sizes plus head-on and tail-on views — six to
+eight bitmaps at 64 bytes each.
+
+The premise is what turned out to be wrong. An aircraft silhouette at sprite
+scale is **two straight lines**, and the four endpoints come out of the
+existing projection directly, so the bitmap can be drawn at runtime for the
+cost of ~1,400 cycles. There is no bitmap count to bound, no azimuth ×
+elevation set to approximate and **no static sprite data at all** — only two
+double-buffered scratch blocks per aircraft. Nothing needs checking against
+[memory_map.md](memory_map.md).
 
 ### 6.3. Projectiles — do not spend sprites on these
 
@@ -220,5 +247,14 @@ the conflict entirely and is worth considering separately.
 - Is the 4:1 vertical granularity mismatch (§3) visible enough to matter?
 - Should clouds occlude the horizon line, or is drawing them only above it
   sufficient and cheaper?
-- Do aircraft need per-object colour at all, or is a single traffic colour
-  enough to free the colour writes in the terrain handler?
+- ~~Do aircraft need per-object colour at all, or is a single traffic colour
+  enough to free the colour writes in the terrain handler?~~ **Answered** —
+  [planes.md](planes.md) §8: colour switches on whether the aircraft is above
+  or below the eye's altitude, which is a one-comparison test and the
+  difference between a visible silhouette and an invisible one against the
+  green ground. Two planes can differ, so it must be per object.
+- One more thing this document got right and should not be relitigated: §5's
+  warning against projecting distant objects on alternate frames. Camera
+  rotation moves stationary objects across the screen, so half-rate updates
+  read as jitter. [planes.md](planes.md) adopts every-sim-frame updates on that
+  basis.
