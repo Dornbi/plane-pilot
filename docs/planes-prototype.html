@@ -115,10 +115,22 @@
       <input type="range" id="len" min="5" max="18" value="8" step="1"></div>
     <div class="ctrl"><label>Size exaggeration <b><span id="l_scale"></span>&times;</b></label>
       <input type="range" id="scale" min="10" max="30" value="10" step="1"></div>
+    <div class="ctrl"><label>Wing forward of centre <b><span id="l_wfwd"></span>% of length</b></label>
+      <input type="range" id="wfwd" min="0" max="35" value="20" step="1"></div>
 
     <div class="grp"></div>
-    <label class="chk"><input type="checkbox" id="thick" checked> Widen steep strokes to 2 px</label>
-    <label class="chk"><input type="checkbox" id="fin"> Third stroke: tail fin</label>
+    <div class="ctrl"><label>Max stroke thickness <b><span id="l_thick"></span> px</b></label>
+      <input type="range" id="thick" min="1" max="4" value="4" step="1"></div>
+    <div class="ctrl"><label>Colour <b></b></label>
+      <select id="color" style="width:100%;background:#2a3040;color:#d7dae3;border:1px solid #2b3040;border-radius:5px;padding:3px">
+        <option value="15" selected>Light grey</option>
+        <option value="12">Medium grey</option>
+        <option value="1">White</option>
+        <option value="11">Dark grey</option>
+      </select></div>
+
+    <div class="grp"></div>
+    <label class="chk"><input type="checkbox" id="fin" checked> Third stroke: tail fin</label>
     <label class="chk"><input type="checkbox" id="box"> Show sprite bounds</label>
     <label class="chk"><input type="checkbox" id="anim"> Animate flyby</label>
     <button id="reset">Reset</button>
@@ -196,9 +208,13 @@ for (let i = 0; i < COLS; i++) {
 }
 
 /* ---------- sprite buffer ---------- */
-function makeBuf(rows) { return { rows, bytes: new Uint8Array(3 * rows), touched: 0 }; }
+function makeBuf(rows) {
+  return { rows, bytes: new Uint8Array(3 * rows), touched: 0, repeat: 0 };
+}
 
-function fillRun(buf, y, a, b) {
+// isRepeat: the mask is already in hand from the previous row, so only the
+// three stores are paid for -- see the cycle model in compute().
+function fillRun(buf, y, a, b, isRepeat) {
   if (y < 0 || y >= buf.rows) return;
   if (a > b) { const t = a; a = b; b = t; }
   a = Math.max(0, a); b = Math.min(COLS - 1, b);
@@ -207,28 +223,119 @@ function fillRun(buf, y, a, b) {
   buf.bytes[o]   |= mf[0] & mt[0];
   buf.bytes[o+1] |= mf[1] & mt[1];
   buf.bytes[o+2] |= mf[2] & mt[2];
-  buf.touched++;
+  if (isRepeat) buf.repeat++; else buf.touched++;
 }
 
 const getPix = (buf, x, y) =>
   (buf.bytes[3*y + (x >> 3)] >> (7 - (x & 7))) & 1;
 
-// planes.md section 6 -- row-run stroke
-function stroke(buf, x0, y0, x1, y1, widenSteep) {
+// Liang-Barsky clip against the buffer rectangle.
+// Endpoints must be CLIPPED, never clamped: clamping pins every point of a
+// very close aircraft to a corner, and the silhouette degenerates into the
+// two diagonals of the buffer -- a bare X with no tail.
+function clipSeg(x0, y0, x1, y1, w, h) {
+  let t0 = 0, t1 = 1;
+  const dx = x1 - x0, dy = y1 - y0;
+  const p = [-dx, dx, -dy, dy];
+  const q = [x0, (w - 1) - x0, y0, (h - 1) - y0];
+  for (let i = 0; i < 4; i++) {
+    if (p[i] === 0) { if (q[i] < 0) return null; continue; }
+    const r = q[i] / p[i];
+    if (p[i] < 0) { if (r > t1) return null; if (r > t0) t0 = r; }
+    else          { if (r < t0) return null; if (r < t1) t1 = r; }
+  }
+  return [Math.round(x0 + t0*dx), Math.round(y0 + t0*dy),
+          Math.round(x0 + t1*dx), Math.round(y0 + t1*dy)];
+}
+
+// planes.md section 6 -- row-run stroke.
+// tv = thickness perpendicular to a shallow stroke (extra rows)
+// th = thickness perpendicular to a steep stroke (extra columns)
+function stroke(buf, x0, y0, x1, y1, tv, th, xs) {
+  const c = clipSeg(x0, y0, x1, y1, COLS, buf.rows);
+  if (!c) return;
+  [x0, y0, x1, y1] = c;
   if (y1 < y0) { let t; t = x0; x0 = x1; x1 = t; t = y0; y0 = y1; y1 = t; }
   const dy = y1 - y0, dx = x1 - x0;
-  if (dy === 0) { fillRun(buf, y0, x0, x1); return; }
-  const steep = Math.abs(dx) < dy;
+  // The steep/shallow test decides which axis gets thickened, so it must be
+  // made in SCREEN space. In an X-expanded sprite one buffer column is two
+  // screen pixels, so a line that looks like 45 degrees in the buffer is
+  // really 26 degrees on screen and wants row thickening, not column.
+  const steep = Math.abs(dx) * xs < dy;
+  const top = -(tv >> 1), side = -(th >> 1);
+
+  if (dy === 0) {
+    for (let r = 0; r < tv; r++)
+      fillRun(buf, y0 + top + r, Math.min(x0, x1), Math.max(x0, x1), r > 0);
+    return;
+  }
   const slope = fdiv(dx, dy);
   let xa = x0 << 8;
   for (let y = y0; y <= y1; y++) {
     let xb;
     if (y === y1) { xa = x1 << 8; xb = xa; } else { xb = xa + slope; }
     let a = Math.min(xa, xb) >> 8, b = Math.max(xa, xb) >> 8;
-    if (widenSteep && steep && a === b) b = a + 1;
-    fillRun(buf, y, a, b);
+    if (steep) {
+      a += side; b = a + th - 1;
+      fillRun(buf, y, a, b);
+    } else {
+      for (let r = 0; r < tv; r++) fillRun(buf, y + top + r, a, b, r > 0);
+    }
     xa = xb;
   }
+}
+
+// Thickness follows the silhouette size: a 6 px plane wants 1 px strokes,
+// a 40 px one looks anaemic at anything under 3.
+// Thickness is specified in SCREEN pixels and the ladder is 1, 2, 4 -- never 3.
+// Two independent continuity constraints force this:
+//   * across the 45-degree steep/shallow crossover, th columns weigh th*xs
+//     screen px against tv rows weighing tv, so th*xs must equal tv exactly;
+//   * across an X-expansion tier change, the screen weight must not move,
+//     so tv must be the same value on both sides.
+// Both hold only if tv is divisible by xs for every xs in use, i.e. even.
+// Quantise a screen-pixel thickness onto the 1 / 2 / 4 ladder, with
+// hysteresis. `prev` is a one-element box so each surface keeps its own state.
+function rung(px, lim, prev) {
+  let t = px < lim[0] ? 1 : px < lim[1] ? 2 : 4;
+  if (prev[0] > t && px > 0.87 * lim[t === 1 ? 0 : 1]) t = prev[0];
+  prev[0] = t;
+  return t;
+}
+const prevBody = [1], prevWing = [1], prevFin = [1];
+
+// |v| without a square root: the octagonal approximation, within ~4%.
+const norm2 = (x, y) => {
+  x = Math.abs(x); y = Math.abs(y);
+  return x > y ? x + (y >> 1) : y + (x >> 1);
+};
+
+// Extent of the fuselage vector F measured PERPENDICULAR to a surface's screen
+// direction S. That is what a flat surface's chord projects to: face-on it is
+// the full chord, edge-on it is zero.
+function chordPx(F, S, chordOverLen) {
+  const n = norm2(S[0], S[1]);
+  if (n === 0) return 0;
+  const cross = Math.abs(F[0] * S[1] - F[1] * S[0]);
+  return (cross / n) * chordOverLen;
+}
+
+// The fuselage is a body of revolution -- it looks the same width from every
+// angle -- so its thickness depends on distance alone, via the unforeshortened
+// wingspan in screen pixels. The wing and fin are flat plates and genuinely do
+// change apparent width as they rotate, so they are driven by their projected
+// chord.
+function thicknessFor(spanPx, wingChord, finChord, xs, max) {
+  const conv = v => {
+    v = Math.min(max, v);
+    if (v >= 2) v &= ~1;               // even, for the crossover -- see docs
+    return [v, Math.max(1, v / xs)];
+  };
+  return {
+    body: conv(rung(spanPx,   [12, 48], prevBody)),
+    wing: conv(rung(wingChord, [2,  4], prevWing)),
+    fin:  conv(rung(finChord,  [2,  4], prevFin)),
+  };
 }
 
 /* ---------- tier selection (planes.md section 4) ----------
@@ -274,20 +381,28 @@ function compute() {
     tgt = orient(V("thdg"), V("tpit"), V("tbnk"));
   }
 
-  // --- step 1: to render units (2 m each), int16 ---
-  const Pu = P.map(c => Math.round(c / 2));
+  // --- step 1: to render units, int16 ---
+  // Traffic uses QUARTER-METRE units, not the terrain's 2 m. The grid needs
+  // kilometres of range; a nearby aircraft needs precision. At 100 m and 6
+  // degrees off the nose the lateral offset is only ~5 of the coarse units, so
+  // one unit of rounding swung the projected centre by several pixels and the
+  // silhouette visibly jumped as the range changed. A quarter metre still
+  // reaches 4 km inside an int16.
+  const Pu = P.map(c => Math.round(c / 0.25));
   // --- step 3: camera space ---
   const C = toCam(cam, Pu).map(Math.round);
 
   const out = { P, C, visible: true };
-  if (C[0] <= 8) { out.visible = false; out.reason = "behind camera"; return out; }
-  if (C[0] > 2000) { out.visible = false; out.reason = "out of range"; return out; }
+  if (C[0] <= 64) { out.visible = false; out.reason = "behind camera"; return out; }
+  if (C[0] > 16000) { out.visible = false; out.reason = "out of range"; return out; }
 
   // --- step 5: centre ---
   const cx = CX0 - fdiv(C[1], C[0]);
   const cy = CY0 - fdiv(C[2], C[0]);
-  // --- step 6: perspective scale, k = 4096 / C.x ---
-  const k = fdiv(16, C[0]);
+  // --- step 6: perspective scale, k = 32768 / C.x ---
+  // Model offsets are in eighths of a metre and C.x in quarters, so
+  // px = 256 * (O/8) / (C.x/4) = fmul(O, 32768 / C.x).
+  const k = fdiv(128, C[0]);
 
   // --- step 7: body axes in camera space, 8.8 ---
   const fore = q88(toCam(cam, tgt.front));
@@ -299,23 +414,27 @@ function compute() {
   const H  = Math.round(spanM / 2 * 8 * scale);
   const LN = Math.round(lenM * 0.55 * 8 * scale);
   const LT = Math.round(lenM * 0.45 * 8 * scale);
-  const FN = Math.round(spanM * 0.13 * 8 * scale);   // fin height
+  const FN = Math.round(spanM * 0.13 * 8 * scale);            // fin height
+  const WF = Math.round(lenM * V("wfwd") / 100 * 8 * scale);  // wing ahead of centre
 
   // --- step 8: model half-extents in pixels, three multiplies, once ---
   // vec_fastmul8p8 truncates toward zero, which costs up to a whole pixel out
   // of a 12 px half-span. Doubling the input and halving the rounded result
   // recovers it for one shift-and-add per extent.
   const half = v => (fmul(2 * v, k) + 1) >> 1;
-  const pxH = half(H), pxLN = half(LN), pxLT = half(LT), pxFN = half(FN);
+  const pxH = half(H), pxLN = half(LN), pxLT = half(LT),
+        pxFN = half(FN), pxWF = half(WF);
   // then each endpoint is one multiply per axis against a unit 8.8 vector
   const pt = (axis, ext) => [cx - fmul(axis[1], ext), cy - fmul(axis[2], ext)];
+  const add = (a, b) => [a[0] + b[0] - cx, a[1] + b[1] - cy];
+  // the wing sits ahead of the centre, so both tips carry a fore offset
+  const wingHub = pt(fore, pxWF);   // also the fallback centring anchor
   const pts = {
     nose: pt(fore,  pxLN), tail: pt(fore, -pxLT),
-    tipL: pt(lat,   pxH),  tipR: pt(lat,  -pxH),
+    tipL: add(wingHub, pt(lat,  pxH)),
+    tipR: add(wingHub, pt(lat, -pxH)),
   };
-  if (hasFin) {
-    pts.fin = [pts.tail[0] - fmul(vert[1], pxFN), pts.tail[1] - fmul(vert[2], pxFN)];
-  }
+  if (hasFin) pts.fin = add(pts.tail, pt(vert, pxFN));
   const all = [pts.nose, pts.tail, pts.tipL, pts.tipR];
   if (hasFin) all.push(pts.fin);
   const minx = Math.min(...all.map(p => p[0])), maxx = Math.max(...all.map(p => p[0]));
@@ -324,19 +443,36 @@ function compute() {
 
   // --- step 9: tier ---
   const T = pickTier(bw, bh);
-  const originX = Math.round((minx + maxx) / 2) - ((COLS * T.xs) >> 1);
-  const originY = Math.round((miny + maxy) / 2) - (T.rows >> 1);
+  // Centre on the bounding box while the silhouette fits. Once it does not,
+  // centre on the wing hub instead: the wing carries the shape, so it is the
+  // fuselage that should run off the ends, not a wingtip.
+  const fits = bw <= COLS * T.xs && bh <= T.rows;
+  const anchor = fits ? [Math.round((minx + maxx) / 2), Math.round((miny + maxy) / 2)]
+                      : [wingHub[0], wingHub[1]];
+  const originX = anchor[0] - ((COLS * T.xs) >> 1);
+  const originY = anchor[1] - (T.rows >> 1);
 
-  const loc = p => [
-    Math.max(0, Math.min(COLS - 1, Math.round((p[0] - originX) / T.xs))),
-    Math.max(0, Math.min(T.rows - 1, p[1] - originY)),
-  ];
+  // NOT clamped -- see clipSeg(). Endpoints may legitimately fall outside the
+  // buffer when the aircraft is closer than the largest tier can hold.
+  const loc = p => [Math.round((p[0] - originX) / T.xs), p[1] - originY];
   const L = { nose: loc(pts.nose), tail: loc(pts.tail),
               tipL: loc(pts.tipL), tipR: loc(pts.tipR) };
   if (hasFin) L.fin = loc(pts.fin);
 
+  // Screen-space direction vectors, for the chord projections.
+  const F = [pts.nose[0] - pts.tail[0], pts.nose[1] - pts.tail[1]];
+  const W = [pts.tipL[0] - pts.tipR[0], pts.tipL[1] - pts.tipR[1]];
+  const N = hasFin ? [pts.fin[0] - pts.tail[0], pts.fin[1] - pts.tail[1]] : [0, 0];
+  const chordOverLen = 0.15 * spanM / lenM;
+  const thick = thicknessFor(2 * pxH,
+                             chordPx(F, W, chordOverLen),
+                             chordPx(F, N, chordOverLen),
+                             T.xs,
+                             parseInt(document.getElementById("thick").value, 10));
+
   // --- step 10: cache on the eight local bytes + tier ---
-  const key = [T.name, L.nose, L.tail, L.tipL, L.tipR, L.fin || []].flat().join(",");
+  const key = [T.name, thick.body, thick.wing, thick.fin,
+               L.nose, L.tail, L.tipL, L.tipR, L.fin || []].flat().join(",");
   const hit = cache !== null && cache.key === key;
 
   // --- step 11: rasterise ---
@@ -349,21 +485,24 @@ function compute() {
       const mx = Math.round(COLS / 2), my = Math.round(T.rows / 2);
       fillRun(buf, my, mx, mx + 1); fillRun(buf, my + 1, mx, mx + 1);
     } else {
-      const wide = document.getElementById("thick").checked;
-      stroke(buf, L.tail[0], L.tail[1], L.nose[0], L.nose[1], wide);
-      stroke(buf, L.tipL[0], L.tipL[1], L.tipR[0], L.tipR[1], wide);
-      if (L.fin) stroke(buf, L.tail[0], L.tail[1], L.fin[0], L.fin[1], wide);
+      const [bv, bc] = thick.body, [wv, wc] = thick.wing, [fv, fc] = thick.fin;
+      stroke(buf, L.tail[0], L.tail[1], L.nose[0], L.nose[1], bv, bc, T.xs);
+      stroke(buf, L.tipL[0], L.tipL[1], L.tipR[0], L.tipR[1], wv, wc, T.xs);
+      if (L.fin) stroke(buf, L.tail[0], L.tail[1], L.fin[0], L.fin[1], fv, fc, T.xs);
     }
     cache = { key, buf };
   }
 
+  // 35 cycles for a row whose mask must be built, 15 for a thickness repeat
+  // that reuses the mask already in hand.
   const cycles = hit ? 2100
-    : 2100 + 200 + 60 + (T.dot ? 0 : buf.touched * 35);
+    : 2100 + 200 + 60 + (T.dot ? 0 : buf.touched * 35 + buf.repeat * 15);
 
   return Object.assign(out, {
-    cx, cy, k, fore, lat, pts, L, bw, bh, T, originX, originY,
-    buf, hit, cycles, H, LN, LT,
-    color: P[2] > 0 ? 0 : 1,          // above the eye -> black, below -> white
+    cx, cy, k, fore, lat, pts, L, bw, bh, T, originX, originY, thick, fits,
+    buf, hit, cycles, H, LN, LT, WF,
+    // one colour, always -- no background test, no multicolour
+    color: parseInt(document.getElementById("color").value, 10),
   });
 }
 
@@ -448,16 +587,17 @@ function drawBuffer(r) {
     g.setLineDash([]);
   }
 
-  g.fillStyle = PAL[r.color] === "#000000" ? "#c9cede" : PAL[r.color];
+  g.fillStyle = PAL[r.color];
   for (let y = 0; y < rows; y++)
     for (let x = 0; x < COLS; x++)
       if (getPix(r.buf, x, y)) g.fillRect(ox + x*cell + 1, oy + y*cell + 1, cell - 1, cell - 1);
 
-  // endpoints
+  // endpoints -- may fall outside the buffer, which is legal (clipped, not clamped)
   const marks = [["nose", r.L.nose], ["tail", r.L.tail], ["tipL", r.L.tipL], ["tipR", r.L.tipR]];
   if (r.L.fin) marks.push(["fin", r.L.fin]);
   g.font = "9px ui-monospace, monospace";
   for (const [name, p] of marks) {
+    if (p[0] < 0 || p[0] >= COLS || p[1] < 0 || p[1] >= rows) continue;
     g.strokeStyle = "#b8c76f"; g.lineWidth = 1;
     g.strokeRect(ox + p[0]*cell + .5, oy + p[1]*cell + .5, cell - 1, cell - 1);
     g.fillStyle = "#b8c76f";
@@ -480,8 +620,8 @@ function drawReadout(r) {
     row("tier", `<span class="pill tier">${r.T.name}</span> ${COLS*r.T.xs} &times; ${r.T.rows} px`) +
     row("cache", r.hit ? '<span class="pill hit">HIT</span>' : '<span class="pill miss">MISS</span>') +
     row("distance", `${Math.round(Math.hypot(...r.P))} m`) +
-    row("C (units)", `${r.C[0]}, ${r.C[1]}, ${r.C[2]}`) +
-    row("k = 4096/C.x", r.k) +
+    row("C (¼ m units)", `${r.C[0]}, ${r.C[1]}, ${r.C[2]}`) +
+    row("k = 32768/C.x", r.k) +
     row("centre px", `${r.cx}, ${r.cy}`) +
     row("bbox", `${r.bw} &times; ${r.bh} px`) +
     row("sprite origin", `${r.originX}, ${r.originY}`) +
@@ -489,9 +629,11 @@ function drawReadout(r) {
     row("tail (local)", f(r.L.tail)) +
     row("tipL (local)", f(r.L.tipL)) +
     row("tipR (local)", f(r.L.tipR)) +
-    row("rows touched", r.buf.touched) +
+    row("thickness", `body ${r.thick.body[0]}&times;${r.thick.body[1]} &nbsp; wing ${r.thick.wing[0]}&times;${r.thick.wing[1]} &nbsp; fin ${r.thick.fin[0]}&times;${r.thick.fin[1]}`) +
+    row("centred on", r.fits ? "bounding box" : '<span class="pill miss">wing hub</span> (overruns buffer)') +
+    row("rows touched", `${r.buf.touched} + ${r.buf.repeat} repeat`) +
     row("est. cycles", `${r.cycles} &nbsp;<span style="color:#858c9e">(${(r.cycles/98500*100).toFixed(1)}% of a sim frame)</span>`) +
-    row("colour", r.color === 0 ? "black (above eye)" : "white (below eye)");
+    row("colour", `hires, fixed <span style="display:inline-block;width:9px;height:9px;background:${PAL[r.color]};border:1px solid #555;vertical-align:-1px"></span>`);
 
   const hex = [];
   for (let y = 0; y < Math.min(21, r.buf.rows); y++) {
@@ -513,7 +655,7 @@ function drawReadout(r) {
 /* ---------- glue ---------- */
 const LABELS = { dist:"l_dist", bear:"l_bear", elev:"l_elev", thdg:"l_thdg",
                  tpit:"l_tpit", tbnk:"l_tbnk", opit:"l_opit", obnk:"l_obnk",
-                 span:"l_span", len:"l_len" };
+                 span:"l_span", len:"l_len", wfwd:"l_wfwd", thick:"l_thick" };
 
 function render() {
   for (const id in LABELS)
@@ -524,13 +666,15 @@ function render() {
   drawViewport(r); drawBuffer(r); drawReadout(r);
 }
 
-document.querySelectorAll("input").forEach(el => el.addEventListener("input", render));
+document.querySelectorAll("input, select").forEach(el => el.addEventListener("input", render));
 document.getElementById("reset").addEventListener("click", () => {
   const d = { dist:150, bear:6, elev:3, thdg:120, tpit:0, tbnk:20,
-              opit:0, obnk:0, span:11, len:8, scale:10 };
+              opit:0, obnk:0, span:11, len:8, scale:10, wfwd:20, thick:4 };
   for (const id in d) document.getElementById(id).value = d[id];
+  document.getElementById("fin").checked = true;
   document.getElementById("anim").checked = false;
-  cache = null; prevXs = 1; prevRows = 21; render();
+  cache = null; prevXs = 1; prevRows = 21;
+  prevBody[0] = prevWing[0] = prevFin[0] = 1; render();
 });
 
 let raf = null;

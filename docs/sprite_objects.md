@@ -7,7 +7,18 @@ does for the sun alone.
 
 For how sprites are used today see [project.md](project.md); for the raster
 band split see `gfx.cc`. For the aircraft case in full — which supersedes §6.2
-and diverges from §3 — see [planes.md](planes.md).
+and §3 — see [planes.md](planes.md).
+
+## 0. Two absolute rules
+
+Everything below is subject to these, and they are not trade-offs to be
+revisited per object type:
+
+- **Hires only. Never multicolour.** One colour per sprite, full horizontal
+  resolution. `$D01C` stays zero.
+- **Never expand along Y.** X-expansion is available. `$D017` stays zero.
+
+Earlier drafts of §3 and §4 proposed both; those sections have been rewritten.
 
 ---
 
@@ -84,61 +95,66 @@ test, one set of position registers.
 
 ## 3. Sizing and levels of detail
 
-The viewport is 40 × 14 characters = 320 × 112 screen pixels. In multicolour
-that is **160 × 112 world pixels**.
+The viewport is 40 × 14 characters = 320 × 112 screen pixels. The terrain is
+drawn at half that horizontally — **160 × 112 world pixels** — so one world
+pixel is 2 screen pixels wide, which is exactly one X-expanded sprite pixel.
 
 | Sprite configuration | Screen footprint | World footprint | Granularity | Colours |
 | :--- | :--- | :--- | :--- | :--- |
+| Hires, 1:1 | 24 × 21 | 12 × 21 | ½ world px | 1 |
 | Hires, X-expand | 48 × 21 | 24 × 21 | 1 world px | 1 |
-| Hires, X + Y expand | 48 × 42 | 24 × 42 | 1 × 2 world px | 1 |
-| Multicolour, X-expand | 48 × 21 | 24 × 21 | 2 world px | 3 |
+| Two hires stacked, 1:1 | 24 × 42 | 12 × 42 | ½ world px | 1 each |
 | Two hires stacked, X-expand | 48 × 42 | 24 × 42 | 1 world px | 1 each |
+
+The Y-expanded and multicolour rows that used to appear here have been removed
+under §0.
 
 A single X-expanded sprite is **24 world pixels wide — 15% of the viewport
 width**. That is already large. The detail ladder therefore lives mostly in the
 bitmap, not in the sprite count:
 
 1. Small silhouette inside one sprite (distant).
-2. Large silhouette filling one sprite (mid).
-3. Y-expand — free, still one sprite, 48 × 42 screen pixels (near).
-4. 1 × 2 stack — two sprites, full vertical detail (very near, rare).
+2. X-expand — still one sprite, 48 × 21 screen pixels (mid).
+3. 1 × 2 stack — two sprites, 48 × 42 (near).
 
-Step 3 is worth having before step 4 because it costs nothing from the budget
-of eight. The 1 × 2 arrangement is the last rung, not the second.
+Y-expansion used to be listed here as a free third rung, on the grounds that it
+costs nothing from the budget of eight. It costs nothing in *sprites* and a
+great deal in *shape*: it halves vertical placement precision, which for an
+aircraft is exactly the axis a near-horizontal wing line is read by, and for a
+cloud makes the checkerboard dither read as stripes. X-expansion by contrast
+lands on 2 screen pixels — the same granularity as the world around it — so it
+costs nothing either way. See [planes.md](planes.md) §4.
 
-> **Aircraft skip step 3.** [planes.md](planes.md) §4 uses X-expansion only and
-> goes straight from one sprite to a 1 × 2 stack. Y-expansion is free in
-> sprites but not in silhouette: an aircraft is two near-horizontal strokes,
-> and their readability is set by vertical placement precision, which is
-> exactly what Y-expansion halves. X-expansion, by contrast, lands on 2 screen
-> pixels — the same granularity as the world around it, so it costs nothing.
-> A cloud has no silhouette to lose and keeps the free rung.
+For aircraft the two axes are chosen **independently** rather than as a ladder:
+width picks expansion, height picks the sprite count. A steeply banked aircraft
+is tall and narrow and must not be expanded along with its extra sprite.
 
 **Vertical granularity mismatch.** The terrain dot characters
 (`kGfxQuadGround` and friends, 16 variants per group) put each plotted dot in a
 4 × 4 screen-pixel quadrant, i.e. **4 raster lines tall**. Unexpanded sprite
 pixels are 1 line tall, so sprites will read as four times finer vertically
-than the world they sit in. Y-expand halves that discrepancy. Whether the
-mismatch is a problem or an asset (crisp aircraft against a coarse world) is a
-judgement call to make with a screenshot, not on paper.
+than the world they sit in. Y-expansion would have halved that discrepancy and
+is not available (§0), so the mismatch stays. Whether it is a problem or an
+asset — crisp objects against a coarse world — is a judgement call to make with
+a screenshot, not on paper.
 
 ---
 
-## 4. Colour: hires vs multicolour, per sprite
+## 4. Colour
 
-Sprite mode is selected per sprite by a bit in `$D01C`, so the two can be
-mixed in the same frame. Both options above occupy the same 24-world-pixel
-footprint; the trade is horizontal detail against colour count:
+**Hires, one colour per sprite, for everything** (§0). Sprite mode is selectable
+per sprite via `$D01C`, and this project does not use it.
 
-- **Clouds → multicolour.** They are soft blobs that want shading, and two
-  globally shared colours plus one per sprite is exactly the right shape for
-  white/grey/highlight. Losing horizontal detail costs a cloud nothing.
-- **Aircraft → hires.** They are small on screen for most of their life and
-  want a readable silhouette; halving horizontal resolution would destroy it.
+An earlier draft argued for multicolour clouds — soft blobs that want shading,
+two shared colours plus one per sprite. Shading is instead done with a
+**dither**: a cloud is a white-and-transparent checkerboard, which at 1 bit per
+pixel reads as a light half-tone against the sky and needs no second colour.
+Hires keeps the full horizontal resolution the dither depends on; in
+multicolour the checkerboard would collapse into flat 2-pixel blocks.
 
-This decision has to be made **before the bitmaps are drawn**, since the two
-modes need different source art. It is the one item here with a redraw cost
-attached to changing your mind.
+- **Clouds** — white, checkerboard-dithered (§6.1).
+- **Aircraft** — one fixed grey, no background test
+  ([planes.md](planes.md) §8).
 
 ---
 
@@ -184,19 +200,48 @@ stationary in the world, so a half-rate update reads as jitter, not economy.
 
 ## 6. Object classes
 
-### 6.1. Clouds — procedural, not stored
+### 6.1. Clouds — procedural placement, pre-rendered art
 
-Derive cloud positions by hashing the world tile coordinate. The map is 32 × 16
-and wraps ([world.h](../c64o/world.h)), so a hash over `(tile_x, tile_y)`
-yields position, size and a fixed altitude band with **zero RAM** and an
-unbounded number of clouds.
+**Positions are procedural; bitmaps are not.** Clouds are the opposite of
+aircraft in this respect, and for a good reason: a cloud has no orientation, so
+its appearance depends on size alone and a short ladder of pre-rendered bitmaps
+covers every case. Aircraft need a shape per attitude, which is why they are
+drawn at runtime ([planes.md](planes.md) §1).
+
+**Art.** A circle filled with a **white-and-transparent checkerboard**. At 1
+bit per pixel the 50% dither reads as a light half-tone against the blue sky —
+softer than solid white, and it lets the sky through so the cloud does not read
+as a cut-out. Hires only, so the checkerboard stays a checkerboard (§4).
+
+**Ladder.** One sprite (1 × 1) for the common case, two stacked (1 × 2) when
+near, with X-expansion on the wider rungs. Circles at a handful of radii; the
+sizes want choosing by eye, but roughly 6, 10, 16 and 24 world pixels across
+covers one sprite, and the 1 × 2 rung takes the largest one or two.
+
+**They occlude the horizon line.** A cloud is drawn in front of the terrain
+like every other sprite, not clipped to the sky. A cloud that cut off at the
+horizon would read as a hole in the world; one that overlaps it reads as
+distance.
+
+**Placement.** Derive positions by hashing the world tile coordinate. The map
+is 32 × 16 and wraps ([world.h](../c64o/world.h)), so a hash over
+`(tile_x, tile_y)` yields position, size and a fixed altitude band with **zero
+RAM** for the layout and an unbounded number of clouds.
 
 This also gives the nearby-object query for free: a 3 × 3 tile scan around the
 aircraft *is* the candidate set, and it doubles as the cull radius.
 
 Cap draw distance at two to three tiles. Beyond that the 8.8 projection
-shimmers by whole world pixels as the camera rotates. Fade in by growing the
-silhouette across LOD steps rather than popping the sprite on at full size.
+shimmers by whole world pixels as the camera rotates. Fade in by stepping up
+the ladder rather than popping the sprite on at full size.
+
+**Where the bitmaps live.** `$D400–$D7BF` — 15 free sprite blocks, pointers
+80–94. That region is RAM under the SID, so writing it needs `$01` banked and
+interrupts off, which rules it out for anything written per frame
+([planes.md](planes.md) §5). Cloud bitmaps are written **once at startup**,
+exactly like the instrument needles already there, so the restriction costs
+nothing. The division of labour is clean: static art under I/O at `$D400`,
+dynamic aircraft buffers in plain RAM at `$CE00`.
 
 ### 6.2. Other aircraft
 
@@ -245,8 +290,11 @@ the conflict entirely and is worth considering separately.
   [flight.md](flight.md) §1, and should be measured before the object count is
   treated as settled.
 - Is the 4:1 vertical granularity mismatch (§3) visible enough to matter?
-- Should clouds occlude the horizon line, or is drawing them only above it
-  sufficient and cheaper?
+- ~~Should clouds occlude the horizon line, or is drawing them only above it
+  sufficient and cheaper?~~ **Answered** — they occlude it (§6.1). A cloud
+  clipped at the horizon reads as a hole in the world.
+- How many cloud radii, and at what sizes? §6.1 guesses four. This is a
+  screenshot decision.
 - ~~Do aircraft need per-object colour at all, or is a single traffic colour
   enough to free the colour writes in the terrain handler?~~ **Answered** —
   [planes.md](planes.md) §8: colour switches on whether the aircraft is above
