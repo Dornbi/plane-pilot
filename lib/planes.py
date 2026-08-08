@@ -191,27 +191,6 @@ class Model:
     def chord_over_length(self) -> float:
         return self.chord_frac * self.span_m / self.length_m
 
-    @property
-    def max_radius(self) -> int:
-        """Furthest any model point can be from the wing hub, in eighths.
-
-        Every projected point lies within this radius of the hub whatever the
-        attitude, so it bounds the silhouette in *both* axes at once.
-        """
-        to_tail = self.tail + self.wing_fwd
-        return max(self.half_span,
-                   self.nose - self.wing_fwd,
-                   jround(math.hypot(to_tail, self.fin)))
-
-    @property
-    def k_max(self) -> int:
-        """Largest perspective scale that still fits the whole aircraft.
-
-        `2 * max_radius * k / 256 <= MAX_BBOX_H`, solved for k. A constant per
-        aircraft type, so the clamp is one comparison at runtime.
-        """
-        return (MAX_BBOX_H * 128) // self.max_radius
-
 
 # --------------------------------------------------------------------------
 # Sprite buffer and rasteriser
@@ -513,19 +492,7 @@ def render(state: State, cam: Mat3, target: Mat3, rel_pos_m: Vec3,
     # px = 256 * (O/8) / (C.x/4), so k = 32768 / C.x
     k = fdiv(128, c[0])
 
-    # 6b. Size clamp. Closer than about 60 m the silhouette outgrows even the
-    # largest tier, and cropping it would show the middle of an aircraft rather
-    # than an aircraft. Hold the apparent size instead: cap k, which is exactly
-    # pretending the target stopped approaching.
-    #
-    # The cap is a constant of the model, NOT a function of the current
-    # bounding box. A bbox-derived cap would shrink by a different factor
-    # depending on attitude, which puts the angle dependence back into the body
-    # thickness that §6 works to keep out -- the reference caught this
-    # immediately when it was tried that way.
-    clamped = k > model.k_max
-    if clamped:
-        k = model.k_max
+    k_true = k          # before the size clamp -- the body ladder needs this
 
     # 7. body axes in camera space
     fore, lat, vert = (q88(to_cam(cam, target.front)),
@@ -560,6 +527,32 @@ def render(state: State, cam: Mat3, target: Mat3, rel_pos_m: Vec3,
         return px, hub, pts, (box[1] - box[0], box[3] - box[2]), box
 
     px, hub, pts, (bw, bh), box = project(k)
+
+    # 9b. Size clamp. Closer than about 90 m the silhouette outgrows even the
+    # largest tier, and cropping it would show the middle of an aircraft rather
+    # than an aircraft. Hold the apparent size instead: shrink k until the
+    # projection exactly fits, which is the same as pretending the target
+    # stopped approaching.
+    #
+    # Scaling to the *bounding box* rather than to a constant is what makes the
+    # silhouette fill the buffer. A constant cap has to fit the aircraft in any
+    # orientation at once, so it fits inside the largest circle the buffer
+    # holds -- 41 px in a 48 x 42 buffer -- and a level aircraft, which is wide
+    # and flat, then wastes most of the width. The cost is that apparent size
+    # now depends on attitude *inside the clamped band*; the body thickness is
+    # insulated from that by running its ladder off `k_true` below.
+    #
+    # Every projected point is linear in k, so one correction lands within a
+    # pixel; the loop is there because integer rounding can leave it a pixel
+    # over, and it settles in at most two more passes.
+    clamped = bw > MAX_BBOX_W or bh > MAX_BBOX_H
+    tries = 0
+    while (bw > MAX_BBOX_W or bh > MAX_BBOX_H) and k > 1 and tries < 4:
+        sw = fdiv(MAX_BBOX_W, bw) if bw > MAX_BBOX_W else 256
+        sh = fdiv(MAX_BBOX_H, bh) if bh > MAX_BBOX_H else 256
+        k = max(1, min(fmul(k, min(sw, sh)), k - 1))
+        px, hub, pts, (bw, bh), box = project(k)
+        tries += 1
     minx, maxx, miny, maxy = box
 
     # 9. tier, then the centring anchor
@@ -571,8 +564,11 @@ def render(state: State, cam: Mat3, target: Mat3, rel_pos_m: Vec3,
     anchor = (jround((minx + maxx) / 2), jround((miny + maxy) / 2)) if fits else hub
     origin = (anchor[0] - ((COLS * tier.xs) >> 1), anchor[1] - (tier.rows >> 1))
 
-    # Not clamped -- see clip_seg().
-    loc = lambda p: (jround((p[0] - origin[0]) / tier.xs), p[1] - origin[1])
+    # Not clamped -- see clip_seg(). The x mapping FLOORS rather than rounds:
+    # an X-expanded sprite column covers screen pixels 2c and 2c+1, so floor is
+    # what the hardware does. Rounding biased both ends of a full-width
+    # silhouette outward and pushed a wingtip off the buffer.
+    loc = lambda p: ((p[0] - origin[0]) // tier.xs, p[1] - origin[1])
     local = {name: loc(p) for name, p in pts.items()}
 
     # Thickness. The fuselage is a body of revolution and looks the same width
@@ -585,7 +581,11 @@ def render(state: State, cam: Mat3, target: Mat3, rel_pos_m: Vec3,
             if with_fin else (0, 0))
     col = model.chord_over_length
 
-    state.prev_body = _rung(2 * px["h"], BODY_LIMITS, state.prev_body)
+    # The body ladder runs off the UNCLAMPED scale, so it stays a function of
+    # true distance and nothing else. Driving it off the clamped k would make
+    # it vary with attitude, which is exactly what the fuselage must not do.
+    px_h_true = (fmul(2 * model.half_span, k_true) + 1) >> 1
+    state.prev_body = _rung(2 * px_h_true, BODY_LIMITS, state.prev_body)
     state.prev_wing = _rung(chord_px(fvec, wvec, col), SURFACE_LIMITS, state.prev_wing)
     state.prev_fin = _rung(chord_px(fvec, nvec, col), SURFACE_LIMITS, state.prev_fin)
     thickness = {

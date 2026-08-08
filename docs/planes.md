@@ -102,7 +102,7 @@ identified is not worth drawing.
 | 24 px |  176 m | 3.5 s |
 | 48 px |   88 m | 1.8 s |
 
-Below about **104 m** the aircraft stops growing, and beyond about a kilometre
+Below about **90 m** the aircraft stops growing, and beyond about a kilometre
 it is a fixed dot — both in §4. The band where the silhouette actually changes
 shape is therefore roughly 100 m to 1 km, and **the dot is still the common
 case**, which is why it gets a static bitmap rather than a rasterised one.
@@ -153,8 +153,8 @@ Per plane, per frame:
    `cy = 56 − vec_sy`.
 6. **Perspective scale.** `k = 32768 / C.x` via `vec_div8p8(128, C.x)`. Model
    offsets are in eighths of a metre and `C.x` in quarters, so
-   `px = 256·(O/8)/(C.x/4) = fmul(O, k)`. Then **clamp**: `k = min(k, kMax)`
-   — see §4.
+   `px = 256·(O/8)/(C.x/4) = fmul(O, k)`. Keep a copy as `kTrue` — the body
+   thickness ladder needs the unclamped value (§4).
 7. **Body axes in camera space.** `vec_transform3_inv(&world_cam, &R)` on the
    target's orientation — 27 multiplies, one existing call — giving `front`,
    `left` and `up` in camera space. Every model point is built from these three
@@ -195,7 +195,8 @@ Per plane, per frame:
    across the object, which is correct to within a fraction of a pixel for
    anything small enough to fit in a sprite, and it removes the near-plane
    clipping problem entirely.
-9. **Tier selection** from the bounding box of the five screen points (§4).
+9. **Tier selection** from the bounding box of the five screen points, then
+   the **size clamp**: shrink `k` and reproject until the box fits (§4).
 10. **Cache check** on the ten local endpoint bytes (§7). Hit → skip to 12.
 11. **Rasterise** into the back buffer: clear, three strokes (§6), flip pointer.
 12. **Program the sprite(s)**: position, `$D010` MSB, `$D01D` expansion,
@@ -298,46 +299,54 @@ The two-sprite case is two hardware sprites at the same X, 21 raster lines
 apart, sharing expansion and colour. Rasterising is unchanged — the buffer is
 simply 42 rows and the second sprite points at the second block.
 
-### Below ~66 m the aircraft stops growing
+### Below ~90 m the aircraft stops growing
 
 There is no tier past 48 × 42, and cropping an aircraft that outgrows it shows
 the *middle* of an aeroplane rather than an aeroplane. So instead of cropping,
-**hold the apparent size**: cap `k`, which is exactly pretending the target
-stopped approaching. Everything downstream — extents, thickness, tier — follows
-`k`, so the whole silhouette freezes together with no special cases.
-
-The cap is a **constant of the model, not a function of the current bounding
-box**:
+**shrink `k` until the projection exactly fits** — which is precisely
+pretending the target stopped approaching. Everything downstream follows `k`,
+so the whole silhouette scales together with no special cases:
 
 ```
-R    = max(halfSpan, nose − wingFwd, hypot(tail + wingFwd, fin))   // eighths
-kMax = 41 · 128 / R
+while bbox does not fit:
+    k = k · min(46/bbox_w, 41/bbox_h)      # then reproject
 ```
 
-`R` is the furthest any model point can be from the wing hub, so every
-projected point lies within `R · k / 128` pixels of it whatever the attitude —
-it bounds *both* axes at once, from one comparison at runtime.
+Every projected point is linear in `k`, so one correction lands within a pixel;
+the loop is there only because integer rounding can leave it a pixel over, and
+it settles in at most two more passes.
 
-A bounding-box-derived cap is the tempting alternative and it is wrong: it
-shrinks by a different factor depending on attitude, which puts the angle
-dependence straight back into the body thickness that §6 works to keep out. The
-reference caught that within a minute of it being tried.
+**Scale to the bounding box, not to a constant.** A constant cap is the
+tempting alternative — one comparison, derived from the furthest any model
+point can sit from the wing hub — and it was the first thing tried. It has to
+fit the aircraft in *any* orientation at once, so it fits inside the largest
+circle the buffer holds: 41 px of the available 48. A level aircraft is wide
+and flat, and then wastes most of the width. Measured, it reached 40 px where
+46 were available and engaged 15 m further out than it needed to.
 
-For a Cessna at 1.5× (§2), `R` = 67 eighths and `kMax` = 78, so the silhouette
-freezes at about 40 px across from roughly 104 m inward. Swept over 19,440
-attitudes across the whole clamped band, no point ever leaves the buffer.
+The cost of scaling to the box is that apparent size now depends on attitude
+*inside the clamped band*. That is acceptable for the geometry, but it must not
+reach the fuselage:
 
-Note the interaction with the exaggeration: scaling the model up moves the
-freeze point out by the same factor, from ~66 m to ~104 m. That is still only
-the last two seconds of a closing encounter, and by then the aircraft already
-fills a quarter of the viewport width.
+> **The body thickness ladder runs off the unclamped `k`.** Otherwise the
+> clamp's attitude dependence flows straight into the one stroke §6 works
+> hardest to keep attitude-independent. The reference caught this the first
+> time the clamp was written, and the test that pins it is
+> `test_the_body_ladder_ignores_the_clamp`.
 
-**Watch the off-by-one.** A bounding box of *extent* 21 spans 22 rows, so the
-usable extents are one less than the buffer — and one less again on the width,
-because an X-expanded column is reached through a divide that rounds up. Hence
-`TIER_W, TIER_H = 23, 20` and `MAX_BBOX = 46 × 41`. This was wrong for a while
-and invisible, because clipping quietly absorbed it; it only surfaced once the
-clamp promised that nothing clips.
+Measured across 11,664 attitudes from 17 m to 90 m: **median buffer fill 98%,
+never over 100%, and no point ever leaves the buffer.**
+
+**Two off-by-ones live here**, both invisible until the clamp promised that
+nothing clips:
+
+- A bounding box of *extent* 21 spans 22 rows, so the usable extents are one
+  less than the buffer, and one less again on the width. Hence
+  `TIER_W, TIER_H = 23, 20` and `MAX_BBOX = 46 × 41`.
+- Mapping a screen pixel to an X-expanded column must **floor**, not round: a
+  column covers screen pixels `2c` and `2c+1`. Rounding biased both ends of a
+  full-width silhouette outward and pushed a wingtip off the buffer in 14% of
+  close-range attitudes.
 
 **Hysteresis**, per axis: promote at the limit, demote at 87% of it, so a plane
 hovering at a threshold does not flicker between resolutions. Even so, the

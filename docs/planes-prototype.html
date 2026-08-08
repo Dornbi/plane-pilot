@@ -428,11 +428,6 @@ function compute() {
   const hasFin = document.getElementById("fin").checked;
 
   // --- model, eighths of a metre, int8 ---
-  // Furthest any model point can be from the wing hub: bounds the silhouette
-  // in both axes whatever the attitude, so it gives a constant size cap.
-  const modelRadius = (H, LN, LT, WF, FN) =>
-    Math.max(H, LN - WF, Math.round(Math.hypot(LT + WF, FN)));
-
   const H  = Math.round(spanM / 2 * 8 * scale);
   const LN = Math.round(lenM * 0.55 * 8 * scale);
   const LT = Math.round(lenM * 0.45 * 8 * scale);
@@ -444,35 +439,49 @@ function compute() {
   // of a 12 px half-span. Doubling the input and halving the rounded result
   // recovers it for one shift-and-add per extent.
   const half = v => (fmul(2 * v, k) + 1) >> 1;
-  // Size clamp: closer than ~66 m the silhouette outgrows even the largest
-  // tier, and cropping would show the middle of an aircraft rather than an
-  // aircraft. Cap k instead -- exactly pretending the target stopped
-  // approaching. The cap is a CONSTANT of the model, not a function of the
-  // current bounding box: a bbox-derived cap shrinks by a different factor
-  // depending on attitude, which puts angle dependence back into the body
-  // thickness the thickness rules work to keep out.
-  const kMax = Math.floor(MAX_BBOX_H * 128 / modelRadius(H, LN, LT, WF, FN));
-  const clamped = k > kMax;
-  if (clamped) k = kMax;
-
-  const pxH = half(H), pxLN = half(LN), pxLT = half(LT),
-        pxFN = half(FN), pxWF = half(WF);
-  // then each endpoint is one multiply per axis against a unit 8.8 vector
+  const kTrue = k;    // before the size clamp -- the body ladder needs this
   const pt = (axis, ext) => [cx - fmul(axis[1], ext), cy - fmul(axis[2], ext)];
   const add = (a, b) => [a[0] + b[0] - cx, a[1] + b[1] - cy];
-  // the wing sits ahead of the centre, so both tips carry a fore offset
-  const wingHub = pt(fore, pxWF);   // also the fallback centring anchor
-  const pts = {
-    nose: pt(fore,  pxLN), tail: pt(fore, -pxLT),
-    tipL: add(wingHub, pt(lat,  pxH)),
-    tipR: add(wingHub, pt(lat, -pxH)),
-  };
-  if (hasFin) pts.fin = add(pts.tail, pt(vert, pxFN));
-  const all = [pts.nose, pts.tail, pts.tipL, pts.tipR];
-  if (hasFin) all.push(pts.fin);
-  const minx = Math.min(...all.map(p => p[0])), maxx = Math.max(...all.map(p => p[0]));
-  const miny = Math.min(...all.map(p => p[1])), maxy = Math.max(...all.map(p => p[1]));
-  const bw = maxx - minx, bh = maxy - miny;
+
+  function project(k) {
+    const h = v => (fmul(2 * v, k) + 1) >> 1;
+    const px = { h: h(H), ln: h(LN), lt: h(LT), wf: h(WF), fn: h(FN) };
+    // the wing sits ahead of the centre, so both tips carry a fore offset
+    const hub = pt(fore, px.wf);
+    const pts = {
+      nose: pt(fore,  px.ln), tail: pt(fore, -px.lt),
+      tipL: add(hub, pt(lat,  px.h)),
+      tipR: add(hub, pt(lat, -px.h)),
+    };
+    if (hasFin) pts.fin = add(pts.tail, pt(vert, px.fn));
+    const all = Object.values(pts);
+    const box = [Math.min(...all.map(p => p[0])), Math.max(...all.map(p => p[0])),
+                 Math.min(...all.map(p => p[1])), Math.max(...all.map(p => p[1]))];
+    return { px, hub, pts, bw: box[1] - box[0], bh: box[3] - box[2], box };
+  }
+
+  let P2 = project(k);
+  // Size clamp: closer than ~90 m the silhouette outgrows even the largest
+  // tier, and cropping would show the middle of an aircraft rather than an
+  // aircraft. Shrink k until the projection exactly fits -- the same as
+  // pretending the target stopped approaching.
+  //
+  // Scaling to the BOUNDING BOX rather than to a constant is what makes the
+  // silhouette fill the buffer: a constant cap has to fit the aircraft in any
+  // orientation at once, so it fits inside the largest circle the buffer holds
+  // (41 px of 48), and a level aircraft then wastes most of the width. The
+  // body thickness is insulated from the resulting attitude dependence by
+  // running its ladder off kTrue.
+  const clamped = P2.bw > MAX_BBOX_W || P2.bh > MAX_BBOX_H;
+  for (let t = 0; (P2.bw > MAX_BBOX_W || P2.bh > MAX_BBOX_H) && k > 1 && t < 4; t++) {
+    const sw = P2.bw > MAX_BBOX_W ? fdiv(MAX_BBOX_W, P2.bw) : 256;
+    const sh = P2.bh > MAX_BBOX_H ? fdiv(MAX_BBOX_H, P2.bh) : 256;
+    k = Math.max(1, Math.min(fmul(k, Math.min(sw, sh)), k - 1));
+    P2 = project(k);
+  }
+  const { pts, hub: wingHub, bw, bh } = P2;
+  const pxH = P2.px.h;
+  const [minx, maxx, miny, maxy] = P2.box;
 
   // --- step 9: tier ---
   const T = pickTier(bw, bh);
@@ -487,7 +496,10 @@ function compute() {
 
   // NOT clamped -- see clipSeg(). Endpoints may legitimately fall outside the
   // buffer when the aircraft is closer than the largest tier can hold.
-  const loc = p => [Math.round((p[0] - originX) / T.xs), p[1] - originY];
+  // FLOORS rather than rounds: an X-expanded sprite column covers screen
+  // pixels 2c and 2c+1, so floor is what the hardware does. Rounding biased
+  // both ends of a full-width silhouette outward and pushed a tip off-buffer.
+  const loc = p => [Math.floor((p[0] - originX) / T.xs), p[1] - originY];
   const L = { nose: loc(pts.nose), tail: loc(pts.tail),
               tipL: loc(pts.tipL), tipR: loc(pts.tipR) };
   if (hasFin) L.fin = loc(pts.fin);
@@ -497,7 +509,10 @@ function compute() {
   const W = [pts.tipL[0] - pts.tipR[0], pts.tipL[1] - pts.tipR[1]];
   const N = hasFin ? [pts.fin[0] - pts.tail[0], pts.fin[1] - pts.tail[1]] : [0, 0];
   const chordOverLen = 0.15 * spanM / lenM;
-  const thick = thicknessFor(2 * pxH,
+  // The body ladder runs off the UNCLAMPED scale, so it stays a function of
+  // true distance alone -- the fuselage must not change with attitude.
+  const pxHTrue = (fmul(2 * H, kTrue) + 1) >> 1;
+  const thick = thicknessFor(2 * pxHTrue,
                              chordPx(F, W, chordOverLen),
                              chordPx(F, N, chordOverLen),
                              T.xs,
