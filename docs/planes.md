@@ -6,11 +6,23 @@ rasteriser and the caching scheme. Traffic behaviour (canned kinematic paths),
 collision and the map screen are named where they touch the renderer but are
 not designed here.
 
-Interactive reference implementation:
-[planes-prototype.html](planes-prototype.html). It runs the exact pipeline
-below in JavaScript — same projection, same offset scaling, same tier
-selection, same rasteriser — so the numbers it prints are the numbers the C64
-code should produce.
+### Two reference implementations
+
+| | |
+| :--- | :--- |
+| [planes-prototype.html](planes-prototype.html) | Interactive. Sliders for range, attitude and the model, showing the viewport and the sprite buffer side by side. For deciding how things should look. |
+| [`lib/planes.py`](../lib/planes.py) | The same pipeline in Python, covered by [`tests/test_planes.py`](../tests/test_planes.py) (`make test`). For deciding whether they are still right. |
+
+Both run the arithmetic the C64 runs — `fmul` and `fdiv` reproduce
+`vec_fastmul8p8` and `vec_div8p8` including their truncation toward zero — so
+the bytes they produce are the bytes `ppilot` should produce. They are
+cross-checked against each other over 252 cases spanning distance, heading,
+bank and pitch, and agree bit for bit.
+
+That cross-check has already earned its keep. It found 154 mismatched bitmaps
+caused by nothing more than Python's `round` being banker's rounding while
+JavaScript's `Math.round` is not — a discrepancy that would otherwise have sat
+undetected in whichever of the two the C64 was written from.
 
 ### Relationship to `sprite_objects.md`
 
@@ -127,8 +139,9 @@ Per plane, per frame:
 3. **To camera space.** `vec_transform_inv(&world_cam, &P, &C)` — 9 multiplies,
    already exists.
 4. **Cull.** `C.x <= 64` (16 m — behind or on top of the camera) → skip.
-   Range cull at `C.x > 16000` (4 km) → skip. Cull if the sprite would land in the message band
-   while a message is up ([sprite_objects.md](sprite_objects.md) §7).
+   Range cull at `C.x > 16000` (4 km) → skip. Cull if the sprite would land
+   in the message band while a message is up
+   ([sprite_objects.md](sprite_objects.md) §7).
 5. **Centre.** `vec_project_nocull()` → `cx = 160 − vec_sx`,
    `cy = 56 − vec_sy`.
 6. **Perspective scale.** `k = 32768 / C.x` via `vec_div8p8(128, C.x)`. Model
@@ -377,37 +390,52 @@ thickness repeat, which reuses the mask already in hand.
 
 ### Thickness
 
-A 6 px silhouette wants 1 px strokes; a 40 px one looks anaemic at anything
-under 2. **Thickness is specified in screen pixels, the ladder is 1, 2, 4 —
-never 3 — and it is driven by distance alone.**
+**Thickness is specified in screen pixels and the ladder is 1, 2, 4 — never
+3.** The three strokes do not share an input, because they are not the same
+kind of object.
 
-#### Drive it from the span, not the bounding box
+#### The fuselage is a body of revolution; the wing is a plate
 
-The obvious input is the projected bounding box, since the tier already needs
-it. It is the wrong one. The bounding box swings with aspect: as an aircraft
-turns, the same airframe at the same range projects a box that grows and
-shrinks, so a bbox-driven ladder changes stroke weight **while the aircraft
-rotates**. That reads as a glitch, not as level of detail — the aircraft has
-not got any closer, so nothing about it should get heavier.
+A fuselage looks the same width from every angle. A wing does not: face-on you
+see its chord, edge-on you see almost nothing. So:
 
-The input is instead the **unforeshortened wingspan in screen pixels**,
-`2 · pxH`, which is `256 · span / D` and therefore a function of distance and
-the model only. It is already computed in §3 step 8, so this costs nothing.
-Swept over every heading and bank at a fixed range, the prototype now reports a
-single screen thickness throughout.
+- **Fuselage — distance only.** Driven by the **unforeshortened wingspan in
+  screen pixels**, `2 · pxH` = `256 · span / D`, which is a function of
+  distance and the model and does not move when the aircraft rotates. Swept
+  over every heading, bank and pitch at a fixed range, the reference reports
+  exactly one body thickness.
+- **Wing and fin — the projected chord.** Each is a flat plate whose apparent
+  width is its chord projected perpendicular to its own screen direction.
 
-#### The ladder
+The obvious input for all three would be the projected bounding box, since the
+tier already needs it. It is the wrong one for anything: the box swings with
+aspect, so a bbox-driven ladder changes stroke weight **while the aircraft
+rotates**, which reads as a glitch rather than as level of detail.
 
-| Wingspan on screen | Flying surfaces | Fuselage |
-| :--- | :---: | :---: |
-| < 12 px (D > ~235 m) | 1 | 2 |
-| < 48 px (D > ~59 m) | 2 | 4 |
-| otherwise | 4 | 4 |
+#### Projecting the chord
 
-**The fuselage carries one rung more than the wing and fin.** It is the body of
-the aircraft and wants to read as solid rather than as wire; at equal weight
-the silhouette looks like a cross of three identical sticks. The wing and fin
-are surfaces seen edge-on and are genuinely thin.
+With `F` the fuselage screen vector (nose − tail) and `S` the surface's screen
+direction (tip → tip for the wing, tail → fin for the fin):
+
+```
+chord_px = |F.x·S.y − F.y·S.x| / |S| · (chord / length)
+```
+
+a 2D cross product over a length. `|S|` uses the octagonal approximation
+(`max + min/2`), which is within ~4% and needs no square root. Face-on this
+returns the full chord; edge-on it returns zero.
+
+It inherits the parallel-projection approximation of §3 step 8, so it responds
+to the relative orientation of aircraft and camera but not to where the target
+sits in the field of view. That is consistent with the rest of the renderer.
+
+#### The ladders
+
+| Fuselage: wingspan on screen | | | Wing and fin: projected chord | |
+| :--- | :---: | --- | :--- | :---: |
+| < 12 px (D > ~235 m) | 1 | | < 2 px | 1 |
+| < 48 px (D > ~59 m) | 2 | | < 4 px | 2 |
+| otherwise | 4 | | otherwise | 4 |
 
 `tv` is the row count and `th` the column count: `th = tv` at 1:1 and `tv / 2`
 when X-expanded, since an expanded column is two screen pixels.
@@ -428,11 +456,11 @@ by sweeping the prototype rather than by reasoning:
    move, so `tv` cannot depend on `xs`. Both hold only if `tv` is divisible by
    every `xs` in use — that is, even.
 
-**Hysteresis on the thickness threshold, same 87% rule as the tier.** Without
-it an aircraft holding station at a boundary alternates weight every frame,
-which is far worse than the one-time step it protects against. The prototype
-flickered between 2 and 4 across three consecutive samples before this was
-added; the measured bands are now 59–70 m and 235–271 m.
+**Hysteresis on every threshold, same 87% rule as the tier**, with a separate
+latch per stroke. Without it an aircraft holding station at a boundary
+alternates weight every frame, which is far worse than the one-time step it
+protects against. The prototype flickered between 2 and 4 across three
+consecutive samples before this was added.
 
 The residual cost of the even-only ladder is that the 2 → 4 step doubles the
 stroke weight in one go. It lands at 48 px of wingspan, where the
@@ -454,6 +482,24 @@ slope and gives an honest crop: the wing runs off both edges, the fuselage
 still crosses at its real angle, the fin still points where it should. Cost is
 a Liang–Barsky clip per stroke — four comparisons and at most two divides, and
 only when an endpoint is actually outside.
+
+### Centre on the wing when the silhouette overruns
+
+Which part gets cropped is a choice, and the bounding-box centre makes it
+badly. Once the silhouette is larger than the buffer, centring the *box* means
+the fuselage — usually the longest thing on screen — pushes the frame around
+and takes a wingtip out with it. The wing is what makes the shape readable, so
+losing a tip to keep both ends of the fuselage is the wrong trade.
+
+```
+fits   = bbox_w <= 24·xs  and  bbox_h <= rows
+anchor = fits ? centre of the bounding box : the wing hub
+```
+
+The hub is the wingtips' midpoint, so anchoring there keeps the whole wing in
+frame whenever the projected span fits, and lets the fuselage run off both
+ends. At 25 m — where the fuselage spans 78 px in a 48 px buffer — this is the
+difference between a recognisable cropped aircraft and one missing a wing.
 
 ### Why there is a third stroke
 
@@ -563,13 +609,7 @@ Colour is per sprite, so the two sprites of a stacked pair must both be set.
 3. **Does the dot tier need its own bitmap** (a static 2×2 blob at pointer 80,
    in the `$D400` region) or is running the normal rasteriser for a 3 px
    silhouette simpler? The static blob saves ~1500 cycles in the common case.
-4. **Python reference and tests.** Every other generated asset in this project
-   has a Python model in `tools/` with pytest coverage. Nothing is *generated*
-   here, but the projection and rasteriser are exactly the kind of code that
-   benefits from a host-side reference — the HTML prototype is one, but it is
-   not a test. Add `tools/planes.py` + `tests/test_planes.py`, or rely on
-   `vectest`-style on-target checks?
-5. **Light grey or medium grey?** §8 starts at light grey. This is a look at a
+4. **Light grey or medium grey?** §8 starts at light grey. This is a look at a
    screenshot, not an argument.
 
 Settled, and recorded here so they are not reopened: the silhouette is **three
@@ -636,9 +676,13 @@ which is why §3 spends effort removing multiplies from it.
 | # | Work | Notes |
 | --- | --- | --- |
 | 1 | `sprbuf` region, block allocation, pointer flipping | Verify VIC reads `$CE00` correctly before anything else |
-| 2 | Row-run rasteriser + mask tables + segment clipping, driven by a hardcoded endpoint set | Testable in isolation with a static test pattern. Clipping is not optional — see §6 |
+| 2 | Row-run rasteriser + mask tables + segment clipping, driven by a hardcoded endpoint set | Check against `lib/planes.py`'s golden silhouettes. Clipping is not optional — see §6 |
 | 3 | Projection pipeline for one plane at a fixed world position | Fly around a parked aircraft and check the silhouette |
 | 4 | Tier selection, X-expansion, two-sprite stacking, per-axis hysteresis | The two axes decide independently (§4) |
 | 5 | Endpoint cache, double buffering | Measure the hit rate in level flight |
-| 6 | Second plane, priority ordering, thickness ladder | Colour is a constant, so there is nothing to switch |
+| 6 | Second plane, priority ordering, both thickness ladders | Colour is a constant, so there is nothing to switch |
 | 7 | Canned kinematic paths | Separate document — behaviour, not graphics |
+
+Throughout: `make test` runs `tests/test_planes.py`, which pins the invariants
+this document argues for — angle-invariant body thickness, the even ladder,
+clip-not-clamp, the wing staying framed, and the cycle budget.

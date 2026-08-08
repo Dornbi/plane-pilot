@@ -116,7 +116,7 @@ release: prg
 # --- Housekeeping ----------------------------------------------------------
 
 test:
-	$(PYTHON) -m pytest tests -q
+	$(PYTHON) -m unittest discover -s tests
 
 clean:
 	rm -rf out
