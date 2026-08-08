@@ -205,40 +205,40 @@ class TestThickness(unittest.TestCase):
 
 class TestSizeClamp(unittest.TestCase):
     """Closer than the clamp range the aircraft stops growing, so the whole
-    silhouette stays in frame instead of the buffer showing its middle -- and
-    it is scaled to *fill* the buffer, not to a conservative constant."""
+    silhouette stays in frame instead of the buffer showing its middle."""
 
-    def _fill(self, r):
-        return max(r.bbox[0] / planes.MAX_BBOX_W, r.bbox[1] / planes.MAX_BBOX_H)
-
-    def test_clamped_silhouettes_fill_the_buffer(self):
-        # A constant cap would have to fit the aircraft in any orientation at
-        # once, so it fits inside the largest circle the buffer holds -- 41 px
-        # of 48 -- and a level aircraft wastes most of the width. Scaling to
-        # the bounding box instead reaches the edge on the binding axis.
-        fills = []
-        for d in (17, 25, 40, 60, 80):
-            for heading in range(0, 360, 15):
-                for bank in (0, 20, 45, 70, 89):
+    def test_apparent_size_does_not_change_as_it_rotates(self):
+        # The whole point of a constant cap. A bbox-derived cap fills the
+        # buffer better (98% against 87%) but the aircraft then changes size
+        # as it turns, which reads as breathing rather than as a size limit.
+        for d in (17, 25, 40, 60, 80, 90):
+            scales = set()
+            for heading in range(0, 360, 5):
+                for bank in (0, 30, 60, 89):
                     state, model = fresh()
-                    r = draw(d, heading=heading, bank=bank, state=state, model=model)
-                    fills.append(self._fill(r))
-        fills.sort()
-        median = fills[len(fills) // 2]
-        self.assertGreater(median, 0.92, "median buffer fill only %.0f%%" % (median * 100))
-        self.assertLessEqual(max(fills), 1.0)
+                    scales.add(draw(d, heading=heading, bank=bank,
+                                    state=state, model=model).k)
+            self.assertEqual(len(scales), 1,
+                             "apparent size varied with attitude at %d m: %s"
+                             % (d, sorted(scales)))
+
+    def test_apparent_size_freezes_with_distance(self):
+        sizes = {draw(d).k for d in (17, 25, 40, 60, 80, 90)}
+        self.assertEqual(len(sizes), 1, "still shrinking while clamped: %s" % sizes)
 
     def test_the_clamp_engages_close_in_and_not_far_out(self):
-        for d in (17, 25, 40):
+        for d in (17, 25, 40, 90):
             self.assertTrue(draw(d).clamped, "not clamped at %d m" % d)
-        for d in (120, 200, 400, 900):
+        for d in (150, 250, 400, 900):
             self.assertFalse(draw(d).clamped, "clamped at %d m" % d)
 
-    def test_whole_silhouette_fits_at_every_attitude(self):
-        # The point of the clamp: no crop, from any angle, at any close range.
+    def test_whole_silhouette_fits_up_to_steep_bank(self):
+        # The cap is taken from the buffer WIDTH, so the height is not
+        # guaranteed: past ~73 degrees of bank the span projects vertically
+        # into 41 rows and the tips clip. Everything short of that must fit.
         for d in (17, 20, 25, 30, 40, 50, 60, 80, 100):
             for heading in range(0, 360, 15):
-                for bank in (0, 20, 45, 70, 89):
+                for bank in (0, 20, 45, 60, -60):
                     for pitch in (-40, 0, 40):
                         state, model = fresh()
                         r = draw(d, heading=heading, bank=bank, pitch=pitch,
@@ -252,23 +252,32 @@ class TestSizeClamp(unittest.TestCase):
                             self.assertTrue(0 <= y < r.tier.rows,
                                             "%s off the buffer at %d m" % (name, d))
 
-    def test_the_body_ladder_ignores_the_clamp(self):
-        # The clamp factor depends on attitude, so the fuselage thickness must
-        # be driven by the UNCLAMPED scale or it inherits that dependence --
-        # which is exactly the artefact the thickness rules exist to remove.
-        for d in (17, 25, 40, 60):
-            seen = set()
-            for heading in range(0, 360, 10):
-                for bank in (0, 30, 60, 89):
-                    state, model = fresh()
-                    seen.add(draw(d, heading=heading, bank=bank, state=state,
-                                  model=model).thickness["body"][0])
-            self.assertEqual(len(seen), 1,
-                             "body thickness varied under the clamp at %d m: %s"
-                             % (d, sorted(seen)))
+    def test_knife_edge_clips_only_the_tips_and_only_just(self):
+        # The accepted cost of capping on width. Bounded, symmetric, and
+        # confined to attitudes normal traffic never reaches.
+        r = draw(25, heading=180, bank=89)
+        overhang = max(max(-y, y - (r.tier.rows - 1)) for _, y in r.local.values())
+        self.assertGreater(overhang, 0, "expected the tips to clip at 89 deg")
+        self.assertLessEqual(overhang, 3, "clipped %d px, more than a tip" % overhang)
+        for name in ("nose", "tail", "fin"):
+            x, y = r.local[name]
+            self.assertTrue(0 <= y < r.tier.rows,
+                            "%s clipped -- only wingtips should" % name)
 
-    def test_the_clamp_scales_with_the_model(self):
+    def test_nothing_clips_at_ordinary_bank_angles(self):
+        for d in (17, 25, 40, 60, 90):
+            for heading in range(0, 360, 10):
+                for bank in range(-60, 61, 10):
+                    state, model = fresh()
+                    r = draw(d, heading=heading, bank=bank, state=state, model=model)
+                    for name, (x, y) in r.local.items():
+                        self.assertTrue(0 <= x < planes.COLS and 0 <= y < r.tier.rows,
+                                        "%s clipped at %d m, bank %d"
+                                        % (name, d, bank))
+
+    def test_the_cap_is_a_constant_of_the_model(self):
         big = Model(span_m=20.0, length_m=18.0, scale=1.5)
+        self.assertLess(big.k_max, Model().k_max)
         state = State()
         r = render(state, LEVEL, orient(180, 0, 0), place(25), big)
         self.assertTrue(r.clamped)

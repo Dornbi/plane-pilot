@@ -428,6 +428,12 @@ function compute() {
   const hasFin = document.getElementById("fin").checked;
 
   // --- model, eighths of a metre, int8 ---
+  // Furthest any model point can be from the wing hub: bounds the silhouette
+  // in both axes whatever the attitude, so it gives a size cap that does not
+  // move as the aircraft rotates.
+  const modelRadius = (H, LN, LT, WF, FN) =>
+    Math.max(H, LN - WF, Math.round(Math.hypot(LT + WF, FN)));
+
   const H  = Math.round(spanM / 2 * 8 * scale);
   const LN = Math.round(lenM * 0.55 * 8 * scale);
   const LT = Math.round(lenM * 0.45 * 8 * scale);
@@ -439,7 +445,25 @@ function compute() {
   // of a 12 px half-span. Doubling the input and halving the rounded result
   // recovers it for one shift-and-add per extent.
   const half = v => (fmul(2 * v, k) + 1) >> 1;
-  const kTrue = k;    // before the size clamp -- the body ladder needs this
+  // Size clamp: closer than ~94 m the silhouette outgrows even the largest
+  // tier, and cropping would show the middle of an aircraft rather than an
+  // aircraft. Cap k instead -- exactly pretending the target stopped
+  // approaching.
+  //
+  // The cap is a CONSTANT of the model, not a function of the current bounding
+  // box. Scaling to the box fills the buffer better but then the apparent size
+  // changes as the aircraft rotates, which reads as breathing rather than as a
+  // size limit.
+  //
+  // The constant is taken from the buffer WIDTH, not its height. Capping on
+  // height would guarantee a fit at every attitude but cost 15% of silhouette
+  // in all of them; capping on width keeps that 15% and clips the wingtips by
+  // a pixel or two only past ~73 degrees of bank, where the span projects
+  // vertically into 41 rows of buffer.
+  const kMax = Math.floor(MAX_BBOX_W * 128 / modelRadius(H, LN, LT, WF, FN));
+  const clamped = k > kMax;
+  if (clamped) k = kMax;
+
   const pt = (axis, ext) => [cx - fmul(axis[1], ext), cy - fmul(axis[2], ext)];
   const add = (a, b) => [a[0] + b[0] - cx, a[1] + b[1] - cy];
 
@@ -460,25 +484,7 @@ function compute() {
     return { px, hub, pts, bw: box[1] - box[0], bh: box[3] - box[2], box };
   }
 
-  let P2 = project(k);
-  // Size clamp: closer than ~90 m the silhouette outgrows even the largest
-  // tier, and cropping would show the middle of an aircraft rather than an
-  // aircraft. Shrink k until the projection exactly fits -- the same as
-  // pretending the target stopped approaching.
-  //
-  // Scaling to the BOUNDING BOX rather than to a constant is what makes the
-  // silhouette fill the buffer: a constant cap has to fit the aircraft in any
-  // orientation at once, so it fits inside the largest circle the buffer holds
-  // (41 px of 48), and a level aircraft then wastes most of the width. The
-  // body thickness is insulated from the resulting attitude dependence by
-  // running its ladder off kTrue.
-  const clamped = P2.bw > MAX_BBOX_W || P2.bh > MAX_BBOX_H;
-  for (let t = 0; (P2.bw > MAX_BBOX_W || P2.bh > MAX_BBOX_H) && k > 1 && t < 4; t++) {
-    const sw = P2.bw > MAX_BBOX_W ? fdiv(MAX_BBOX_W, P2.bw) : 256;
-    const sh = P2.bh > MAX_BBOX_H ? fdiv(MAX_BBOX_H, P2.bh) : 256;
-    k = Math.max(1, Math.min(fmul(k, Math.min(sw, sh)), k - 1));
-    P2 = project(k);
-  }
+  const P2 = project(k);
   const { pts, hub: wingHub, bw, bh } = P2;
   const pxH = P2.px.h;
   const [minx, maxx, miny, maxy] = P2.box;
@@ -509,10 +515,10 @@ function compute() {
   const W = [pts.tipL[0] - pts.tipR[0], pts.tipL[1] - pts.tipR[1]];
   const N = hasFin ? [pts.fin[0] - pts.tail[0], pts.fin[1] - pts.tail[1]] : [0, 0];
   const chordOverLen = 0.15 * spanM / lenM;
-  // The body ladder runs off the UNCLAMPED scale, so it stays a function of
-  // true distance alone -- the fuselage must not change with attitude.
-  const pxHTrue = (fmul(2 * H, kTrue) + 1) >> 1;
-  const thick = thicknessFor(2 * pxHTrue,
+  // k is a function of distance alone (the clamp is a constant), so the
+  // unforeshortened span in pixels is too, and the fuselage cannot change
+  // weight as the aircraft rotates.
+  const thick = thicknessFor(2 * pxH,
                              chordPx(F, W, chordOverLen),
                              chordPx(F, N, chordOverLen),
                              T.xs,

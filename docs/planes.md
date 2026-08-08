@@ -102,7 +102,7 @@ identified is not worth drawing.
 | 24 px |  176 m | 3.5 s |
 | 48 px |   88 m | 1.8 s |
 
-Below about **90 m** the aircraft stops growing, and beyond about a kilometre
+Below about **94 m** the aircraft stops growing, and beyond about a kilometre
 it is a fixed dot — both in §4. The band where the silhouette actually changes
 shape is therefore roughly 100 m to 1 km, and **the dot is still the common
 case**, which is why it gets a static bitmap rather than a rasterised one.
@@ -153,8 +153,8 @@ Per plane, per frame:
    `cy = 56 − vec_sy`.
 6. **Perspective scale.** `k = 32768 / C.x` via `vec_div8p8(128, C.x)`. Model
    offsets are in eighths of a metre and `C.x` in quarters, so
-   `px = 256·(O/8)/(C.x/4) = fmul(O, k)`. Keep a copy as `kTrue` — the body
-   thickness ladder needs the unclamped value (§4).
+   `px = 256·(O/8)/(C.x/4) = fmul(O, k)`. Then **clamp**: `k = min(k, kMax)`
+   — see §4.
 7. **Body axes in camera space.** `vec_transform3_inv(&world_cam, &R)` on the
    target's orientation — 27 multiplies, one existing call — giving `front`,
    `left` and `up` in camera space. Every model point is built from these three
@@ -195,8 +195,7 @@ Per plane, per frame:
    across the object, which is correct to within a fraction of a pixel for
    anything small enough to fit in a sprite, and it removes the near-plane
    clipping problem entirely.
-9. **Tier selection** from the bounding box of the five screen points, then
-   the **size clamp**: shrink `k` and reproject until the box fits (§4).
+9. **Tier selection** from the bounding box of the five screen points (§4).
 10. **Cache check** on the ten local endpoint bytes (§7). Hit → skip to 12.
 11. **Rasterise** into the back buffer: clear, three strokes (§6), flip pointer.
 12. **Program the sprite(s)**: position, `$D010` MSB, `$D01D` expansion,
@@ -299,43 +298,63 @@ The two-sprite case is two hardware sprites at the same X, 21 raster lines
 apart, sharing expansion and colour. Rasterising is unchanged — the buffer is
 simply 42 rows and the second sprite points at the second block.
 
-### Below ~90 m the aircraft stops growing
+### Below ~94 m the aircraft stops growing
 
 There is no tier past 48 × 42, and cropping an aircraft that outgrows it shows
 the *middle* of an aeroplane rather than an aeroplane. So instead of cropping,
-**shrink `k` until the projection exactly fits** — which is precisely
-pretending the target stopped approaching. Everything downstream follows `k`,
-so the whole silhouette scales together with no special cases:
+**hold the apparent size**: cap `k`, which is exactly pretending the target
+stopped approaching. Everything downstream — extents, thickness, tier — follows
+`k`, so the whole silhouette freezes together with no special cases.
+
+The cap is a **constant of the model, not a function of the current bounding
+box**:
 
 ```
-while bbox does not fit:
-    k = k · min(46/bbox_w, 41/bbox_h)      # then reproject
+R    = max(halfSpan, nose − wingFwd, hypot(tail + wingFwd, fin))   // eighths
+kMax = 46 · 128 / R                       // 46 is the buffer WIDTH
 ```
 
-Every projected point is linear in `k`, so one correction lands within a pixel;
-the loop is there only because integer rounding can leave it a pixel over, and
-it settles in at most two more passes.
+`R` is the furthest any model point can be from the wing hub, so every
+projected point lies within `R · k / 128` pixels of it whatever the attitude.
+For a Cessna at 1.5× (§2), `R` = 67 eighths and `kMax` = 87: the silhouette
+freezes at about 45 px across, from roughly 94 m inward.
 
-**Scale to the bounding box, not to a constant.** A constant cap is the
-tempting alternative — one comparison, derived from the furthest any model
-point can sit from the wing hub — and it was the first thing tried. It has to
-fit the aircraft in *any* orientation at once, so it fits inside the largest
-circle the buffer holds: 41 px of the available 48. A level aircraft is wide
-and flat, and then wastes most of the width. Measured, it reached 40 px where
-46 were available and engaged 15 m further out than it needed to.
+**Constant, not bounding-box-derived.** Scaling to the box fills the buffer
+better — median 98% against 87% — but a bbox factor changes with attitude, so
+the aircraft **changes size as it rotates**, which reads as breathing rather
+than as a size limit. Measured across 11,664 attitudes in the clamped band, the
+constant cap gives the projected scale exactly **one** value at every range.
 
-The cost of scaling to the box is that apparent size now depends on attitude
-*inside the clamped band*. That is acceptable for the geometry, but it must not
-reach the fuselage:
+**Width, not height.** `R` bounds both axes, so capping on the height (41)
+would guarantee a fit at every attitude — but it would cost 15% of silhouette
+in *all* of them to protect a handful of extreme ones. Capping on the width
+(46) keeps that 15%; the price is that the height is no longer guaranteed. Past
+about **73° of bank** the wingspan projects vertically into 41 rows of buffer
+when the cap allows 45, and the tips clip by one or two pixels:
 
-> **The body thickness ladder runs off the unclamped `k`.** Otherwise the
-> clamp's attitude dependence flows straight into the one stroke §6 works
-> hardest to keep attitude-independent. The reference caught this the first
-> time the clamp was written, and the test that pins it is
-> `test_the_body_ladder_ignores_the_clamp`.
+| Bank | Bounding box | |
+| ---: | :--- | :--- |
+| ≤ 70° | 14 × 40 | fits |
+| 74° | 12 × 42 | tips clip 1 px |
+| 89° | 6 × 44 | tips clip 2 px |
 
-Measured across 11,664 attitudes from 17 m to 90 m: **median buffer fill 98%,
-never over 100%, and no point ever leaves the buffer.**
+Swept over 113,400 attitudes at up to 60° of bank — well past anything canned
+traffic will fly — **nothing clips at all**. Only the nose, tail and fin are
+guaranteed in frame at every attitude; the wingtips are the deliberate
+exception, and they clip symmetrically because the buffer is anchored on the
+wing hub.
+
+Options beyond two sprites were costed. A rotation-invariant cap is bounded by
+the *shorter* buffer dimension, and sprites are 21 px tall against 48 wide
+expanded, so height is what binds and adding width does nothing: **2 × 2 costs
+four sprites for zero gain**, and 1 × 4 gains nothing over 1 × 3. The real
+lever is switching layout by attitude — wide when level, a tall stack when
+banked — which reaches 64 px on four sprites, at the cost of a 48-column
+rasteriser and a layout search in tier selection.
+
+Note the interaction with the exaggeration: scaling the model up moves the
+freeze point out by the same factor, from ~63 m at true scale to ~94 m at 1.5×.
+If the freeze feels too early, the lever is the exaggeration, not the cap.
 
 **Two off-by-ones live here**, both invisible until the clamp promised that
 nothing clips:
@@ -345,8 +364,8 @@ nothing clips:
   `TIER_W, TIER_H = 23, 20` and `MAX_BBOX = 46 × 41`.
 - Mapping a screen pixel to an X-expanded column must **floor**, not round: a
   column covers screen pixels `2c` and `2c+1`. Rounding biased both ends of a
-  full-width silhouette outward and pushed a wingtip off the buffer in 14% of
-  close-range attitudes.
+  silhouette outward, which pushed a wingtip off the buffer whenever one
+  reached the edge.
 
 **Hysteresis**, per axis: promote at the limit, demote at 87% of it, so a plane
 hovering at a threshold does not flicker between resolutions. Even so, the
@@ -676,6 +695,8 @@ Colour is per sprite, so the two sprites of a stacked pair must both be set.
   plane behind any non-background pixel of the dithered horizon, i.e. almost
   all of it. Planes are always drawn in front. Since the sun stays well above
   the horizon and planes outrank it in priority, nothing else needs handling.
+- **The wingtips clip past ~73° of bank.** Deliberate, bounded at two pixels,
+  and confined to attitudes canned traffic will not fly — see §4.
 - **The bottom of the viewport clips, and that is fine.** The panel split parks
   sprites at `x = 0` and the VIC compares X per raster line, so a plane low in
   the viewport is cut cleanly at the viewport boundary
