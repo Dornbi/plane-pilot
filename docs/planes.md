@@ -16,8 +16,9 @@ not designed here.
 Both run the arithmetic the C64 runs — `fmul` and `fdiv` reproduce
 `vec_fastmul8p8` and `vec_div8p8` including their truncation toward zero — so
 the bytes they produce are the bytes `ppilot` should produce. They are
-cross-checked against each other over 252 cases spanning distance, heading,
-bank and pitch, and agree bit for bit.
+cross-checked against each other over 324 cases spanning distance, heading,
+bank and pitch, and agree bit for bit — bitmaps, tier, thickness, clamp and
+cycle count alike.
 
 That cross-check has already earned its keep. It found 154 mismatched bitmaps
 caused by nothing more than Python's `round` being banker's rounding while
@@ -38,7 +39,7 @@ Three places where this document supersedes or corrects it:
 | `sprite_objects.md` | Here |
 | :--- | :--- |
 | §3 ladder rung 3 is Y-expansion, "free, still one sprite" | Struck entirely — Y-expansion is not used by any object (§1). |
-| §6.2 proposes 6–8 pre-rendered airframe bitmaps | Superseded — aircraft carry no bitmap data at all (§1). |
+| §6.2 proposes 6–8 pre-rendered airframe bitmaps | Superseded — aircraft carry one 64-byte block, the far-tier dot (§1). |
 | §5 measures 8 objects against a 19,705-cycle PAL frame and concludes it does not fit | Wrong denominator; the pipeline runs once per *sim* frame, ~98,500 cycles (§11). |
 
 ---
@@ -56,10 +57,11 @@ point a hardware sprite at it: nose→tail, tip→tip, and tail→fin. The wing 
 sits **ahead of the centre**, not on it, so the tips carry a forward offset.
 
 Perspective, foreshortening, bank and aspect all fall out of the projection.
-There is no angle quantisation, no orientation table, and **no static bitmap
-data at all**.
+There is no angle quantisation and no orientation table. The **only** static
+bitmap in the whole feature is a single 64-byte block: the 2 × 2 dot the far
+tier uses, where there is no silhouette left to draw (§4).
 
-The whole feature is therefore code plus scratch RAM, not art.
+The feature is therefore code plus scratch RAM, not art.
 
 ### Hard constraints
 
@@ -86,19 +88,24 @@ An object of size `S` at distance `D` therefore spans
 pixels = 256 · S / D
 ```
 
-For an 11 m wingspan:
+**Traffic is drawn 1.5× oversize**, so an 11 m Cessna spans 16.5 m on screen.
+At true scale a plane is under 4 px beyond 700 m, which is most of any
+encounter — it would be a dot for the whole approach and only become an
+aircraft in the last two seconds. The exaggeration buys back a factor of 1.5 in
+every distance below, at the cost of realism, and traffic that cannot be
+identified is not worth drawing.
 
 | Span on screen | Distance | Time to close at 50 m/s |
 | ---: | ---: | ---: |
-| 1 px  | 2816 m | 56 s |
-| 4 px  |  704 m | 14 s |
-| 24 px |  117 m | 2.3 s |
-| 48 px |   59 m | 1.2 s |
+| 1 px  | 4224 m | past the 4 km cull |
+| 4 px  | 1056 m | 21 s |
+| 24 px |  176 m | 3.5 s |
+| 48 px |   88 m | 1.8 s |
 
-**Most of the time a plane is a dot.** It only fills a sprite in the last two
-seconds before a merge. This is worth internalising before optimising the close
-tiers: the far tier is the common case, the near tiers are the rare one. It is
-also an argument for a size exaggeration factor — see §10.
+Below about **104 m** the aircraft stops growing, and beyond about a kilometre
+it is a fixed dot — both in §4. The band where the silhouette actually changes
+shape is therefore roughly 100 m to 1 km, and **the dot is still the common
+case**, which is why it gets a static bitmap rather than a rasterised one.
 
 ### Traffic does not use the terrain's units
 
@@ -146,7 +153,8 @@ Per plane, per frame:
    `cy = 56 − vec_sy`.
 6. **Perspective scale.** `k = 32768 / C.x` via `vec_div8p8(128, C.x)`. Model
    offsets are in eighths of a metre and `C.x` in quarters, so
-   `px = 256·(O/8)/(C.x/4) = fmul(O, k)`.
+   `px = 256·(O/8)/(C.x/4) = fmul(O, k)`. Then **clamp**: `k = min(k, kMax)`
+   — see §4.
 7. **Body axes in camera space.** `vec_transform3_inv(&world_cam, &R)` on the
    target's orientation — 27 multiplies, one existing call — giving `front`,
    `left` and `up` in camera space. Every model point is built from these three
@@ -193,6 +201,25 @@ Per plane, per frame:
 12. **Program the sprite(s)**: position, `$D010` MSB, `$D01D` expansion,
     colour (§8), pointer in both screen RAM copies.
 
+### The model
+
+| Dimension | Value | In ⅛ m, for a Cessna 172 |
+| :--- | :--- | ---: |
+| Half wingspan `H` | span / 2 | 44 |
+| Nose `LN` | 0.55 · length | 37 |
+| Tail `LT` | 0.45 · length | 30 |
+| **Wing hub ahead of centre `WF`** | **0.20 · length** | **13** |
+| Fin height `FN` | 0.13 · span | 11 |
+
+**The wing sits 20% of the length ahead of the centre.** A wing centred on the
+midpoint of the fuselage reads as a plus sign rather than an aeroplane; moving
+it forward is what puts a tail on the shape. The offset is only visible from
+three-quarter angles — head-on the fuselage is foreshortened to nothing and
+side-on the wing is, so both hide it — but those angles are most of an
+encounter. `WF` costs one extra evaluation of the same expression as the nose
+(§3 step 8), and the tips are measured from the hub rather than from the
+centre.
+
 ### Why ⅛ m model units
 
 A Cessna's half-span is 5.5 m. In 2 m render units that is 2.75 — rounding it
@@ -222,6 +249,18 @@ rows    = (bbox_h <= 21) ? 21 : 42      // sprite count = rows / 21
 ```
 
 plus a dot case when the box is 3 × 3 or smaller.
+
+### The far tier is a static bitmap
+
+Beyond about a kilometre an aircraft is under 4 px and there is no silhouette
+left to draw, so it gets a fixed 2 × 2 blob: no buffer clear, no strokes, no
+pointer flip, and no dynamic block. On the C64 it is one block in `$D400`,
+written once at startup alongside the instrument needles, and the sprite
+pointer is simply aimed at it.
+
+This is the common case by a wide margin, and it costs **2,160 cycles against
+2,655** for a rasterised frame — so the tier that skips almost everything this
+document describes is the one that runs most of the time.
 
 |  | ≤ 21 px tall | > 21 px tall |
 | :--- | :--- | :--- |
@@ -259,8 +298,46 @@ The two-sprite case is two hardware sprites at the same X, 21 raster lines
 apart, sharing expansion and colour. Rasterising is unchanged — the buffer is
 simply 42 rows and the second sprite points at the second block.
 
-Past 48 × 42 the model is clamped and the silhouette clips at the buffer edge.
-At 48 px span the aircraft is 59 m away and about a second from a collision.
+### Below ~66 m the aircraft stops growing
+
+There is no tier past 48 × 42, and cropping an aircraft that outgrows it shows
+the *middle* of an aeroplane rather than an aeroplane. So instead of cropping,
+**hold the apparent size**: cap `k`, which is exactly pretending the target
+stopped approaching. Everything downstream — extents, thickness, tier — follows
+`k`, so the whole silhouette freezes together with no special cases.
+
+The cap is a **constant of the model, not a function of the current bounding
+box**:
+
+```
+R    = max(halfSpan, nose − wingFwd, hypot(tail + wingFwd, fin))   // eighths
+kMax = 41 · 128 / R
+```
+
+`R` is the furthest any model point can be from the wing hub, so every
+projected point lies within `R · k / 128` pixels of it whatever the attitude —
+it bounds *both* axes at once, from one comparison at runtime.
+
+A bounding-box-derived cap is the tempting alternative and it is wrong: it
+shrinks by a different factor depending on attitude, which puts the angle
+dependence straight back into the body thickness that §6 works to keep out. The
+reference caught that within a minute of it being tried.
+
+For a Cessna at 1.5× (§2), `R` = 67 eighths and `kMax` = 78, so the silhouette
+freezes at about 40 px across from roughly 104 m inward. Swept over 19,440
+attitudes across the whole clamped band, no point ever leaves the buffer.
+
+Note the interaction with the exaggeration: scaling the model up moves the
+freeze point out by the same factor, from ~66 m to ~104 m. That is still only
+the last two seconds of a closing encounter, and by then the aircraft already
+fills a quarter of the viewport width.
+
+**Watch the off-by-one.** A bounding box of *extent* 21 spans 22 rows, so the
+usable extents are one less than the buffer — and one less again on the width,
+because an X-expanded column is reached through a divide that rounds up. Hence
+`TIER_W, TIER_H = 23, 20` and `MAX_BBOX = 46 × 41`. This was wrong for a while
+and invisible, because clipping quietly absorbed it; it only surfaced once the
+clamp promised that nothing clips.
 
 **Hysteresis**, per axis: promote at the limit, demote at 87% of it, so a plane
 hovering at a threshold does not flicker between resolutions. Even so, the
@@ -292,6 +369,12 @@ RAM inside VIC bank 3 and needs no banking at all:
 
 `$CE00–$CFFF` is 8 blocks, sprite pointers **56–63**, and costs 512 B of the
 17.9 KB currently free.
+
+The **dot bitmap is the exception** and belongs in `$D400` (pointer 80): it is
+written once at startup, so the banking restriction costs nothing, and traffic
+in the dot tier needs no dynamic block at all. Same division of labour as the
+cloud bitmaps in [sprite_objects.md](sprite_objects.md) §6.1 — static art under
+I/O, dynamic buffers in plain RAM.
 
 ### Block assignment
 
@@ -470,9 +553,11 @@ of removing the rotation artefact, which was the more objectionable of the two.
 
 ### Clip the segment; never clamp the endpoints
 
-This is the one place where the obvious shortcut is actively wrong. When the
-aircraft is closer than the largest tier can hold, its endpoints project
-outside the buffer. Clamping each endpoint into range pins all of them to
+This is the one place where the obvious shortcut is actively wrong. The size
+clamp (§4) means endpoints no longer land outside the buffer in normal
+operation, but the rasteriser must not depend on that — and the reasoning is
+worth keeping, because the failure it produces is so much worse than a crop.
+When an endpoint does project outside the buffer: Clamping each endpoint into range pins all of them to
 corners, and the result is not a cropped aircraft but **the two diagonals of
 the buffer — a bare X, with the fin swallowed into the tail.** The shape stops
 depending on orientation at exactly the moment the aircraft is most visible.
@@ -485,11 +570,16 @@ only when an endpoint is actually outside.
 
 ### Centre on the wing when the silhouette overruns
 
-Which part gets cropped is a choice, and the bounding-box centre makes it
-badly. Once the silhouette is larger than the buffer, centring the *box* means
-the fuselage — usually the longest thing on screen — pushes the frame around
-and takes a wingtip out with it. The wing is what makes the shape readable, so
-losing a tip to keep both ends of the fuselage is the wrong trade.
+**Superseded in normal operation by the size clamp (§4), and kept as a guard.**
+With the clamp in place nothing overruns, so this path should never be taken;
+it costs one comparison and it is the difference between a wrong picture and a
+crash if a model is ever changed without re-deriving `kMax`.
+
+The reasoning, for when it does run: once the silhouette is larger than the
+buffer, centring the *box* means the fuselage — usually the longest thing on
+screen — pushes the frame around and takes a wingtip out with it. The wing is
+what makes the shape readable, so losing a tip to keep both ends of the
+fuselage is the wrong trade.
 
 ```
 fits   = bbox_w <= 24·xs  and  bbox_h <= rows
@@ -498,8 +588,7 @@ anchor = fits ? centre of the bounding box : the wing hub
 
 The hub is the wingtips' midpoint, so anchoring there keeps the whole wing in
 frame whenever the projected span fits, and lets the fuselage run off both
-ends. At 25 m — where the fuselage spans 78 px in a 48 px buffer — this is the
-difference between a recognisable cropped aircraft and one missing a wing.
+ends.
 
 ### Why there is a third stroke
 
@@ -598,21 +687,14 @@ Colour is per sprite, so the two sprites of a stacked pair must both be set.
 
 ## 10. Open questions
 
-1. **Wing offset.** The wing hub sits ahead of the centre by a fraction of the
-   aircraft length; 20% is the placeholder. The prototype has a slider, and the
-   effect is only visible from three-quarter angles — head-on and side-on both
-   hide it.
-2. **Size exaggeration.** At true scale a plane is under 4 px beyond 700 m,
-   which is most of any encounter. A 1.5–2× model scale would make traffic
-   readable at realistic separations at the cost of realism. The prototype has
-   a slider for this — worth deciding by eye before writing the C code.
-3. **Does the dot tier need its own bitmap** (a static 2×2 blob at pointer 80,
-   in the `$D400` region) or is running the normal rasteriser for a 3 px
-   silhouette simpler? The static blob saves ~1500 cycles in the common case.
-4. **Light grey or medium grey?** §8 starts at light grey. This is a look at a
+1. **Light grey or medium grey?** §8 starts at light grey. This is a look at a
    screenshot, not an argument.
 
-Settled, and recorded here so they are not reopened: the silhouette is **three
+That is the whole list.
+
+Settled, and recorded here so they are not reopened: traffic is drawn **1.5×
+oversize** (§2), the far tier uses a **static bitmap** (§4), the wing hub sits
+**20% of the aircraft length ahead of the centre** (§3), the silhouette is **three
 strokes** (§6), the colour is **one fixed value with no background test** (§8),
 sprites are **hires and never Y-expanded** (§1), and the update rate is **every
 sim frame** — [sprite_objects.md](sprite_objects.md) §5 is right that half-rate
@@ -652,9 +734,10 @@ away, silhouette overrunning the buffer on every axis, 56 mask-built rows and
 
 | Situation | Cycles | Share of a sim frame |
 | :--- | ---: | ---: |
-| Both planes cached | 4,200 | 4.3% |
-| One close and redrawing, one far | 9,000 | 9.1% |
-| Both at 18 m, both redrawing | 13,800 | 14.0% |
+| Both in the dot tier | 4,320 | 4.4% |
+| Both cached | 4,200 | 4.3% |
+| One close and redrawing, one far and cached | 9,000 | 9.1% |
+| Both close, both redrawing | 13,800 | 14.0% |
 
 The last row is a near-collision with two aircraft simultaneously — momentary,
 survivable, and not worth designing around. The middle row is the case to hold
@@ -678,9 +761,10 @@ which is why §3 spends effort removing multiplies from it.
 | 1 | `sprbuf` region, block allocation, pointer flipping | Verify VIC reads `$CE00` correctly before anything else |
 | 2 | Row-run rasteriser + mask tables + segment clipping, driven by a hardcoded endpoint set | Check against `lib/planes.py`'s golden silhouettes. Clipping is not optional — see §6 |
 | 3 | Projection pipeline for one plane at a fixed world position | Fly around a parked aircraft and check the silhouette |
-| 4 | Tier selection, X-expansion, two-sprite stacking, per-axis hysteresis | The two axes decide independently (§4) |
+| 4 | Tier selection, X-expansion, two-sprite stacking, per-axis hysteresis, size clamp | The two axes decide independently, and `kMax` is a constant (§4) |
 | 5 | Endpoint cache, double buffering | Measure the hit rate in level flight |
 | 6 | Second plane, priority ordering, both thickness ladders | Colour is a constant, so there is nothing to switch |
+| 6b | Static dot block in `$D400`, far-tier short circuit | Skips the rasteriser in the most common case; worth doing early if frames are tight |
 | 7 | Canned kinematic paths | Separate document — behaviour, not graphics |
 
 Throughout: `make test` runs `tests/test_planes.py`, which pins the invariants

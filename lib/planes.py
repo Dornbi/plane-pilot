@@ -44,6 +44,13 @@ EIGHTHS_PER_M = 8          # model dimensions are stored in 1/8 m
 MIN_CAM_X = 64             # 16 m, in quarter-metre units
 MAX_CAM_X = 16000          # 4 km range cull
 
+# The largest silhouette any tier can hold: two X-expanded sprites, 48 x 42
+# screen pixels. A bounding box of *extent* 42 needs 43 rows, so the usable
+# extents are one less -- and one less again on the width, because an
+# X-expanded column is reached through a divide-by-two that rounds up.
+MAX_BBOX_W = COLS * 2 - 2  # 46
+MAX_BBOX_H = ROWS * 2 - 1  # 41
+
 
 # --------------------------------------------------------------------------
 # 6502 fixed point (vec_asm.cc)
@@ -152,7 +159,10 @@ class Model:
     wing_fwd_frac: float = 0.20   # wing hub ahead of the centre
     fin_frac: float = 0.13        # fin height, of span
     chord_frac: float = 0.15      # wing chord, of span
-    scale: float = 1.0            # size exaggeration
+    # Size exaggeration. At true scale a plane is under 4 px beyond 700 m,
+    # which is most of any encounter; 1.5x makes traffic readable at realistic
+    # separations. The default 11 m span therefore draws as 16.5 m.
+    scale: float = 1.5
 
     def _eighths(self, metres: float) -> int:
         return jround(metres * EIGHTHS_PER_M * self.scale)
@@ -180,6 +190,27 @@ class Model:
     @property
     def chord_over_length(self) -> float:
         return self.chord_frac * self.span_m / self.length_m
+
+    @property
+    def max_radius(self) -> int:
+        """Furthest any model point can be from the wing hub, in eighths.
+
+        Every projected point lies within this radius of the hub whatever the
+        attitude, so it bounds the silhouette in *both* axes at once.
+        """
+        to_tail = self.tail + self.wing_fwd
+        return max(self.half_span,
+                   self.nose - self.wing_fwd,
+                   jround(math.hypot(to_tail, self.fin)))
+
+    @property
+    def k_max(self) -> int:
+        """Largest perspective scale that still fits the whole aircraft.
+
+        `2 * max_radius * k / 256 <= MAX_BBOX_H`, solved for k. A constant per
+        aircraft type, so the clamp is one comparison at runtime.
+        """
+        return (MAX_BBOX_H * 128) // self.max_radius
 
 
 # --------------------------------------------------------------------------
@@ -239,6 +270,26 @@ class SpriteBuffer:
     def rows_as_text(self) -> List[str]:
         return ["".join("#" if self.get(x, y) else "." for x in range(COLS))
                 for y in range(self.rows)]
+
+
+def _build_dot() -> "SpriteBuffer":
+    """The far tier's bitmap: a 2 x 2 blob, built once.
+
+    Beyond ~700 m an aircraft is under 4 px and there is no silhouette left to
+    draw, so it gets a fixed bitmap rather than three strokes. This is the
+    common case by a wide margin -- see the distance table in the docs -- and
+    it skips the buffer clear, the rasteriser and the pointer flip entirely.
+
+    On the C64 this is a static block in `$D400`, written once at startup
+    alongside the instrument needles. Traffic at that range needs no dynamic
+    buffer at all: the sprite pointer is simply aimed at the fixed block.
+    """
+    buf = SpriteBuffer(ROWS)
+    mx, my = jround(COLS / 2), jround(ROWS / 2)
+    buf.fill_run(my, mx, mx + 1)
+    buf.fill_run(my + 1, mx, mx + 1)
+    buf.touched = buf.repeat = 0        # costs nothing at runtime
+    return buf
 
 
 def clip_seg(x0: int, y0: int, x1: int, y1: int,
@@ -322,7 +373,9 @@ def stroke(buf: SpriteBuffer, x0: int, y0: int, x1: int, y1: int,
 # --------------------------------------------------------------------------
 
 HYSTERESIS = 0.87
-TIER_W, TIER_H = 24, 21
+# Largest bounding-box extent a single sprite can hold. One less than its pixel
+# size, for the same reason as MAX_BBOX_*: an extent of 21 spans 22 rows.
+TIER_W, TIER_H = COLS - 1, ROWS - 1     # 23, 20
 BODY_LIMITS = (12, 48)      # unforeshortened wingspan, screen px
 SURFACE_LIMITS = (2, 4)     # projected chord, screen px
 
@@ -436,6 +489,7 @@ class Result:
     buf: Optional[SpriteBuffer] = None
     cached: bool = False
     cycles: int = 0
+    clamped: bool = False    # apparent size held to keep the whole plane in frame
 
 
 def render(state: State, cam: Mat3, target: Mat3, rel_pos_m: Vec3,
@@ -459,35 +513,54 @@ def render(state: State, cam: Mat3, target: Mat3, rel_pos_m: Vec3,
     # px = 256 * (O/8) / (C.x/4), so k = 32768 / C.x
     k = fdiv(128, c[0])
 
+    # 6b. Size clamp. Closer than about 60 m the silhouette outgrows even the
+    # largest tier, and cropping it would show the middle of an aircraft rather
+    # than an aircraft. Hold the apparent size instead: cap k, which is exactly
+    # pretending the target stopped approaching.
+    #
+    # The cap is a constant of the model, NOT a function of the current
+    # bounding box. A bbox-derived cap would shrink by a different factor
+    # depending on attitude, which puts the angle dependence back into the body
+    # thickness that §6 works to keep out -- the reference caught this
+    # immediately when it was tried that way.
+    clamped = k > model.k_max
+    if clamped:
+        k = model.k_max
+
     # 7. body axes in camera space
     fore, lat, vert = (q88(to_cam(cam, target.front)),
                        q88(to_cam(cam, target.left)),
                        q88(to_cam(cam, target.up)))
 
-    # 8. model half-extents in pixels. The doubling recovers the pixel that
-    #    fmul's truncation toward zero would otherwise lose off every extent.
-    half = lambda v: (fmul(2 * v, k) + 1) >> 1
-    px_h, px_ln = half(model.half_span), half(model.nose)
-    px_lt, px_wf = half(model.tail), half(model.wing_fwd)
-    px_fn = half(model.fin)
-
     pt = lambda axis, ext: (cx - fmul(axis[1], ext), cy - fmul(axis[2], ext))
     add = lambda a, b: (a[0] + b[0] - cx, a[1] + b[1] - cy)
 
-    hub = pt(fore, px_wf)                      # the wing sits ahead of centre
-    pts = {
-        "nose": pt(fore, px_ln),
-        "tail": pt(fore, -px_lt),
-        "tipL": add(hub, pt(lat, px_h)),
-        "tipR": add(hub, pt(lat, -px_h)),
-    }
-    if with_fin:
-        pts["fin"] = add(pts["tail"], pt(vert, px_fn))
+    def project(k):
+        """Steps 8 and 9 for a given perspective scale.
 
-    xs_all = [p[0] for p in pts.values()]
-    ys_all = [p[1] for p in pts.values()]
-    minx, maxx, miny, maxy = min(xs_all), max(xs_all), min(ys_all), max(ys_all)
-    bw, bh = maxx - minx, maxy - miny
+        The doubling in `half` recovers the pixel that fmul's truncation toward
+        zero would otherwise lose off every extent.
+        """
+        half = lambda v: (fmul(2 * v, k) + 1) >> 1
+        px = dict(h=half(model.half_span), ln=half(model.nose),
+                  lt=half(model.tail), wf=half(model.wing_fwd),
+                  fn=half(model.fin))
+        hub = pt(fore, px["wf"])               # the wing sits ahead of centre
+        pts = {
+            "nose": pt(fore, px["ln"]),
+            "tail": pt(fore, -px["lt"]),
+            "tipL": add(hub, pt(lat, px["h"])),
+            "tipR": add(hub, pt(lat, -px["h"])),
+        }
+        if with_fin:
+            pts["fin"] = add(pts["tail"], pt(vert, px["fn"]))
+        xs_all = [p[0] for p in pts.values()]
+        ys_all = [p[1] for p in pts.values()]
+        box = (min(xs_all), max(xs_all), min(ys_all), max(ys_all))
+        return px, hub, pts, (box[1] - box[0], box[3] - box[2]), box
+
+    px, hub, pts, (bw, bh), box = project(k)
+    minx, maxx, miny, maxy = box
 
     # 9. tier, then the centring anchor
     tier = pick_tier(state, bw, bh)
@@ -512,7 +585,7 @@ def render(state: State, cam: Mat3, target: Mat3, rel_pos_m: Vec3,
             if with_fin else (0, 0))
     col = model.chord_over_length
 
-    state.prev_body = _rung(2 * px_h, BODY_LIMITS, state.prev_body)
+    state.prev_body = _rung(2 * px["h"], BODY_LIMITS, state.prev_body)
     state.prev_wing = _rung(chord_px(fvec, wvec, col), SURFACE_LIMITS, state.prev_wing)
     state.prev_fin = _rung(chord_px(fvec, nvec, col), SURFACE_LIMITS, state.prev_fin)
     thickness = {
@@ -526,31 +599,34 @@ def render(state: State, cam: Mat3, target: Mat3, rel_pos_m: Vec3,
            tuple(sorted((n, tuple(p)) for n, p in local.items())))
     cached = state.cache_key == key and state.cache_buf is not None
 
-    # 11. rasterise
-    if cached:
+    # 11. rasterise -- or, in the far tier, do not
+    if tier.dot:
+        buf = DOT_BITMAP
+        state.cache_key, state.cache_buf = key, buf
+        cycles = 2160                  # transform and sprite registers only
+    elif cached:
         buf = state.cache_buf
+        cycles = 2100
     else:
         buf = SpriteBuffer(tier.rows)
-        if tier.dot:
-            mx, my = jround(COLS / 2), jround(tier.rows / 2)
-            buf.fill_run(my, mx, mx + 1)
-            buf.fill_run(my + 1, mx, mx + 1)
-        else:
-            stroke(buf, *local["tail"], *local["nose"], *thickness["body"], tier.xs)
-            stroke(buf, *local["tipL"], *local["tipR"], *thickness["wing"], tier.xs)
-            if with_fin:
-                stroke(buf, *local["tail"], *local["fin"], *thickness["fin"], tier.xs)
+        stroke(buf, *local["tail"], *local["nose"], *thickness["body"], tier.xs)
+        stroke(buf, *local["tipL"], *local["tipR"], *thickness["wing"], tier.xs)
+        if with_fin:
+            stroke(buf, *local["tail"], *local["fin"], *thickness["fin"], tier.xs)
         state.cache_key, state.cache_buf = key, buf
-
-    # 35 cycles for a row whose mask must be built, 15 for a thickness repeat
-    # that reuses the mask already in hand; 2100 for the transform and 260 for
-    # the buffer clear and the sprite registers.
-    cycles = 2100 if cached else 2360 + buf.touched * 35 + buf.repeat * 15
+        # 35 cycles for a row whose mask must be built, 15 for a thickness
+        # repeat that reuses the mask already in hand; 2100 for the transform
+        # and 260 for the buffer clear and the sprite registers.
+        cycles = 2360 + buf.touched * 35 + buf.repeat * 15
 
     return Result(visible=True, cam=c, k=k, centre=(cx, cy), points=pts,
+                  clamped=clamped,
                   local=local, bbox=(bw, bh), tier=tier, origin=origin,
                   fits=fits, thickness=thickness, buf=buf, cached=cached,
                   cycles=cycles)
+
+
+DOT_BITMAP = _build_dot()
 
 
 def span_pixels(span_m: float, distance_m: float) -> float:

@@ -114,7 +114,7 @@
     <div class="ctrl"><label>Length <b><span id="l_len"></span> m</b></label>
       <input type="range" id="len" min="5" max="18" value="8" step="1"></div>
     <div class="ctrl"><label>Size exaggeration <b><span id="l_scale"></span>&times;</b></label>
-      <input type="range" id="scale" min="10" max="30" value="10" step="1"></div>
+      <input type="range" id="scale" min="10" max="30" value="15" step="1"></div>
     <div class="ctrl"><label>Wing forward of centre <b><span id="l_wfwd"></span>% of length</b></label>
       <input type="range" id="wfwd" min="0" max="35" value="20" step="1"></div>
 
@@ -160,6 +160,11 @@ const VIEW_W = 320, VIEW_H = 112;
 const CX0 = VIEW_W / 2, CY0 = VIEW_H / 2;   // gfx.cc: px = 160 - vec_sx
 const ZOOM = 2;
 const COLS = 24;                            // sprite width in sprite pixels
+const ROWS = 21;                            // sprite height in raster lines
+// Largest bounding-box EXTENT each buffer can hold. One less than the pixel
+// size (an extent of 21 spans 22 rows), and one less again on the width
+// because an X-expanded column is reached through a divide that rounds up.
+const MAX_BBOX_W = COLS * 2 - 2, MAX_BBOX_H = ROWS * 2 - 1;
 
 /* ---------- 6502 fixed point, matching vec_asm.cc ---------- */
 // trunc(a * b / 256), rounding toward zero -- vec_fastmul8p8
@@ -338,6 +343,18 @@ function thicknessFor(spanPx, wingChord, finChord, xs, max) {
   };
 }
 
+// The far tier's bitmap: a 2x2 blob, built once. Beyond ~700 m there is no
+// silhouette left to draw, and this is the common case by a wide margin, so it
+// gets a fixed bitmap instead of three strokes -- no clear, no rasteriser, no
+// pointer flip. On the C64 this is a static block in $D400, written once at
+// startup alongside the instrument needles.
+const DOT_BITMAP = (() => {
+  const b = makeBuf(21), mx = 12, my = 11;
+  fillRun(b, my, mx, mx + 1); fillRun(b, my + 1, mx, mx + 1);
+  b.touched = b.repeat = 0;
+  return b;
+})();
+
 /* ---------- tier selection (planes.md section 4) ----------
    The two axes are decided independently: width picks X-expansion, height
    picks the sprite count. A steeply banked aircraft is tall and narrow and
@@ -349,10 +366,10 @@ function pickTier(w, h) {
     prevXs = 1; prevRows = 21;
     return { dot: true, xs: 1, rows: 21, sprites: 1, name: "dot" };
   }
-  let xs = w <= 24 ? 1 : 2;
-  if (prevXs === 2 && xs === 1 && w > 0.87 * 24) xs = 2;      // hysteresis
-  let rows = h <= 21 ? 21 : 42;
-  if (prevRows === 42 && rows === 21 && h > 0.87 * 21) rows = 42;
+  let xs = w <= COLS - 1 ? 1 : 2;
+  if (prevXs === 2 && xs === 1 && w > 0.87 * (COLS - 1)) xs = 2;   // hysteresis
+  let rows = h <= ROWS - 1 ? 21 : 42;
+  if (prevRows === 42 && rows === 21 && h > 0.87 * (ROWS - 1)) rows = 42;
   prevXs = xs; prevRows = rows;
   const sprites = rows / 21;
   return { dot: false, xs, rows, sprites,
@@ -402,7 +419,7 @@ function compute() {
   // --- step 6: perspective scale, k = 32768 / C.x ---
   // Model offsets are in eighths of a metre and C.x in quarters, so
   // px = 256 * (O/8) / (C.x/4) = fmul(O, 32768 / C.x).
-  const k = fdiv(128, C[0]);
+  let k = fdiv(128, C[0]);
 
   // --- step 7: body axes in camera space, 8.8 ---
   const fore = q88(toCam(cam, tgt.front));
@@ -411,6 +428,11 @@ function compute() {
   const hasFin = document.getElementById("fin").checked;
 
   // --- model, eighths of a metre, int8 ---
+  // Furthest any model point can be from the wing hub: bounds the silhouette
+  // in both axes whatever the attitude, so it gives a constant size cap.
+  const modelRadius = (H, LN, LT, WF, FN) =>
+    Math.max(H, LN - WF, Math.round(Math.hypot(LT + WF, FN)));
+
   const H  = Math.round(spanM / 2 * 8 * scale);
   const LN = Math.round(lenM * 0.55 * 8 * scale);
   const LT = Math.round(lenM * 0.45 * 8 * scale);
@@ -422,6 +444,17 @@ function compute() {
   // of a 12 px half-span. Doubling the input and halving the rounded result
   // recovers it for one shift-and-add per extent.
   const half = v => (fmul(2 * v, k) + 1) >> 1;
+  // Size clamp: closer than ~66 m the silhouette outgrows even the largest
+  // tier, and cropping would show the middle of an aircraft rather than an
+  // aircraft. Cap k instead -- exactly pretending the target stopped
+  // approaching. The cap is a CONSTANT of the model, not a function of the
+  // current bounding box: a bbox-derived cap shrinks by a different factor
+  // depending on attitude, which puts angle dependence back into the body
+  // thickness the thickness rules work to keep out.
+  const kMax = Math.floor(MAX_BBOX_H * 128 / modelRadius(H, LN, LT, WF, FN));
+  const clamped = k > kMax;
+  if (clamped) k = kMax;
+
   const pxH = half(H), pxLN = half(LN), pxLT = half(LT),
         pxFN = half(FN), pxWF = half(WF);
   // then each endpoint is one multiply per axis against a unit 8.8 vector
@@ -475,31 +508,27 @@ function compute() {
                L.nose, L.tail, L.tipL, L.tipR, L.fin || []].flat().join(",");
   const hit = cache !== null && cache.key === key;
 
-  // --- step 11: rasterise ---
-  let buf;
-  if (hit) {
-    buf = cache.buf;
+  // --- step 11: rasterise -- or, in the far tier, do not ---
+  let buf, cycles;
+  if (T.dot) {
+    buf = DOT_BITMAP; cache = { key, buf };
+    cycles = 2160;                     // transform and sprite registers only
+  } else if (hit) {
+    buf = cache.buf; cycles = 2100;
   } else {
     buf = makeBuf(T.rows);
-    if (T.dot) {
-      const mx = Math.round(COLS / 2), my = Math.round(T.rows / 2);
-      fillRun(buf, my, mx, mx + 1); fillRun(buf, my + 1, mx, mx + 1);
-    } else {
-      const [bv, bc] = thick.body, [wv, wc] = thick.wing, [fv, fc] = thick.fin;
-      stroke(buf, L.tail[0], L.tail[1], L.nose[0], L.nose[1], bv, bc, T.xs);
-      stroke(buf, L.tipL[0], L.tipL[1], L.tipR[0], L.tipR[1], wv, wc, T.xs);
-      if (L.fin) stroke(buf, L.tail[0], L.tail[1], L.fin[0], L.fin[1], fv, fc, T.xs);
-    }
+    const [bv, bc] = thick.body, [wv, wc] = thick.wing, [fv, fc] = thick.fin;
+    stroke(buf, L.tail[0], L.tail[1], L.nose[0], L.nose[1], bv, bc, T.xs);
+    stroke(buf, L.tipL[0], L.tipL[1], L.tipR[0], L.tipR[1], wv, wc, T.xs);
+    if (L.fin) stroke(buf, L.tail[0], L.tail[1], L.fin[0], L.fin[1], fv, fc, T.xs);
     cache = { key, buf };
+    // 35 cycles for a row whose mask must be built, 15 for a thickness repeat
+    // that reuses the mask already in hand.
+    cycles = 2360 + buf.touched * 35 + buf.repeat * 15;
   }
 
-  // 35 cycles for a row whose mask must be built, 15 for a thickness repeat
-  // that reuses the mask already in hand.
-  const cycles = hit ? 2100
-    : 2100 + 200 + 60 + (T.dot ? 0 : buf.touched * 35 + buf.repeat * 15);
-
   return Object.assign(out, {
-    cx, cy, k, fore, lat, pts, L, bw, bh, T, originX, originY, thick, fits,
+    cx, cy, k, fore, lat, pts, L, bw, bh, T, originX, originY, thick, fits, clamped,
     buf, hit, cycles, H, LN, LT, WF,
     // one colour, always -- no background test, no multicolour
     color: parseInt(document.getElementById("color").value, 10),
@@ -619,6 +648,7 @@ function drawReadout(r) {
   t.innerHTML =
     row("tier", `<span class="pill tier">${r.T.name}</span> ${COLS*r.T.xs} &times; ${r.T.rows} px`) +
     row("cache", r.hit ? '<span class="pill hit">HIT</span>' : '<span class="pill miss">MISS</span>') +
+    (r.clamped ? row("size", '<span class="pill tier">held</span> too close &mdash; apparent size capped so the whole plane fits') : "") +
     row("distance", `${Math.round(Math.hypot(...r.P))} m`) +
     row("C (¼ m units)", `${r.C[0]}, ${r.C[1]}, ${r.C[2]}`) +
     row("k = 32768/C.x", r.k) +
@@ -669,7 +699,7 @@ function render() {
 document.querySelectorAll("input, select").forEach(el => el.addEventListener("input", render));
 document.getElementById("reset").addEventListener("click", () => {
   const d = { dist:150, bear:6, elev:3, thdg:120, tpit:0, tbnk:20,
-              opit:0, obnk:0, span:11, len:8, scale:10, wfwd:20, thick:4 };
+              opit:0, obnk:0, span:11, len:8, scale:15, wfwd:20, thick:4 };
   for (const id in d) document.getElementById(id).value = d[id];
   document.getElementById("fin").checked = true;
   document.getElementById("anim").checked = false;

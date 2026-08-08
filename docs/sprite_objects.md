@@ -253,12 +253,13 @@ with a generic airframe at three sizes plus head-on and tail-on views — six to
 eight bitmaps at 64 bytes each.
 
 The premise is what turned out to be wrong. An aircraft silhouette at sprite
-scale is **two straight lines**, and the four endpoints come out of the
-existing projection directly, so the bitmap can be drawn at runtime for the
-cost of ~1,400 cycles. There is no bitmap count to bound, no azimuth ×
-elevation set to approximate and **no static sprite data at all** — only two
-double-buffered scratch blocks per aircraft. Nothing needs checking against
-[memory_map.md](memory_map.md).
+scale is **three straight lines**, and their endpoints come out of the existing
+projection directly, so the bitmap can be drawn at runtime. There is no bitmap
+count to bound and no azimuth × elevation set to approximate — just two
+double-buffered scratch blocks per aircraft in plain RAM, plus **one** shared
+static block for the far tier, where an aircraft is under 4 px and has no
+silhouette left to draw. That one block lives in `$D400` next to the cloud art
+(§6.1). Nothing needs checking against [memory_map.md](memory_map.md).
 
 ### 6.3. Projectiles — do not spend sprites on these
 

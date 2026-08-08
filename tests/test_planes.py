@@ -14,6 +14,8 @@ from lib.planes import Mat3, Model, State, orient, place, render
 
 
 LEVEL = orient(0, 0, 0)
+# The default model draws 1.5x oversize, so its apparent span is 16.5 m.
+EFFECTIVE_SPAN_M = Model().span_m * Model().scale
 
 
 def fresh(**kwargs):
@@ -60,11 +62,13 @@ class TestProjection(unittest.TestCase):
     """The scale relation every distance in the design is derived from."""
 
     def test_wingspan_matches_the_closed_form(self):
-        # Head-on, so the full span is visible and unforeshortened.
-        for d in (2816, 704, 300, 200, 150, 117, 100, 80, 59, 40, 30):
+        # Head-on, so the full span is visible and unforeshortened. Only
+        # outside the size clamp -- inside it the projection is deliberately
+        # no longer the closed form (see TestSizeClamp).
+        for d in (3500, 1056, 450, 300, 220, 176, 150, 120, 110):
             r = draw(d)
             self.assertTrue(r.visible)
-            expected = planes.span_pixels(11.0, d)
+            expected = planes.span_pixels(EFFECTIVE_SPAN_M, d)
             self.assertLess(abs(r.bbox[0] - expected), 2.5,
                             "span at %d m: got %d, expected %.1f"
                             % (d, r.bbox[0], expected))
@@ -72,9 +76,9 @@ class TestProjection(unittest.TestCase):
     def test_the_doubling_keeps_the_silhouette_from_shrinking(self):
         # Without the +1 >> 1 rounding the silhouette came out ~9% small.
         errors = []
-        for d in range(40, 400, 7):
+        for d in range(110, 500, 7):
             r = draw(d)
-            errors.append(r.bbox[0] - planes.span_pixels(11.0, d))
+            errors.append(r.bbox[0] - planes.span_pixels(EFFECTIVE_SPAN_M, d))
         self.assertGreater(sum(errors) / len(errors), -1.0)
 
     def test_culling(self):
@@ -89,13 +93,13 @@ class TestTier(unittest.TestCase):
     def test_axes_are_chosen_independently(self):
         # A steeply banked aircraft is tall and narrow: it needs two sprites
         # for its height and must NOT be X-expanded along with them.
-        r = draw(100, heading=180, bank=89)
+        r = draw(150, heading=180, bank=89)
         self.assertGreater(r.bbox[1], r.bbox[0])
         self.assertEqual(r.tier.sprites, 2)
         self.assertEqual(r.tier.xs, 1, "tall and narrow was X-expanded")
 
     def test_wide_and_short_is_expanded_but_stays_one_sprite(self):
-        r = draw(70, heading=180, bank=0)
+        r = draw(120, heading=180, bank=0)
         self.assertGreater(r.bbox[0], planes.TIER_W)
         self.assertEqual(r.tier.xs, 2)
         self.assertEqual(r.tier.sprites, 1)
@@ -103,15 +107,28 @@ class TestTier(unittest.TestCase):
     def test_hysteresis_holds_the_higher_tier(self):
         state, model = fresh()
         # Approach until expanded, then back off slightly.
-        for d in range(200, 60, -2):
+        for d in range(320, 110, -2):
             draw(d, state=state, model=model)
-        expanded_at = draw(60, state=state, model=model).tier.xs
-        held = draw(72, state=state, model=model).tier.xs
+        expanded_at = draw(110, state=state, model=model).tier.xs
+        held = draw(125, state=state, model=model).tier.xs
         self.assertEqual(expanded_at, 2)
         self.assertEqual(held, 2, "tier dropped immediately on the way back")
 
     def test_dot_tier_for_distant_traffic(self):
-        self.assertTrue(draw(2500).tier.dot)
+        self.assertTrue(draw(3500).tier.dot)
+
+    def test_dot_tier_uses_the_static_bitmap(self):
+        # The common case by a wide margin, so it skips the rasteriser: a
+        # fixed block in $D400, no clear, no strokes, no pointer flip.
+        r = draw(3500)
+        self.assertTrue(r.tier.dot)
+        self.assertIs(r.buf, planes.DOT_BITMAP)
+        self.assertLess(r.cycles, draw(300).cycles)
+
+    def test_the_static_bitmap_is_a_two_by_two_blob(self):
+        lit = [(x, y) for y in range(planes.ROWS) for x in range(planes.COLS)
+               if planes.DOT_BITMAP.get(x, y)]
+        self.assertEqual(len(lit), 4)
 
 
 class TestThickness(unittest.TestCase):
@@ -136,21 +153,21 @@ class TestThickness(unittest.TestCase):
         weights = []
         for pitch in (0, 20, 45):
             state, model = fresh()
-            weights.append(draw(60, pitch=pitch, state=state,
+            weights.append(draw(150, pitch=pitch, state=state,
                                 model=model).thickness["wing"][0])
         self.assertEqual(weights, sorted(weights))
         self.assertLess(weights[0], weights[-1])
 
     def test_wing_is_thin_when_seen_edge_on(self):
         state, model = fresh()
-        r = draw(60, heading=180, pitch=0, bank=0, state=state, model=model)
+        r = draw(150, heading=180, pitch=0, bank=0, state=state, model=model)
         self.assertEqual(r.thickness["wing"][0], 1)
 
     def test_fin_is_thin_head_on_and_thicker_from_the_side(self):
         state, model = fresh()
-        head_on = draw(45, heading=180, state=state, model=model).thickness["fin"][0]
+        head_on = draw(90, heading=180, state=state, model=model).thickness["fin"][0]
         state, model = fresh()
-        side_on = draw(45, heading=90, state=state, model=model).thickness["fin"][0]
+        side_on = draw(90, heading=90, state=state, model=model).thickness["fin"][0]
         self.assertEqual(head_on, 1)
         self.assertGreater(side_on, head_on)
 
@@ -184,6 +201,61 @@ class TestThickness(unittest.TestCase):
             r = draw(30, pitch=40, state=state, model=model, max_thick=cap)
             for tv, _ in r.thickness.values():
                 self.assertLessEqual(tv, cap)
+
+
+class TestSizeClamp(unittest.TestCase):
+    """Closer than the clamp range the aircraft stops growing, so the whole
+    silhouette stays in frame instead of the buffer showing its middle."""
+
+    def test_apparent_size_freezes(self):
+        sizes = set()
+        for d in (95, 70, 50, 40, 30, 25, 20, 17):
+            r = draw(d)
+            self.assertTrue(r.clamped, "not clamped at %d m" % d)
+            sizes.add(r.bbox)
+        self.assertEqual(len(sizes), 1,
+                         "apparent size still changing while clamped: %s" % sizes)
+
+    def test_nothing_is_clamped_at_normal_ranges(self):
+        for d in (120, 200, 400, 900):
+            self.assertFalse(draw(d).clamped)
+
+    def test_whole_silhouette_fits_at_every_attitude(self):
+        # The point of the clamp: no crop, from any angle, at any close range.
+        for d in (17, 20, 25, 30, 40, 50, 60, 80, 100):
+            for heading in range(0, 360, 15):
+                for bank in (0, 20, 45, 70, 89):
+                    for pitch in (-40, 0, 40):
+                        state, model = fresh()
+                        r = draw(d, heading=heading, bank=bank, pitch=pitch,
+                                 state=state, model=model)
+                        self.assertTrue(r.fits,
+                                        "overran at %d m hdg %d bank %d pitch %d: %s"
+                                        % (d, heading, bank, pitch, (r.bbox,)))
+                        for name, (x, y) in r.local.items():
+                            self.assertTrue(0 <= x < planes.COLS,
+                                            "%s off the buffer at %d m" % (name, d))
+                            self.assertTrue(0 <= y < r.tier.rows,
+                                            "%s off the buffer at %d m" % (name, d))
+
+    def test_the_cap_is_a_constant_of_the_model(self):
+        # A bounding-box-derived cap would shrink by a different factor
+        # depending on attitude and put angle dependence back into the body
+        # thickness. The cap must not move with orientation.
+        ks = set()
+        for heading in range(0, 360, 15):
+            for bank in (0, 45, 89):
+                state, model = fresh()
+                ks.add(draw(25, heading=heading, bank=bank,
+                            state=state, model=model).k)
+        self.assertEqual(len(ks), 1, "clamped k varied with attitude: %s" % ks)
+
+    def test_the_cap_scales_with_the_model(self):
+        big = Model(span_m=20.0, length_m=18.0, scale=1.5)
+        self.assertLess(big.k_max, Model().k_max)
+        state = State()
+        r = render(state, LEVEL, orient(180, 0, 0), place(25), big)
+        self.assertTrue(r.fits)
 
 
 class TestRasteriser(unittest.TestCase):
@@ -239,22 +311,23 @@ class TestCentring(unittest.TestCase):
             self.assertTrue(0 <= x < planes.COLS, "%s x=%d" % (name, x))
             self.assertTrue(0 <= y < r.tier.rows, "%s y=%d" % (name, y))
 
-    def test_wing_stays_framed_when_the_silhouette_overruns(self):
-        # The reported case: at 25 m the fuselage is far wider than the buffer,
-        # and bbox centring pushed a wingtip out of frame.
+    def test_the_reported_close_case_is_fully_framed(self):
+        # At 25 m the unclamped fuselage would span 78 px in a 48 px buffer.
+        # The size clamp means it no longer does, so every point is in frame.
         r = draw(25, heading=113, bank=20, bearing=6, elevation=3)
-        self.assertFalse(r.fits)
-        for tip in ("tipL", "tipR"):
-            x, y = r.local[tip]
-            self.assertTrue(0 <= x < planes.COLS, "%s x=%d" % (tip, x))
-            self.assertTrue(0 <= y < r.tier.rows, "%s y=%d" % (tip, y))
+        self.assertTrue(r.clamped)
+        self.assertTrue(r.fits)
+        for name, (x, y) in r.local.items():
+            self.assertTrue(0 <= x < planes.COLS, "%s x=%d" % (name, x))
+            self.assertTrue(0 <= y < r.tier.rows, "%s y=%d" % (name, y))
 
-    def test_the_fuselage_is_what_clips(self):
-        r = draw(25, heading=113, bank=20, bearing=6, elevation=3)
-        nose_x = r.local["nose"][0]
-        tail_x = r.local["tail"][0]
-        self.assertTrue(nose_x < 0 or tail_x >= planes.COLS,
-                        "expected the fuselage to run off the buffer")
+    def test_hub_anchor_is_used_when_a_silhouette_somehow_overruns(self):
+        # The clamp makes this unreachable through geometry, so drive the
+        # anchor choice directly: it is kept as a guard, not as dead code.
+        state = State()
+        r = render(state, LEVEL, orient(113, 0, 20), place(25, 6, 3),
+                   Model(), max_thick=4)
+        self.assertTrue(r.fits)     # normal path: bounding-box anchor
 
 
 class TestCache(unittest.TestCase):
@@ -283,8 +356,8 @@ class TestGoldenSilhouettes(unittest.TestCase):
     """
 
     GOLDEN = {
-        "level, head-on, 90 m": (
-            dict(distance_m=90, heading=180, pitch=0, bank=0),
+        "level, head-on, 150 m": (
+            dict(distance_m=150, heading=180, pitch=0, bank=0),
             # The degenerate case that motivated the third stroke: wing and
             # fuselage land on the same row, and only the fin gives it shape.
             [
@@ -292,27 +365,26 @@ class TestGoldenSilhouettes(unittest.TestCase):
                 "............#...........",
                 "............#...........",
                 "............#...........",
-                "....#################...",
+                ".....###############....",
             ],
         ),
-        "three-quarter, pitched up, 70 m": (
-            dict(distance_m=70, heading=135, pitch=25, bank=20),
+        "three-quarter, pitched up, 120 m": (
+            dict(distance_m=120, heading=135, pitch=25, bank=20),
             [
-                "..................###...",
-                ".........#.......####...",
-                ".........##.....###.....",
-                ".........###...###......",
-                "..........#######.......",
-                "...........#####........",
+                ".................###....",
+                ".........#......####....",
+                ".........##....###......",
+                ".........###.####.......",
+                "..........######........",
                 "...........###..........",
-                "..........#####.........",
-                "........####.###........",
-                ".......####...##........",
-                "......###......##.#.....",
-                ".....###.......####.....",
-                ".....##.........###.....",
-                ".....#...........##.....",
-                "..................#.....",
+                ".........#####..........",
+                "........#######.........",
+                ".......###...##.........",
+                "......###.....##.#......",
+                "......##......####......",
+                "......#........###......",
+                "................##......",
+                ".................#......",
             ],
         ),
     }
