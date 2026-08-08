@@ -344,15 +344,8 @@ guaranteed in frame at every attitude; the wingtips are the deliberate
 exception, and they clip symmetrically because the buffer is anchored on the
 wing hub.
 
-Options beyond two sprites were costed. A rotation-invariant cap is bounded by
-the *shorter* buffer dimension, and sprites are 21 px tall against 48 wide
-expanded, so height is what binds and adding width does nothing: **2 × 2 costs
-four sprites for zero gain**, and 1 × 4 gains nothing over 1 × 3. The real
-lever is switching layout by attitude — wide when level, a tall stack when
-banked — which reaches 64 px on four sprites, at the cost of a 48-column
-rasteriser and a layout search in tier selection.
-
-Note the interaction with the exaggeration: scaling the model up moves the
+If the size ever needs to grow, more sprites in a *fixed* shape is not the way
+— see the option below. Note also the interaction with the exaggeration: scaling the model up moves the
 freeze point out by the same factor, from ~63 m at true scale to ~94 m at 1.5×.
 If the freeze feels too early, the lever is the exaggeration, not the cap.
 
@@ -371,6 +364,74 @@ nothing clips:
 hovering at a threshold does not flicker between resolutions. Even so, the
 1:1 → X-expanded switch doubles the pixel size and will visibly pop; this is
 inherent to sprite expansion and is accepted.
+
+### Option: switching layout by attitude
+
+**Not implemented. Costed and recorded here so the obvious version does not get
+built by mistake.**
+
+The first instinct when the silhouette wants to be bigger is more sprites in a
+bigger fixed rectangle. That mostly does not work, because a cap that holds at
+every attitude is bounded by the **shorter** buffer dimension — the wingspan
+can point either way — and a sprite is 21 px tall against 48 wide expanded. So
+height is what binds, and buying width buys nothing:
+
+| Fixed layout | Sprites | Buffer | Max silhouette |
+| :--- | :---: | :--- | ---: |
+| 1 × 2 (today) | 2 | 48 × 42 | 40 px |
+| **2 × 2** | 4 | 96 × 42 | **40 px — four sprites, no gain** |
+| 1 × 3 | 3 | 48 × 63 | 46 px |
+| 1 × 4 | 4 | 48 × 84 | 46 px — no gain over 1 × 3 |
+
+The lever that does work is **choosing the layout per attitude**. A level
+aircraft is wide and flat and wants a row of sprites; a knife-edge one is tall
+and narrow and wants a column. The layout is invisible — only the silhouette is
+drawn — so the apparent size stays constant and nothing pops. Measured on the
+five-point model over 4,914 attitudes:
+
+| Budget | Max silhouette | Clamp range | vs today |
+| :--- | ---: | ---: | ---: |
+| today, 2 sprites, clips past 73° | 45 px | 94 m | — |
+| switching, 3 sprites, **never clips** | 46 px | 90 m | +2% |
+| switching, 4 sprites, **never clips** | 60 px | 69 m | +33% |
+| switching, 6 sprites | 62 px | 67 m | +38% |
+
+Three sprites buys away the knife-edge clipping at the same size; four buys a
+third more aircraft. Six is not worth it. With four, the layouts fall out like
+this:
+
+| Attitude | Bounding box | Layout | Sprites |
+| :--- | :--- | :--- | :---: |
+| level, head-on | 60 × 8 | 2 × 1 X-expanded | 2 |
+| level, oblique | 42 × 8 | 1 × 1 X-expanded | 1 |
+| banked 30° | 52 × 30 | 2 × 2 X-expanded | 4 |
+| banked 60° | 30 × 52 | 1 × 3 X-expanded | 3 |
+| knife-edge | 8 × 60 | 1 × 3 X-expanded | 3 |
+
+**What it costs.**
+
+- **The rasteriser stops being three bytes wide.** A 2-wide layout is 48
+  columns spanning *two* sprite blocks, and the two interleave by row — row `y`
+  is bytes `3y..3y+2` of block A and of block B. `fill_run` has to split a run
+  across both. The mask tables grow from 144 B to ~576 B, or stay at 24 columns
+  with a second pass for the right-hand block.
+- **Tier selection becomes a search**, not two independent axis decisions
+  (§4). Roughly eight candidate layouts, picked smallest-first, with hysteresis
+  per layout rather than per axis.
+- **Scratch RAM roughly doubles**: 4 sprites double-buffered is 8 blocks for
+  the near aircraft plus 4 for the far one, so the region grows from 512 B to
+  1 KB — `$CC00–$CFFF` instead of `$CE00–$CFFF`.
+- **Cycles roughly double** in the worst case, from clearing and stroking a
+  96 × 42 buffer instead of 48 × 42. One close aircraft would be ~13,000
+  cycles, 13% of a sim frame.
+- **The sprite budget stops being static.** Four for the near aircraft, two for
+  the far one and one for the sun is 7 of 8 — but only if the *second*
+  aircraft is capped at two. Two simultaneous close aircraft would want nine.
+  The allocation rule becomes "nearest gets the full budget, everyone else gets
+  two", which the current fixed assignment (§5) does not need.
+
+None of that is hard; it is a day's work rather than an afternoon, and it is
+only worth spending when 45 px turns out to be too small on a real screen.
 
 ---
 
@@ -796,6 +857,7 @@ which is why §3 spends effort removing multiplies from it.
 | 6 | Second plane, priority ordering, both thickness ladders | Colour is a constant, so there is nothing to switch |
 | 6b | Static dot block in `$D400`, far-tier short circuit | Skips the rasteriser in the most common case; worth doing early if frames are tight |
 | 7 | Canned kinematic paths | Separate document — behaviour, not graphics |
+| — | *Optional:* layout switching by attitude | §4. Only if 45 px proves too small: +33% silhouette for a day's work and a 48-column rasteriser |
 
 Throughout: `make test` runs `tests/test_planes.py`, which pins the invariants
 this document argues for — angle-invariant body thickness, the even ladder,
