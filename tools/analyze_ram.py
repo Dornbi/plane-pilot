@@ -35,9 +35,13 @@ def get_category(name):
     if n.startswith('msg_') or n.startswith('_status_text') or n == 'msg.cc':
         return 'Message System'
 
-    # Sound
-    if any(n.startswith(p) for p in ['sound_', '_set_voice', 'sound_wind_freq', 'sound_gen', '_pwm_phase', '_rng', '_v3_effect', '_v3_frames', '_stall_phase']) or 'sound' in n or 'sid' in n:
-        return 'Sound'
+    # Music (must be before Menu & Missions so kMusicVolMap is not matched by 'map')
+    if any(n.startswith(p) for p in ['music_', 'kmusic', '_music', 'kvolumemix']) or 'music' in n:
+        return 'Music'
+
+    # Sound Effects
+    if any(n.startswith(p) for p in ['sound_', '_set_voice', 'sound_wind_freq', 'sound_gen', '_pwm_phase', '_rng', '_v3_effect', '_v3_frames', '_stall_phase', 'kenginefreq', 'kwindfreq', 'ksoundvolumenames']) or 'sound' in n or 'sid' in n:
+        return 'Sound Effects'
 
     # Menu & Missions
     if any(n.startswith(p) for p in ['menu_', 'help_', 'mission_', 'map_', '_render_menu_items', '_enter_menu', '_draw_mission_cursor', '_tile_index', '_draw_object_layer', '_draw_path', '_draw_stencil', '_draw_navpoints', '_draw_compass', '_draw_screen_layer', '_map_poll_exit']) or any(k in n for k in ['menu', 'help', 'mission', 'map']):
@@ -106,7 +110,8 @@ def parse_map(map_path):
         'Instrument Panel': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'items': []},
         'Menu & Missions': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'items': []},
         'Message System': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'items': []},
-        'Sound': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'items': []},
+        'Sound Effects': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'items': []},
+        'Music': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'items': []},
         'Debug Messages & Overlay': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'items': []},
         'Benchmarks & Timing': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'items': []},
         'Core System & Drivers': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'items': []},
