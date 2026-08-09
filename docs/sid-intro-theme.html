@@ -101,14 +101,20 @@
     <button id="loop">&#8635; Loop: On</button>
     <button id="drums">&#9679; Drum steal: On</button>
     <label>Vol <input id="vol" type="range" min="0" max="100" value="70"></label>
+    <label style="margin-left:auto;">Tune
+      <select id="tuneSelect" style="font-family:inherit;font-size:11px;background:var(--c64-blue);color:var(--c64-cyan);border:2px solid var(--c64-lblue);padding:6px 10px;cursor:pointer;font-weight:700">
+        <option value="0">Tune 1: 16-Bar Rock Intro (150 BPM)</option>
+        <option value="1">Tune 2: 32-Bar Atmospheric Theme (125 BPM Build/Fade)</option>
+      </select>
+    </label>
   </div>
 
   <div class="status">
-    <span>BAR <b id="stBar">--</b>/16</span>
-    <span>ROW <b id="stRow">---</b>/256</span>
-    <span>FRAME <b id="stFrame">----</b>/1280</span>
+    <span>BAR <b id="stBar">--</b>/<span id="stTotBars">16</span></span>
+    <span>ROW <b id="stRow">---</b>/<span id="stTotRows">256</span></span>
+    <span>FRAME <b id="stFrame">----</b>/<span id="stTotFrames">1280</span></span>
     <span>CHORD <b id="stChord">--</b></span>
-    <span>LOOP <b>25.6</b>S</span>
+    <span>LOOP <b id="stLoopLen">25.6</b>S</span>
   </div>
 
   <div class="note">
@@ -167,90 +173,125 @@ const nameToMidi = n => {
 // ==========================================================================
 //  SONG DATA  - generated from lib/music.py via tools/generate_music.py.
 // ==========================================================================
-const SPEED = 5;                 // frames per row -> 150 BPM at 50 Hz
-const ROWS_PER_BAR = 16, BARS = 16;
-const TOTAL_ROWS = BARS*ROWS_PER_BAR, TOTAL_FRAMES = TOTAL_ROWS*SPEED;  // 1280
-
-// [name, bass root midi, arp triad midis]
-const CHORDS = [
-  ['Am',33,[57, 60, 64]],
-  ['F',29,[53, 57, 60]],
-  ['G',31,[55, 59, 62]],
-  ['Am',33,[57, 60, 64]],
-  ['Am',33,[57, 60, 64]],
-  ['F',29,[53, 57, 60]],
-  ['G',31,[55, 59, 62]],
-  ['E',28,[52, 56, 59]],
-  ['C',36,[48, 52, 55]],
-  ['G',31,[55, 59, 62]],
-  ['Am',33,[57, 60, 64]],
-  ['F',29,[53, 57, 60]],
-  ['F',29,[53, 57, 60]],
-  ['G',31,[55, 59, 62]],
-  ['Am',33,[57, 60, 64]],
-  ['G',31,[55, 59, 62]]
-];
-
-// Lead: "NOTE:rows", "-" = rest. Every bar sums to 16.
-const MELODY = [
-  "E4:2 A4:2 C5:2 B4:2 A4:4 -:2 G4:2",
-  "A4:2 F4:2 A4:2 C5:2 D5:4 C5:2 A4:2",
-  "B4:2 G4:2 B4:2 D5:2 G5:4 D5:2 B4:2",
-  "C5:2 B4:2 A4:2 G4:2 A4:6 -:2",
-  "E5:2 A4:2 C5:2 B4:2 A4:4 E5:2 C5:2",
-  "A4:2 F4:2 A4:2 C5:2 F5:4 E5:2 C5:2",
-  "D5:2 B4:2 D5:2 G5:2 F5:2 E5:2 D5:2 B4:2",
-  "E5:2 B4:2 G#4:2 B4:2 E5:4 D5:2 C5:2",
-  "G5:4 E5:4 C5:4 E5:2 G5:2",
-  "D5:4 B4:4 G4:4 B4:2 D5:2",
-  "E5:4 C5:4 A4:4 C5:2 E5:2",
-  "F5:4 C5:4 A4:4 C5:2 F5:2",
-  "A5:2 G5:2 F5:2 E5:2 F5:4 C5:4",
-  "B5:2 A5:2 G5:2 F5:2 G5:4 D5:4",
-  "A5:2 E5:2 C5:2 A4:2 C5:2 E5:2 A5:4",
-  "G5:2 F5:2 E5:2 D5:2 C5:2 B4:2 -:2 E4:2"
-];
-
-// Bass rhythm patterns: [row, semitones above root, rows]
-const BASS_A = [[0, 0, 2], [2, 0, 2], [4, 0, 2], [6, 12, 2], [8, 0, 2], [10, 0, 2], [12, 7, 2], [14, 12, 2]];
-const BASS_B = [[0, 0, 2], [2, 0, 2], [4, 0, 1], [5, 0, 1], [6, 12, 2], [8, 0, 2], [10, 7, 2], [12, 12, 2], [14, 10, 1], [15, 12, 1]];
-
-// Drums. Priority kick > snare > hat; only one can hold voice 3.
-const KICK_A=[0, 6, 8], KICK_B=[0, 6, 8, 10, 14];
-const SNR_A =[4, 12],  SNR_B =[4, 12, 13, 14, 15];
-const HAT   =[0, 2, 4, 6, 8, 10, 12, 14];
-const isFill = b => (b===7 || b===15);
-const isPush = b => (b===3 || b===11 || isFill(b));
-
-// ---------- flatten to per-row tables ----------
-const leadStart = new Array(TOTAL_ROWS).fill(0);   // midi, or 0
-const leadOn    = new Array(TOTAL_ROWS).fill(false);
-MELODY.forEach((s,bar)=>{
-  let r = bar*ROWS_PER_BAR;
-  s.trim().split(/\s+/).forEach(tok=>{
-    const [n,l] = tok.split(':'); const d = parseInt(l,10);
-    if(n !== '-'){ leadStart[r] = nameToMidi(n); for(let i=0;i<d;i++) leadOn[r+i]=true; }
-    r += d;
-  });
-});
-
-const bassStart = new Array(TOTAL_ROWS).fill(0);
-const bassOn    = new Array(TOTAL_ROWS).fill(false);
-for(let bar=0;bar<BARS;bar++){
-  const root = CHORDS[bar][1];
-  for(const [row,off,len] of (isPush(bar)?BASS_B:BASS_A)){
-    const r = bar*ROWS_PER_BAR + row;
-    bassStart[r] = root + off;
-    for(let i=0;i<len;i++) bassOn[r+i] = true;
+const TUNES = [
+  {
+    id: 'tune1',
+    name: '16-Bar Rock Intro (150 BPM)',
+    speed: 5,
+    rows_per_bar: 16,
+    bars: 16,
+    total_rows: 256,
+    total_frames: 1280,
+    chords: [
+      ['Am',33,[57, 60, 64]],
+      ['F',29,[53, 57, 60]],
+      ['G',31,[55, 59, 62]],
+      ['Am',33,[57, 60, 64]],
+      ['Am',33,[57, 60, 64]],
+      ['F',29,[53, 57, 60]],
+      ['G',31,[55, 59, 62]],
+      ['E',28,[52, 56, 59]],
+      ['C',36,[48, 52, 55]],
+      ['G',31,[55, 59, 62]],
+      ['Am',33,[57, 60, 64]],
+      ['F',29,[53, 57, 60]],
+      ['F',29,[53, 57, 60]],
+      ['G',31,[55, 59, 62]],
+      ['Am',33,[57, 60, 64]],
+      ['G',31,[55, 59, 62]],
+    ],
+    leadStart: [64, 0, 69, 0, 72, 0, 71, 0, 69, 0, 0, 0, 0, 0, 67, 0, 69, 0, 65, 0, 69, 0, 72, 0, 74, 0, 0, 0, 72, 0, 69, 0, 71, 0, 67, 0, 71, 0, 74, 0, 79, 0, 0, 0, 74, 0, 71, 0, 72, 0, 71, 0, 69, 0, 67, 0, 69, 0, 0, 0, 0, 0, 0, 0, 76, 0, 69, 0, 72, 0, 71, 0, 69, 0, 0, 0, 76, 0, 72, 0, 69, 0, 65, 0, 69, 0, 72, 0, 77, 0, 0, 0, 76, 0, 72, 0, 74, 0, 71, 0, 74, 0, 79, 0, 77, 0, 76, 0, 74, 0, 71, 0, 76, 0, 71, 0, 68, 0, 71, 0, 76, 0, 0, 0, 74, 0, 72, 0, 79, 0, 0, 0, 76, 0, 0, 0, 72, 0, 0, 0, 76, 0, 79, 0, 74, 0, 0, 0, 71, 0, 0, 0, 67, 0, 0, 0, 71, 0, 74, 0, 76, 0, 0, 0, 72, 0, 0, 0, 69, 0, 0, 0, 72, 0, 76, 0, 77, 0, 0, 0, 72, 0, 0, 0, 69, 0, 0, 0, 72, 0, 77, 0, 81, 0, 79, 0, 77, 0, 76, 0, 77, 0, 0, 0, 72, 0, 0, 0, 83, 0, 81, 0, 79, 0, 77, 0, 79, 0, 0, 0, 74, 0, 0, 0, 81, 0, 76, 0, 72, 0, 69, 0, 72, 0, 76, 0, 81, 0, 0, 0, 79, 0, 77, 0, 76, 0, 74, 0, 72, 0, 71, 0, 0, 0, 64, 0],
+    leadOn: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1],
+    bassStart: [33, 0, 33, 0, 33, 0, 45, 0, 33, 0, 33, 0, 40, 0, 45, 0, 29, 0, 29, 0, 29, 0, 41, 0, 29, 0, 29, 0, 36, 0, 41, 0, 31, 0, 31, 0, 31, 0, 43, 0, 31, 0, 31, 0, 38, 0, 43, 0, 33, 0, 33, 0, 33, 33, 45, 0, 33, 0, 40, 0, 45, 0, 43, 45, 33, 0, 33, 0, 33, 0, 45, 0, 33, 0, 33, 0, 40, 0, 45, 0, 29, 0, 29, 0, 29, 0, 41, 0, 29, 0, 29, 0, 36, 0, 41, 0, 31, 0, 31, 0, 31, 0, 43, 0, 31, 0, 31, 0, 38, 0, 43, 0, 28, 0, 28, 0, 28, 28, 40, 0, 28, 0, 35, 0, 40, 0, 38, 40, 36, 0, 36, 0, 36, 0, 48, 0, 36, 0, 36, 0, 43, 0, 48, 0, 31, 0, 31, 0, 31, 0, 43, 0, 31, 0, 31, 0, 38, 0, 43, 0, 33, 0, 33, 0, 33, 0, 45, 0, 33, 0, 33, 0, 40, 0, 45, 0, 29, 0, 29, 0, 29, 29, 41, 0, 29, 0, 36, 0, 41, 0, 39, 41, 29, 0, 29, 0, 29, 0, 41, 0, 29, 0, 29, 0, 36, 0, 41, 0, 31, 0, 31, 0, 31, 0, 43, 0, 31, 0, 31, 0, 38, 0, 43, 0, 33, 0, 33, 0, 33, 0, 45, 0, 33, 0, 33, 0, 40, 0, 45, 0, 31, 0, 31, 0, 31, 31, 43, 0, 31, 0, 38, 0, 43, 0, 41, 43],
+    bassOn: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    drumAt: ['kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'kick', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'kick', null, 'snare', 'snare', 'kick', 'snare', 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'kick', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'kick', null, 'snare', 'snare', 'kick', 'snare'],
+    volMap: [15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15]
+  },
+  {
+    id: 'tune2',
+    name: '32-Bar Atmospheric Theme (125 BPM Turnaround Outro)',
+    speed: 6,
+    rows_per_bar: 16,
+    bars: 32,
+    total_rows: 512,
+    total_frames: 3072,
+    chords: [
+      ['Dm',38,[50, 53, 57]],
+      ['A#',34,[46, 50, 53]],
+      ['C',36,[48, 52, 55]],
+      ['Am',33,[45, 48, 52]],
+      ['Dm',38,[50, 53, 57]],
+      ['A#',34,[46, 50, 53]],
+      ['C',36,[48, 52, 55]],
+      ['A7',33,[45, 49, 52]],
+      ['Dm',38,[50, 53, 57]],
+      ['F',29,[53, 57, 60]],
+      ['C',36,[48, 52, 55]],
+      ['Gm',31,[50, 55, 58]],
+      ['Dm',38,[50, 53, 57]],
+      ['A#',34,[46, 50, 53]],
+      ['C',36,[48, 52, 55]],
+      ['A7',33,[45, 49, 52]],
+      ['Dm',38,[50, 53, 57]],
+      ['A#',34,[46, 50, 53]],
+      ['C',36,[48, 52, 55]],
+      ['Am',33,[45, 48, 52]],
+      ['Dm',38,[50, 53, 57]],
+      ['F',29,[53, 57, 60]],
+      ['Gm',31,[50, 55, 58]],
+      ['A7',33,[45, 49, 52]],
+      ['Gm',31,[50, 55, 58]],
+      ['C7',36,[48, 52, 58]],
+      ['F',29,[53, 57, 60]],
+      ['A#',34,[46, 50, 53]],
+      ['Gm',31,[50, 55, 58]],
+      ['A7',33,[45, 49, 52]],
+      ['A7',33,[45, 49, 52]],
+      ['Dm',38,[50, 53, 57]],
+    ],
+    leadStart: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 62, 0, 0, 0, 0, 0, 0, 0, 65, 0, 0, 0, 69, 0, 0, 0, 67, 0, 0, 0, 0, 0, 0, 0, 65, 0, 0, 0, 64, 0, 0, 0, 65, 0, 0, 0, 0, 0, 0, 0, 64, 0, 0, 0, 62, 0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 62, 0, 0, 0, 65, 0, 0, 0, 69, 0, 0, 0, 74, 0, 0, 0, 72, 0, 0, 0, 69, 0, 0, 0, 65, 0, 0, 0, 69, 0, 0, 0, 67, 0, 0, 0, 64, 0, 0, 0, 60, 0, 0, 0, 64, 0, 0, 0, 65, 0, 0, 0, 62, 0, 0, 0, 58, 0, 0, 0, 62, 0, 0, 0, 62, 0, 0, 0, 65, 0, 0, 0, 69, 0, 0, 0, 74, 0, 0, 0, 77, 0, 0, 0, 74, 0, 0, 0, 69, 0, 0, 0, 74, 0, 0, 0, 76, 0, 0, 0, 72, 0, 0, 0, 67, 0, 0, 0, 72, 0, 0, 0, 73, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 77, 0, 76, 0, 74, 0, 72, 0, 74, 0, 0, 0, 69, 0, 0, 0, 74, 0, 72, 0, 70, 0, 69, 0, 70, 0, 0, 0, 65, 0, 0, 0, 72, 0, 70, 0, 69, 0, 67, 0, 69, 0, 0, 0, 64, 0, 0, 0, 64, 0, 65, 0, 67, 0, 69, 0, 70, 0, 72, 0, 73, 0, 0, 0, 74, 0, 0, 0, 77, 0, 0, 0, 81, 0, 0, 0, 77, 0, 0, 0, 72, 0, 0, 0, 76, 0, 0, 0, 79, 0, 0, 0, 76, 0, 0, 0, 70, 0, 0, 0, 74, 0, 0, 0, 77, 0, 0, 0, 74, 0, 0, 0, 69, 0, 0, 0, 73, 0, 0, 0, 76, 0, 0, 0, 0, 0, 0, 0, 79, 0, 0, 0, 77, 0, 0, 0, 74, 0, 0, 0, 70, 0, 0, 0, 76, 0, 0, 0, 72, 0, 0, 0, 70, 0, 0, 0, 67, 0, 0, 0, 77, 0, 0, 0, 72, 0, 0, 0, 69, 0, 0, 0, 65, 0, 0, 0, 74, 0, 0, 0, 70, 0, 0, 0, 65, 0, 0, 0, 62, 0, 0, 0, 67, 0, 0, 0, 69, 0, 0, 0, 70, 0, 0, 0, 72, 0, 0, 0, 73, 0, 0, 0, 74, 0, 0, 0, 76, 0, 0, 0, 77, 0, 0, 0, 76, 0, 77, 0, 79, 0, 0, 0, 77, 0, 76, 0, 73, 0, 0, 0, 74, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    leadOn: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+    bassStart: [38, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 34, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 36, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 33, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 38, 0, 38, 0, 38, 0, 50, 0, 38, 0, 38, 0, 45, 0, 50, 0, 34, 0, 34, 0, 34, 0, 46, 0, 34, 0, 34, 0, 41, 0, 46, 0, 36, 0, 36, 0, 36, 0, 48, 0, 36, 0, 36, 0, 43, 0, 48, 0, 33, 0, 33, 0, 33, 33, 45, 0, 33, 0, 40, 0, 45, 0, 43, 45, 38, 0, 38, 0, 38, 0, 50, 0, 38, 0, 38, 0, 45, 0, 50, 0, 29, 0, 29, 0, 29, 0, 41, 0, 29, 0, 29, 0, 36, 0, 41, 0, 36, 0, 36, 0, 36, 0, 48, 0, 36, 0, 36, 0, 43, 0, 48, 0, 31, 0, 31, 0, 31, 31, 43, 0, 31, 0, 38, 0, 43, 0, 41, 43, 38, 0, 38, 0, 38, 0, 50, 0, 38, 0, 38, 0, 45, 0, 50, 0, 34, 0, 34, 0, 34, 0, 46, 0, 34, 0, 34, 0, 41, 0, 46, 0, 36, 0, 36, 0, 36, 0, 48, 0, 36, 0, 36, 0, 43, 0, 48, 0, 33, 0, 33, 0, 33, 33, 45, 0, 33, 0, 40, 0, 45, 0, 43, 45, 38, 0, 38, 0, 38, 0, 50, 0, 38, 0, 38, 0, 45, 0, 50, 0, 34, 0, 34, 0, 34, 0, 46, 0, 34, 0, 34, 0, 41, 0, 46, 0, 36, 0, 36, 0, 36, 0, 48, 0, 36, 0, 36, 0, 43, 0, 48, 0, 33, 0, 33, 0, 33, 33, 45, 0, 33, 0, 40, 0, 45, 0, 43, 45, 38, 0, 38, 0, 38, 0, 50, 0, 38, 0, 38, 0, 45, 0, 50, 0, 29, 0, 29, 0, 29, 0, 41, 0, 29, 0, 29, 0, 36, 0, 41, 0, 31, 0, 31, 0, 31, 0, 43, 0, 31, 0, 31, 0, 38, 0, 43, 0, 33, 0, 33, 0, 33, 33, 45, 0, 33, 0, 40, 0, 45, 0, 43, 45, 31, 0, 31, 0, 31, 0, 43, 0, 31, 0, 31, 0, 38, 0, 43, 0, 36, 0, 36, 0, 36, 0, 48, 0, 36, 0, 36, 0, 43, 0, 48, 0, 29, 0, 29, 0, 29, 0, 41, 0, 29, 0, 29, 0, 36, 0, 41, 0, 34, 0, 34, 0, 34, 34, 46, 0, 34, 0, 41, 0, 46, 0, 44, 46, 31, 0, 31, 0, 31, 0, 43, 0, 31, 0, 31, 0, 38, 0, 43, 0, 33, 0, 33, 0, 33, 0, 45, 0, 33, 0, 33, 0, 40, 0, 45, 0, 33, 0, 33, 0, 33, 33, 45, 0, 33, 0, 40, 0, 45, 0, 43, 45, 38, 0, 38, 0, 38, 38, 50, 0, 38, 0, 45, 0, 50, 0, 48, 50],
+    bassOn: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    drumAt: [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'kick', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'kick', null, 'snare', 'snare', 'kick', 'snare', 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'kick', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'kick', null, 'snare', 'snare', 'kick', 'snare', 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'kick', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'hat', null, 'snare', null, 'hat', null, 'kick', null, 'hat', null, 'snare', null, 'kick', null, 'kick', null, 'kick', null, 'snare', 'snare', 'kick', 'snare', 'kick', null, null, null, null, null, null, null, null, null, null, null, null, null, null, null],
+    volMap: [4, 6, 8, 10, 12, 13, 14, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15]
   }
-}
+];
 
-const drumAt = new Array(TOTAL_ROWS).fill(null);   // 'kick' | 'snare' | 'hat'
-for(let bar=0;bar<BARS;bar++){
-  const kick = isPush(bar)?KICK_B:KICK_A, snr = isFill(bar)?SNR_B:SNR_A;
-  for(const s of HAT)  drumAt[bar*ROWS_PER_BAR+s] = 'hat';
-  for(const s of snr)  drumAt[bar*ROWS_PER_BAR+s] = 'snare';
-  for(const s of kick) drumAt[bar*ROWS_PER_BAR+s] = 'kick';
+// Default active tune pointer
+let activeTuneIdx = 0;
+let currentTune = TUNES[activeTuneIdx];
+
+// Active parameters shortcut getters
+let SPEED = currentTune.speed;
+let ROWS_PER_BAR = currentTune.rows_per_bar;
+let BARS = currentTune.bars;
+let TOTAL_ROWS = currentTune.total_rows;
+let TOTAL_FRAMES = currentTune.total_frames;
+let CHORDS = currentTune.chords;
+let leadStart = currentTune.leadStart;
+let leadOn = currentTune.leadOn;
+let bassStart = currentTune.bassStart;
+let bassOn = currentTune.bassOn;
+let drumAt = currentTune.drumAt;
+let volMap = currentTune.volMap;
+
+function setTune(idx){
+  activeTuneIdx = idx;
+  currentTune = TUNES[activeTuneIdx];
+  SPEED = currentTune.speed;
+  ROWS_PER_BAR = currentTune.rows_per_bar;
+  BARS = currentTune.bars;
+  TOTAL_ROWS = currentTune.total_rows;
+  TOTAL_FRAMES = currentTune.total_frames;
+  CHORDS = currentTune.chords;
+  leadStart = currentTune.leadStart;
+  leadOn = currentTune.leadOn;
+  bassStart = currentTune.bassStart;
+  bassOn = currentTune.bassOn;
+  drumAt = currentTune.drumAt;
+  volMap = currentTune.volMap;
+  if(typeof updateTuneUI === 'function') updateTuneUI();
 }
 
 // ---------- instruments: [attack, decay, sustain, release] nibbles ----------
@@ -364,8 +405,9 @@ function playerTick(){
     if(ps.v3timer <= 0){ gateOff(2); ps.v3timer = 0; }
   }
 
-  // --- master volume. $D418 low nibble, from the same table sound.cc uses. ---
-  regs[R_VOL] = [0,7,15][2];
+  // --- master volume. $D418 low nibble, scaling with bar volume curve ---
+  const barVol = (volMap && volMap[bar] !== undefined) ? volMap[bar] : 15;
+  regs[R_VOL] = (barVol & 0x0F);
 
   ps.frame++;
   if(ps.frame >= TOTAL_FRAMES){
@@ -567,10 +609,21 @@ function stop(fade){
 // ==========================================================================
 const $ = id => document.getElementById(id);
 const playBtn=$('play'), stopBtn=$('stop'), loopBtn=$('loop'), drumBtn=$('drums'),
-      volEl=$('vol'), stBar=$('stBar'), stRow=$('stRow'), stFrame=$('stFrame'),
-      stChord=$('stChord'),
+      volEl=$('vol'), tuneSelect=$('tuneSelect'),
+      stBar=$('stBar'), stRow=$('stRow'), stFrame=$('stFrame'), stChord=$('stChord'),
+      stTotBars=$('stTotBars'), stTotRows=$('stTotRows'), stTotFrames=$('stTotFrames'), stLoopLen=$('stLoopLen'),
       meters=[$('m1'),$('m2'),$('m3')], wLbl=[$('w1'),$('w2'),$('w3')],
       regEls = Array.from({length:25},(_,i)=>$('r'+i));
+
+function updateTuneUI(){
+  if(stTotBars) stTotBars.textContent = BARS;
+  if(stTotRows) stTotRows.textContent = TOTAL_ROWS;
+  if(stTotFrames) stTotFrames.textContent = TOTAL_FRAMES;
+  if(stLoopLen) stLoopLen.textContent = (TOTAL_FRAMES/50).toFixed(1);
+  const bpm = ((50/SPEED)*30).toFixed(1);
+  const subEl = document.querySelector('.sub');
+  if(subEl) subEl.innerHTML = `MOS 6581 model / <b>3 voices</b> / ${bpm} BPM / ${SPEED} frames per row / PAL 50 Hz`;
+}
 
 playBtn.onclick = start;
 stopBtn.onclick = () => stop(0.06);
@@ -579,6 +632,14 @@ loopBtn.onclick = () => { looping=!looping;
 drumBtn.onclick = () => { drumsOn=!drumsOn;
   drumBtn.textContent='● Drum steal: '+(drumsOn?'On':'Off'); drumBtn.classList.toggle('off',!drumsOn); };
 volEl.oninput = () => { outVol = volEl.value/100; };
+if(tuneSelect){
+  tuneSelect.onchange = () => {
+    const wasPlaying = playing;
+    if(playing) stop(0.02);
+    setTune(parseInt(tuneSelect.value, 10));
+    if(wasPlaying) start();
+  };
+}
 document.addEventListener('keydown', e=>{
   if(e.code==='Space'){ e.preventDefault(); playing?stop(0.06):start(); }
 });
