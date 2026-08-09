@@ -61,23 +61,105 @@ def is_fill(b):
 def is_push(b):
     return b == 3 or b == 11 or b == 19 or b == 27 or is_fill(b)
 
+# Whether a tune opens with the four-bar pedal-bass build and four bars of hats
+# only. This is a property of the arrangement, so it travels in the tune dict
+# rather than being inferred from the bar count - both arrangements are 16 bars
+# now, and the atmospheric one needs the intro while the rock one must not have
+# it.
+SOFT_INTRO_BARS = 4      # pedal bass, arpeggio, no lead, no drums
+SOFT_HAT_BARS = 8        # ...then hats only until this bar
+
 # ==========================================================================
-#  TUNE 1: 16-Bar Rock Intro (150 BPM)
+#  PRIMARY TUNE: 16-Bar Atmospheric Theme (125 BPM, lift turnaround)
 # ==========================================================================
-SPEED = 5                 # frames per row -> 150 BPM at 50 Hz
+# A bar is 96 frames at speed 6 and the player's pulse-width sweep cycles every
+# 256, so bars * 96 must be a multiple of 256: only 8, 16, 24 and 32 keep the
+# loop bit-clean.
+#
+# This started at 32 bars and came down twice. The eight-bar cadential outro
+# went first - it walked out to F major and closed with a V7-i, which is the one
+# thing a loop must not do - and the climax section went with the second cut,
+# for RAM. What survives is the shape that made the arrangement worth having:
+# four bars of pedal build, four of motif entry, six of theme, and a two-bar
+# turnaround that is also the tune's melodic peak. Gm -> A7 is iv - V7 into the
+# Dm of bar 1, so the loop point needed no bars of its own.
+#
+# See docs/music.md sections 3 and 4.
+SPEED = 6           # frames per row -> 125 BPM at 50 Hz
 ROWS_PER_BAR = 16
 BARS = 16
-TOTAL_ROWS = BARS * ROWS_PER_BAR     # 256
-TOTAL_FRAMES = TOTAL_ROWS * SPEED    # 1280
+TOTAL_ROWS = BARS * ROWS_PER_BAR        # 256
+TOTAL_FRAMES = TOTAL_ROWS * SPEED       # 1536 = 30.72 s PAL
 
 CHORDS = [
+    # Bars 1-8: Intro & Motif
+    ['Dm', 38, [50, 53, 57]], ['A#', 34, [46, 50, 53]], ['C', 36, [48, 52, 55]], ['Am', 33, [45, 48, 52]],
+    ['Dm', 38, [50, 53, 57]], ['A#', 34, [46, 50, 53]], ['C', 36, [48, 52, 55]], ['A7', 33, [45, 49, 52]],
+    # Bars 9-14: Main Theme
+    ['Dm', 38, [50, 53, 57]], ['F',  29, [53, 57, 60]], ['C', 36, [48, 52, 55]], ['Gm', 31, [50, 55, 58]],
+    ['Dm', 38, [50, 53, 57]], ['A#', 34, [46, 50, 53]],
+    # Bars 15-16: lift turnaround. iv - V7 into bar 1's Dm.
+    ['Gm', 31, [50, 55, 58]], ['A7', 33, [45, 49, 52]]
+]
+
+MELODY = [
+    # Bars 1-4: Soft Intro Build (Melody silent)
+    "-:16", "-:16", "-:16", "-:16",
+    # Bars 5-8: Motif Introduction
+    "D4:8 F4:4 A4:4",
+    "G4:8 F4:4 E4:4",
+    "F4:8 E4:4 D4:4",
+    "E4:8 -:8",
+    # Bars 9-14: Main Theme. Rises across the six bars so the turnaround that
+    # follows is the peak rather than an afterthought.
+    "D4:4 F4:4 A4:4 D5:4",
+    "C5:4 A4:4 F4:4 A4:4",
+    "G4:4 E4:4 C4:4 E4:4",
+    "F4:4 D4:4 A#3:4 D4:4",
+    "D4:4 F4:4 A4:4 D5:4",
+    "F5:4 D5:4 A4:4 D5:4",
+    # Bars 15-16: the lift turnaround, and the highest notes in the tune.
+    #
+    # The old outro fell for four bars and then closed with a Baroque cadential
+    # figure over A7 - E F G F E C# - resolving C# -> D. That is a full stop,
+    # and a loop point is the one place a full stop is wrong. These two bars
+    # climb instead, and deliberately never play C#: with the leading tone
+    # withheld the A7 does not announce itself as a dominant, so returning to
+    # bar 1's Dm reads as the phrase carrying on rather than starting again.
+    # F5 over A7 is the flat 13th, which is also the third of D minor - it
+    # keeps the home key in earshot through the turn.
+    "D5:4 F5:4 G5:4 A#5:4",             # Bar 15 (Gm): opens upward
+    "A5:4 G5:4 F5:4 E5:4"               # Bar 16 (A7): peak, then down onto the 5th
+]
+
+VOL_MAP = [
+    # Bars 1-8: the opening fade. The floor is 8 rather than 4 so that the glide
+    # at the end of bar 16 lands next to it - see the tail of this table. On a
+    # first play a deeper fade would be nicer; on every loop after that it is a
+    # hole. A deeper first-play fade costs one entry if it is ever wanted back.
+    8, 9, 10, 11,      # Bars 1-4: pedal bass and arpeggio only
+    12, 13, 14, 15,    # Bars 5-8: motif and hats entering, full by bar 8
+    15, 15, 15, 15,    # Bars 9-12: main theme
+    15, 15,            # Bars 13-14
+    12, 10             # Bars 15-16: glide into the loop seam (10 -> bar 1's 8)
+]
+
+# ==========================================================================
+#  TUNE 2: 16-Bar Rock Intro (150 BPM)
+# ==========================================================================
+SPEED_TUNE1 = 5
+BARS_TUNE1 = 16
+TOTAL_ROWS_TUNE1 = 256
+TOTAL_FRAMES_TUNE1 = 1280
+
+CHORDS_TUNE1 = [
     ['Am', 33, [57, 60, 64]], ['F', 29, [53, 57, 60]], ['G', 31, [55, 59, 62]], ['Am', 33, [57, 60, 64]],
     ['Am', 33, [57, 60, 64]], ['F', 29, [53, 57, 60]], ['G', 31, [55, 59, 62]], ['E', 28, [52, 56, 59]],
     ['C', 36, [48, 52, 55]],  ['G', 31, [55, 59, 62]], ['Am', 33, [57, 60, 64]], ['F', 29, [53, 57, 60]],
     ['F', 29, [53, 57, 60]],  ['G', 31, [55, 59, 62]], ['Am', 33, [57, 60, 64]], ['G', 31, [55, 59, 62]]
 ]
 
-MELODY = [
+MELODY_TUNE1 = [
     "E4:2 A4:2 C5:2 B4:2 A4:4 -:2 G4:2",
     "A4:2 F4:2 A4:2 C5:2 D5:4 C5:2 A4:2",
     "B4:2 G4:2 B4:2 D5:2 G5:4 D5:2 B4:2",
@@ -98,83 +180,11 @@ MELODY = [
 
 VOL_MAP_TUNE1 = [15] * 16
 
-# ==========================================================================
-#  TUNE 2: 32-Bar Atmospheric Theme (125 BPM Build & Cadential Turnaround Outro)
-# ==========================================================================
-SPEED_TUNE2 = 6           # frames per row -> 125 BPM at 50 Hz (~130 BPM)
-BARS_TUNE2 = 32
-TOTAL_ROWS_TUNE2 = BARS_TUNE2 * ROWS_PER_BAR  # 512
-TOTAL_FRAMES_TUNE2 = TOTAL_ROWS_TUNE2 * SPEED_TUNE2  # 3072
-
-CHORDS_TUNE2 = [
-    # Bars 1-8: Intro & Motif
-    ['Dm', 38, [50, 53, 57]], ['A#', 34, [46, 50, 53]], ['C', 36, [48, 52, 55]], ['Am', 33, [45, 48, 52]],
-    ['Dm', 38, [50, 53, 57]], ['A#', 34, [46, 50, 53]], ['C', 36, [48, 52, 55]], ['A7', 33, [45, 49, 52]],
-    # Bars 9-16: Main Theme A
-    ['Dm', 38, [50, 53, 57]], ['F',  29, [53, 57, 60]], ['C', 36, [48, 52, 55]], ['Gm', 31, [50, 55, 58]],
-    ['Dm', 38, [50, 53, 57]], ['A#', 34, [46, 50, 53]], ['C', 36, [48, 52, 55]], ['A7', 33, [45, 49, 52]],
-    # Bars 17-24: Climax Theme B
-    ['Dm', 38, [50, 53, 57]], ['A#', 34, [46, 50, 53]], ['C', 36, [48, 52, 55]], ['Am', 33, [45, 48, 52]],
-    ['Dm', 38, [50, 53, 57]], ['F',  29, [53, 57, 60]], ['Gm', 31, [50, 55, 58]], ['A7', 33, [45, 49, 52]],
-    # Bars 25-32: Musical Outro & Grand Turnaround Cadence
-    ['Gm', 31, [50, 55, 58]], ['C7', 36, [48, 52, 58]], ['F',  29, [53, 57, 60]], ['A#', 34, [46, 50, 53]],
-    ['Gm', 31, [50, 55, 58]], ['A7', 33, [45, 49, 52]], ['A7', 33, [45, 49, 52]], ['Dm', 38, [50, 53, 57]]
-]
-
-MELODY_TUNE2 = [
-    # Bars 1-4: Soft Intro Build (Melody silent)
-    "-:16", "-:16", "-:16", "-:16",
-    # Bars 5-8: Motif Introduction
-    "D4:8 F4:4 A4:4",
-    "G4:8 F4:4 E4:4",
-    "F4:8 E4:4 D4:4",
-    "E4:8 -:8",
-    # Bars 9-16: Main Theme A
-    "D4:4 F4:4 A4:4 D5:4",
-    "C5:4 A4:4 F4:4 A4:4",
-    "G4:4 E4:4 C4:4 E4:4",
-    "F4:4 D4:4 A#3:4 D4:4",
-    "D4:4 F4:4 A4:4 D5:4",
-    "F5:4 D5:4 A4:4 D5:4",
-    "E5:4 C5:4 G4:4 C5:4",
-    "C#5:8 -:8",
-    # Bars 17-24: Climax Theme B (Sixteenth runs & high octaves)
-    "F5:2 E5:2 D5:2 C5:2 D5:4 A4:4",
-    "D5:2 C5:2 A#4:2 A4:2 A#4:4 F4:4",
-    "C5:2 A#4:2 A4:2 G4:2 A4:4 E4:4",
-    "E4:2 F4:2 G4:2 A4:2 A#4:2 C5:2 C#5:4",
-    "D5:4 F5:4 A5:4 F5:4",
-    "C5:4 E5:4 G5:4 E5:4",
-    "A#4:4 D5:4 F5:4 D5:4",
-    "A4:4 C#5:4 E5:4 -:4",
-    # Bars 25-32: Musical Outro & Grand Turnaround Cadence
-    "G5:4 F5:4 D5:4 A#4:4",             # Bar 25: Gm descent
-    "E5:4 C5:4 A#4:4 G4:4",             # Bar 26: C7 step-down
-    "F5:4 C5:4 A4:4 F4:4",              # Bar 27: F major resolution
-    "D5:4 A#4:4 F4:4 D4:4",             # Bar 28: A# major falling arpeggio
-    "G4:4 A4:4 A#4:4 C5:4",             # Bar 29: Gm scale ascent
-    "C#5:4 D5:4 E5:4 F5:4",             # Bar 30: A7 rising tension
-    "E5:2 F5:2 G5:4 F5:2 E5:2 C#5:4",   # Bar 31: A7 classical turnaround cadence
-    "D5:8 -:8"                          # Bar 32: D minor tonic resolution & rest
-]
-
-# Volume Map: Soft intro build (bars 1-8), then full volume (15) through out the entire song and outro!
-VOL_MAP_TUNE2 = [
-    4, 6, 8, 10,       # Bars 1-4: Soft build-up
-    12, 13, 14, 15,    # Bars 5-8: Drums/Motif entering
-    15, 15, 15, 15,    # Bars 9-12: Main Theme A
-    15, 15, 15, 15,    # Bars 13-16
-    15, 15, 15, 15,    # Bars 17-20: Climax
-    15, 15, 15, 15,    # Bars 21-24
-    15, 15, 15, 15,    # Bars 25-28: Outro Cadence (Full volume!)
-    15, 15, 15, 15     # Bars 29-32: Grand Turnaround (Full volume!)
-]
-
 # ---------- Tunes Catalogue ----------
 TUNES = [
     {
-        'id': 'tune1',
-        'name': '16-Bar Rock Intro (150 BPM)',
+        'id': 'tune2',
+        'name': '16-Bar Atmospheric Theme (125 BPM, lift turnaround)',
         'speed': SPEED,
         'rows_per_bar': ROWS_PER_BAR,
         'bars': BARS,
@@ -182,19 +192,21 @@ TUNES = [
         'total_frames': TOTAL_FRAMES,
         'chords': CHORDS,
         'melody': MELODY,
-        'vol_map': VOL_MAP_TUNE1
+        'vol_map': VOL_MAP,
+        'soft_intro': True
     },
     {
-        'id': 'tune2',
-        'name': '32-Bar Atmospheric Theme (125 BPM Turnaround Outro)',
-        'speed': SPEED_TUNE2,
+        'id': 'tune1',
+        'name': '16-Bar Rock Intro (150 BPM)',
+        'speed': SPEED_TUNE1,
         'rows_per_bar': ROWS_PER_BAR,
-        'bars': BARS_TUNE2,
-        'total_rows': TOTAL_ROWS_TUNE2,
-        'total_frames': TOTAL_FRAMES_TUNE2,
-        'chords': CHORDS_TUNE2,
-        'melody': MELODY_TUNE2,
-        'vol_map': VOL_MAP_TUNE2
+        'bars': BARS_TUNE1,
+        'total_rows': TOTAL_ROWS_TUNE1,
+        'total_frames': TOTAL_FRAMES_TUNE1,
+        'chords': CHORDS_TUNE1,
+        'melody': MELODY_TUNE1,
+        'vol_map': VOL_MAP_TUNE1,
+        'soft_intro': False
     }
 ]
 
@@ -216,17 +228,18 @@ def get_flattened_lead(melody=MELODY, total_rows=TOTAL_ROWS):
             r += duration
     return lead_start, lead_on
 
-def get_flattened_bass(chords=CHORDS, bars=BARS, total_rows=TOTAL_ROWS):
+def get_flattened_bass(chords=CHORDS, bars=BARS, total_rows=TOTAL_ROWS,
+                       soft_intro=True):
     bass_start = [0] * total_rows
     bass_on = [False] * total_rows
     for bar in range(bars):
         root = chords[bar][1]
         pattern = BASS_B if is_push(bar) else BASS_A
-        # In Tune 2 bars 0-3, use simple pedal bass
-        if bars == 32 and bar < 4:
+        # One pedal note per bar through the opening build.
+        if soft_intro and bar < SOFT_INTRO_BARS:
             r = bar * ROWS_PER_BAR
             bass_start[r] = root
-            for i in range(16):
+            for i in range(ROWS_PER_BAR):
                 bass_on[r + i] = True
             continue
         for row, off, length in pattern:
@@ -236,19 +249,15 @@ def get_flattened_bass(chords=CHORDS, bars=BARS, total_rows=TOTAL_ROWS):
                 bass_on[r + i] = True
     return bass_start, bass_on
 
-def get_flattened_drums(bars=BARS, total_rows=TOTAL_ROWS):
+def get_flattened_drums(bars=BARS, total_rows=TOTAL_ROWS, soft_intro=True):
     drum_at = [None] * total_rows
     for bar in range(bars):
-        if bars == 32:
-            if bar < 4:
-                continue  # No drums during intro build (1-4)
-            elif bar < 8:
-                # Light hat only
-                for s in HAT:
+        if soft_intro:
+            if bar < SOFT_INTRO_BARS:
+                continue                      # no drums at all under the build
+            elif bar < SOFT_HAT_BARS:
+                for s in HAT:                 # hats only under the motif
                     drum_at[bar * ROWS_PER_BAR + s] = 'hat'
-                continue
-            elif bar == 31:  # Bar 32: single crash on row 0, then rest for turnaround
-                drum_at[bar * ROWS_PER_BAR + 0] = 'kick'
                 continue
 
         kick_p = KICK_B if is_push(bar) else KICK_A
