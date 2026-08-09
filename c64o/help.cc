@@ -31,12 +31,16 @@ static const char kHelpText[] =
     "N        TOGGLE NAV POINT\n"
     "M        TOGGLE MAP VIEW\n"
     "P        PAUSE / RESUME\n"
+#ifdef __ENABLE_SOUND__
     "V        SOUND OFF / LOW / FULL\n"
+#endif
     "R        RESTART MISSION\n"
     "Q        QUIT TO MENU\n"
+#ifdef __ENABLE_DEBUG__
     "\n"
     "D        TOGGLE DEBUG VIEW\n"
     "Z X      MOVE FWD/BACK WHEN PAUSED\n"
+#endif
     "\n"
     "H        SHOW THIS HELP SCREEN";
 // clang-format on

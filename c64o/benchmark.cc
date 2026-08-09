@@ -1,7 +1,7 @@
 #include "benchmark.h"
 
-#if defined(__DEBUG_CYCLES__) || defined(__DEBUG_VIEW__) ||                    \
-    defined(__DEBUG_MODEL__) || defined(__DEBUG_POLY__)
+#if defined(__DEBUG_CYCLES__) || defined(__ENABLE_DEBUG__) ||                    \
+    defined(__DEBUG_POLY__)
 
 #include <stdint.h>
 

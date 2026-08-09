@@ -43,10 +43,18 @@ const char kGfxCharsCompressed[] = {
 // the outliner out of them as well.
 #pragma optimize(push, noasm, nooutline)
 static void _switch_to_panel_top() {
+#ifdef __ENABLE_DEBUG__
   if (mem_debug_enabled) {
     sprites_show_no_sprites();
     return;
   }
+#else
+  __asm {
+    nop;
+    nop;
+    nop;
+  }
+#endif
 #assign num_nop 16
 #repeat
   __asm {

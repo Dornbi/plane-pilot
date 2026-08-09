@@ -121,8 +121,13 @@ void mem_init_char_ram(void);
 // and the Color RAM at $D800 with Black.
 void mem_clear_screen(void);
 
+#ifdef __ENABLE_DEBUG__
 extern bool mem_debug_enabled;
 void mem_switch_debug(bool debug);
+#else
+static const bool mem_debug_enabled = false;
+inline void mem_switch_debug(bool debug) {}
+#endif
 
 // vic.memptr should be volatile __memmap
 #define vic_memptr (*((volatile __memmap byte *)0xD018))

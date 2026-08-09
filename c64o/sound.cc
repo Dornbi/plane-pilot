@@ -1,5 +1,7 @@
 #include "sound.h"
 
+#ifdef __ENABLE_SOUND__
+
 #include <string.h>
 
 #include "flight.h"
@@ -775,3 +777,5 @@ void sound_update(void) {
                                 : kSoundVolumeDefault]
             : 0);
 }
+
+#endif // __ENABLE_SOUND__

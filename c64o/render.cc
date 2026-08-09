@@ -396,7 +396,7 @@ void render_fill_sky_ground() {
 
   bm_view_end(750, "BGR:");
 
-#ifdef __DEBUG_VIEW__
+#ifdef __ENABLE_DEBUG__
   if (mem_debug_enabled) {
     print_labeled_bcd(980, "ROL:", roll_angle, 3);
   }

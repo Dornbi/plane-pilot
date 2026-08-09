@@ -1,6 +1,7 @@
 OSCAR64_INCLUDE=../../../oscar64-main/include
 
 PPILOT_PROGRAM = ppilot
+PPILOTD_PROGRAM = ppilotd
 PPILOT_SRC = \
 		bcd.cc \
 		bcd.h \
@@ -73,6 +74,8 @@ PPILOT_SRC = \
 		world.h \
 		world.cc \
 		world_map.cc
+
+PPILOTD_SRC = $(PPILOT_SRC)
 
 POLYDEMO_PROGRAM = polydemo
 POLYDEMO_SRC = \
@@ -168,21 +171,28 @@ define prg_size
 		"$(1)" "$$bytes" "$$image" "$$start" "$$end"
 endef
 
-all: $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg test
+all: $(PPILOT_PROGRAM).prg $(PPILOTD_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg test
 	@echo ""
 	$(call prg_size,$(PPILOT_PROGRAM).prg)
+	$(call prg_size,$(PPILOTD_PROGRAM).prg)
 
 # Standalone, so the size can be checked without provoking a build. Reports
 # whatever is on disk now; run `make` first if that might be stale.
 size:
 	$(call prg_size,$(PPILOT_PROGRAM).prg)
+	$(call prg_size,$(PPILOTD_PROGRAM).prg)
 
 ram:
 	$(RAMANALYSIS) $(PPILOT_PROGRAM).map
+	$(RAMANALYSIS) $(PPILOTD_PROGRAM).map
 
 $(PPILOT_PROGRAM).prg: $(PPILOT_SRC)
-	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_VIEW__ -D__DEBUG_MODEL__ -D__MAX_RAM__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
+	$(CC) $(CFLAGS) $(OPTFLAGS) -D__ENABLE_SOUND__ -D__MAX_RAM__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(PPILOT_PROGRAM).asm
+
+$(PPILOTD_PROGRAM).prg: $(PPILOTD_SRC)
+	$(CC) $(CFLAGS) $(OPTFLAGS) -D__ENABLE_DEBUG__ -D__MAX_RAM__ -o=$(PPILOTD_PROGRAM).prg ppilot.cc
+	@$(ZPCHECK) $(PPILOTD_PROGRAM).asm
 
 $(POLYDEMO_PROGRAM).prg: $(POLYDEMO_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ -D__DEBUG_POLY__ -D__MAX_RAM__ polydemo.cc
@@ -198,14 +208,14 @@ $(VECTEST_PROGRAM).prg: $(VECTEST_SRC)
 
 # Re-run the check on whatever is already built, without provoking a build.
 zpcheck:
-	$(ZPCHECK) $(PPILOT_PROGRAM).asm $(POLYDEMO_PROGRAM).asm \
+	$(ZPCHECK) $(PPILOT_PROGRAM).asm $(PPILOTD_PROGRAM).asm $(POLYDEMO_PROGRAM).asm \
 		$(VECDEMO_PROGRAM).asm $(VECTEST_PROGRAM).asm
 
 test flight_test msg_test:
 	$(MAKE) -C test $@
 
 clean:
-	rm -rf $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg *.asm *.dbj *.int *.lbl *.map
+	rm -rf $(PPILOT_PROGRAM).prg $(PPILOTD_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg *.asm *.dbj *.int *.lbl *.map
 	$(MAKE) -C test clean
 
 .PHONY: all size ram zpcheck test flight_test msg_test clean

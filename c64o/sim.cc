@@ -81,17 +81,23 @@ void sim_run(uint8_t selected_mission) {
   // Keys that toggle state only act on their rising edge, otherwise
   // holding the key would flip the state on every loop iteration.
   static const uint8_t kToggleKeyP = 0x01;
+#ifdef __ENABLE_DEBUG__
   static const uint8_t kToggleKeyD = 0x02;
+#endif
   static const uint8_t kToggleKeyN = 0x04;
   static const uint8_t kToggleKeyF = 0x08;
   static const uint8_t kToggleKeyG = 0x10;
+#ifdef __ENABLE_SOUND__
   static const uint8_t kToggleKeyV = 0x20;
+#endif
   uint8_t prev_toggles = 0;
 
+#ifdef __ENABLE_SOUND__
   // Indexed by sound_volume, so it has to stay kSoundVolumeSteps long and in
   // the same order as kMasterVolume in sound.cc.
   static const char *const kSoundVolumeNames[kSoundVolumeSteps] = {
       "SOUND OFF", "SOUND LOW", "SOUND FULL"};
+#endif
 
   while (1) {
     keyb_poll();
@@ -101,9 +107,11 @@ void sim_run(uint8_t selected_mission) {
     if (key_pressed(KSCAN_P)) {
       toggles |= kToggleKeyP;
     }
+#ifdef __ENABLE_DEBUG__
     if (key_pressed(KSCAN_D)) {
       toggles |= kToggleKeyD;
     }
+#endif
     if (key_pressed(KSCAN_N)) {
       toggles |= kToggleKeyN;
     }
@@ -113,9 +121,11 @@ void sim_run(uint8_t selected_mission) {
     if (key_pressed(KSCAN_G)) {
       toggles |= kToggleKeyG;
     }
+#ifdef __ENABLE_SOUND__
     if (key_pressed(KSCAN_V)) {
       toggles |= kToggleKeyV;
     }
+#endif
     const uint8_t toggle_edges = keys_edges(toggles, &prev_toggles);
 
     // The map is a modal page, like the help screen: the simulation is
@@ -132,9 +142,11 @@ void sim_run(uint8_t selected_mission) {
       continue;
     }
 
+#ifdef __ENABLE_DEBUG__
     if (toggle_edges & kToggleKeyD) {
       mem_switch_debug(!mem_debug_enabled);
     }
+#endif
     if (toggle_edges & kToggleKeyP) {
       flight_paused = !flight_paused;
       if (flight_paused) {
@@ -143,6 +155,7 @@ void sim_run(uint8_t selected_mission) {
         msg_clear();
       }
     }
+#ifdef __ENABLE_SOUND__
     // The message is the whole reason this key is worth confirming: the
     // failure mode of audio is silence, so a V pressed by accident is
     // indistinguishable from the sound having broken. It also has to name the
@@ -154,6 +167,7 @@ void sim_run(uint8_t selected_mission) {
       sound_cycle_volume();
       msg_show(kSoundVolumeNames[sound_volume]);
     }
+#endif
 
     if (key_pressed(KSCAN_Q)) {
       keys_wait_release(KSCAN_Q);
@@ -191,12 +205,14 @@ void sim_run(uint8_t selected_mission) {
     if (toggle_edges & kToggleKeyG) {
       flight_input(FLIGHT_INPUT_TOGGLE_GEAR);
     }
+#ifdef __ENABLE_DEBUG__
     if (key_pressed(KSCAN_Z)) {
       flight_input(FLIGHT_INPUT_MOVE_FORWARD);
     }
     if (key_pressed(KSCAN_X)) {
       flight_input(FLIGHT_INPUT_MOVE_BACKWARD);
     }
+#endif
     if (key_pressed(KSCAN_PLUS)) {
       flight_input(FLIGHT_INPUT_THROTTLE_UP);
     }

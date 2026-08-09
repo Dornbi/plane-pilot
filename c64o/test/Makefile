@@ -41,7 +41,7 @@ map_test: $(MAP_TEST_SRC) $(MAP_TEST_HDRS)
 	$(HOST_CC) $(HOST_CFLAGS) -o map_test $(MAP_TEST_SRC)
 
 sound_test: $(SOUND_TEST_SRC) $(SOUND_TEST_HDRS)
-	$(HOST_CC) $(HOST_CFLAGS) -o sound_test $(SOUND_TEST_SRC)
+	$(HOST_CC) $(HOST_CFLAGS) -D__ENABLE_SOUND__ -o sound_test $(SOUND_TEST_SRC)
 
 mul_test: $(MUL_TEST_SRC) $(MUL_TEST_HDRS)
 	$(HOST_CC) $(HOST_CFLAGS) -o mul_test $(MUL_TEST_SRC)

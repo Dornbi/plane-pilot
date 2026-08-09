@@ -157,75 +157,20 @@ bool sound_wind_audible(int16_t speed);
 static const uint8_t kSoundVolumeSteps = 3;
 static const uint8_t kSoundVolumeDefault = 2;
 
+#ifdef __ENABLE_SOUND__
 extern uint8_t sound_volume;
 
 void sound_cycle_volume(void);
-
-// Zeroes the shadow and the chip. Call once before the raster interrupts
-// start. Does not touch sound_volume; see above.
 void sound_init(void);
-
-// Recomputes sound_shadow from the current flight state. Main line only,
-// once per frame.
 void sound_update(void);
-
-// Releases the SID: silences the chip and zeroes the shadow, so that a blit
-// after the interrupts come back does not restore whatever was playing.
-//
-// Called from gfx_stop_raster_irqs(), which is the one operation that means
-// "the driver has stopped running" - it is reached only from
-// screen_enter_static_mccm() (menu, help) and map_enter(). That gives the
-// invariant the whole design leans on:
-//
-//   The flight driver owns the SID whenever raster IRQs are running.
-//   Anything else that wants the SID must take ownership explicitly, and
-//   silence it on release.
-//
-// Everything else - paused, crashed, out of fuel, reset - needs no call at
-// all, because the simulation loop keeps running and sound_update() derives
-// those from state.
 void sound_silence(void);
 
-// Copies the shadow to $D400. Interrupt side, inlined into
-// _switch_to_terrain, and deliberately defined here rather than in sound.cc
-// so it lands inside gfx.cc's #pragma optimize(noasm, nooutline) region.
-//
-// Must stay flat: no locals the compiler could spill into an @stack frame, no
-// calls. Verify after building that ppilot.map has no sound_blit@stack entry.
-//
-// Keep it after the mode-switch writes in the handler. The blit is ~200
-// cycles and the handler's first job - latching mem_using_alt_buffer into
-// $d018 - is the only part with a deadline; a late blit only delays itself,
-// in the lower border, where nothing is watching.
 inline void sound_blit(void) {
   if (sound_gen != sound_gen_seen) {
     sound_gen_seen = sound_gen;
-    // Gate off. The full copy below immediately re-writes this with the gate
-    // bit as the shadow has it, so the voice sees a 1 -> 0 -> 1 edge and
-    // retriggers its envelope. Several register writes separate the two, which
-    // is far more than the one cycle the SID needs.
-    //
-    // Voice 3 ONLY. An earlier version cycled all three, which was harmless
-    // while sound_gen never moved but would be ruinous now that it does: the
-    // stall warning bumps it several times a second, and voices 1 and 2 are
-    // continuous. Retriggering the engine three times a second is a stutter,
-    // and the wind's 68 ms attack would turn it into a pulsing wash.
-    //
-    // Voice 3 is the only transient voice, and that is exactly why the
-    // retrigger handshake belongs to it alone.
     sid.voices[2].ctrl = sound_shadow[kSoundRegV3Ctrl] & ~SID_CTRL_GATE;
   }
 
-  // The full unroll is what keeps this a flat store sequence with no loop
-  // counter to spill, which is the whole reason the blit is interrupt-safe.
-  //
-  // Guarded because clang - which is what `g++` is on macOS, and therefore
-  // what builds the host tests there - has its own `#pragma unroll` taking
-  // either no argument or a count. It parses this one and rejects `full` as an
-  // undeclared identifier, and -Wno-unknown-pragmas does not help: the pragma
-  // is not unknown to clang, only its argument is wrong. GCC ignores it, so
-  // the error only appears on a Mac. None of the other oscar64 pragmas in the
-  // headers have this problem; `compile` is genuinely unknown to both.
 #ifdef __OSCAR64__
 #pragma unroll(full)
 #endif
@@ -235,5 +180,13 @@ inline void sound_blit(void) {
 }
 
 #pragma compile("sound.cc")
+#else
+static const uint8_t sound_volume = 0;
+inline void sound_cycle_volume(void) {}
+inline void sound_init(void) {}
+inline void sound_update(void) {}
+inline void sound_silence(void) {}
+inline void sound_blit(void) {}
+#endif
 
 #endif // SOUND_H

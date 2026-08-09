@@ -452,7 +452,8 @@ are kept last in the enum so that predicate stays a single comparison.
 
 | Target         | Purpose                                                       |
 | -------------- | ------------------------------------------------------------- |
-| `ppilot.prg`   | the game (`-D__DEBUG_VIEW__ -D__DEBUG_MODEL__ -D__MAX_RAM__`) |
+| `ppilot.prg`   | standard game release (`-D__ENABLE_SOUND__ -D__MAX_RAM__`)   |
+| `ppilotd.prg`  | debug build (`-D__ENABLE_DEBUG__ -D__MAX_RAM__`)             |
 | `polydemo.prg` | polygon rasterizer test bed (`-D__DEBUG_POLY__`)              |
 | `vecdemo.prg`  | character-mode ground-dot prototype                           |
 | `vectest.prg`  | correctness and cycle counts for the vector routines          |

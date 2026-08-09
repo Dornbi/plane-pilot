@@ -242,7 +242,7 @@ __noinline void world_render_grid() {
 
   bm_model_end(910, "GRD:");
 
-#ifdef __DEBUG_VIEW__
+#ifdef __ENABLE_DEBUG__
   if (mem_debug_enabled) {
     print_labeled_bcd(940, "GRD:", _world_grid_radius, 3);
   }

@@ -23,7 +23,8 @@ make prg
 
 If everything goes well it builds these executables into `c64o/`:
 
-- `ppilot.prg`: The main executable.
+- `ppilot.prg`: The main executable (sound enabled, no debug info).
+- `ppilotd.prg`: Debug executable (debug view/info enabled, no sound).
 - `polydemo.prg`: Polygon rendering prototype.
 - `vecdemo.prg`: Simple character mode prototype of the dots on the ground.
 - `vectest.prg`: Correctness test and cycle count for 3D vector operations.

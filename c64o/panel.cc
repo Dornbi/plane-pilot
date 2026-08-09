@@ -28,7 +28,7 @@ void panel_update_instruments() {
 }
 
 void panel_maybe_print_debug() {
-#ifdef __DEBUG_MODEL__
+#ifdef __ENABLE_DEBUG__
   if (mem_debug_enabled) {
     print_labeled_signed_bcd(600, "FX: ", flight_cam.front.x, 4);
     print_labeled_signed_bcd(610, "FY: ", flight_cam.front.y, 4);

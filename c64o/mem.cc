@@ -29,7 +29,9 @@ static const char *oscar_expand_lzo(char *dp, const char *sp) { return sp; }
 static uint8_t *const kSpriteData = (uint8_t *)0xD7C0;
 
 uint8_t mem_box_char_start;
+#ifdef __ENABLE_DEBUG__
 bool mem_debug_enabled;
+#endif
 bool mem_using_alt_buffer;
 
 static uint8_t *const kScreenRowPtrsMain[kScreenHeight] = {
@@ -154,7 +156,9 @@ void mem_init(void) {
   view_refresh_panel();
 
   mem_using_alt_buffer = false;
+#ifdef __ENABLE_DEBUG__
   mem_debug_enabled = false;
+#endif
 }
 
 #pragma optimize(pop)
@@ -244,6 +248,7 @@ __noinline void mem_clear_screen(void) {
   memset(mem_screen_ram, kCharSolid11, kViewportHeight * kScreenWidth);
 }
 
+#ifdef __ENABLE_DEBUG__
 void mem_switch_debug(bool debug) {
   mem_debug_enabled = debug;
   if (debug) {
@@ -261,5 +266,6 @@ void mem_switch_debug(bool debug) {
     view_refresh_panel();
   }
 }
+#endif
 
 #pragma optimize(pop)
