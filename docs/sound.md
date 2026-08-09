@@ -1413,9 +1413,13 @@ steps — off, low, full — because "too loud" and "off" are different complain
 and a plain mute only answers one of them. Step 0 is one more term in the
 `_audible()` predicate (§3); steps 1 and 2 differ only in `$D418`.
 
-It cycles upward and wraps from a default of full, so the first press from a
-fresh start still silences the game, which is what a player reaching for an
-unfamiliar key most likely wants. Each press shows `SOUND OFF` / `SOUND LOW` /
+**Superseded: it now cycles *downward* — full, low, off — and is bound on the
+menu and help screens as well as in flight.** See [music.md](music.md) §3. The
+original reasoning, kept because it is the argument that was wrong: it cycled
+upward from a default of full so that the first press silenced the game, which
+is what a player reaching for an unfamiliar key most likely wants. That holds
+for a mute key. With three steps the second press has to mean something too,
+and loud → off → quiet → loud gives one key two different meanings. Each press shows `SOUND OFF` / `SOUND LOW` /
 `SOUND FULL` — with three steps the key alone no longer says where you ended
 up, and without any message at all an accidental press is indistinguishable
 from the sound having broken, which is the failure mode this whole module has

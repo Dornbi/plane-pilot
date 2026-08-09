@@ -107,7 +107,7 @@ To fly the plane you can use the following keys:
 | `M`             | Toggle map view                        | All          |
 | `R`             | Reset to starting state                | All          |
 | `P`             | Pause / Resume flight                  | All          |
-| `V`             | Volume: off / low / full               | `ppilot.prg` |
+| `V`             | Volume: full / low / off (any screen)  | `ppilot.prg` |
 | `D`             | Toggle debug info                      | `ppilotd.prg`|
 | `X` `Z`         | Move forward and backward (when paused)| `ppilotd.prg`|
 | `H`             | Show the help screen                   | All          |

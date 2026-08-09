@@ -34,6 +34,11 @@ uint8_t flight_stall = 0;
 uint8_t flight_events = 0;
 uint8_t flight_gen = 0;
 
+// The one piece of music.cc's state sound.cc reads. Defined here rather than
+// linked, for the same reason as the flight globals above: it lets the test
+// set the ownership question directly instead of driving a screen transition.
+bool music_playing = false;
+
 // The host build's stand-in for the chip. sid.h points SID_REGS at this, so
 // sound_silence()'s write-through is an array store instead of a segfault, and
 // the test can check what reached the chip as well as what is in the shadow.
@@ -306,19 +311,45 @@ int main() {
 
   // --- The V key -----------------------------------------------------------
 
-  // The cycle order. Default is full, and V wraps upward, so the first press
-  // from a fresh start silences the game - which is what a player reaching for
-  // an unfamiliar key most likely wants.
+  // The cycle order. Default is full and V wraps DOWNWARD, so the sequence is
+  // full -> low -> off -> full: every press means "quieter" until it wraps.
+  // It used to go upward, which made the first press mean "off" and the second
+  // mean "quiet" - two different things from one key.
+  //
+  // The sequence is written out literally rather than derived from
+  // kSoundVolumeSteps. A loop that computes the expected value applies the
+  // same rule the implementation does, so it agrees with an inverted
+  // implementation instead of catching it - which is exactly what a test of a
+  // direction must not do.
   reset_state();
+  assert(kSoundVolumeSteps == 3);
   assert(sound_volume == kSoundVolumeDefault);
   assert(kSoundVolumeDefault == kSoundVolumeSteps - 1);
-  for (uint8_t i = 0; i < kSoundVolumeSteps; ++i) {
-    sound_cycle_volume();
-    assert(sound_volume == i);
-  }
-  // Cycling all the way round returns to where it started, rather than
-  // sticking at the top or running off the end of the volume table.
+  sound_cycle_volume();
+  assert(sound_volume == 1);  // full -> low
+  sound_cycle_volume();
+  assert(sound_volume == 0);  // low  -> off
+  sound_cycle_volume();
+  assert(sound_volume == 2);  // off  -> full, wrapping rather than sticking
   assert(sound_volume == kSoundVolumeDefault);
+
+  // Every step has a label, they are all the documented fixed width, and the
+  // label tracks the step. The screens print this without strlen and without
+  // clearing the cell, so a short one would leave the tail of the last.
+  for (uint8_t step = 0; step < kSoundVolumeSteps; ++step) {
+    sound_volume = step;
+    const char *label = sound_volume_label();
+    assert(label != NULL);
+    assert(strlen(label) == kSoundVolumeLabelLen);
+  }
+  sound_volume = 0;
+  assert(strstr(sound_volume_label(), "OFF") != NULL);
+  sound_volume = kSoundVolumeSteps - 1;
+  assert(strstr(sound_volume_label(), "FULL") != NULL);
+  // Out of range falls back rather than reading off the end of the table.
+  sound_volume = 99;
+  assert(sound_volume_label() != NULL);
+  sound_volume = kSoundVolumeDefault;
 
   // Step 0 goes through the same predicate as pause and crash, so it silences
   // the whole driver rather than one voice - which is what has to stay true as
@@ -1262,6 +1293,28 @@ int main() {
   for (uint8_t i = 0; i < kSoundRegCount; ++i) {
     assert(sid_regs[i] == 0);
   }
+
+  // ...but only when this driver actually owns the chip. music.cc is the
+  // second owner and holds $D400 while music_playing is set, so silencing
+  // then would stomp on it. Both help-screen transitions run
+  // screen_begin_text_page() -> gfx_stop_raster_irqs() -> sound_silence()
+  // with the menu tune playing, and before this guard existed that clipped a
+  // held note and dropped the master volume on the way in and again on the
+  // way out. See ../docs/music.md section 3.
+  reset_state();
+  flight_throttle = kMaxThrottle;
+  sound_update();
+  memset(sid_regs, 0xAA, sizeof(sid_regs));
+  music_playing = true;
+  sound_silence();
+  // The shadow is this driver's own state and is cleaned unconditionally: it
+  // has to be clear before the raster interrupts come back, or the first blit
+  // would restore whatever the last flight was playing.
+  assert(shadow_all_zero());
+  for (uint8_t i = 0; i < kSoundRegCount; ++i) {
+    assert(sid_regs[i] == 0xAA && "sound_silence() wrote the chip while the tune owned it");
+  }
+  music_playing = false;
 
   // Coming back from the menu or the map: the driver resumes on its own, with
   // no un-silence call anywhere. The gate went 0 -> 1 in the shadow, which is a

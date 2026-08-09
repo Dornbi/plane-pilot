@@ -222,6 +222,24 @@ class TestMusicData(unittest.TestCase):
         self.assertEqual(unpacked_lead, [1 if v else 0 for v in lead_on])
         self.assertEqual(unpacked_drum, [generate_music.DRUM_CODE[v] for v in drum_at])
 
+    def test_generated_header_does_not_include_stdbool(self):
+        """musicdef.h must not pull in <stdbool.h>.
+
+        bool.h defines `bool` as a *macro* on the host build. clang's
+        <stdbool.h> #undefs that macro in C++ mode; gcc's leaves it alone. So
+        including it here changed the meaning of `bool` partway through any
+        file that includes music.h - and sound.cc does - which made
+        sound_wind_audible() declared as returning `unsigned char` and defined
+        as returning `bool`. It compiled on Linux and failed on macOS.
+
+        The header declares no bool, so the include was pure cost. This test
+        exists because the file is generated: the fix lives in the exporter and
+        would come back silently if someone re-added the line.
+        """
+        generate_music.main()
+        _, h = self._read_generated()
+        self.assertNotIn("stdbool", h)
+
     def test_bass_on_was_dropped_and_stays_dropped(self):
         """kMusicBassOn was 256 bytes of the constant 1. It must not come back,
         and the premise it was deleted on must keep holding."""

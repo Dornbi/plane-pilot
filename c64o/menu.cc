@@ -10,6 +10,7 @@
 #include "music.h"
 #include "print.h"
 #include "screen.h"
+#include "sound.h"
 
 // The routines below only run on screen transitions (menu, help, map) or at
 // startup, never inside the per-frame simulation loop, so the outliner's
@@ -21,6 +22,20 @@
 static const uint8_t kMissionRowStart = 6;
 static const uint8_t kMissionRowStep = 4;
 static const uint8_t kVisibleMissions = 4;
+
+// Feedback after a V press, bottom right, on the same row as the help prompt
+// and in the same cell the help screen uses. Transient rather than a permanent
+// readout: it is a message, the way the flight loop's is, and a HUD element
+// that never changes stops being read after the first look.
+//
+// Prints nothing at all in a build without sound - sound_volume_label()
+// returns null there.
+static void _show_volume_notice(void) {
+  const char *label = sound_volume_label();
+  if (label) {
+    screen_notice(label, kSoundVolumeLabelLen);
+  }
+}
 
 static void _render_menu_items(uint8_t scroll_offset) {
   memset(mem_screen_row_ptrs[4], ' ', kScreenWidth * 19);
@@ -55,7 +70,9 @@ static void _enter_menu(uint8_t scroll_offset) {
 
   _render_menu_items(scroll_offset);
 
-  print_str(24, 11, STRL("PRESS H FOR HELP"));
+  print_str(23, 11, STRL("PRESS H FOR HELP"));
+  // No volume readout in the initial paint. It is a notice now, not a status
+  // line: it appears when V is pressed and clears itself three seconds later.
 }
 
 static void _draw_mission_cursor(uint8_t selected_mission,
@@ -83,6 +100,7 @@ uint8_t menu_run() {
   static const uint8_t kMenuKeySpace = 0x04;
   static const uint8_t kMenuKeyReturn = 0x08;
   static const uint8_t kMenuKeyH = 0x10;
+  static const uint8_t kMenuKeyV = 0x20;
   uint8_t prev_menu_toggles = 0;
 
   while (1) {
@@ -104,6 +122,11 @@ uint8_t menu_run() {
     if (key_pressed(KSCAN_H)) {
       menu_toggles |= kMenuKeyH;
     }
+#ifdef __ENABLE_SOUND__
+    if (key_pressed(KSCAN_V)) {
+      menu_toggles |= kMenuKeyV;
+    }
+#endif
     const uint8_t menu_edges = keys_edges(menu_toggles, &prev_menu_toggles);
 
     if (menu_edges & (kMenuKeyI | kMenuKeyK)) {
@@ -157,8 +180,16 @@ uint8_t menu_run() {
       _enter_menu(scroll_offset);
       _draw_mission_cursor(selected_mission, scroll_offset, true);
     }
+    if (menu_edges & kMenuKeyV) {
+      // music_tick() reads sound_volume every frame and composes it with the
+      // tune's per-bar ramp, so this is audible on the next tick without any
+      // notification path of its own.
+      sound_cycle_volume();
+      _show_volume_notice();
+    }
 
     music_tick();
+    screen_notice_tick();
     gfx_wait_vsync();
   }
 }

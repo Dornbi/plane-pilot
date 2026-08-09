@@ -92,13 +92,6 @@ void sim_run(uint8_t selected_mission) {
 #endif
   uint8_t prev_toggles = 0;
 
-#ifdef __ENABLE_SOUND__
-  // Indexed by sound_volume, so it has to stay kSoundVolumeSteps long and in
-  // the same order as kMasterVolume in sound.cc.
-  static const char *const kSoundVolumeNames[kSoundVolumeSteps] = {
-      "SOUND OFF", "SOUND LOW", "SOUND FULL"};
-#endif
-
   while (1) {
     keyb_poll();
 
@@ -165,7 +158,9 @@ void sim_run(uint8_t selected_mission) {
     // the volume under it does nothing audible.
     if (toggle_edges & kToggleKeyV) {
       sound_cycle_volume();
-      msg_show(kSoundVolumeNames[sound_volume]);
+      // The label moved to sound.cc when V became a key on every screen that
+      // makes noise, rather than a flight-loop key with a table beside it.
+      msg_show(sound_volume_label());
     }
 #endif
 

@@ -148,17 +148,34 @@ bool sound_wind_audible(int16_t speed);
 // as pause and crash, so there is no second silencing path to keep correct.
 // Steps 1 and 2 differ only in what reaches $D418.
 //
-// V cycles upward and wraps, and the default is full - so the first press from
-// a fresh start still silences the game, which is what a player reaching for an
-// unfamiliar key most likely wants.
+// **V cycles downward and wraps: full -> low -> off -> full.** The default is
+// full, so the sequence from a fresh start is the one a volume control is
+// expected to have - each press makes it quieter until it wraps.
+//
+// This used to cycle upward, which meant the first press from full went
+// straight to silence. The argument was that a player reaching for an
+// unfamiliar key most likely wants to shut the game up. That is true of a mute
+// key and false of a volume key: with three steps, "quieter" is the meaning of
+// the second press as well as the first, and a control that goes loud -> off ->
+// quiet -> loud has no direction at all.
 //
 // The setting deliberately survives sound_init(): a player who turned the sound
 // down does not want it back up every time they restart a mission.
 static const uint8_t kSoundVolumeSteps = 3;
 static const uint8_t kSoundVolumeDefault = 2;
 
+// The label the screens show after a press. Fixed width, so a caller can print
+// it over the previous one without clearing the cell first, and so no caller
+// needs strlen.
+static const uint8_t kSoundVolumeLabelLen = 10;
+
 #ifdef __ENABLE_SOUND__
 extern uint8_t sound_volume;
+
+// V is handled on every screen that makes noise - the flight loop, the menu
+// and the help screen - so the label lives here rather than next to any one of
+// them. See ../docs/music.md section 3.
+const char *sound_volume_label(void);
 
 void sound_cycle_volume(void);
 void sound_init(void);
@@ -182,6 +199,10 @@ inline void sound_blit(void) {
 #pragma compile("sound.cc")
 #else
 static const uint8_t sound_volume = 0;
+// Null rather than "SOUND OFF": there is no sound in this build at all, and a
+// screen that prints a volume the player cannot change is worse than silence.
+// Every caller tests for null, and oscar64 folds the branch away.
+inline const char *sound_volume_label(void) { return 0; }
 inline void sound_cycle_volume(void) {}
 inline void sound_init(void) {}
 inline void sound_update(void) {}

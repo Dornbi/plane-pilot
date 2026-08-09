@@ -39,7 +39,7 @@ them. See [project.md](project.md) for the surrounding architecture.
 | ----------------------------------------------- | ----------------------------------------- |
 | A 24-bar loop, three voices, 46.1 s             | Music during flight, or help from flight  |
 | `ppilot.prg` only, behind `__ENABLE_SOUND__`    | Anything in `ppilotd.prg`, the debug build |
-| Playing under the menu and help opened from it  | Gapless music across screen changes       |
+| Playing under the menu and help opened from it  | Tick-perfect audio across screen repaints |
 | Drums stealing voice 3 from the arpeggio        | Music under the map (§3)                  |
 | A per-bar fade-in on `$D418` (§3)               | Per-voice volume — the chip has none      |
 | Data generated from `lib/music.py`              | A general tracker / `.sid` player         |
@@ -134,12 +134,25 @@ for the duration of the map's multi-frame rebuild. A tune would stutter through
 it even with an interrupt-driven player, and the map is reachable only from
 flight, where there is no tune anyway.
 
-Gapless music across screen transitions is the one thing a polling player cannot
-do, since the loop necessarily stops. The transitions here are menu → flight and
-menu → help. The first *should* be a hard cut: the tune ending is how you know
-the mission started. The second is covered by the paragraph above. So the
-feature a raster-driven player would buy has no customer, and the polling loop
-keeps the design at one screen's worth of machinery.
+Truly gapless music across screen transitions is the one thing a polling player
+cannot do, since the loop necessarily stops while the new screen is painted.
+The transitions here are menu → flight and menu ↔ help. The first *should* be a
+hard cut — the tune ending is how you know the mission started. The second
+turned out to matter, and the answer was not a raster-driven player:
+
+**A screen transition must not be allowed to silence the other owner.** Both
+directions of menu ↔ help run `screen_begin_text_page()` →
+`gfx_stop_raster_irqs()` → `sound_silence()`, and that write-throughs zeros to
+all 25 registers. The tune was being silenced by the *flight driver* releasing
+a chip it did not hold. `sound_silence()` now returns before its write-through
+when `music_playing` is set, which turns §3's ownership rule from something
+that is true by construction into something the code enforces.
+
+What is left is a stall rather than a gap: the transition `memset`s 2 KB and
+re-renders, so the player misses two to four ticks and a gated note sustains
+through them. That is the residue a polling loop cannot remove, and 40 ms of
+extra sustain is a better trade than ticking the player from inside the
+screen-painting code.
 
 ### The frame is the clock, and the tempo has to accept that
 
@@ -296,6 +309,55 @@ No multiply, no division, one indexed load per bar. This is the same argument
 sound.md §3 makes for folding the volume key into a predicate rather than giving
 it a silencing path of its own: a mechanism every future voice would have to
 remember to consult is a mechanism that will eventually be forgotten.
+
+### `V` works on every screen that makes noise, and it cycles downward
+
+Two changes to sound.md's volume key, both of which the tune is the reason for.
+
+**It is bound in the menu and the help screen**, not just the flight loop.
+Before the tune existed that was a defensible gap — the only screens with sound
+were the ones with a flight in them. Now the menu is the loudest screen in the
+program and was the one place the volume could not be changed.
+
+The blocker §9 recorded was the confirmation message: `sound_cycle_volume()`
+announced itself through `msg.cc`, which writes into the flight viewport and
+has nowhere to put a line on a text page. The answer is that the *label* moved
+into `sound.cc` as `sound_volume_label()` — a fixed-width string, so a caller
+can print it over the previous one without clearing the cell or calling
+`strlen` — and each screen decides where to put it. In a build without sound
+the accessor returns null and nothing is drawn at all, because a volume the
+player cannot change is worse than a blank corner.
+
+**It is a notice, not a readout**, on every screen. Flight routes it through
+`msg_show()`, which clears itself after `MSG_DEFAULT_DURATION`; the menu and
+help get the same behaviour from `screen_notice()` in `screen.cc`, which prints
+at row 24 column 29 — the same cell on both, so the value does not appear to
+move when the player crosses between them — and clears it after
+`kNoticeFrames`. Those two constants are 30 frames at the flight loop's ~10 Hz
+and 150 at the menu's true 50 Hz: the same three seconds by different routes.
+
+`msg.cc` could not be reused for this and that is worth stating, because it
+looks like the obvious answer. It writes row 0 of the *flight viewport*,
+restores the colour buffer behind itself, and publishes a span so the sprite
+layer can dodge it — none of which exists on a text page. `screen.cc` is where
+the notice lives instead, on the grounds that it was the second thing the menu
+and the help screen needed to share and `screen.cc` is already what they share.
+
+The map is deliberately not included. It has no sound, banks I/O out, and a key
+that silently changed a setting with no feedback is not a control.
+
+**And it cycles downward: full → low → off → full.** It used to go upward from
+a default of full, so the first press landed on silence; sound.md argued that
+a player reaching for an unfamiliar key most likely wants to shut the game up.
+That is true of a *mute* key and false of a *volume* key. With three steps the
+second press has to mean something too, and `full → off → low → full` has no
+direction — one press means "off" and the next means "louder". Downward makes
+every press mean the same thing.
+
+`music_tick()` re-reads `sound_volume` every frame and composes it with the
+per-bar ramp, so a press in the menu is audible on the next tick with no
+notification path of its own. That is what makes this a two-line change at each
+call site rather than a mechanism.
 
 **The ramp floors at 8, not 0, and the tail matters more than the head.** A
 fade from silence is the obvious opening and it is wrong here, because the
@@ -926,25 +988,24 @@ quick glance at the mission list, inside a browse. This is the number most
 likely to move again after phase 8, and §3's table says the only places it can
 move to are 30.7 and 61.4.
 
-**How rough is the help-screen transition?** The tune keeps playing — help never
-stops it (§3), and the row clock carries straight across. Two things happen to
-the sound anyway, both found by reading the code in phase 2 rather than by
-listening:
+**~~How rough is the help-screen transition?~~ The gap is fixed; a short stall
+remains.** The cause was that `help_run()` and the `_enter_menu()` after it both
+run `screen_begin_text_page()` → `gfx_stop_raster_irqs()` → `sound_silence()`,
+and that write-throughs zeros to all 25 registers. The tune was being silenced
+by the flight driver releasing a chip it did not hold.
 
-- `help_run()` and the `_enter_menu()` that follows it both call
-  `screen_begin_text_page()`, which reaches `gfx_stop_raster_irqs()`, which
-  calls `sound_silence()` — and that write-throughs zeros to all 25 registers.
-  So a lead note sounding at the moment `H` is pressed gets its gate cleared
-  mid-note. The next `music_tick()` restores the master volume 20 ms later and
-  the next row re-gates, so the tune recovers on its own; the artefact is one
-  clipped note on the way in and one on the way out.
-- Both transitions `memset` the whole screen, so the frame they happen on is
-  long. Whether that is one dropped tick or four is still not known.
+The fix makes §3's ownership rule *enforced* rather than merely true by
+construction: `sound_silence()` now returns before its write-through when
+`music_playing` is set. It still zeroes the shadow unconditionally — that is the
+flight driver's own state, and it has to be clean before the raster interrupts
+come back or the first blit would restore whatever the last flight was playing.
+`sound_test.cc` covers both halves.
 
-Neither is worth engineering around before phase 8 says how it sounds. If the
-clipped note is objectionable the fix is a `music_stop()` / `music_start()`
-bracket that resumes from the saved row, which is three lines and one byte of
-state.
+What remains is a **stall, not a gap**: both transitions `memset` 2 KB of screen
+and re-render, so `music_tick()` is not called for two to four frames and a
+gated note simply sustains through them. Whether that is audible as a hitch is a
+phase 8 question. Closing it entirely would mean ticking the player from inside
+the screen-painting code, which is a worse trade than a 40 ms sustain.
 
 **Is the lead loud enough over the arpeggio?** With no per-voice volume this is
 decided entirely by envelope and waveform, and it is the first thing that will
@@ -966,12 +1027,12 @@ more noticeable here. It may be exactly what gives the piece its character, or
 it may mean a browsing player only ever hears pedal tones. Shortening the pedal
 section to two bars is one edit to `SOFT_INTRO_BARS`. Ear decision.
 
-**Should `V` work in the menu?** §3 makes the tune respect `sound_volume`;
-letting the player *change* it there is separate. The blocker is that
-`sound_cycle_volume()`'s confirmation message goes through `msg.cc`, which
-writes into the flight viewport and has nowhere to put a line on a text page.
-Cheapest answer is probably a fixed row on the menu screen rather than teaching
-`msg.cc` a second output.
+**~~Should `V` work in the menu?~~ Done, and on the help screen too**, with the
+cycle reversed to full → low → off. §3 has the reasoning; the guessed answer
+there — a fixed cell on the text page rather than a second `msg.cc` output —
+turned out to be the right one. Net cost was zero bytes: the label table moved
+out of `sim.cc` rather than being copied, and oscar64 deduplicated the two
+identical `_draw_volume()` functions in `menu.cc` and `help.cc` into one.
 
 **Does anything want a second tune?** A short jingle on mission completion is
 the obvious candidate and would reuse the player unchanged, but it would play

@@ -5,6 +5,7 @@
 #include "color.h"
 #include "gfx.h"
 #include "mem.h"
+#include "print.h"
 #include "sprites.h"
 #include "vic.h"
 #include "view.h"
@@ -26,6 +27,23 @@ void screen_enter_static_mccm(void) {
   mem_set_mccm_mode();
 }
 
+// --- Transient notices ------------------------------------------------------
+
+static uint8_t _notice_frames;
+static uint8_t _notice_len;
+
+void screen_notice(const char *text, uint8_t len) {
+  print_str(kNoticeRow, kNoticeCol, text, len);
+  _notice_len = len;
+  _notice_frames = kNoticeFrames;
+}
+
+void screen_notice_tick(void) {
+  if (_notice_frames != 0 && --_notice_frames == 0) {
+    memset(mem_screen_row_ptrs[kNoticeRow] + kNoticeCol, ' ', _notice_len);
+  }
+}
+
 void screen_begin_text_page(void) {
   screen_enter_static_mccm();
 
@@ -34,6 +52,12 @@ void screen_begin_text_page(void) {
 
   memset(kScreenRamMain, 32, 1000);
   memset(kColorRam, kColorBlack, 1000);
+
+  // The page just went blank, so any notice on it went with it. Dropping the
+  // countdown here keeps the state and the screen agreeing; without it a
+  // notice shown just before a screen change would later blank a cell that
+  // something else had since drawn into.
+  _notice_frames = 0;
 }
 
 void screen_restore_simulation(void) {

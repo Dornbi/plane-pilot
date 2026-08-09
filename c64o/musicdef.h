@@ -2,7 +2,6 @@
 #define MUSICDEF_H
 
 #include <stdint.h>
-#include <stdbool.h>
 
 // The tune ships in ppilot.prg only. ppilotd.prg is the debug
 // build and stays silent, so none of this - including the
