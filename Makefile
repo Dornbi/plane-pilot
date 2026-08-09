@@ -20,16 +20,17 @@ PANEL_FLAGS = --bg-color 0 --optimize-slots \
 # c64o/ (build output, gitignored) to bin/ (checked in, what README links to).
 PROGRAMS = ppilot ppilotd polydemo vecdemo vectest
 
-.PHONY: help data chardefs gfx-chars sprites map-tiles map-tiles-draft panel map-preview render demo prg ram release test clean
+.PHONY: help data chardefs gfx-chars sprites map-tiles map-tiles-draft panel music map-preview render demo prg ram release test clean
 
 help:
 	@echo "Data generation:"
-	@echo "  make data        - regenerate all generated C64 data (chardefs, gfx-chars, sprites, map-tiles)"
+	@echo "  make data        - regenerate all generated C64 data (chardefs, gfx-chars, sprites, map-tiles, music)"
 	@echo "  make chardefs    - chardefs/boxdefs for Python and C, plus all reference frames"
 	@echo "  make gfx-chars   - c64o/gfx_chars.bin"
 	@echo "  make sprites     - c64o/spritedef.{bin,h,cc} and lib/spritedef.py"
 	@echo "  make map-tiles   - c64o/mapdefs.{cc,h} from gfx/ppilot_map_tiles.png"
 	@echo "  make panel       - c64o/panel.koa from gfx/ppilot_panel_40.png"
+	@echo "  make music       - c64o/musicdef.{cc,h} and docs/sid-intro-theme.html from lib/music.py"
 	@echo ""
 	@echo "Preview and build:"
 	@echo "  make map-preview - render out/map_preview.png from the current map tiles"
@@ -45,7 +46,7 @@ help:
 
 # --- Data generation -------------------------------------------------------
 
-data: chardefs gfx-chars sprites map-tiles
+data: chardefs gfx-chars sprites map-tiles music
 
 chardefs:
 	$(PYTHON) tools/generate_all.py $(CHARDEFS_FLAGS)
@@ -61,6 +62,9 @@ sprites:
 # refuses to clobber an existing sheet without --force.
 map-tiles:
 	$(PYTHON) tools/generate_map_tiles.py
+
+music:
+	$(PYTHON) tools/generate_music.py
 
 map-tiles-draft:
 	$(PYTHON) tools/make_map_tiles_draft.py
