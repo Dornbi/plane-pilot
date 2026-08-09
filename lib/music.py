@@ -70,35 +70,40 @@ SOFT_INTRO_BARS = 4      # pedal bass, arpeggio, no lead, no drums
 SOFT_HAT_BARS = 8        # ...then hats only until this bar
 
 # ==========================================================================
-#  PRIMARY TUNE: 16-Bar Atmospheric Theme (125 BPM, lift turnaround)
+#  PRIMARY TUNE: 24-Bar Atmospheric Theme (125 BPM, lift turnaround)
 # ==========================================================================
 # A bar is 96 frames at speed 6 and the player's pulse-width sweep cycles every
 # 256, so bars * 96 must be a multiple of 256: only 8, 16, 24 and 32 keep the
 # loop bit-clean.
 #
-# This started at 32 bars and came down twice. The eight-bar cadential outro
-# went first - it walked out to F major and closed with a V7-i, which is the one
-# thing a loop must not do - and the climax section went with the second cut,
-# for RAM. What survives is the shape that made the arrangement worth having:
-# four bars of pedal build, four of motif entry, six of theme, and a two-bar
-# turnaround that is also the tune's melodic peak. Gm -> A7 is iv - V7 into the
-# Dm of bar 1, so the loop point needed no bars of its own.
+# This started at 32 bars, lost its eight-bar cadential outro for musical
+# reasons - it walked out to F major and closed with a V7-i, which is the one
+# thing a loop must not do - and then briefly dropped to 16 for RAM, which cost
+# it the climax. Packing the flat tables (docs/music.md section 4, option B)
+# bought that back and more: 24 bars packed is smaller than 16 bars was
+# unpacked. The layout is 4 bars of pedal build, 4 of motif entry, 8 of theme,
+# 6 of climax and a 2-bar turnaround that is also the melodic peak. Gm -> A7 is
+# iv - V7 into the Dm of bar 1, so the loop point needs no bars of its own.
 #
-# See docs/music.md sections 3 and 4.
+# See docs/music.md sections 3, 4 and 5.
 SPEED = 6           # frames per row -> 125 BPM at 50 Hz
 ROWS_PER_BAR = 16
-BARS = 16
-TOTAL_ROWS = BARS * ROWS_PER_BAR        # 256
-TOTAL_FRAMES = TOTAL_ROWS * SPEED       # 1536 = 30.72 s PAL
+BARS = 24
+TOTAL_ROWS = BARS * ROWS_PER_BAR        # 384
+TOTAL_FRAMES = TOTAL_ROWS * SPEED       # 2304 = 46.08 s PAL
 
 CHORDS = [
     # Bars 1-8: Intro & Motif
     ['Dm', 38, [50, 53, 57]], ['A#', 34, [46, 50, 53]], ['C', 36, [48, 52, 55]], ['Am', 33, [45, 48, 52]],
     ['Dm', 38, [50, 53, 57]], ['A#', 34, [46, 50, 53]], ['C', 36, [48, 52, 55]], ['A7', 33, [45, 49, 52]],
-    # Bars 9-14: Main Theme
+    # Bars 9-16: Main Theme
     ['Dm', 38, [50, 53, 57]], ['F',  29, [53, 57, 60]], ['C', 36, [48, 52, 55]], ['Gm', 31, [50, 55, 58]],
-    ['Dm', 38, [50, 53, 57]], ['A#', 34, [46, 50, 53]],
-    # Bars 15-16: lift turnaround. iv - V7 into bar 1's Dm.
+    ['Dm', 38, [50, 53, 57]], ['A#', 34, [46, 50, 53]], ['C', 36, [48, 52, 55]], ['A7', 33, [45, 49, 52]],
+    # Bars 17-22: Climax. Six bars rather than the original eight - the last two
+    # were Gm and A7, which the turnaround below now says better.
+    ['Dm', 38, [50, 53, 57]], ['A#', 34, [46, 50, 53]], ['C', 36, [48, 52, 55]], ['Am', 33, [45, 48, 52]],
+    ['Dm', 38, [50, 53, 57]], ['F',  29, [53, 57, 60]],
+    # Bars 23-24: lift turnaround. iv - V7 into bar 1's Dm.
     ['Gm', 31, [50, 55, 58]], ['A7', 33, [45, 49, 52]]
 ]
 
@@ -110,15 +115,25 @@ MELODY = [
     "G4:8 F4:4 E4:4",
     "F4:8 E4:4 D4:4",
     "E4:8 -:8",
-    # Bars 9-14: Main Theme. Rises across the six bars so the turnaround that
-    # follows is the peak rather than an afterthought.
+    # Bars 9-16: Main Theme, in quarters throughout.
     "D4:4 F4:4 A4:4 D5:4",
     "C5:4 A4:4 F4:4 A4:4",
     "G4:4 E4:4 C4:4 E4:4",
     "F4:4 D4:4 A#3:4 D4:4",
     "D4:4 F4:4 A4:4 D5:4",
     "F5:4 D5:4 A4:4 D5:4",
-    # Bars 15-16: the lift turnaround, and the highest notes in the tune.
+    "E5:4 C5:4 G4:4 C5:4",
+    "C#5:8 -:8",
+    # Bars 17-22: Climax. The rhythmic contrast the theme does not have - four
+    # bars of sixteenth-note runs, then two of high-octave arpeggiated figures
+    # that hand the tune to the turnaround already near the top of its range.
+    "F5:2 E5:2 D5:2 C5:2 D5:4 A4:4",
+    "D5:2 C5:2 A#4:2 A4:2 A#4:4 F4:4",
+    "C5:2 A#4:2 A4:2 G4:2 A4:4 E4:4",
+    "E4:2 F4:2 G4:2 A4:2 A#4:2 C5:2 C#5:4",
+    "D5:4 F5:4 A5:4 F5:4",
+    "C5:4 E5:4 G5:4 E5:4",
+    # Bars 23-24: the lift turnaround, and the highest notes in the tune.
     #
     # The old outro fell for four bars and then closed with a Baroque cadential
     # figure over A7 - E F G F E C# - resolving C# -> D. That is a full stop,
@@ -128,8 +143,8 @@ MELODY = [
     # bar 1's Dm reads as the phrase carrying on rather than starting again.
     # F5 over A7 is the flat 13th, which is also the third of D minor - it
     # keeps the home key in earshot through the turn.
-    "D5:4 F5:4 G5:4 A#5:4",             # Bar 15 (Gm): opens upward
-    "A5:4 G5:4 F5:4 E5:4"               # Bar 16 (A7): peak, then down onto the 5th
+    "D5:4 F5:4 G5:4 A#5:4",             # Bar 23 (Gm): opens upward
+    "A5:4 G5:4 F5:4 E5:4"               # Bar 24 (A7): peak, then down onto the 5th
 ]
 
 VOL_MAP = [
@@ -140,8 +155,10 @@ VOL_MAP = [
     8, 9, 10, 11,      # Bars 1-4: pedal bass and arpeggio only
     12, 13, 14, 15,    # Bars 5-8: motif and hats entering, full by bar 8
     15, 15, 15, 15,    # Bars 9-12: main theme
-    15, 15,            # Bars 13-14
-    12, 10             # Bars 15-16: glide into the loop seam (10 -> bar 1's 8)
+    15, 15, 15, 15,    # Bars 13-16
+    15, 15, 15, 15,    # Bars 17-20: climax
+    15, 15,            # Bars 21-22
+    12, 10             # Bars 23-24: glide into the loop seam (10 -> bar 1's 8)
 ]
 
 # ==========================================================================
@@ -184,7 +201,7 @@ VOL_MAP_TUNE1 = [15] * 16
 TUNES = [
     {
         'id': 'tune2',
-        'name': '16-Bar Atmospheric Theme (125 BPM, lift turnaround)',
+        'name': '24-Bar Atmospheric Theme (125 BPM, lift turnaround)',
         'speed': SPEED,
         'rows_per_bar': ROWS_PER_BAR,
         'bars': BARS,

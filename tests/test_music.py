@@ -1,3 +1,4 @@
+import re
 import unittest
 import sys
 import os
@@ -14,11 +15,11 @@ class TestMusicData(unittest.TestCase):
 
     def test_primary_tune_constants(self):
         """Pin the shipping tune's shape, so a resize is a deliberate edit."""
-        self.assertEqual(music.BARS, 16)
+        self.assertEqual(music.BARS, 24)
         self.assertEqual(music.SPEED, 6)
         self.assertEqual(music.TOTAL_ROWS, music.BARS * music.ROWS_PER_BAR)
         self.assertEqual(music.TOTAL_FRAMES, music.TOTAL_ROWS * music.SPEED)
-        self.assertEqual(music.TOTAL_FRAMES, 1536)          # 30.72 s at 50 Hz
+        self.assertEqual(music.TOTAL_FRAMES, 2304)          # 46.08 s at 50 Hz
         self.assertEqual(750 / music.SPEED, 125.0)          # BPM
 
     def test_loop_is_a_whole_number_of_pwm_cycles(self):
@@ -162,18 +163,80 @@ class TestMusicData(unittest.TestCase):
         self.assertIn(f"kMusicTotalFrames = {shipped['total_frames']};", h_content)
         self.assertIn(f"kMusicLeadStart[{shipped['total_rows']}]", h_content)
 
-    @unittest.expectedFailure
     def test_volume_map_reaches_the_c64(self):
-        """The fade exists in Python and in the browser, but not in C.
+        """The fade has to exist in all three copies, not just two.
 
-        docs/music.md section 8, phase 1b. Marked expected-failure rather than
-        omitted so that it starts passing - loudly - the moment the export is
-        added, instead of being remembered.
+        It shipped in Python and in the browser and not in C for a whole phase,
+        which would have meant a build with no opening fade and a hard edge at
+        the loop point. docs/music.md section 3.
         """
         generate_music.main()
+        cc, h = self._read_generated()
+        self.assertIn("kMusicVolMap", h)
+        self.assertEqual(self._c_array(cc, "kMusicVolMap", music.BARS),
+                         music.TUNES[0]['vol_map'])
+
+    # ---- packed tables: docs/music.md section 4, option B -------------------
+
+    def _read_generated(self):
+        cc_path = os.path.join(REPO_ROOT, "c64o", "musicdef.cc")
         h_path = os.path.join(REPO_ROOT, "c64o", "musicdef.h")
-        with open(h_path, "r", encoding="utf-8") as f:
-            self.assertIn("kMusicVolMap", f.read())
+        with open(cc_path, encoding="utf-8") as f:
+            cc = re.sub(r'//[^\n]*', '', f.read())   # comments hold bar numbers
+        with open(h_path, encoding="utf-8") as f:
+            h = f.read()
+        return cc, h
+
+    def _c_array(self, cc, name, size):
+        m = re.search(r'const uint8_t ' + name + r'\[' + str(size) + r'\] = \{(.*?)\};',
+                      cc, re.S)
+        self.assertIsNotNone(m, f"{name}[{size}] not found in musicdef.cc")
+        vals = [int(x, 0) for x in re.findall(r'0x[0-9a-fA-F]+|\d+', m.group(1))]
+        self.assertEqual(len(vals), size, f"{name} has {len(vals)} entries, expected {size}")
+        return vals
+
+    def test_packed_tables_round_trip(self):
+        """Unpacking the C must reproduce exactly what the browser reference got.
+
+        The two consumers use different encodings on purpose - JS has no reason
+        to pay for packing - so this is the test that keeps them the same data.
+        It applies the MUSIC_LEAD_ON and MUSIC_DRUM_AT macros by hand; if those
+        shift expressions in musicdef.h ever change, this fails.
+        """
+        generate_music.main()
+        cc, _ = self._read_generated()
+
+        t = music.TUNES[0]
+        rows = t['total_rows']
+        soft = t.get('soft_intro', False)
+        _, lead_on = music.get_flattened_lead(t['melody'], rows)
+        drum_at = music.get_flattened_drums(t['bars'], rows, soft)
+
+        lead_bits = self._c_array(cc, "kMusicLeadOnBits", (rows + 7) // 8)
+        drum_bits = self._c_array(cc, "kMusicDrumBits", (rows + 3) // 4)
+
+        # MUSIC_LEAD_ON(row) / MUSIC_DRUM_AT(row)
+        unpacked_lead = [(lead_bits[r >> 3] >> (r & 7)) & 1 for r in range(rows)]
+        unpacked_drum = [(drum_bits[r >> 2] >> ((r & 3) * 2)) & 3 for r in range(rows)]
+
+        self.assertEqual(unpacked_lead, [1 if v else 0 for v in lead_on])
+        self.assertEqual(unpacked_drum, [generate_music.DRUM_CODE[v] for v in drum_at])
+
+    def test_bass_on_was_dropped_and_stays_dropped(self):
+        """kMusicBassOn was 256 bytes of the constant 1. It must not come back,
+        and the premise it was deleted on must keep holding."""
+        cc, h = self._read_generated()
+        # Match declarations, not the comment in musicdef.h that explains why
+        # the array is gone - that comment is worth keeping.
+        h_code = re.sub(r'//[^\n]*', '', h)
+        self.assertNotRegex(cc, r'\bkMusicBassOn\s*\[')
+        self.assertNotRegex(h_code, r'\bkMusicBassOn\s*\[')
+        self.assertIn("MUSIC_BASS_ON", h_code)
+        for t in music.TUNES:
+            _, bass_on = music.get_flattened_bass(
+                t['chords'], t['bars'], t['total_rows'], t.get('soft_intro', False))
+            self.assertTrue(all(bass_on),
+                            f"Tune {t['id']} has a bass rest; MUSIC_BASS_ON(row) is a lie")
 
 if __name__ == '__main__':
     unittest.main()

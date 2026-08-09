@@ -1,7 +1,7 @@
 # Music — Implementation Plan
 
-The menu is silent. This document plans the title tune: a 16-bar atmospheric
-theme in D minor, three voices, looping every 30.7 seconds, playing on the
+The menu is silent. This document plans the title tune: a 24-bar atmospheric
+theme in D minor, three voices, looping every 46.1 seconds, playing on the
 mission-select screen and under the help screen it opens. It ships in
 `ppilot.prg` only — `ppilotd.prg`, the debug build, stays silent (§4).
 
@@ -18,7 +18,7 @@ It carries **two** arrangements behind a switcher: the atmospheric theme planned
 here, and the earlier rock intro at 150 BPM. The second one is kept
 deliberately. It is the only way to A/B a mood decision by ear, and it costs
 nothing but a table entry — see §9, where the choice between them is still open.
-Both are 16 bars now, so the comparison is between arrangements; the tempi
+The comparison is between arrangements rather than lengths; the tempi
 differ because tempo is part of what each arrangement *is*, not because the
 test is uncontrolled. Making both 125 BPM is one byte in `lib/music.py` if the
 stricter comparison is ever wanted, but a rock intro at 125 is a different piece
@@ -37,7 +37,7 @@ them. See [project.md](project.md) for the surrounding architecture.
 
 | In                                              | Out (for now)                             |
 | ----------------------------------------------- | ----------------------------------------- |
-| A 16-bar loop, three voices, 30.7 s             | Music during flight, or help from flight  |
+| A 24-bar loop, three voices, 46.1 s             | Music during flight, or help from flight  |
 | `ppilot.prg` only, behind `__ENABLE_SOUND__`    | Anything in `ppilotd.prg`, the debug build |
 | Playing under the menu and help opened from it  | Gapless music across screen changes       |
 | Drums stealing voice 3 from the arpeggio        | Music under the map (§3)                  |
@@ -61,7 +61,7 @@ bare `sei`. §8's answer was to drive the tune from `menu_run()`'s own
 an invariant in its own right rather than an arrangement.
 
 **NTSC tempo is accepted as-is.** A tune driven once per frame runs 20% fast on
-a 60 Hz machine: 30.72 s becomes 25.60 s, and 125 BPM becomes 150. Still not
+a 60 Hz machine: 46.08 s becomes 38.40 s, and 125 BPM becomes 150. Still not
 worth a fractional-tick counter.
 
 **Zero page is tight, but it is a price rather than a wall.** §8 of sound.md
@@ -151,14 +151,14 @@ does almost nothing per frame.
 
 The cost is that tempo is **quantized**. A beat is four rows of sixteenths, so
 `BPM = 60 × 50 / (4 × speed) = 750 / speed`, and only integer frame counts
-exist. Over 256 rows:
+exist. Over 384 rows:
 
 | Frames/row | BPM   | Frames/loop | PAL     | NTSC    |
 | ---------: | ----: | ----------: | ------: | ------: |
-| 3          | 250.0 |         768 | 15.36 s | 12.80 s |
-| 4          | 187.5 |       1,024 | 20.48 s | 17.07 s |
-| 5          | 150.0 |       1,280 | 25.60 s | 21.33 s |
-| **6**      | **125.0** |   **1,536** | **30.72 s** | **25.60 s** |
+| 3          | 250.0 |       1,152 | 23.04 s | 19.20 s |
+| 4          | 187.5 |       1,536 | 30.72 s | 25.60 s |
+| 5          | 150.0 |       1,920 | 38.40 s | 32.00 s |
+| **6**      | **125.0** |   **2,304** | **46.08 s** | **38.40 s** |
 
 **Six frames per row, 125 BPM.** The arrangement is atmospheric rather than
 driving — a four-bar pedal-bass opening, a motif that enters at bar 5, a
@@ -176,24 +176,26 @@ every 256 frames. For the loop to be clean, `bars × 96` has to be a multiple of
 | Bars | Frames | PAL     | Loop-clean? |
 | ---: | -----: | ------: | ----------- |
 | 8    |    768 | 15.36 s | yes         |
-| **16** | **1,536** | **30.72 s** | **yes** |
-| 24   |  2,304 | 46.08 s | yes         |
+| 16   |  1,536 | 30.72 s | yes         |
+| **24** | **2,304** | **46.08 s** | **yes** |
 | 28   |  2,688 | 53.76 s | no          |
 | 32   |  3,072 | 61.44 s | yes         |
 
-This arrangement started at 32 bars and came down twice — first to 24 when the
-outro was cut (§5), then to 16 for RAM (§4). Both stops were on the list above,
-which was luck rather than judgement the first time and is worth writing down
-before someone tries 20 or 28. It is not an absolute constraint: 28 bars would
-work if the PWM step moved from 8 to 16, since 2,688 / 128 = 21. But that
-couples two unrelated numbers, and the reason to know it is so that a future
-odd bar count fails loudly in the test rather than quietly in the pulse width.
+This arrangement started at 32 bars, came down to 24 when the outro was cut
+(§5), dropped to 16 for RAM, and came back to 24 once §4's packing made the RAM
+argument go away. Every stop happened to be on the list above, which was luck
+rather than judgement and is worth writing down before someone tries 20 or 28.
+It is not an absolute constraint: 28 bars would work if the PWM step moved from
+8 to 16, since 2,688 / 128 = 21. But that couples two unrelated numbers, and the
+reason to know it is so that a future odd bar count fails loudly in the test
+rather than quietly in the pulse width.
 
-**30.72 seconds is also the right answer to a problem the 32-bar version had.**
-A player picking a mission is on this screen for perhaps ten to thirty seconds.
-At 61 seconds most would never hear the section the arrangement built toward,
-and every one of them heard the quietest part first. At 16 bars the whole tune
-fits inside a plausible visit.
+**46 seconds is the compromise between two real complaints.** A player picking a
+mission is on this screen for perhaps ten to thirty seconds. At 61 seconds most
+would never reach the section the arrangement built toward. At 16 bars the tune
+fitted comfortably but had no climax to reach. 24 bars puts the peak at about
+40 s — still past a quick visit, but the loop is short enough that a browsing
+player hears it, and the arrangement has room to be one.
 
 The reference page displays the tempo from this formula. It previously used
 `(50/speed)*30`, which is `1500/speed` — exactly double — and reported 250 BPM
@@ -240,8 +242,8 @@ arbitration state beyond a countdown:
 | Snare |      4 |  80 | Noise                  | flat, bright                |
 | Hat   |      2 |  40 | Noise                  | shortest the ADSR allows    |
 
-Measured over the whole loop in the reference: 28 kicks, 18 snares and 52 hats
-take **316 of the 1,536 frames**, so the arpeggio holds voice 3 **79%** of the
+Measured over the whole loop in the reference: 56 kicks, 36 snares and 72 hats
+take **568 of the 2,304 frames**, so the arpeggio holds voice 3 **75%** of the
 time. That is far more than the rock arrangement's 60%, and the difference is
 the whole first half of the tune: bars 1 to 4 have no drums at all and bars 5 to
 8 have only hats, so the shimmer is uninterrupted for exactly as long as it is
@@ -399,53 +401,73 @@ the cursor scrolls, which can overrun a frame. A skipped tick is a dropped
 **RAM.** Measured from the `musicdef.cc` the generator actually emits, not
 estimated:
 
-| Item                                  |    Bytes |
-| ------------------------------------- | -------: |
-| `kMusicLeadStart[256]`                |      256 |
-| `kMusicLeadOn[256]`                   |      256 |
-| `kMusicBassStart[256]`                |      256 |
-| `kMusicBassOn[256]`                   |      256 |
-| `kMusicDrumAt[256]`                   |      256 |
-| `kMusicChords[16]` (root + triad)     |       64 |
-| Six instruments × 8                   |       48 |
-| `kMusicNoteTable[12]`                 |       24 |
-| **Data, as generated**                | **1,416** |
-| Volume ramp + composition table (§3)  |    16+48 |
-| Player code                           |     ~900 |
-| Player state (bss)                    |      ~28 |
-| **Total**                             | **~2.4 KB** |
+| Item                                    |    Bytes |
+| --------------------------------------- | -------: |
+| `kMusicLeadStart[384]`                  |      384 |
+| `kMusicBassStart[384]`                  |      384 |
+| `kMusicDrumBits[96]` (2 bits/row)       |       96 |
+| `kMusicLeadOnBits[48]` (1 bit/row)      |       48 |
+| `kMusicChords[24]` (root + triad)       |       96 |
+| Six instruments × 8                     |       48 |
+| `kMusicVolMap[24]`                      |       24 |
+| `kMusicNoteTable[12]`                   |       24 |
+| **Data, as generated**                  | **1,104** |
+| Volume composition table (§3)           |       48 |
+| Player code                             |     ~940 |
+| Player state (bss)                      |      ~28 |
+| **Total**                               | **~2.1 KB** |
 
-Against `a178 - d000`, **11.6 KB free** in `ppilot.prg`. The tune is about a
-fifth of it.
+Against `a178 - d000`, **11.6 KB free** in `ppilot.prg` — about a sixth of it.
 
-**This is the number that set the bar count.** At 32 bars the same table was
-2,760 bytes of data and ~3.8 KB all in — a third of the heap for the menu
-screen's background music, which is the wrong share for a feature nothing else
-depends on. The arrangement lost its climax section to get here (§5) and that is
-a real loss, honestly recorded; what it bought is a tune that costs about as
-much as the instrument panel's Koala image.
+**Packing is what bought the arrangement back.** The same 24 bars in the
+one-byte-per-row form phase 1 emitted would be 2,112 bytes of data; packed it is
+1,104. That 1,008-byte saving is what made 24 bars affordable after the tune had
+been cut to 16 to fit — the climax came back without the budget moving. Worth
+noticing the ordering lesson: **the encoding was the expensive thing, not the
+music**, and a tune was shortened before anyone checked.
 
-**The flat tables are 1,280 of those 1,416 bytes, and half of that is air.**
-Phase 1 chose per-row arrays over the pattern-plus-order encoding the original
-plan specified. That buys a player where every channel is one indexed load per
-row and no pattern pointer exists to get wrong, which is a real simplification.
-What it costs, measured over the 16 bars:
+### What the packing does
 
-| Table                  | Unique bars |  Flat | As patterns + order |
-| ---------------------- | ----------: | ----: | ------------------: |
-| `kMusicLeadStart`      |       12/16 |   256 |                 208 |
-| `kMusicLeadOn`         |        3/16 |   256 |                  64 |
-| `kMusicBassStart`      |       11/16 |   256 |                 192 |
-| `kMusicBassOn`         |        1/16 |   256 |                  32 |
-| `kMusicDrumAt`         |        5/16 |   256 |                  96 |
-| **Total**              |             | **1,280** |           **592** |
+Phase 1 chose five per-row arrays over the pattern-plus-order encoding the
+original plan specified. That buys a player where every channel is one indexed
+load per row and no pattern pointer exists to get wrong, which is a real
+simplification. What it cost was **one byte per row whether the row needed a
+byte or not**, on values that mostly did not:
 
-**54% of that data is redundant**, and two entries are worse than redundant.
-`kMusicBassOn` is 256 bytes every one of which is `1` — it encodes a constant.
-`kMusicLeadOn` holds only 0 and 1, so a bitfield would be 32 bytes rather than
-256. Dropping the first and packing the second is 480 bytes for almost no work
-and no change to the player's shape — **and it is worth doing before trading
-away any more of the arrangement.** 480 bytes is most of a bar-count step.
+| Table             | Holds          | Was | Now | How |
+| ----------------- | -------------- | --: | --: | --- |
+| `kMusicBassOn`    | always 1       | 384 | **0** | deleted; `MUSIC_BASS_ON(row)` is `1` |
+| `kMusicLeadOn`    | 0 or 1         | 384 | **48** | 1 bit/row, `MUSIC_LEAD_ON(row)` |
+| `kMusicDrumAt`    | 0–3            | 384 | **96** | 2 bits/row, `MUSIC_DRUM_AT(row)` |
+| `kMusicLeadStart` | MIDI note or 0 | 384 | 384 | unchanged — 7 bits, not worth splitting |
+| `kMusicBassStart` | MIDI note or 0 | 384 | 384 | unchanged |
+
+`kMusicBassOn` was 384 bytes in which every byte was `1`: the bass never rests,
+so the array encoded a constant. The generator now asserts that premise before
+dropping it, and `test_bass_on_was_dropped_and_stays_dropped` re-checks it, so
+an arrangement that ever does rest the bass fails loudly instead of playing a
+held note through the gap.
+
+The two macros are the whole cost — a shift and a mask each, about 40 bytes of
+code against 1,008 bytes of data. The player reads `MUSIC_LEAD_ON(row)` where it
+read `kMusicLeadOn[row]`, and nothing else changes.
+
+**The reference page keeps the unpacked arrays.** JavaScript has no reason to
+pay for packing, and the player there is clearer reading them directly. That
+makes two encodings of one dataset, which is exactly the situation §5 warns
+about — so `test_packed_tables_round_trip` applies the two macros by hand and
+requires the result to equal what the browser got, row for row. If either shift
+expression in `musicdef.h` changes, that test fails.
+
+**What is still on the table.** `kMusicLeadStart` is 304 zeros carrying 80
+notes, and `kMusicBassStart` is 210 zeros carrying 174. As `(row, note, length)`
+triples the lead would be ~240 bytes instead of 432 including its bit table; and
+the bass only ever plays intervals 0, 7, 10 and 12 above its bar's chord root,
+so two rhythm patterns plus a one-bit-per-bar selector reproduce all of it in
+under 100. That is roughly another 500 bytes, and it is where the original plan
+was before phase 1 flattened everything — but it makes the player a tracker,
+with a pointer walk per channel. Recorded so the option is visible, not because
+it is due.
 
 **`ppilot.prg` only.** The build already splits on `__ENABLE_SOUND__` for
 `ppilot` and `__ENABLE_DEBUG__` for `ppilotd`, and `PPILOTD_SRC` is literally
@@ -504,7 +526,7 @@ none of which the current `tests/test_music.py` catches:
   silent selection step, and nothing asserts which tune it selected.
 - Whether a tune has the four-bar pedal opening is now an explicit `soft_intro`
   flag on the tune dict. It used to be inferred from `bars == 32`, which broke
-  the moment the atmospheric arrangement became 16 bars and collided with the
+  the moment the atmospheric arrangement changed length and collided with the
   rock one. Inferring arrangement structure from a length is the class of bug
   worth naming: it works until two things are the same size.
 
@@ -515,9 +537,9 @@ atmospheric theme. They are now built from `TUNES` at load, which is the same
 argument as the rest of this section: two hand-maintained copies of one fact
 diverge, and the convincing one is the one that lies.
 
-### The 16-bar arrangement
+### The 24-bar arrangement
 
-Sixteen bars in D minor, 125 BPM, six frames per row, sixteen rows per bar.
+Twenty-four bars in D minor, 125 BPM, six frames per row, sixteen rows per bar.
 MIDI 29 to 82 (F1 to A♯5), inside the note table's 28–83.
 
 - **Bars 1–4, soft intro build.** `Dm / A♯ / C / Am`, one pedal bass note per
@@ -525,17 +547,21 @@ MIDI 29 to 82 (F1 to A♯5), inside the note table's 28–83.
 - **Bars 5–8, motif entry.** The low lead motif arrives (`D4`, `F4`, `A4`) and
   hi-hats enter. The ramp reaches full at bar 8, so the fade completing and the
   kit arriving land together.
-- **Bars 9–14, main theme.** `Dm / F / C / Gm / Dm / A♯`, full rhythm section,
-  the melody climbing across the six bars so that what follows is a peak rather
-  than an afterthought.
-- **Bars 15–16, lift turnaround.** `Gm → A7`, and the highest notes in the tune.
+- **Bars 9–16, main theme.** `Dm / F / C / Gm / Dm / A♯ / C / A7`, full rhythm
+  section, melody in quarters throughout.
+- **Bars 17–22, climax.** The rhythmic contrast the theme deliberately does not
+  have: four bars of sixteenth-note runs, then two of high-octave arpeggiated
+  figures (`A5`, `G5`) that hand the tune to the turnaround already near the top
+  of its range. Six bars rather than the original eight — the last two were `Gm`
+  and `A7`, which the turnaround now says better.
+- **Bars 23–24, lift turnaround.** `Gm → A7`, and the highest notes in the tune.
 
 ### Why the outro was deleted rather than shortened
 
-The 32-bar version ended with eight bars of outro: four of descending quarter
-notes through `Gm → C7 → F → A♯`, then a rising scalar line into a
-sixteenth-note cadential figure over `A7` — `E5 F5 G5 F5 E5 C♯5` — resolving
-`C♯ → D`. Four things were wrong with it and only one was length.
+The 32-bar version ended with eight bars of outro *after* the climax: four of
+descending quarter notes through `Gm → C7 → F → A♯`, then a rising scalar line
+into a sixteenth-note cadential figure over `A7` — `E5 F5 G5 F5 E5 C♯5` —
+resolving `C♯ → D`. Four things were wrong with it and only one was length.
 
 - All four descent bars had identical rhythm and identical shape, and the theme
   before them was also in quarters, so there was nothing to contrast against.
@@ -553,8 +579,8 @@ resolving onto bar 1's `Dm`. Cutting after them left a working loop point with
 zero recomposition; **only the melody over those two bars is new**:
 
 ```
-Bar 15 (Gm):  D5   F5   G5   A#5      opens upward
-Bar 16 (A7):  A5   G5   F5   E5       peak, then down onto the 5th
+Bar 23 (Gm):  D5   F5   G5   A#5      opens upward
+Bar 24 (A7):  A5   G5   F5   E5       peak, then down onto the 5th
 ```
 
 It climbs where the old one fell, and it **never plays C♯**. With the leading
@@ -571,8 +597,8 @@ instead of stop.
 ### The note table
 
 Twelve 16-bit entries for octave 6, shifted right for every octave below it,
-since a SID frequency halves exactly per octave. Unchanged from the 16-bar
-version; the tune changed, the chip did not.
+since a SID frequency halves exactly per octave. Unchanged through every
+resize; the tune changed, the chip did not.
 
 | Note | Hz      | `$D400` | Note | Hz      | `$D400` |
 | ---- | ------: | ------: | ---- | ------: | ------: |
@@ -607,7 +633,7 @@ sweep is one of only two pieces of timbral movement the design allows itself
 (§3, on the filter).
 
 The sweep is a triangle over an 0x800 range at **8 units per frame**, so it
-cycles every 256 frames and divides the 1,536-frame loop exactly six times. The
+cycles every 256 frames and divides the 2,304-frame loop exactly nine times. The
 step is chosen for that rather than for its rate: a step that did not divide the
 loop would leave the pulse width somewhere different on every pass. It divides
 the rock arrangement's 1,280 frames as well, which is why one constant serves
@@ -664,7 +690,7 @@ output. To add:
 and `musicdef.cc` against the host `sid.h` and tests the *player*:
 
 - the note table is monotonic and each entry within 0.2% of equal temperament
-- **loop identity over 1,536 frames, on gated voices only** (§3) — the strict
+- **loop identity over 2,304 frames, on gated voices only** (§3) — the strict
   all-25-registers form is wrong for this arrangement and would fail on a
   correct player
 - voice 3 arbitration: a drum hit takes the voice for exactly its frame count,
@@ -676,7 +702,7 @@ and `musicdef.cc` against the host `sid.h` and tests the *player*:
 - hard restart happens on the frame before a new note and **only** there
 - the volume ramp reaches `$D418` bar by bar, and composing it with
   `sound_volume == 1` preserves the ramp's shape rather than clipping it flat
-- `sound_volume == 0` produces master volume zero at every one of the 1,536
+- `sound_volume == 0` produces master volume zero at every one of the 2,304
   frames, ramp or no ramp
 - `music_stop()` leaves all three gates clear and `$D418` at zero
 - `music_tick()` with `music_playing` clear writes nothing at all — the guard
@@ -717,24 +743,27 @@ Each phase leaves the program in a working, committable state.
    `tools/generate_music.py`, `c64o/musicdef.{cc,h}`, `tests/test_music.py`, the
    `make music` target and its entry in `make data`.
 
-   **1a — the arrangement was cut to 16 bars.** ✅ Done. The eight-bar cadential
-   outro went first, for the musical reasons in §5; the climax section went with
-   the second cut, for the RAM reasons in §4. Bars 15–16 carry a new two-bar
-   lift turnaround, and `VOL_MAP` gained the glide that lands under it. Data is
-   1,416 bytes, down from 2,760. Verified: loop clean on gated voices, hard
-   restart on every new note and only there, drums stealing voice 3 for exactly
-   their frame counts, MIDI 29–82, and `C♯` absent from the turnaround.
+   **1a — the outro was replaced and the tune resized.** ✅ Done. The eight-bar
+   cadential outro went for the musical reasons in §5; bars 23–24 carry a new
+   two-bar lift turnaround and `VOL_MAP` gained the glide that lands under it.
+   The tune briefly dropped to 16 bars for RAM and is back at 24 now that 1c
+   made that unnecessary. Verified: loop clean on gated voices, hard restart on
+   every new note and only there, drums stealing voice 3 for exactly their frame
+   counts, MIDI 29–82, and `C♯` absent from the turnaround.
 
-   **1b — the volume ramp.** ⬜ `VOL_MAP` is in the Python source and the
-   reference page but not in `musicdef.h`. Until it is exported the C64 build
-   has neither the opening fade nor the glide into the loop. Add
-   `kMusicVolMap[16]` plus the 3 × 16 composition table from §3, and the
-   round-trip test from §7 that stops it happening again.
+   **1b — the volume ramp.** ✅ Done. `kMusicVolMap[24]` is exported, and
+   `test_volume_map_reaches_the_c64` compares it entry for entry against
+   `lib/music.py`. It had existed in the Python source and the reference page
+   but not in C for a whole phase, which would have meant a build with no
+   opening fade and a hard edge at the loop point. The 3 × 16 composition table
+   from §3 belongs to the player and lands in phase 6.
 
-   **1c — the data is 54% redundant.** ⬜ Measured in §4. `kMusicBassOn` encodes
-   a constant in 256 bytes; `kMusicLeadOn` is a bitfield written as bytes.
-   Together 480 bytes, which is most of a bar-count step — worth taking before
-   the arrangement is asked to give up anything else.
+   **1c — pack the flat tables.** ✅ Done. `kMusicBassOn` deleted (the bass never
+   rests), `kMusicLeadOn` to 1 bit per row, `kMusicDrumAt` to 2. **1,008 bytes
+   for ~40 bytes of shift/mask**, and it is what paid for the climax coming
+   back. `MUSIC_LEAD_ON`, `MUSIC_DRUM_AT` and `MUSIC_BASS_ON` in `musicdef.h`
+   are the whole interface change; `test_packed_tables_round_trip` checks the
+   packed C against the reference's unpacked arrays.
 2. **Player skeleton and ownership.** ⬜ `music.{h,cc}` with `music_start()`,
    `music_stop()`, `music_tick()` and the `music_playing` guard; the tick in
    `menu_run()`'s loop at `menu.cc:149` and `help_run()`'s at `help.cc:59`;
@@ -773,13 +802,12 @@ judgement made on paper. The rock intro is more immediate; the atmospheric one
 has an opening that earns its 30 seconds. Decide by ear in phase 8, with the
 switcher, and note that the decision costs one constant in `lib/music.py`.
 
-**~~Is 61 seconds too long for a menu?~~ Resolved by cutting to 16 bars**, for
-RAM rather than for pacing — but the pacing argument was real and the cut
-answers it too. At 30.7 seconds the whole tune fits inside a plausible visit to
-the mission list, the fade completes at about 12 s rather than 15, and the
-melodic peak now arrives at 28 s instead of 40. The thing that was actually
-given up is the climax section, and whether the tune misses it is the first
-question for phase 8.
+**Is 46 seconds the right length?** 61 was too long — most players would never
+reach what the arrangement built toward. 30.7 fitted a visit but had no climax
+to reach, which is why it did not last. 46 puts the peak at about 40 s: past a
+quick glance at the mission list, inside a browse. This is the number most
+likely to move again after phase 8, and §3's table says the only places it can
+move to are 30.7 and 61.4.
 
 **Does the tune restart or resume across the help screen?** It keeps playing —
 help never stops it (§3). But `help_run()` is entered with a
@@ -793,20 +821,19 @@ be wrong. The lever is the arpeggio's sustain, not the lead's — sound.md §10
 makes the same point about the stall warning, and its conclusion, that pitch
 placement works where volume does not, applies here too.
 
-**Does the tune miss its climax?** The 32-bar version had eight bars of
-sixteenth-note runs and high octaves between the theme and the turnaround, and
-they are gone. The two-bar lift is now doing that job in a quarter of the space.
-If it sounds like the tune arrives at its peak without having climbed to it, the
-cheap answer is not more bars — it is making bars 13–14 push harder, which costs
-nothing. The expensive answer is 24 bars, which §3's table says is legal and §4
-says costs another ~680 bytes.
+**~~Does the tune miss its climax?~~ Restored at 24 bars.** It was cut when the
+tune dropped to 16 and came back once §4's packing freed 1,008 bytes. Six bars
+rather than the original eight — four of sixteenth runs, two of high-octave
+figures. Whether six is enough to feel like a climb rather than a gesture is a
+phase 8 question; if it is not, the cheap answer is making bars 15–16 push
+harder rather than buying bars back.
 
-**Is the opening too long now?** Eight of sixteen bars are build: four with no
-lead or drums at all, four with hats only. That was a reasonable proportion of
-32 bars and it is half the tune at 16. It may be exactly what gives the piece
-its character, or it may mean a player hears a minute of the menu and remembers
-only pedal tones. Shortening the pedal section to two bars is one edit to
-`SOFT_INTRO_BARS`. Ear decision.
+**Is the opening the right proportion?** Eight of twenty-four bars are build:
+four with no lead or drums at all, four with hats only. That is a third of the
+tune before the theme starts, which was a reasonable share of 32 bars and is
+more noticeable here. It may be exactly what gives the piece its character, or
+it may mean a browsing player only ever hears pedal tones. Shortening the pedal
+section to two bars is one edit to `SOFT_INTRO_BARS`. Ear decision.
 
 **Should `V` work in the menu?** §3 makes the tune respect `sound_volume`;
 letting the player *change* it there is separate. The blocker is that
