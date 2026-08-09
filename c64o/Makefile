@@ -37,6 +37,10 @@ PPILOT_SRC = \
 		flight.cc \
 		mission.h \
 		mission.cc \
+		music.h \
+		music.cc \
+		musicdef.h \
+		musicdef.cc \
 		msg.h \
 		msg.cc \
 		panel.h \

@@ -481,11 +481,20 @@ strictly needed — oscar64's linker drops unreferenced symbols, as sound.md §1
 records it doing for `mul16` — but 1.4 KB is a lot to leave resting on that, and
 the debug build is the one with less headroom (`a360 - d000`, 11.2 KB).
 
-**Verification.** Unlike sound.md there is no `@stack` gate to check — the
-player is main-line and a frame is fine. What must be checked after each build
-is `check_zeropage.py` passing on all five programs, both `.prg` files fitting
-under `$D000`, and **`ppilotd.map` containing no `kMusic*` symbol at all** —
-that last one is the guard against the `#ifdef` quietly not covering the data.
+**Verification.** Unlike sound.md there is no `@stack` gate to worry about —
+the player is main-line and a frame is fine, and all four `music_*@stack`
+entries are in fact zero-size. What must be checked after each build is
+`check_zeropage.py` passing on all five programs, both `.prg` files fitting
+under `$D000`, and **`ppilotd.map` containing no `kMusic*` or `music_*` symbol
+at all** — that last one is the guard against the `#ifdef` quietly not covering
+the data.
+
+One caution on the stack check inherited from sound.md §4, which asks that
+`STACK` still read `0200 - 025e`. That number predates the `ppilot` /
+`ppilotd` split and is no longer a constant: `ppilot` reads `0200 - 025c` and
+`ppilotd` reads `0200 - 025e`, with or without music. Compare against a
+music-free build of the *same* configuration rather than against the literal —
+done for phase 2, and the two were byte-identical.
 
 **Zero page: zero bytes requested.** Stated as a budget line because it is the
 scarcest resource in the program — 156 bytes, 100% allocated, 5 bytes of
@@ -764,15 +773,61 @@ Each phase leaves the program in a working, committable state.
    back. `MUSIC_LEAD_ON`, `MUSIC_DRUM_AT` and `MUSIC_BASS_ON` in `musicdef.h`
    are the whole interface change; `test_packed_tables_round_trip` checks the
    packed C against the reference's unpacked arrays.
-2. **Player skeleton and ownership.** ⬜ `music.{h,cc}` with `music_start()`,
-   `music_stop()`, `music_tick()` and the `music_playing` guard; the tick in
-   `menu_run()`'s loop at `menu.cc:149` and `help_run()`'s at `help.cc:59`;
-   start and stop bracketing `menu_run()`. All of it inside
-   `#ifdef __ENABLE_SOUND__`, and `musicdef.cc`'s body too (§4). Voice 1 only.
+2. **Player skeleton and ownership.** ✅ Done. `music.{h,cc}` with
+   `music_start()`, `music_stop()`, `music_tick()` and the `music_playing`
+   guard; the tick in `menu_run()`'s loop and `help_run()`'s; start and stop
+   bracketing `menu_run()`. All of it inside `#ifdef __ENABLE_SOUND__`,
+   `musicdef.cc`'s body too. Voice 1 only.
 
-   First audible phase, and the phase with two things to check that are not
-   about music: pressing `H` in flight must stay silent, and `ppilotd.map` must
-   contain no `kMusic*` symbol.
+   `music_test.cc` landed here rather than in phase 7, for the reason §7 gives.
+   Nine cases, including the two that are not about music: `music_tick()` with
+   `music_playing` clear must write nothing at all, and voices 2 and 3 must stay
+   silent — the second is a temporary assertion that whoever writes phase 3 has
+   to delete deliberately.
+
+   **Measured, from `ppilot.map`:**
+
+   | | Bytes |
+   | --------------------------------------------- | ----: |
+   | `music_tick` | 330 |
+   | `music_note_freq` | 66 |
+   | `music_start` | 23 |
+   | `music_stop` | 12 |
+   | `kMusicLeadStart` | 384 |
+   | `kMusicLeadOnBits`, `kVolumeMix` | 48 each |
+   | `kMusicNoteTable`, `kMusicVolMap` | 24 each |
+   | `music_playing` | 1 |
+   | **Total** | **960** |
+
+   Heap moved `a178 → a578`, so **1,024 bytes** including padding: `ppilot.prg`
+   is 40,163 bytes at `$0801–$A4E1` with **10.6 KB free**. Code is 431 of that,
+   against §4's ~940 estimate for all three voices — on track.
+
+   `music_note_freq` costs 66 bytes as a real function because
+   `music_test.cc` asserts on it; everything else in the module inlined.
+   sound.md §10 records the identical trade for `sound_wind_freq`, and the
+   identical fix is available (`static` under `__OSCAR64__`) if it ever matters.
+
+   **Verified:** all five programs build; `check_zeropage.py` passes on each
+   with 5 bytes of headroom on `ppilot`; `ppilotd.map` contains **zero**
+   `kMusic*` or `music_*` symbols; all four `music_*@stack` entries are
+   zero-size, and the dynamic stack is byte-identical to a music-free build of
+   the same configuration; the six host suites pass.
+
+   Two things worth knowing that only the map showed. **The linker drops the
+   tables phase 2 does not reference** — `kMusicBassStart`, `kMusicDrumBits`,
+   `kMusicChords` and the instrument structs are all absent, so §4's ~1.1 KB of
+   data arrives incrementally across phases 3 to 5 rather than now. That also
+   means the `#ifdef` around `musicdef.cc` is belt-and-braces rather than load
+   bearing; it is kept because 1.1 KB is a lot to rest on an optimisation, and
+   the map proves both mechanisms agree.
+
+   And **sound.md §4's stack gate is stale**: it says `STACK` must read
+   `0200 - 025e`, which was measured before `ppilot` and `ppilotd` became
+   separate binaries. `ppilot` now reads `0200 - 025c` and `ppilotd` reads
+   `0200 - 025e`, with or without music. The gate is still the right check;
+   the number to compare against is a music-free build of the *same*
+   configuration, not a constant.
 3. **Bass.** Voice 2. The pedal-bass opening is the easiest thing in the
    arrangement to get audibly wrong, because for four bars it is one note.
 4. **Arpeggio.** Voice 3, one tone per frame, gate held. It carries bars 1–4
@@ -809,11 +864,25 @@ quick glance at the mission list, inside a browse. This is the number most
 likely to move again after phase 8, and §3's table says the only places it can
 move to are 30.7 and 61.4.
 
-**Does the tune restart or resume across the help screen?** It keeps playing —
-help never stops it (§3). But `help_run()` is entered with a
-`screen_begin_text_page()` that `memset`s the whole screen, so the frame it
-happens on is long. Whether that is one dropped tick or four is not known until
-it runs.
+**How rough is the help-screen transition?** The tune keeps playing — help never
+stops it (§3), and the row clock carries straight across. Two things happen to
+the sound anyway, both found by reading the code in phase 2 rather than by
+listening:
+
+- `help_run()` and the `_enter_menu()` that follows it both call
+  `screen_begin_text_page()`, which reaches `gfx_stop_raster_irqs()`, which
+  calls `sound_silence()` — and that write-throughs zeros to all 25 registers.
+  So a lead note sounding at the moment `H` is pressed gets its gate cleared
+  mid-note. The next `music_tick()` restores the master volume 20 ms later and
+  the next row re-gates, so the tune recovers on its own; the artefact is one
+  clipped note on the way in and one on the way out.
+- Both transitions `memset` the whole screen, so the frame they happen on is
+  long. Whether that is one dropped tick or four is still not known.
+
+Neither is worth engineering around before phase 8 says how it sounds. If the
+clipped note is objectionable the fix is a `music_stop()` / `music_start()`
+bracket that resumes from the saved row, which is three lines and one byte of
+state.
 
 **Is the lead loud enough over the arpeggio?** With no per-voice volume this is
 decided entirely by envelope and waveform, and it is the first thing that will

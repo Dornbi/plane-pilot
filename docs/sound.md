@@ -376,7 +376,14 @@ measured, not estimated.
 `sound_update()` on the main line is uncounted noise against a ~100 ms frame.
 
 **Verification.** After building, `ppilot.map` must show **no `@stack` entry**
-for the blit, and `STACK` must still read `0200 - 025e`. That check belongs in
+for the blit, and `STACK` must still read `0200 - 025e`.
+
+> **The literal `0200 - 025e` is stale**, and following it will raise a false
+> alarm. It was measured before `ppilot` and `ppilotd` became separate
+> binaries: `ppilot` now reads `0200 - 025c` and `ppilotd` `0200 - 025e`, with
+> no sound or music change between them. The check is still right — compare
+> against a build of the *same* configuration without the change under test,
+> rather than against the number. See [music.md](music.md) §4. That check belongs in
 the review, not in someone's memory — the failure mode is silent corruption of
 an unrelated render frame, appearing once every few thousand frames, in a
 module with nothing to do with sound.

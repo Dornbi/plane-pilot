@@ -26,6 +26,12 @@ SOUND_TEST_HDRS = ../sound.h ../sid.h ../flight.h
 # render.cc and box.cc do not build on the host, so it has to be kept in step
 # with them by hand - the comment at the top of mul_test.cc says why it earns
 # that cost.
+# music_test links music.cc and the generated musicdef.cc. sound_volume is
+# defined by the test itself rather than pulled in from sound.cc, which keeps
+# this a test of the player and lets it set the V-key setting directly.
+MUSIC_TEST_SRC = music_test.cc ../music.cc ../musicdef.cc
+MUSIC_TEST_HDRS = ../music.h ../musicdef.h ../sound.h ../sid.h
+
 MUL_TEST_SRC = mul_test.cc
 MUL_TEST_HDRS = ../vec.h
 
@@ -43,13 +49,16 @@ map_test: $(MAP_TEST_SRC) $(MAP_TEST_HDRS)
 sound_test: $(SOUND_TEST_SRC) $(SOUND_TEST_HDRS)
 	$(HOST_CC) $(HOST_CFLAGS) -D__ENABLE_SOUND__ -o sound_test $(SOUND_TEST_SRC)
 
+music_test: $(MUSIC_TEST_SRC) $(MUSIC_TEST_HDRS)
+	$(HOST_CC) $(HOST_CFLAGS) -D__ENABLE_SOUND__ -o music_test $(MUSIC_TEST_SRC)
+
 mul_test: $(MUL_TEST_SRC) $(MUL_TEST_HDRS)
 	$(HOST_CC) $(HOST_CFLAGS) -o mul_test $(MUL_TEST_SRC)
 
-test: flight_test msg_test map_test sound_test mul_test
-	@./flight_test > output.txt && ./msg_test >> output.txt && ./map_test >> output.txt && ./sound_test >> output.txt && ./mul_test >> output.txt && echo "ALL TESTS PASSED (flight_test, msg_test, map_test, sound_test, mul_test) -> test/output.txt"
+test: flight_test msg_test map_test sound_test music_test mul_test
+	@./flight_test > output.txt && ./msg_test >> output.txt && ./map_test >> output.txt && ./sound_test >> output.txt && ./music_test >> output.txt && ./mul_test >> output.txt && echo "ALL TESTS PASSED (flight_test, msg_test, map_test, sound_test, music_test, mul_test) -> test/output.txt"
 
 clean:
-	rm -rf flight_test msg_test map_test sound_test mul_test output.txt *.dSYM
+	rm -rf flight_test msg_test map_test sound_test music_test mul_test output.txt *.dSYM
 
-.PHONY: all test flight_test msg_test map_test sound_test mul_test clean
+.PHONY: all test flight_test msg_test map_test sound_test music_test mul_test clean

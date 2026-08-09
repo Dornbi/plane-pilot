@@ -2,6 +2,7 @@
 
 #include "gfx.h"
 #include "keys.h"
+#include "music.h"
 #include "print.h"
 #include "screen.h"
 
@@ -61,6 +62,13 @@ void help_run(void) {
         key_pressed(KSCAN_Q)) {
       break;
     }
+    // Unconditional, and safe because music_tick() returns immediately unless
+    // music_playing is set. This function has two callers - menu.cc when H is
+    // pressed in the menu, and sim.cc when H is pressed in flight - and only
+    // the first one has a tune running. Without that guard, checking the
+    // controls mid-mission would start the title music.
+    // See ../docs/music.md section 3.
+    music_tick();
     gfx_wait_vsync();
   }
   while (key_pressed(KSCAN_RETURN) || key_pressed(KSCAN_SPACE) ||

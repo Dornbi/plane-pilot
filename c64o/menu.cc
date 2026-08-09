@@ -7,6 +7,7 @@
 #include "keys.h"
 #include "mem.h"
 #include "mission.h"
+#include "music.h"
 #include "print.h"
 #include "screen.h"
 
@@ -70,6 +71,12 @@ uint8_t menu_run() {
 
   _enter_menu(scroll_offset);
   _draw_mission_cursor(selected_mission, scroll_offset, true);
+
+  // The menu owns the SID from here. _enter_menu() reached
+  // gfx_stop_raster_irqs() a moment ago, which silenced the flight driver and
+  // masked interrupts, so this is the point where nothing else can be writing
+  // $D400. See ../docs/music.md section 3.
+  music_start();
 
   static const uint8_t kMenuKeyI = 0x01;
   static const uint8_t kMenuKeyK = 0x02;
@@ -138,14 +145,20 @@ uint8_t menu_run() {
     }
 
     if (menu_edges & (kMenuKeySpace | kMenuKeyReturn)) {
+      // Release the SID before the mission starts. The hard cut is deliberate:
+      // the tune ending is how the player knows the menu is over.
+      music_stop();
       return selected_mission;
     }
     if (menu_edges & kMenuKeyH) {
+      // Not bracketed by stop/start. help_run() has its own vsync loop and
+      // ticks whatever is already playing, so the tune carries across.
       help_run();
       _enter_menu(scroll_offset);
       _draw_mission_cursor(selected_mission, scroll_offset, true);
     }
 
+    music_tick();
     gfx_wait_vsync();
   }
 }
