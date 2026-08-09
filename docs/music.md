@@ -419,6 +419,19 @@ estimated:
 
 Against `a178 - d000`, **11.6 KB free** in `ppilot.prg` — about a sixth of it.
 
+**Running against that estimate**, measured from `ppilot.map` at the end of
+each phase. Data arrives incrementally because oscar64's linker drops the
+tables a phase does not yet reference:
+
+| After | `music_tick` | All code | Data linked | Total | Heap free |
+| ----- | ----: | ----: | ----: | ----: | ----: |
+| phase 2 (lead) | 330 | 431 | 529 | 960 | 10.6 KB |
+| phase 3 (+ bass) | 396 | 497 | 913 | 1,410 | 10.2 KB |
+
+Code is tracking well under the ~940 estimate — half the player exists and it
+is 497 bytes, of which 66 is `music_note_freq` being a real function only
+because the test asserts on it.
+
 **Packing is what bought the arrangement back.** The same 24 bars in the
 one-byte-per-row form phase 1 emitted would be 2,112 bytes of data; packed it is
 1,104. That 1,008-byte saving is what made 24 bars affordable after the tune had
@@ -525,19 +538,31 @@ reference is worse than nothing because it is still convincing.
 `make music` regenerates both and joins `make data`. The exporter validates
 before it writes: bar row sums, note range, chord table length, order indices.
 
-**The known gaps between the three copies**, all of which belong to phase 1 and
-none of which the current `tests/test_music.py` catches:
+**The gaps between the three copies.** This has been the most productive bug
+class in the whole module — four so far, none audible, each found only by going
+looking. They are recorded together because the pattern matters more than any
+one of them: **a value that lives in `lib/music.py` and is written out by hand
+into either consumer will diverge, and the copy that diverges silently is the
+convincing one.**
 
-- `VOL_MAP` reaches the reference page and does not reach `musicdef.h`, so the
-  fade in §3 exists in two of the three places it has to (§8).
+| Found in | What | Now |
+| -------- | ---- | --- |
+| phase 1 | `VOL_MAP` reached the browser, not `musicdef.h` — no fade, hard loop edge | `kMusicVolMap`, round-trip tested |
+| phase 3 | `BASS_PW` reached the browser, not `musicdef.h` | `kMusicBassPw` |
+| phase 3 | the browser's `INS` block was **hardcoded** in the exporter while C read `music.INS` | generated from `music.INS` |
+| earlier | the tune selector's `<option>` labels were hardcoded, and in the wrong order | generated from `TUNES` |
+
+Two structural notes that are not gaps but are the same shape of hazard:
+
 - `lib/music.py` holds both arrangements and only `TUNES[0]` is emitted to C.
   That is correct — the C64 ships one tune — but it means the exporter has a
-  silent selection step, and nothing asserts which tune it selected.
-- Whether a tune has the four-bar pedal opening is now an explicit `soft_intro`
+  silent selection step, and `test_generation_and_html_sync` is what asserts
+  which tune it selected.
+- Whether a tune has the four-bar pedal opening is an explicit `soft_intro`
   flag on the tune dict. It used to be inferred from `bars == 32`, which broke
   the moment the atmospheric arrangement changed length and collided with the
-  rock one. Inferring arrangement structure from a length is the class of bug
-  worth naming: it works until two things are the same size.
+  rock one. Inferring arrangement structure from a length is worth naming: it
+  works until two things are the same size.
 
 A fourth gap was in the reference page rather than the data. The tune selector's
 `<option>` labels were written out in the markup and had drifted — the labels
@@ -828,8 +853,45 @@ Each phase leaves the program in a working, committable state.
    `0200 - 025e`, with or without music. The gate is still the right check;
    the number to compare against is a music-free build of the *same*
    configuration, not a constant.
-3. **Bass.** Voice 2. The pedal-bass opening is the easiest thing in the
-   arrangement to get audibly wrong, because for four bars it is one note.
+3. **Bass.** ✅ Done. Voice 2, the same shape as the lead — one row clock, one
+   hard restart rule, one note-start rule — differing only in the instrument, a
+   fixed pulse width instead of a swept one, and the absence of a gate-off
+   branch, because `MUSIC_BASS_ON(row)` is the constant 1.
+
+   Four new test groups, and the voice-2 half of phase 2's "not written yet"
+   assertion deleted. The pedal opening gets its own: bars 1–4 must be
+   **exactly one bass note per bar**, on four *different* pitches. A bass that
+   retriggered every two rows there would turn the pedal into a pulse, and one
+   that never retriggered would drone through all four chord changes — both are
+   plausible bugs and neither sounds obviously wrong under an arpeggio.
+   Measured: 1250 / 992 / 1113 / 936, which is D2 / A♯1 / C2 / A1 through the
+   octave-6 table.
+
+   | | Phase 2 | Phase 3 |
+   | ------------------- | ----: | ----: |
+   | `music_tick` | 330 | 396 |
+   | `kMusicBassStart` | — | 384 |
+   | everything else | 630 | 630 |
+   | **Total** | **960** | **1,410** |
+
+   Heap `a578 → a760`: **488 bytes**, `ppilot.prg` 40,675 at `$0801–$A6E1`,
+   **10.2 KB free**. The bass cost 66 bytes of code. `STACK` unchanged,
+   `ppilotd.map` still has zero music symbols, all six host suites pass.
+
+   The reference and the C player were compared directly and agree exactly:
+   **2130 of 2304 frames gated on voice 2, pulse width `$0500`** in both. Two
+   independent implementations landing on the same frame count is the strongest
+   check available before phase 8.
+
+   **3a — two more export gaps, same class as phase 1b.** ✅ Fixed in this
+   phase because phase 3 needed the first one. `BASS_PW` lived in
+   `lib/music.py` and reached the browser but not C, so the player would have
+   hardcoded `0x0500` and created a fourth copy; it is `kMusicBassPw` now. And
+   the reference page's `INS` block was **hardcoded literals** in the exporter
+   while the C side read `music.INS` — so editing an envelope in Python would
+   have changed the C64 and left the browser alone. They happened to agree,
+   which is exactly why it went unnoticed for two phases. Both are generated
+   now. §5 keeps the running list.
 4. **Arpeggio.** Voice 3, one tone per frame, gate held. It carries bars 1–4
    alone, so this is the phase where the opening either works or does not.
 5. **Drums.** Voice 3 stealing, the priority countdown, the hand-back.
