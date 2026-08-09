@@ -4,9 +4,8 @@
 
 #include "sound.h"
 
-// Phases 2 and 3 of ../docs/music.md: the player skeleton, the ownership
-// guard, and voices 1 and 2. Voice 3 - the arpeggio and the drums stealing it -
-// is phases 4 and 5.
+// Phases 2 to 5 of ../docs/music.md: the player skeleton, the ownership guard,
+// and all three voices.
 
 bool music_playing = false;
 
@@ -30,6 +29,52 @@ static const uint16_t kPwmStep = 8;
 static const uint16_t kPwmRange = 0x800;
 static const uint16_t kPwmBase = 0x0300;
 static uint16_t _pwm_phase;
+
+// --- Voice 3 ----------------------------------------------------------------
+//
+// Shared between the arpeggio and the drums, which is how every SID tune got
+// four parts out of three voices. The arpeggio is a texture and loses 40 to
+// 100 ms without anyone noticing; a kick that is not on the beat is not a kick.
+//
+// _v3_owner is 0 for the arpeggio, or MUSIC_DRUM_AT()'s code (1 kick, 2 snare,
+// 3 hat) while a drum holds it. There is no priority logic between the drums
+// themselves - get_flattened_drums() resolves that when it builds the table, so
+// a row carries at most one hit.
+// _v3_owner is kV3Arp, kV3Restart, or MUSIC_DRUM_AT()'s code (1 kick, 2 snare,
+// 3 hat) while a drum holds the voice.
+//
+// kV3Restart is the state between a hit ending and the arpeggio coming back,
+// and it exists because of the SID's ADSR delay bug. Gating a voice on while
+// its envelope counter is somewhere awkward does not restart the envelope; the
+// counter has to wrap its full 15-bit range first, which can take the best part
+// of a second. The cure every SID player uses is the *hard restart*: hold the
+// gate low with the attack/decay and sustain/release registers at zero for a
+// couple of frames, which forces the counter down, and only then gate on.
+//
+// Handing straight back from a hit to the arpeggio skipped that. The gate went
+// low for one frame with the drum's sustain still in the register, and the
+// arpeggio's envelope never climbed. On hardware the symptom was an arpeggio
+// audible only in bars 1 to 4 - the one stretch preceded by a real hard
+// restart, because music_start() zeroes every envelope register before the
+// first gate rises - and, after a loop, silent for two more bars while the
+// counter wrapped.
+static const uint8_t kV3Arp = 0;
+static const uint8_t kV3Restart = 0xFF;
+
+// Two frames. One is what the code accidentally had and is not enough; two is
+// what SID players conventionally use. It costs the arpeggio two frames of
+// shimmer after each hit, which is 40 ms and inaudible.
+static const uint8_t kV3RestartFrames = 2;
+
+static uint8_t _v3_owner;
+static uint8_t _v3_timer;    // frames left in the current hit, or in the restart
+static uint16_t _v3_freq;    // swept down by _v3_step while a drum holds it
+static uint16_t _v3_step;
+
+// Which chord tone the arpeggio is on, 0..2. Advanced once per frame, but only
+// while the arpeggio actually owns the voice - a hit does not move it, so the
+// shimmer resumes where it left off instead of jumping.
+static uint8_t _arp_idx;
 
 // --- Volume ----------------------------------------------------------------
 //
@@ -82,22 +127,65 @@ uint16_t music_note_freq(uint8_t midi) {
 
 // --- Voice writes ----------------------------------------------------------
 //
-// Direct to the chip. There is no shadow and no blit: nothing can interrupt
-// this, because the only screens that run it have already masked interrupts.
+// **$D400-$D418 are WRITE-ONLY.** Reading them on real hardware returns
+// whatever was last on the data bus, not what was written there. So the player
+// may never read a SID register back, and it needs the one piece of register
+// state it makes decisions from - the control byte, for its gate bit - kept in
+// RAM instead.
 //
-// The control register still goes last. Not for sound.cc's torn-read reason -
-// that cannot happen here - but because the SID latches sustain on the gate
-// edge, so a gate raised before its envelope registers are in place latches
-// whatever was there before.
-static void _set_voice(uint8_t base, uint16_t freq, uint16_t pw, uint8_t ctrl,
+// This is the same reason sound.cc keeps sound_shadow[]: that module's blit is
+// a pure store sequence and it decides everything from the shadow. This one
+// needs only three bytes, because the gate bit is the only thing it ever asks
+// the chip about.
+//
+// The failure mode when this is got wrong is not a crash and not silence: it
+// is a voice that sounds in some bars and not others, depending on what the
+// VIC-II happened to leave on the bus. It is also invisible to every host
+// test, because on the host SID_REGS points at ordinary RAM and reads back
+// exactly what was written.
+static uint8_t _ctrl[3];
+
+// Voice indices, deliberately distinct from the kSoundRegV* register offsets:
+// _ctrl is indexed by voice, the chip by register.
+static const uint8_t kVoice1 = 0;
+static const uint8_t kVoice2 = 1;
+static const uint8_t kVoice3 = 2;
+static const uint8_t kVoiceRegs = 7;
+
+// The control register, to the chip and to the shadow, always together.
+static void _write_ctrl(uint8_t voice, uint8_t ctrl) {
+  _ctrl[voice] = ctrl;
+  SID_REGS[voice * kVoiceRegs + kSoundVoiceCtrl] = ctrl;
+}
+
+// The control register goes last. Not for sound.cc's torn-read reason - that
+// cannot happen here - but because the SID latches sustain on the gate edge,
+// so a gate raised before its envelope registers are in place latches whatever
+// was there before.
+static void _set_voice(uint8_t voice, uint16_t freq, uint16_t pw, uint8_t ctrl,
                        uint8_t attdec, uint8_t susrel) {
+  const uint8_t base = voice * kVoiceRegs;
   SID_REGS[base + kSoundVoiceFreqLo] = (uint8_t)freq;
   SID_REGS[base + kSoundVoiceFreqHi] = (uint8_t)(freq >> 8);
   SID_REGS[base + kSoundVoicePwLo] = (uint8_t)pw;
   SID_REGS[base + kSoundVoicePwHi] = (uint8_t)((pw >> 8) & 0x0F);
   SID_REGS[base + kSoundVoiceAttDec] = attdec;
   SID_REGS[base + kSoundVoiceSusRel] = susrel;
-  SID_REGS[base + kSoundVoiceCtrl] = ctrl;
+  _write_ctrl(voice, ctrl);
+}
+
+static void _set_freq(uint8_t voice, uint16_t freq) {
+  const uint8_t base = voice * kVoiceRegs;
+  SID_REGS[base + kSoundVoiceFreqLo] = (uint8_t)freq;
+  SID_REGS[base + kSoundVoiceFreqHi] = (uint8_t)(freq >> 8);
+}
+
+static void _gate_off(uint8_t voice) {
+  _write_ctrl(voice, (uint8_t)(_ctrl[voice] & ~SID_CTRL_GATE));
+}
+
+static bool _gated(uint8_t voice) {
+  return (_ctrl[voice] & SID_CTRL_GATE) != 0;
 }
 
 // Hard restart. On the frame before a new note, drop the gate and zero the
@@ -108,8 +196,9 @@ static void _set_voice(uint8_t base, uint16_t freq, uint16_t pw, uint8_t ctrl,
 //
 // Applied only where the *next* row actually starts a note, so held notes
 // never pay for it. See ../docs/music.md section 3.
-static void _hard_restart(uint8_t base) {
-  SID_REGS[base + kSoundVoiceCtrl] &= (uint8_t)~SID_CTRL_GATE;
+static void _hard_restart(uint8_t voice) {
+  const uint8_t base = voice * kVoiceRegs;
+  _gate_off(voice);
   SID_REGS[base + kSoundVoiceAttDec] = 0;
   SID_REGS[base + kSoundVoiceSusRel] = 0;
 }
@@ -121,6 +210,11 @@ void music_start(void) {
   _row_frame = 0;
   _bar = 0;
   _pwm_phase = 0;
+  _v3_owner = kV3Arp;
+  _v3_timer = 0;
+  _v3_freq = 0;
+  _v3_step = 0;
+  _arp_idx = 0;
 
   // The chip already arrives silent - gfx_stop_raster_irqs() calls
   // sound_silence(), which write-throughs zeros to $D400 on its way to the
@@ -128,15 +222,34 @@ void music_start(void) {
   // through two modules and a screen transition, and the failure it guards
   // against is a voice from the previous flight droning under the menu.
   for (uint8_t v = 0; v < 3; ++v) {
-    _set_voice((uint8_t)(v * 7), 0, 0, 0, 0, 0);
+    _set_voice(v, 0, 0, 0, 0, 0);
   }
+
+  // The filter, explicitly. music_tick() never touches $D415-$D417, so
+  // whatever is in them when the tune starts stays there for its whole run -
+  // and the low nibble of $D417 routes voices *into* the filter. A voice
+  // routed into a filter whose cutoff is 0 is silent, which sounds exactly
+  // like that voice not being written at all.
+  //
+  // Until now this worked only because sound.cc happens to zero the same three
+  // registers on every frame of every flight, and sound_silence() zeroes them
+  // on the way to the menu. That is a dependency on another module's
+  // housekeeping, running through a screen transition, for a register this one
+  // never writes - which is the shape of a bug that appears years later when
+  // something else starts using the filter. ../docs/music.md section 3 says
+  // the design does not depend on the filter; this is what makes that true
+  // rather than merely intended.
+  SID_REGS[kSoundRegCutoffLo] = 0;
+  SID_REGS[kSoundRegCutoffHi] = 0;
+  SID_REGS[kSoundRegResFilt] = 0;
+
   music_playing = true;
 }
 
 void music_stop(void) {
   music_playing = false;
   for (uint8_t v = 0; v < 3; ++v) {
-    _set_voice((uint8_t)(v * 7), 0, 0, 0, 0, 0);
+    _set_voice(v, 0, 0, 0, 0, 0);
   }
   SID_REGS[kSoundRegModeVol] = 0;
 }
@@ -156,16 +269,16 @@ void music_tick(void) {
   // exclusive only because kMusicSpeed is 6; writing them as alternatives
   // would quietly stop being correct at speed 1.
   if (last_frame_of_row && kMusicLeadStart[next_row] != 0) {
-    _hard_restart(kSoundRegV1);
+    _hard_restart(kVoice1);
   }
   if (_row_frame == 0) {
     const uint8_t note = kMusicLeadStart[_row];
     if (note != 0) {
-      _set_voice(kSoundRegV1, music_note_freq(note), kPwmBase,
+      _set_voice(kVoice1, music_note_freq(note), kPwmBase,
                  kMusicInsLead.wave | SID_CTRL_GATE, kMusicInsLead.ad,
                  kMusicInsLead.sr);
     } else if (!MUSIC_LEAD_ON(_row)) {
-      SID_REGS[kSoundRegV1 + kSoundVoiceCtrl] &= (uint8_t)~SID_CTRL_GATE;
+      _gate_off(kVoice1);
     }
   }
 
@@ -198,12 +311,12 @@ void music_tick(void) {
   // starts halfway up is a note with no front edge - on the one voice whose
   // front edge *is* the rhythm.
   if (last_frame_of_row && kMusicBassStart[next_row] != 0) {
-    _hard_restart(kSoundRegV2);
+    _hard_restart(kVoice2);
   }
   if (_row_frame == 0) {
     const uint8_t note = kMusicBassStart[_row];
     if (note != 0) {
-      _set_voice(kSoundRegV2, music_note_freq(note), kMusicBassPw,
+      _set_voice(kVoice2, music_note_freq(note), kMusicBassPw,
                  kMusicInsBass.wave | SID_CTRL_GATE, kMusicInsBass.ad,
                  kMusicInsBass.sr);
     }
@@ -214,7 +327,73 @@ void music_tick(void) {
     // music_test.cc re-checks it.
   }
 
-  // Voice 3 is phases 4 and 5.
+  // --- voice 3: arpeggio, stolen by drums ---
+  //
+  // The hard restart has to be remembered, not just performed. It lands on the
+  // LAST frame of a row and the hand-back below can fire on any frame, so
+  // without the flag a hit arriving next row would be un-gated by the same
+  // tick that just prepared it. That was a real bug in the reference player.
+  bool v3_restarted = false;
+  if (last_frame_of_row && MUSIC_DRUM_AT(next_row) != 0) {
+    _hard_restart(kVoice3);
+    v3_restarted = true;
+  }
+
+  const uint8_t hit = MUSIC_DRUM_AT(_row);
+  if (_row_frame == 0 && hit != 0) {
+    const music_instrument_t *d = &kMusicDrumIns[hit - 1];
+    _v3_owner = hit;
+    _v3_timer = d->frames;
+    _v3_freq = d->freq_from;
+    _v3_step = d->freq_step;
+    _set_voice(kVoice3, _v3_freq, 0, d->wave | SID_CTRL_GATE, d->ad, d->sr);
+  } else if (_v3_owner == kV3Restart && _v3_timer == 0 && !v3_restarted) {
+    // The hard restart has run its course. Now the gate may rise, and the
+    // envelope starts from a counter that has actually been forced down.
+    _v3_owner = kV3Arp;
+    SID_REGS[kSoundRegV3 + kSoundVoiceAttDec] = kMusicInsArp.ad;
+    SID_REGS[kSoundRegV3 + kSoundVoiceSusRel] = kMusicInsArp.sr;
+    _write_ctrl(kVoice3, kMusicInsArp.wave | SID_CTRL_GATE);
+  }
+
+  if (_v3_owner == kV3Arp) {
+    // One chord tone per frame with the gate HELD. Rewriting the frequency
+    // does not retrigger the envelope, and that is the whole trick: at 50 Hz
+    // it reads as a chord shimmering rather than as three notes being played
+    // very fast. Re-gating here would turn it into a machine gun.
+    _set_freq(kVoice3, music_note_freq(kMusicChords[_bar].triad[_arp_idx]));
+    if (++_arp_idx == 3) {
+      _arp_idx = 0;
+    }
+    // The one exception: a row boundary is allowed to re-gate, because that is
+    // where a hard restart from the previous frame has to be undone if no hit
+    // actually arrived. Restricting it to _row_frame == 0 is what stops it
+    // cancelling the restart on the frame the restart happened.
+    if (_row_frame == 0 && !_gated(kVoice3)) {
+      SID_REGS[kSoundRegV3 + kSoundVoiceAttDec] = kMusicInsArp.ad;
+      SID_REGS[kSoundRegV3 + kSoundVoiceSusRel] = kMusicInsArp.sr;
+      _write_ctrl(kVoice3, kMusicInsArp.wave | SID_CTRL_GATE);
+    }
+  } else if (_v3_owner == kV3Restart) {
+    // Holding the gate low with the envelope registers at zero. Nothing to
+    // write - _hard_restart() already put the chip in this state - just count
+    // the frames out.
+    --_v3_timer;
+  } else {
+    // A drum holds the voice. Write the current sweep value, then step it: the
+    // first frame therefore emits freq_from, which is what makes the kick's
+    // descent start where the instrument says.
+    _set_freq(kVoice3, _v3_freq);
+    _v3_freq -= _v3_step;  // zero for the flat drums
+    if (--_v3_timer == 0) {
+      // Not just a gate-off: a full hard restart, which zeroes the envelope
+      // registers too. Then kV3RestartFrames frames before the arpeggio is
+      // allowed back. See the ADSR delay bug note above.
+      _hard_restart(kVoice3);
+      _v3_owner = kV3Restart;
+      _v3_timer = kV3RestartFrames;
+    }
+  }
 
   // --- master volume ---
   SID_REGS[kSoundRegModeVol] =
@@ -226,6 +405,11 @@ void music_tick(void) {
     if (++_row == kMusicTotalRows) {
       _row = 0;
       _bar = 0;
+      // Reset with the row counter so the loop point is identical. 2304 is a
+      // multiple of 3, so a free-running index would in fact land back on 0 -
+      // but that is a coincidence of the bar count, and the loop-identity test
+      // would start failing the next time the arrangement is resized.
+      _arp_idx = 0;
       // _pwm_phase is deliberately not reset: kPwmStep divides the loop, so it
       // is already back where it started. The test asserts that rather than
       // trusting it.

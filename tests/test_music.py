@@ -222,6 +222,47 @@ class TestMusicData(unittest.TestCase):
         self.assertEqual(unpacked_lead, [1 if v else 0 for v in lead_on])
         self.assertEqual(unpacked_drum, [generate_music.DRUM_CODE[v] for v in drum_at])
 
+    def test_player_never_reads_a_sid_register(self):
+        """c64o/music.cc must only ever STORE to SID_REGS, never read it.
+
+        $D400-$D418 are write-only on real hardware: a read returns whatever
+        was last on the data bus, not what was written. The player used to read
+        the control register back to test its own gate bit, which on a C64 made
+        voice 3 sound in some bars and not others depending on what the VIC-II
+        left behind.
+
+        No host test can catch this. On the host, SID_REGS points at ordinary
+        RAM and reads back exactly what was written, so every assertion passes
+        while the real machine misbehaves. That is why the check is here, on the
+        source, rather than in music_test.cc.
+
+        The rule: SID_REGS[...] may appear only as the target of a plain `=`.
+        A compound assignment (&=, |=) is a read-modify-write, and any other
+        appearance is a read.
+        """
+        src_path = os.path.join(REPO_ROOT, "c64o", "music.cc")
+        with open(src_path, encoding="utf-8") as f:
+            src = re.sub(r'//[^\n]*', '', f.read())      # strip line comments
+
+        offenders = []
+        for m in re.finditer(r'SID_REGS\s*\[', src):
+            # Find the matching ']' and look at what follows.
+            i, depth = m.end(), 1
+            while i < len(src) and depth:
+                if src[i] == '[':
+                    depth += 1
+                elif src[i] == ']':
+                    depth -= 1
+                i += 1
+            after = src[i:i + 3].lstrip()
+            line = src.count('\n', 0, m.start()) + 1
+            if not after.startswith('=') or after.startswith('=='):
+                offenders.append(f"line ~{line}: SID_REGS[...] {after[:2]!r} is a read")
+
+        self.assertEqual(offenders, [],
+                         "music.cc reads a write-only SID register:\n  " +
+                         "\n  ".join(offenders))
+
     def test_generated_header_does_not_include_stdbool(self):
         """musicdef.h must not pull in <stdbool.h>.
 

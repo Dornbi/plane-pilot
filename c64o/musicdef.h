@@ -26,7 +26,14 @@ struct music_instrument_t {
     uint8_t wave;
     uint8_t frames;
     uint16_t freq_from;
-    uint16_t freq_to;
+    // Per-frame subtraction, not a target frequency. The kick sweeps
+    // down over its frames; the reference computes
+    //   from + (to - from) * t / frames
+    // which is one divide per frame, and a 6510 has none. The
+    // division happens in the exporter instead and the player
+    // subtracts. Worst divergence from the reference sequence is 3
+    // parts in 2700, on a noise voice.
+    uint16_t freq_step;
 };
 
 extern const uint16_t kMusicNoteTable[12];
@@ -66,9 +73,12 @@ static const uint16_t kMusicBassPw = 0x0500;
 extern const music_instrument_t kMusicInsLead;
 extern const music_instrument_t kMusicInsBass;
 extern const music_instrument_t kMusicInsArp;
-extern const music_instrument_t kMusicInsKick;
-extern const music_instrument_t kMusicInsSnare;
-extern const music_instrument_t kMusicInsHat;
+
+// Kick, snare, hat - an array rather than three names, because the
+// player reaches them through MUSIC_DRUM_AT(row), which is already
+// 1, 2 or 3. Indexing beats a switch: sound.md section 10 measured
+// the equivalent comparison chain at 101 bytes.
+extern const music_instrument_t kMusicDrumIns[3];
 
 #endif // __ENABLE_SOUND__
 

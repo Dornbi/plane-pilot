@@ -367,9 +367,8 @@ function playerTick(){
     setFreq(2, d.from);
     setEnv(2, d.ad, d.sr);
     setCtrl(2, d.wave | CTRL_GATE);
-  } else if(ps.v3owner !== 'arp' && ps.v3timer === 0 && !v3restarted){
-    // Hand the voice back. A fresh gate, so the arp envelope restarts - audible
-    // as a small swell, which is why the arp envelope has no decay in it.
+  } else if(ps.v3owner === 'restart' && ps.v3timer === 0 && !v3restarted){
+    // The hard restart has run its course; now the gate may rise.
     ps.v3owner = 'arp';
     setEnv(2, INS.arp.ad, INS.arp.sr);
     setCtrl(2, INS.arp.wave | CTRL_GATE);
@@ -388,13 +387,24 @@ function playerTick(){
       setEnv(2, INS.arp.ad, INS.arp.sr);
       setCtrl(2, INS.arp.wave | CTRL_GATE);
     }
+  } else if(ps.v3owner === 'restart'){
+    // Gate low, envelope registers zeroed, counting frames out. The SID's ADSR
+    // delay bug means a gate raised over an envelope counter that has not been
+    // forced down may simply not start - so the arp waits. Modelled here even
+    // though Web Audio has no such bug, because the reference exists to predict
+    // what the C64 does. See docs/music.md section 3.
+    ps.v3timer--;
   } else {
     const d = ps.v3drum, t = d.frames - ps.v3timer;
     if(d.from !== d.to){                    // the kick sweeps out of the way
       setFreq(2, d.from + ((d.to - d.from) * t / d.frames) | 0);
     }
     ps.v3timer--;
-    if(ps.v3timer <= 0){ gateOff(2); ps.v3timer = 0; }
+    if(ps.v3timer <= 0){
+      hardRestart(2);                       // gate off AND envelope to zero
+      ps.v3owner = 'restart';
+      ps.v3timer = V3_RESTART_FRAMES;
+    }
   }
 
   // --- master volume. $D418 low nibble, scaling with bar volume curve ---

@@ -401,6 +401,90 @@ This is the decision most likely to be quietly dropped during a rewrite and the
 one that most affects whether the tune sounds crisp or mushy. It gets its own
 test (§7).
 
+### The SID's registers are write-only, and the player must act like it
+
+`$D400`–`$D418` cannot be read back. A read returns whatever was last on the
+data bus — usually something the VIC-II put there — not the value that was
+written. This is the single most expensive mistake available in this module,
+because of how it fails.
+
+The first version of `music.cc` had no shadow. It wrote the chip directly and,
+in four places, read the control register back to test its own gate bit: the
+hard restart and two gate-offs did `SID_REGS[ctrl] &= ~GATE`, a
+read-modify-write, and the arpeggio's re-gate asked `!(SID_REGS[ctrl] & GATE)`.
+
+On hardware that produced a voice that sounded **in some bars and not others**,
+which is not a symptom anyone would attribute to a register read. It was
+reported as "bars 3 and 4 have the arpeggio, nowhere else does".
+
+**No host test can catch this.** In the host build `SID_REGS` points at ordinary
+RAM, so reads return exactly what was written and all seventeen assertions pass
+while the real machine misbehaves. The browser reference cannot catch it either
+— its chip model is readable too — and indeed the two emitted byte-identical
+register streams throughout. Everything that could be checked, checked out.
+
+The rule now:
+
+> **`music.cc` may only ever store to `SID_REGS`, never read it.**
+
+The gate bit — the one piece of register state the player makes decisions from
+— lives in a three-byte `_ctrl[]` shadow instead. That is the same reason
+sound.md keeps its 25-byte `sound_shadow[]`, arrived at from the opposite
+direction: that module needed a shadow so its blit could be a pure store
+sequence, and got write-only safety as a side effect.
+
+Enforced by `test_player_never_reads_a_sid_register` in `tests/test_music.py`,
+which parses the source and requires every `SID_REGS[...]` to be the target of
+a plain `=`. A compound assignment is a read-modify-write; anything else is a
+read. It is a source-level check because there is no runtime one that would
+work — and it was verified by reintroducing the bug and watching it fail.
+
+### Re-gating needs a hard restart, or the envelope never climbs
+
+The SID's **ADSR delay bug**: raising the gate does not reliably start the
+envelope. The generator's counter has to match the new rate's period, and if it
+has already passed it the counter must wrap its full 15-bit range first — which
+can take the better part of a second. The cure every SID player uses is the
+*hard restart*: hold the gate low with attack/decay and sustain/release at zero
+for a couple of frames, forcing the counter down, and only then gate on.
+
+§3 already specified this for new **notes** on voices 1 and 2. It was missing
+from the place that needed it most: voice 3's hand-back from a drum to the
+arpeggio. That path gated off for one frame, left the *drum's* sustain in the
+register, and re-gated. The envelope never climbed.
+
+The symptom was almost a proof by itself. The arpeggio was audible **only in
+bars 1 to 4**, and after a loop went missing for two more bars before returning.
+Bars 1 to 4 are the one stretch preceded by a genuine hard restart — not by
+design, but because `music_start()` zeroes every envelope register with the gate
+low before the first gate rises. The single place it worked was the single place
+the envelope had been forced down first.
+
+So voice 3 gained a `kV3Restart` state between a hit ending and the arpeggio
+returning: gate low, envelope registers zero, `kV3RestartFrames` frames. Two,
+which is the conventional figure; one is what the code accidentally had and is
+not enough. It costs the arpeggio 40 ms of shimmer after each hit, and takes
+voice 3's gated frames from 1976 to **1657 of 2304**.
+
+The browser reference models the restart too, even though Web Audio has no such
+bug — the reference exists to predict what the C64 does, not to sound good on
+its own terms. Both players still agree exactly, which is what keeps the
+cross-check in §7 worth anything.
+
+### The filter registers are never written by the tick
+
+Related, and found while chasing the same report. `music_tick()` writes
+`$D400`–`$D414` and `$D418`, and nothing else. The three filter registers were
+therefore whatever the last thing to touch them left behind — and the low
+nibble of `$D417` routes voices *into* the filter, so a voice routed into a
+filter with cutoff 0 is silent.
+
+It happened to work, because `sound.cc` zeroes those three registers on every
+flight frame and `sound_silence()` zeroes them on the way to the menu. That is
+a dependency on another module's housekeeping, across a screen transition, for
+registers this one never writes. `music_start()` now clears them explicitly and
+the test starts from `0xFF` in all 32 registers to prove it.
+
 ### Do not depend on the filter
 
 Unchanged from sound.md §3, and worth restating because a title tune is exactly
@@ -489,10 +573,17 @@ tables a phase does not yet reference:
 | ----- | ----: | ----: | ----: | ----: | ----: |
 | phase 2 (lead) | 330 | 431 | 529 | 960 | 10.6 KB |
 | phase 3 (+ bass) | 396 | 497 | 913 | 1,410 | 10.2 KB |
+| phases 4–5 (+ voice 3) | 654 | 771 | 1,129 | 1,900 | 9.5 KB |
 
-Code is tracking well under the ~940 estimate — half the player exists and it
-is 497 bytes, of which 66 is `music_note_freq` being a real function only
-because the test asserts on it.
+All three voices exist and the player is **771 bytes of code against the ~940
+estimate**, with every table now linked. The whole feature has taken the heap
+from 11,912 to 9,680 bytes free — **2,232 bytes**, against §4's projected
+~2.1 KB. Four percent over an estimate made before any of it was written.
+
+`music_tick` is 654 of the 771 and is the only thing here worth watching. It is
+one straight-line function per voice; if it ever needs to shrink, the voice
+bodies are near-identical and the obvious move is a per-voice parameter table,
+which is the same trade sound.md §10 lists for its own `switch`.
 
 **Packing is what bought the arrangement back.** The same 24 bars in the
 one-byte-per-row form phase 1 emitted would be 2,112 bytes of data; packed it is
@@ -954,9 +1045,43 @@ Each phase leaves the program in a working, committable state.
    have changed the C64 and left the browser alone. They happened to agree,
    which is exactly why it went unnoticed for two phases. Both are generated
    now. §5 keeps the running list.
-4. **Arpeggio.** Voice 3, one tone per frame, gate held. It carries bars 1–4
-   alone, so this is the phase where the opening either works or does not.
-5. **Drums.** Voice 3 stealing, the priority countdown, the hand-back.
+4. **Arpeggio.** ✅ Done. Voice 3, one chord tone per frame with the gate
+   **held** — rewriting the frequency does not retrigger the envelope, which is
+   the whole trick: at 50 Hz three notes read as one chord shimmering. Re-gate
+   per tone and it becomes a machine gun, which sounds like a deliberate effect
+   rather than a bug, so it gets a test.
+
+   It carries bars 1–4 alone, and that has its own test: 383 of the opening's
+   384 frames gated, the exception being the last frame of bar 4, which
+   hard-restarts for the hat that opens bar 5.
+5. **Drums.** ✅ Done. Voice 3 stealing, the countdown, the hand-back. No
+   priority logic between the drums themselves — `get_flattened_drums()`
+   resolves kick > snare > hat when it builds the table, so a row carries at
+   most one hit and the player only ever arbitrates arpeggio against drum.
+
+   **5a — the divide.** The reference sweeps the kick with
+   `from + (to - from) * t / frames`, one divide per frame, which a 6510 does
+   not have. `music_instrument_t` now carries `freq_step` instead of `freq_to`:
+   the exporter divides, the player subtracts. Worst divergence from the
+   reference sequence is 3 parts in 2700, on a noise voice.
+
+   The three drums also became `kMusicDrumIns[3]`, indexed by
+   `MUSIC_DRUM_AT(row) - 1`, rather than three named constants reached through
+   a `switch`. sound.md §10 measured the equivalent comparison chain at 101
+   bytes.
+
+   **Verified across both phases:** the gate pattern of an *n*-frame hit is
+   *n*−1 frames on and then the release (`GGGG.G` for the 5-frame kick,
+   `G.GGGG` for the 2-frame hat), asserted as that literal shape rather than
+   recomputed from the countdown; the kick sweeps downward and the other two are
+   flat; the arpeggio never drops its gate except on a hard restart; and the
+   hand-back does not cancel a restart that was just prepared for an incoming
+   hit — a bug that was real in the reference player and is now pinned in both.
+
+   **And the strongest check available:** voice 3 is gated on **1976 of 2304
+   frames** (1657 after the ADSR hard restart landed), which is exactly what the browser reference produces. That is a
+   literal in the test, deliberately — deriving it would mean reimplementing
+   the arbitration, which is the thing under test.
 6. **Hard restart, the volume ramp, and envelope tuning.** Ordered deliberately
    after the drums: both interact with every voice and are easier to get right
    against an arrangement that already exists. `V` in the menu lands here or is

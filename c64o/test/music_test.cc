@@ -73,6 +73,32 @@ static void test_start_and_stop(void) {
   printf("  ok  music_start() clears the chip, music_stop() releases it\n");
 }
 
+// --- 2a. The filter is neutralised, and stays that way -----------------------
+//
+// music_tick() never writes $D415-$D417, so whatever music_start() leaves in
+// them holds for the tune's whole run. The low nibble of $D417 routes voices
+// *into* the filter, and a voice routed into a filter with cutoff 0 is silent
+// - indistinguishable, by ear, from that voice never being written.
+//
+// This is started from deliberately hostile register contents because the real
+// hazard is inheritance: before music_start() cleared these, the tune was
+// relying on sound.cc having zeroed the same three registers on its way out of
+// a flight.
+static void test_filter_is_neutralised(void) {
+  memset(sid_regs, 0xFF, sizeof(sid_regs));  // every voice routed, resonance max
+  music_start();
+  assert(sid_regs[kSoundRegResFilt] == 0 &&
+         "music_start() left voices routed into the filter");
+  assert(sid_regs[kSoundRegCutoffLo] == 0 && sid_regs[kSoundRegCutoffHi] == 0);
+
+  for (uint16_t f = 0; f < kMusicTotalFrames; ++f) {
+    music_tick();
+    assert(sid_regs[kSoundRegResFilt] == 0 &&
+           "something routed a voice into the filter mid-tune");
+  }
+  printf("  ok  filter neutralised from hostile initial state and left alone\n");
+}
+
 // --- 3. The note table ------------------------------------------------------
 static void test_note_table(void) {
   // Monotonic across the whole range the arrangement uses.
@@ -289,19 +315,237 @@ static void test_lead_is_audible(void) {
          gate_frames, distinct_freqs, pw_min, pw_max);
 }
 
-// --- 9. Voice 3 stays silent until phase 4 -----------------------------------
+// --- 9. The arpeggio ---------------------------------------------------------
 //
-// Not a permanent property. It is here so that "the arpeggio is not written
-// yet" is a checked claim rather than an intention, and so that whoever adds
-// voice 3 has to delete this and mean it. The voice-2 half of this assertion
-// was deleted by phase 3.
-static void test_voice_3_silent_until_phase_4(void) {
+// One chord tone per frame with the gate HELD. The held gate is the whole
+// trick: rewriting the frequency does not retrigger the envelope, so at 50 Hz
+// three notes read as one chord shimmering. Re-gate per tone and it becomes a
+// machine gun - which sounds like a deliberate effect rather than a bug, and
+// is exactly the kind of thing this test exists to pin.
+static void test_arpeggio(void) {
   music_start();
+
+  int arp_frames = 0, freq_changes = 0;
+  int gap = 0, longest_gap = 0;
+  uint16_t last = 0xFFFF;
+
   for (uint16_t f = 0; f < kMusicTotalFrames; ++f) {
     music_tick();
-    assert(!gate_set(2) && "voice 3 sounds, but the arpeggio is phase 4");
+    const uint8_t ctrl = sid_regs[kSoundRegV3 + kSoundVoiceCtrl];
+
+    // How long is voice 3 ever silent? Rather than re-deriving which frames
+    // are legitimately un-gated - which would mean reimplementing the
+    // arbitration this is supposed to be checking - just bound the longest
+    // run. A drum plus its hard restart is the longest legal gap; an arpeggio
+    // that stops coming back shows up immediately as a run of hundreds.
+    if (ctrl & SID_CTRL_GATE) {
+      gap = 0;
+    } else {
+      ++gap;
+      if (gap > longest_gap) {
+        longest_gap = gap;
+      }
+    }
+
+    if ((ctrl & SID_CTRL_GATE) && (ctrl & SID_CTRL_SAW)) {
+      ++arp_frames;
+      const uint16_t v = (uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqLo] |
+                         ((uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqHi] << 8);
+      if (v != last) {
+        ++freq_changes;
+        last = v;
+      }
+    }
   }
-  printf("  ok  voice 3 silent (phases 4-5 will change this)\n");
+
+  // Longest legal silence: the release frame, kV3RestartFrames of hard
+  // restart, and the pre-drum hard restart that can immediately follow.
+  const int kMaxGap = 1 + 2 + 1;
+  assert(longest_gap <= kMaxGap && "voice 3 went silent for too long");
+  assert(arp_frames > kMusicTotalFrames / 2 &&
+         "the arpeggio holds voice 3 for less than half the tune");
+  assert(freq_changes > arp_frames / 2 && "the arpeggio is not advancing");
+  printf("  ok  arpeggio: %d frames on saw, %d pitch moves, longest silence %d frames\n",
+         arp_frames, freq_changes, longest_gap);
+}
+
+// --- 10. Drums stealing voice 3 ----------------------------------------------
+static void test_drum_steal(void) {
+  music_start();
+
+  int hits[4] = {0, 0, 0, 0};
+  int bad_len = 0, bad_wave = 0;
+  uint16_t kick_first = 0, kick_last = 0;
+
+  for (uint16_t row = 0; row < kMusicTotalRows; ++row) {
+    const uint8_t code = MUSIC_DRUM_AT(row);
+    for (uint8_t rf = 0; rf < kMusicSpeed; ++rf) {
+      music_tick();
+      if (code == 0) {
+        continue;
+      }
+      const music_instrument_t *d = &kMusicDrumIns[code - 1];
+      const uint16_t f = (uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqLo] |
+                         ((uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqHi] << 8);
+      if (rf == 0) {
+        ++hits[code];
+        if (!(sid_regs[kSoundRegV3 + kSoundVoiceCtrl] & SID_CTRL_NOISE)) {
+          ++bad_wave;
+        }
+        if (f != d->freq_from) {
+          ++bad_len;  // a hit must start at its instrument's frequency
+        }
+        if (code == 1) {
+          kick_first = f;
+        }
+      }
+      // The gate pattern of an n-frame hit is n-1 frames on, then the release.
+      // The reference produces exactly this - GGGG.G for the 5-frame kick,
+      // G.GGGG for the 2-frame hat - because the countdown clears the gate on
+      // the frame it reaches zero rather than the frame after. Asserted as the
+      // literal shape rather than recomputed from the countdown, so that an
+      // off-by-one in the player cannot be matched by an off-by-one here.
+      if (rf < d->frames - 1) {
+        if (!gate_set(2)) {
+          ++bad_len;  // should still be sounding
+        }
+        if (code == 1) {
+          kick_last = f;
+        }
+      } else if (rf >= d->frames - 1 && rf < d->frames - 1 + 3) {
+        // Released, then held low for the hard restart. Both the release frame
+        // and the restart frames must be un-gated, and the envelope registers
+        // must actually be zero during the restart - a gate-off alone is what
+        // left the arpeggio unable to climb on hardware.
+        if (gate_set(2)) {
+          ++bad_len;
+        }
+        if (rf > d->frames - 1 &&
+            (sid_regs[kSoundRegV3 + kSoundVoiceAttDec] != 0 ||
+             sid_regs[kSoundRegV3 + kSoundVoiceSusRel] != 0)) {
+          ++bad_len;  // gate low but the envelope registers were never cleared
+        }
+      }
+    }
+  }
+  assert(bad_wave == 0 && "a drum did not use the noise waveform");
+  assert(bad_len == 0 && "a drum held voice 3 for the wrong number of frames");
+  assert(hits[1] > 0 && hits[2] > 0 && hits[3] > 0);
+  // The kick sweeps down; the others are flat. That descent is what makes it a
+  // drum rather than a burst of static.
+  assert(kick_last < kick_first && "the kick did not sweep downward");
+  assert(kMusicDrumIns[1].freq_step == 0 && kMusicDrumIns[2].freq_step == 0);
+  printf("  ok  drums: %d kick / %d snare / %d hat, kick swept %u -> %u\n",
+         hits[1], hits[2], hits[3], kick_first, kick_last);
+}
+
+// --- 11. The hand-back -------------------------------------------------------
+//
+// When a hit ends mid-row the arpeggio takes the voice back on the next frame,
+// with a fresh gate. The bug this pins is subtle and was real in the reference
+// player: the hand-back can fire on any frame, the hard restart lands on the
+// last frame of a row, and without the v3_restarted flag the hand-back
+// un-gates a restart that was just prepared for an incoming hit.
+static void test_v3_hand_back(void) {
+  music_start();
+  int handbacks = 0, missed_restarts = 0;
+  uint8_t prev_ctrl = 0;
+
+  for (uint16_t row = 0; row < kMusicTotalRows; ++row) {
+    const uint16_t next = (row + 1 == kMusicTotalRows) ? 0 : (uint16_t)(row + 1);
+    for (uint8_t rf = 0; rf < kMusicSpeed; ++rf) {
+      music_tick();
+      const uint8_t ctrl = sid_regs[kSoundRegV3 + kSoundVoiceCtrl];
+
+      // A hand-back is observable rather than derived: the gate rises on the
+      // sawtooth. Deriving it from the countdown would mean reimplementing the
+      // arbitration, which is what this is meant to be checking.
+      if (!(prev_ctrl & SID_CTRL_GATE) && (ctrl & SID_CTRL_GATE) &&
+          (ctrl & SID_CTRL_SAW)) {
+        ++handbacks;
+      }
+      prev_ctrl = ctrl;
+
+      // A restart prepared for an incoming hit must survive to the row edge.
+      // This is the bug the v3_restarted flag exists for: the hand-back can
+      // fire on any frame, the hard restart lands on the last frame of a row,
+      // and without the flag the hand-back re-gates a restart just prepared.
+      if (rf == kMusicSpeed - 1 && MUSIC_DRUM_AT(next) != 0) {
+        if (ctrl & SID_CTRL_GATE) {
+          ++missed_restarts;
+        }
+      }
+    }
+  }
+  assert(missed_restarts == 0 &&
+         "a voice-3 hard restart was cancelled before the hit it was for");
+  assert(handbacks > 0 && "the arpeggio never took voice 3 back");
+  printf("  ok  hand-back: %d resumptions on saw, no restart cancelled\n",
+         handbacks);
+}
+
+// --- 12. Voice 3 during the pedal opening ------------------------------------
+//
+// Bars 1-4 have no lead and no drums, so the arpeggio is not a texture under
+// something - for fifteen seconds it *is* the tune, along with one bass note
+// per bar. If it is silent there, the tune opens with almost nothing.
+static void test_arpeggio_carries_the_opening(void) {
+  music_start();
+  const uint16_t build_rows = 4 * kMusicRowsPerBar;
+  int gated = 0, expected = 0;
+  uint16_t distinct = 0, last = 0xFFFF;
+  for (uint16_t row = 0; row < build_rows; ++row) {
+    const uint16_t next = (uint16_t)(row + 1);
+    for (uint8_t rf = 0; rf < kMusicSpeed; ++rf) {
+      music_tick();
+      // The very last frame of the build is a legitimate exception: bar 5
+      // opens with a hat, so row 63 hard-restarts voice 3 to prepare for it.
+      const bool restart_frame =
+          (rf == kMusicSpeed - 1) && MUSIC_DRUM_AT(next) != 0;
+      if (!restart_frame) {
+        ++expected;
+        if (gate_set(2)) {
+          ++gated;
+        }
+      }
+      const uint16_t v = (uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqLo] |
+                         ((uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqHi] << 8);
+      if (v != last) {
+        ++distinct;
+        last = v;
+      }
+      assert(!gate_set(0) && "the lead sounds during the pedal build");
+    }
+  }
+  const uint16_t build = build_rows * kMusicSpeed;
+  assert(gated == expected && "voice 3 was not continuous through the opening");
+  assert(distinct > 100 && "the arpeggio is not moving through the opening");
+  printf("  ok  opening carried by voice 3: %d/%u frames gated, %u pitch moves\n",
+         gated, build, distinct);
+}
+
+// --- 13. Voice 3 against the browser reference -------------------------------
+//
+// The strongest check available before phase 8, and the one that caught the
+// arrangement resize twice: two independently written players agreeing on a
+// frame count. docs/sid-intro-theme.html runs the same design in JavaScript,
+// and over one loop it gates voice 3 on exactly 1976 of 2304 frames.
+//
+// A literal, deliberately. Deriving it here would mean reimplementing the
+// arbitration, which is the thing under test.
+static void test_voice_3_matches_the_reference(void) {
+  music_start();
+  int gated = 0;
+  for (uint16_t f = 0; f < kMusicTotalFrames; ++f) {
+    music_tick();
+    if (gate_set(2)) {
+      ++gated;
+    }
+  }
+  assert(gated == 1657 &&
+         "voice 3's gated-frame count diverged from the browser reference");
+  printf("  ok  voice 3 gated on %d/%u frames - matches the reference exactly\n",
+         gated, kMusicTotalFrames);
 }
 
 // --- 10. The bass ------------------------------------------------------------
@@ -449,17 +693,22 @@ int main(void) {
          kMusicTotalRows, kMusicTotalFrames, kMusicSpeed);
   test_guard_writes_nothing();
   test_start_and_stop();
+  test_filter_is_neutralised();
   test_note_table();
   test_volume_composition();
   test_ramp_reaches_the_chip();
   test_loop_identity();
   test_hard_restart();
   test_lead_is_audible();
-  test_voice_3_silent_until_phase_4();
   test_bass();
   test_pedal_opening();
   test_bass_hard_restart();
   test_lead_and_bass_differ();
+  test_arpeggio();
+  test_drum_steal();
+  test_v3_hand_back();
+  test_arpeggio_carries_the_opening();
+  test_voice_3_matches_the_reference();
   printf("music_test: all passed\n");
   return 0;
 }

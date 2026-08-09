@@ -118,11 +118,15 @@ const uint8_t kMusicDrumBits[96] = {
      49,  18,  49,  50,  49,  18,  49,  50,  49,  18,  49,  50,  49,  18,  17, 154,
 };
 
-const music_instrument_t kMusicInsLead  = { 5, 197, 64, 0, 0, 0 };
-const music_instrument_t kMusicInsBass  = { 6, 132, 64, 0, 0, 0 };
-const music_instrument_t kMusicInsArp   = { 0, 243, 32, 0, 0, 0 };
-const music_instrument_t kMusicInsKick  = { 0, 240, 128, 5, 4096, 768 };
-const music_instrument_t kMusicInsSnare = { 0, 240, 128, 4, 14336, 14336 };
-const music_instrument_t kMusicInsHat   = { 0, 240, 128, 2, 20480, 20480 };
+const music_instrument_t kMusicInsLead = { 5, 197, 64, 0, 0, 0 };
+const music_instrument_t kMusicInsBass = { 6, 132, 64, 0, 0, 0 };
+const music_instrument_t kMusicInsArp  = { 0, 243, 32, 0, 0, 0 };
+
+// Indexed by MUSIC_DRUM_AT(row) - 1.
+const music_instrument_t kMusicDrumIns[3] = {
+    { 0, 240, 128, 5, 4096, 665 }, // kick: 4096 -> 768 over 5 frames
+    { 0, 240, 128, 4, 14336, 0 }, // snare: 14336 -> 14336 over 4 frames
+    { 0, 240, 128, 2, 20480, 0 }, // hat: 20480 -> 20480 over 2 frames
+};
 
 #endif // __ENABLE_SOUND__
