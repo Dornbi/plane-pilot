@@ -463,8 +463,32 @@ the envelope had been forced down first.
 So voice 3 gained a `kV3Restart` state between a hit ending and the arpeggio
 returning: gate low, envelope registers zero, `kV3RestartFrames` frames. Two,
 which is the conventional figure; one is what the code accidentally had and is
-not enough. It costs the arpeggio 40 ms of shimmer after each hit, and takes
-voice 3's gated frames from 1976 to **1657 of 2304**.
+not enough.
+
+**And then the drums turned out to have the identical bug.** The pre-hit hard
+restart fired only on the last frame of the row — the same single frame that
+had left the arpeggio unable to climb — so the percussion was inaudible too. A
+hit is 2 to 5 frames of noise at full sustain, and an envelope that takes
+longer than that to start produces nothing whatsoever. It now restarts for
+`kV3RestartFrames` frames before a hit as well as after one.
+
+That is worth stating as a rule rather than as two fixes, because it will be
+true of anything added to this voice later:
+
+> **Voice 3's gate may only rise after `kV3RestartFrames` frames of gate-low
+> with the envelope registers at zero.** Every path onto the voice — a hit, the
+> arpeggio's return — has to pay it.
+
+The cost is arpeggio density. Voice 3's gated frames went 1976 → 1657 → **1500
+of 2304**, of which 404 are drums and 1096 arpeggio: the shimmer now holds the
+voice 48% of the time rather than 57%. That is the price of the drums existing
+at all, and it is the right way round — a texture can afford gaps, a backbeat
+cannot.
+
+One implementation note, because it bit: the restart countdown must be guarded
+against decrementing at zero. A restart that expires on the same frame a
+pre-hit restart fires is held in the restart state by `v3_restarted`, and an
+unguarded `--` wraps the counter to 255 and silences voice 3 for five seconds.
 
 The browser reference models the restart too, even though Web Audio has no such
 bug — the reference exists to predict what the C64 does, not to sound good on
@@ -826,6 +850,19 @@ loop would leave the pulse width somewhere different on every pass. It divides
 the rock arrangement's 1,280 frames as well, which is why one constant serves
 both — and it is the reason §3's bar count has to be a multiple of 8.
 
+**Voice 3's register.** The arpeggio was originally voiced at 110–220 Hz, one
+octave below where it sits now. Each tone lasts exactly one frame — 20 ms — and
+at that pitch a tone is only 2.2 to 4.4 waveform cycles, which is below what the
+ear needs to hear a pitch rather than a click. Three notes that never resolve
+into pitches are not a chord; they are a buzz, and "thin" is what that sounds
+like. `ARP_OCTAVE_SHIFT` in `lib/music.py` raises the triads — and only the
+triads, never the bass roots — by an octave, giving 4.4 to 8.8 cycles, which is
+where SID arpeggios conventionally sit.
+
+It is one number so that +24 or a revert costs one edit. The trade it makes is
+that in bars 5 to 8 the arpeggio now occupies the same register as the lead
+motif, which doubles it rather than accompanying it.
+
 **Voice 2, bass.** Pulse, narrow, with a decay into a moderate sustain so notes
 have a front edge. For the first four bars it is a single pedal note per bar and
 that front edge is the only rhythmic information in the piece; from bar 5 it
@@ -1079,7 +1116,7 @@ Each phase leaves the program in a working, committable state.
    hit — a bug that was real in the reference player and is now pinned in both.
 
    **And the strongest check available:** voice 3 is gated on **1976 of 2304
-   frames** (1657 after the ADSR hard restart landed), which is exactly what the browser reference produces. That is a
+   frames** (1500 once both the arpeggio and the drums got their hard restart), which is exactly what the browser reference produces. That is a
    literal in the test, deliberately — deriving it would mean reimplementing
    the arbitration, which is the thing under test.
 6. **Hard restart, the volume ramp, and envelope tuning.** Ordered deliberately

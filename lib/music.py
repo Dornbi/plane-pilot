@@ -44,6 +44,24 @@ INS = {
     'hat':   {'ad': 0x00, 'sr': 0xF0, 'wave': CTRL_NOISE, 'frames': 2, 'from': 0x5000, 'to': 0x5000}
 }
 
+# The arpeggio's register.
+#
+# One arpeggio tone lasts exactly one frame - 20 ms - and a note needs roughly
+# four waveform cycles before the ear reads it as a pitch rather than a click.
+# The triads as voiced below sit at 110-220 Hz, which is 2.2 to 4.4 cycles per
+# tone: audible, but as a buzz rather than as a chord. That is what "thin"
+# sounds like. One octave up is 4.4 to 8.8 cycles, which is where SID arpeggios
+# conventionally sit.
+#
+# Applied to the triads only - the bass root in each chord entry is untouched.
+# One number, so it is trivial to revert or to try +24. See docs/music.md
+# section 6.
+ARP_OCTAVE_SHIFT = 12
+
+def shift_triads(chords, semitones):
+    return [[name, root, [t + semitones for t in triad]]
+            for name, root, triad in chords]
+
 BASS_PW = 0x0500
 
 BASS_A = [[0, 0, 2], [2, 0, 2], [4, 0, 2], [6, 12, 2], [8, 0, 2], [10, 0, 2], [12, 7, 2], [14, 12, 2]]
@@ -207,7 +225,7 @@ TUNES = [
         'bars': BARS,
         'total_rows': TOTAL_ROWS,
         'total_frames': TOTAL_FRAMES,
-        'chords': CHORDS,
+        'chords': shift_triads(CHORDS, ARP_OCTAVE_SHIFT),
         'melody': MELODY,
         'vol_map': VOL_MAP,
         'soft_intro': True

@@ -333,8 +333,16 @@ void music_tick(void) {
   // LAST frame of a row and the hand-back below can fire on any frame, so
   // without the flag a hit arriving next row would be un-gated by the same
   // tick that just prepared it. That was a real bug in the reference player.
+  // kV3RestartFrames of hard restart before an incoming hit, not one.
+  //
+  // This used to fire only on the last frame of the row, which gave a drum the
+  // same single frame of gate-low that left the arpeggio unable to climb. The
+  // drums had the identical bug and the identical symptom: the percussion was
+  // inaudible. A hit is 2 to 5 frames of noise at full sustain, so an envelope
+  // that takes longer than that to start never produces anything at all.
   bool v3_restarted = false;
-  if (last_frame_of_row && MUSIC_DRUM_AT(next_row) != 0) {
+  if (_row_frame >= kMusicSpeed - kV3RestartFrames &&
+      MUSIC_DRUM_AT(next_row) != 0) {
     _hard_restart(kVoice3);
     v3_restarted = true;
   }
@@ -378,7 +386,14 @@ void music_tick(void) {
     // Holding the gate low with the envelope registers at zero. Nothing to
     // write - _hard_restart() already put the chip in this state - just count
     // the frames out.
-    --_v3_timer;
+    //
+    // Guarded, because the hand-back above can be blocked by v3_restarted: a
+    // restart that expires on the same frame a pre-drum restart fires stays in
+    // this state with the counter already at zero, and an unguarded decrement
+    // would wrap it to 255 and hold voice 3 silent for five seconds.
+    if (_v3_timer != 0) {
+      --_v3_timer;
+    }
   } else {
     // A drum holds the voice. Write the current sweep value, then step it: the
     // first frame therefore emits freq_from, which is what makes the kick's

@@ -362,8 +362,12 @@ static void test_arpeggio(void) {
   // restart, and the pre-drum hard restart that can immediately follow.
   const int kMaxGap = 1 + 2 + 1;
   assert(longest_gap <= kMaxGap && "voice 3 went silent for too long");
-  assert(arp_frames > kMusicTotalFrames / 2 &&
-         "the arpeggio holds voice 3 for less than half the tune");
+  // Two fifths, not half. Voice 3 now spends kV3RestartFrames gate-low before
+  // every hit and after every hit, which is what makes the drums audible at
+  // all - and it costs the arpeggio density. 48% is the measured figure; the
+  // bound is here to catch the arpeggio collapsing, not to pin the trade.
+  assert(arp_frames > (kMusicTotalFrames * 2) / 5 &&
+         "the arpeggio holds voice 3 for less than two fifths of the tune");
   assert(freq_changes > arp_frames / 2 && "the arpeggio is not advancing");
   printf("  ok  arpeggio: %d frames on saw, %d pitch moves, longest silence %d frames\n",
          arp_frames, freq_changes, longest_gap);
@@ -412,7 +416,7 @@ static void test_drum_steal(void) {
         if (code == 1) {
           kick_last = f;
         }
-      } else if (rf >= d->frames - 1 && rf < d->frames - 1 + 3) {
+      } else if (rf >= d->frames - 1 && rf < kMusicSpeed - 2) {
         // Released, then held low for the hard restart. Both the release frame
         // and the restart frames must be un-gated, and the envelope registers
         // must actually be zero during the restart - a gate-off alone is what
@@ -498,10 +502,11 @@ static void test_arpeggio_carries_the_opening(void) {
     const uint16_t next = (uint16_t)(row + 1);
     for (uint8_t rf = 0; rf < kMusicSpeed; ++rf) {
       music_tick();
-      // The very last frame of the build is a legitimate exception: bar 5
-      // opens with a hat, so row 63 hard-restarts voice 3 to prepare for it.
+      // The last two frames of the build are a legitimate exception: bar 5
+      // opens with a hat, so row 63 spends kV3RestartFrames hard-restarting
+      // voice 3 to prepare for it.
       const bool restart_frame =
-          (rf == kMusicSpeed - 1) && MUSIC_DRUM_AT(next) != 0;
+          (rf >= kMusicSpeed - 2) && MUSIC_DRUM_AT(next) != 0;
       if (!restart_frame) {
         ++expected;
         if (gate_set(2)) {
@@ -542,7 +547,7 @@ static void test_voice_3_matches_the_reference(void) {
       ++gated;
     }
   }
-  assert(gated == 1657 &&
+  assert(gated == 1500 &&
          "voice 3's gated-frame count diverged from the browser reference");
   printf("  ok  voice 3 gated on %d/%u frames - matches the reference exactly\n",
          gated, kMusicTotalFrames);
