@@ -68,7 +68,7 @@ uint8_t *mem_screen_ram;
 uint8_t *mem_screen_row_ptrs[kScreenHeight];
 
 // uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
-// Reuse kSpriteDataCompressed.
+// Reuse kSpriteDsataCompressed.
 uint8_t *const mem_color_buffer = (uint8_t *const)kSpriteDataCompressed;
 uint8_t *const mem_color_row_ptrs[kViewportHeight] = {
     kSpriteDataCompressed + kViewportWidth * 0,
@@ -106,13 +106,14 @@ static const uint8_t kVicMemScreenMain = 0xA8;
 static const uint8_t kVicMemScreenAlt = 0xB8;
 
 // Only mem_use_main_buffer() writes $d018 from here, and only to establish a
-// starting state. Per frame the register belongs to gfx.cc: _switch_to_panel_top
-// forces the alt value at raster 161 so the panel bitmap always reads its colors
-// from $EC00, and _switch_to_terrain puts the double-buffered value back at 250.
-// mem_switch_buffer() deliberately does not touch it - a write of its own would
-// have to land inside the panel and would repoint the panel's video matrix
-// mid-screen. Toggling mem_using_alt_buffer and letting raster 250 latch it is
-// the same flip, one frame-accurate instead of two writes racing.
+// starting state. Per frame the register belongs to gfx.cc:
+// _switch_to_panel_top forces the alt value at raster 161 so the panel bitmap
+// always reads its colors from $EC00, and _switch_to_terrain puts the
+// double-buffered value back at 250. mem_switch_buffer() deliberately does not
+// touch it - a write of its own would have to land inside the panel and would
+// repoint the panel's video matrix mid-screen. Toggling mem_using_alt_buffer
+// and letting raster 250 latch it is the same flip, one frame-accurate instead
+// of two writes racing.
 
 // Startup and mode-switch helpers; none of these run per frame.
 #pragma optimize(push, outline)
@@ -197,8 +198,7 @@ void mem_switch_buffer(void) {
     mem_screen_ram = kScreenRamAlt;
     mem_screen_row_ptrs = kScreenRowPtrsAlt;
     mem_box_char_start = 0x61;
-  }
-  else {
+  } else {
     mem_screen_ram = kScreenRamMain;
     mem_screen_row_ptrs = kScreenRowPtrsMain;
     mem_box_char_start = 0x01;

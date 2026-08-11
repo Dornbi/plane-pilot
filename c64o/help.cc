@@ -52,7 +52,7 @@ static const uint8_t kHelpKeyCol = 2;
 
 // Same cell as the menu's, so the notice does not appear to move when the
 // player crosses between the two screens.
-static void _show_volume_notice(void) {
+static void _help_show_volume_notice(void) {
   const char *label = sound_volume_label();
   if (label) {
     screen_notice(label, kSoundVolumeLabelLen);
@@ -88,7 +88,7 @@ void help_run(void) {
       // to work: the setting is what survives, and the next screen with sound
       // picks it up.
       sound_cycle_volume();
-      _show_volume_notice();
+      _help_show_volume_notice();
     }
 #else
     (void)prev_help_toggles;

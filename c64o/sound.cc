@@ -47,7 +47,7 @@ static const uint8_t kMasterVolume[kSoundVolumeSteps] = {0, 7, 15};
 // Values are f * 16777216 / 985248, the PAL conversion. On NTSC the same
 // numbers come out about 3.8% sharp, which for an engine drone with no
 // reference pitch is not perceptible and does not justify a second table.
-static const uint16_t kEngineFreq[kMaxThrottle + 1] = {
+static const uint16_t kSoundEngineFreq[kMaxThrottle + 1] = {
     0x0353, 0x036E, 0x038A, 0x03A6, 0x03C3, //  0.. 4   50.0 ..  56.6 Hz
     0x03E2, 0x0401, 0x0421, 0x0442, 0x0465, //  5.. 9   58.4 ..  66.0 Hz
     0x0488, 0x04AC, 0x04D2, 0x04F9, 0x0521, // 10..14   68.1 ..  77.1 Hz
@@ -60,22 +60,22 @@ static const uint16_t kEngineFreq[kMaxThrottle + 1] = {
 // comes back after a pause, short enough not to be heard as a fade. Decay 0
 // and sustain 15 mean the level never moves once it is up; release 0 makes the
 // engine stop with the gate rather than trailing after a screen change.
-static const uint8_t kEngineAttDec = 0x10; // attack 1, decay 0
-static const uint8_t kEngineSusRel = 0xF0; // sustain 15, release 0
+static const uint8_t kSoundEngineAttDec = 0x10; // attack 1, decay 0
+static const uint8_t kSoundEngineSusRel = 0xF0; // sustain 15, release 0
 
 // Pulse width sweep. Swept independently of RPM, which is the entire reason a
 // constant-throttle cruise - most of any flight - does not degenerate into a
 // dead drone. Duty cycle is what a pulse wave's harmonic content is made of,
 // so moving it moves the timbre without moving the pitch.
 //
-// The sweep is a triangle over kPwmMin .. kPwmMin + 0x7F8, staying well clear
-// of both ends of the 12-bit range: at 0 and at 0xFFF the pulse degenerates to
-// DC and the voice goes silent.
+// The sweep is a triangle over kSoundPwmMin .. kSoundPwmMin + 0x7F8, staying
+// well clear of both ends of the 12-bit range: at 0 and at 0xFFF the pulse
+// degenerates to DC and the voice goes silent.
 //
-// kPwmStep is per frame, and the phase is 8 bits, so a full cycle is around 40
-// frames, about 4 seconds at the ~10 Hz frame rate.
-static const uint16_t kPwmMin = 0x0400;
-static const uint8_t kPwmStep = 6;
+// kSoundPwmStep is per frame, and the phase is 8 bits, so a full cycle is
+// around 40 frames, about 4 seconds at the ~10 Hz frame rate.
+static const uint16_t kSoundPwmMin = 0x0400;
+static const uint8_t kSoundPwmStep = 6;
 
 static uint8_t _pwm_phase;
 
@@ -103,13 +103,13 @@ static uint8_t _pwm_phase;
 // that: the slowest wind is over ten times the fastest engine fundamental, so
 // wind can never be mistaken for a chug.
 //
-// Indexed by flight_speed >> kWindSpeedShift, geometric between the endpoints
-// for the same reason the engine table is - a linear ramp would spend most of
-// its range in the bottom of the envelope, where an aircraft rarely is.
-static const uint8_t kWindSpeedShift = 8;
-static const uint8_t kWindSteps = (kMaxSpeed >> kWindSpeedShift) + 1;
+// Indexed by flight_speed >> kSoundWindSpeedShift, geometric between the
+// endpoints for the same reason the engine table is - a linear ramp would spend
+// most of its range in the bottom of the envelope, where an aircraft rarely is.
+static const uint8_t kSoundWindSpeedShift = 8;
+static const uint8_t kSoundWindSteps = (kMaxSpeed >> kSoundWindSpeedShift) + 1;
 
-static const uint16_t kWindFreq[kWindSteps] = {
+static const uint16_t kSoundWindFreq[kSoundWindSteps] = {
     0x0600, 0x0695, 0x0738, 0x07EB, //  0.. 3  1443 .. 1905 shifts/sec
     0x08AF, 0x0986, 0x0A72, 0x0B75, //  4.. 7  2089 .. 2756
     0x0C91, 0x0DC9, 0x0F1E, 0x1095, //  8..11  3023 .. 3989
@@ -124,7 +124,7 @@ static const uint16_t kWindFreq[kWindSteps] = {
 //
 // 0x0080 is about 3% of the speed envelope, below any speed the aircraft can
 // sustain in the air and below a brisk taxi.
-static const uint16_t kWindMinSpeed = 0x0080;
+static const uint16_t kSoundWindMinSpeed = 0x0080;
 
 // Attack 6 is about 68 ms, slow enough that crossing the threshold on the
 // takeoff roll swells rather than clicks. Release 6 is about 200 ms, so it
@@ -136,9 +136,9 @@ static const uint16_t kWindMinSpeed = 0x0080;
 // noise reads louder than a pulse tone at equal envelope level. Static is also
 // what keeps this safe: sustain can be lowered at will but only rises on a
 // retrigger, and a value that never changes never needs one.
-static const uint8_t kWindAttDec = 0x60; // attack 6, decay 0
-static const uint8_t kWindSustain = 10;
-static const uint8_t kWindSusRel = (kWindSustain << 4) | 0x06;
+static const uint8_t kSoundWindAttDec = 0x60; // attack 6, decay 0
+static const uint8_t kSoundWindSustain = 10;
+static const uint8_t kSoundWindSusRel = (kSoundWindSustain << 4) | 0x06;
 
 // --- Voice 3: stall warning and one-shots ----------------------------------
 //
@@ -157,10 +157,10 @@ static const uint8_t kWindSusRel = (kWindSustain << 4) | 0x06;
 // flap almost inaudible, and the same argument applies to a warning horn.
 //
 // The consequence for the stall is that its gap is now expressed by the gate
-// rather than implied by the decay: the warble gates ON for kStallOnFrames and
-// OFF for the rest of kStallPeriodFrames. That is more honest - the silence
-// between beeps is the information, so it should be something the code states
-// rather than a side effect of an envelope running out.
+// rather than implied by the decay: the warble gates ON for kSoundStallOnFrames
+// and OFF for the rest of kSoundStallPeriodFrames. That is more honest - the
+// silence between beeps is the information, so it should be something the code
+// states rather than a side effect of an envelope running out.
 //
 // It also means no effect on voice 3 relies on sustain 0 under a set gate, so
 // section 7's interleaving invariant now covers all three voices rather than
@@ -180,14 +180,15 @@ static const uint8_t kWindSusRel = (kWindSustain << 4) | 0x06;
 // ~840 Hz, which is up where the engine's harmonic stack is thin. Section 10
 // records why that is the lever to reach for rather than ducking the engine -
 // $D418 is master only, so ducking one voice is not available at all.
-static const uint16_t kStallFreq = 0x3800;
-static const uint16_t kStallPw = 0x0800;  // square, the most cutting duty
-static const uint8_t kStallAttDec = 0x00; // attack 0, decay 0 -> sustain
-static const uint8_t kStallSusRel = 0xF3; // sustain 15, release 3 (72 ms)
+static const uint16_t kSoundStallFreq = 0x3800;
+static const uint16_t kSoundStallPw = 0x0800;  // square, the most cutting duty
+static const uint8_t kSoundStallAttDec = 0x00; // attack 0, decay 0 -> sustain
+static const uint8_t kSoundStallSusRel = 0xF3; // sustain 15, release 3 (72 ms)
 
-// The warble, in frames: gated on for kStallOnFrames, off for the remainder of
-// kStallPeriodFrames. At the wobbling ~10 Hz frame rate that is about 200 ms
-// of tone and 200 ms of silence, so 2.5 Hz - cockpit warner territory.
+// The warble, in frames: gated on for kSoundStallOnFrames, off for the
+// remainder of kSoundStallPeriodFrames. At the wobbling ~10 Hz frame rate that
+// is about 200 ms of tone and 200 ms of silence, so 2.5 Hz - cockpit warner
+// territory.
 //
 // The gap is the point. A tone held continuously stops being information after
 // about two seconds: the ear adapts and it becomes a drone under the engine
@@ -196,8 +197,8 @@ static const uint8_t kStallSusRel = 0xF3; // sustain 15, release 3 (72 ms)
 // The release above has to fit inside the gap or the beeps run together. 72 ms
 // of tail into a 200 ms silence leaves plenty; shortening the gap is the thing
 // to be careful about when retuning these.
-static const uint8_t kStallOnFrames = 2;
-static const uint8_t kStallPeriodFrames = 4;
+static const uint8_t kSoundStallOnFrames = 2;
+static const uint8_t kSoundStallPeriodFrames = 4;
 
 // The one-shots. All noise-family, which separates them from the stall tone by
 // waveform as well as by rhythm.
@@ -213,7 +214,7 @@ static const uint8_t kStallPeriodFrames = 4;
 // the sound was a fraction of its peak - and it was competing with an engine
 // held at sustain 15 and a wind bed at 10, neither of which ever decays. Flap
 // in particular was decay 3, gone in 72 ms.
-static const uint8_t kOneShotAttDec = 0x00; // attack 0, decay 0 -> sustain
+static const uint8_t kSoundOneShotAttDec = 0x00; // attack 0, decay 0 -> sustain
 
 // Frequencies. On a noise voice these clock the LFSR (see the wind table), so
 // low is a rumble and high is a hiss.
@@ -414,7 +415,9 @@ static void _set_voice(uint8_t base, uint16_t freq, uint16_t pw, uint8_t ctrl,
 // Hard silence: nothing plays at all, not even the crash. Both terms are the
 // player's own doing - the volume key and the pause key - which is what makes
 // this the level at which "no sound" means no sound.
-static bool _driver_live(void) { return sound_volume != 0 && !flight_paused; }
+static bool _sound_driver_live(void) {
+  return sound_volume != 0 && !flight_paused;
+}
 
 // The aircraft is in a state that makes flying noises. The continuous voices
 // key off this; voice 3 does not, because the crash sound has to outlive it.
@@ -424,8 +427,8 @@ static bool _driver_live(void) { return sound_volume != 0 && !flight_paused; }
 // this function holds whatever value it had at the moment of the crash - a
 // stalled aircraft that hits the ground would otherwise leave its engine and
 // its stall warning running forever.
-static bool _flying(void) {
-  return _driver_live() && !flight_crashed() && flight_fuel > 0;
+static bool _sound_flying(void) {
+  return _sound_driver_live() && !flight_crashed() && flight_fuel > 0;
 }
 
 // Cycling up and wrapping, so from the default of full the first press is
@@ -463,22 +466,22 @@ uint16_t sound_engine_base_freq(uint8_t throttle) {
   if (throttle > kMaxThrottle) {
     throttle = kMaxThrottle;
   }
-  return kEngineFreq[throttle];
+  return kSoundEngineFreq[throttle];
 }
 
 uint16_t sound_wind_freq(int16_t speed) {
   if (speed < 0) {
     speed = 0;
   }
-  uint8_t idx = (uint8_t)((uint16_t)speed >> kWindSpeedShift);
-  if (idx >= kWindSteps) {
-    idx = kWindSteps - 1;
+  uint8_t idx = (uint8_t)((uint16_t)speed >> kSoundWindSpeedShift);
+  if (idx >= kSoundWindSteps) {
+    idx = kSoundWindSteps - 1;
   }
-  return kWindFreq[idx];
+  return kSoundWindFreq[idx];
 }
 
 bool sound_wind_audible(int16_t speed) {
-  return speed >= (int16_t)kWindMinSpeed;
+  return speed >= (int16_t)kSoundWindMinSpeed;
 }
 
 void sound_init(void) {
@@ -542,7 +545,7 @@ void sound_update(void) {
   // Stepping the phase by a varying amount is half the grit: a fixed step
   // makes the sweep exactly periodic, and at four seconds a period that is
   // slow enough to be heard as a repeating figure rather than as drift.
-  _pwm_phase += kPwmStep + (r_pw & 3);
+  _pwm_phase += kSoundPwmStep + (r_pw & 3);
 
   // No zeroing pass. An earlier version wiped the whole shadow here and then
   // filled in whatever was audible, which read well but left the shadow
@@ -555,8 +558,8 @@ void sound_update(void) {
   // not, and silence is expressed as gates clear and master volume zero rather
   // than as an absence of writes. A torn read then mixes two valid register
   // sets instead of a valid one with a blank.
-  const bool driver_live = _driver_live();
-  const bool flying = _flying();
+  const bool driver_live = _sound_driver_live();
+  const bool flying = _sound_flying();
 
   // Triangle from the 8-bit phase: count up over the bottom half, back down
   // over the top. Scaled by 8 into the 12-bit pulse width register, then
@@ -564,7 +567,8 @@ void sound_update(void) {
   uint8_t tri = (_pwm_phase & 0x80)
                     ? (uint8_t)(0xFE - ((_pwm_phase & 0x7F) << 1))
                     : (uint8_t)((_pwm_phase & 0x7F) << 1);
-  uint16_t pw = kPwmMin + ((uint16_t)tri << 3) + (r_pw & kPwmJitterMask);
+  uint16_t pw =
+      kSoundPwmMin + ((uint16_t)tri << 3) + (r_pw & kSoundPwmJitterMask);
 
   // Pitch jitter, proportional to the pitch so idle and full power are equally
   // unsteady. amp is the full-scale deviation and n scales it to a signed
@@ -586,7 +590,7 @@ void sound_update(void) {
   // is safe here for the same reason the rest of this function is main-line
   // only: sound_update() is called from sim_frame(), never from a raster IRQ.
   uint16_t base = sound_engine_base_freq(flight_throttle);
-  int16_t amp = (int16_t)(base >> kEngineJitterShift);
+  int16_t amp = (int16_t)(base >> kSoundEngineJitterShift);
   int16_t n = (int16_t)(r_pitch & 0x1F) - 16;
   uint16_t freq =
       (uint16_t)((int16_t)base + (vec_fastmul8p8(amp, n << 8) >> 4));
@@ -670,9 +674,9 @@ void sound_update(void) {
   } else if (_v3_frames != 0 && _v3_effect != V3_STALL) {
     // A one-shot still running. Left alone.
   } else if (flight_stall) {
-    // The warble: gated on for the first kStallOnFrames of each period, off
-    // for the rest. Both halves are stated here rather than one being left to
-    // an envelope running out.
+    // The warble: gated on for the first kSoundStallOnFrames of each period,
+    // off for the rest. Both halves are stated here rather than one being left
+    // to an envelope running out.
     if (_v3_effect != V3_STALL) {
       _stall_phase = 0;
     }
@@ -680,8 +684,8 @@ void sound_update(void) {
     if (_stall_phase == 0) {
       retrigger = true;
     }
-    stall_sounding = _stall_phase < kStallOnFrames;
-    if (++_stall_phase >= kStallPeriodFrames) {
+    stall_sounding = _stall_phase < kSoundStallOnFrames;
+    if (++_stall_phase >= kSoundStallPeriodFrames) {
       _stall_phase = 0;
     }
   } else if (events & FLIGHT_EV_GEAR) {
@@ -712,11 +716,11 @@ void sound_update(void) {
     uint8_t v3_susrel = 0;
     switch (_v3_effect) {
     case V3_STALL:
-      v3_freq = kStallFreq;
-      v3_pw = kStallPw;
+      v3_freq = kSoundStallFreq;
+      v3_pw = kSoundStallPw;
       v3_wave = SID_CTRL_RECT;
-      v3_attdec = kStallAttDec;
-      v3_susrel = kStallSusRel;
+      v3_attdec = kSoundStallAttDec;
+      v3_susrel = kSoundStallSusRel;
       break;
     case V3_CRASH:
       // Sweeps down as the burst runs. _v3_frames counts from kCrashFrames to
@@ -741,19 +745,19 @@ void sound_update(void) {
     case V3_TOUCHDOWN:
       v3_freq = kTouchdownFreq;
       v3_wave = SID_CTRL_NOISE;
-      v3_attdec = kOneShotAttDec;
+      v3_attdec = kSoundOneShotAttDec;
       v3_susrel = kTouchdownSusRel;
       break;
     case V3_GEAR:
       v3_freq = kGearFreq;
       v3_wave = SID_CTRL_NOISE;
-      v3_attdec = kOneShotAttDec;
+      v3_attdec = kSoundOneShotAttDec;
       v3_susrel = kGearSusRel;
       break;
     case V3_FLAP:
       v3_freq = kFlapFreq;
       v3_wave = SID_CTRL_NOISE;
-      v3_attdec = kOneShotAttDec;
+      v3_attdec = kSoundOneShotAttDec;
       v3_susrel = kFlapSusRel;
       break;
     default:
@@ -773,14 +777,14 @@ void sound_update(void) {
   // sustain register is never zero underneath a gate that is about to be set.
   _set_voice(kSoundRegV1, freq, pw,
              flying ? (SID_CTRL_RECT | SID_CTRL_GATE) : SID_CTRL_RECT,
-             kEngineAttDec, kEngineSusRel);
+             kSoundEngineAttDec, kSoundEngineSusRel);
 
   // Voice 2: wind, which additionally gates off below the speed threshold.
   _set_voice(kSoundRegV2, sound_wind_freq(flight_speed), 0,
              (flying && sound_wind_audible(flight_speed))
                  ? (SID_CTRL_NOISE | SID_CTRL_GATE)
                  : SID_CTRL_NOISE,
-             kWindAttDec, kWindSusRel);
+             kSoundWindAttDec, kSoundWindSusRel);
 
   // The filter is deliberately unused - section 3 on why depending on it is a
   // portability trap - but the registers still have to be written, since

@@ -30,9 +30,9 @@ mat3_t world_cam;
 
 static vec3_t _world_dx4[9];
 static vec3_t _world_dy4[9];
-static int16_t _mitch_x[16];
-static int16_t _mitch_y[16];
-static int16_t _mitch_z[16];
+static int16_t _world_mitch_x[16];
+static int16_t _world_mitch_y[16];
+static int16_t _world_mitch_z[16];
 
 // Mitchell's Best-Candidate algorithm to maximize distance between points
 // while maintaining an organic, non-linear distribution.
@@ -47,7 +47,7 @@ static inline int16_t _down_shift(uint32_t val) { return (int16_t)(val >> 9); }
 // __noinline keeps this in one copy instead of being expanded into both
 // call sites in _world_init_start_dx_dy. Verified byte-identical codegen
 // with and without optimize(3), so no pragma region is needed here.
-static __noinline void _split_vec(vec3_t *v, vec3_t d9[9]) {
+static __noinline void _world_split_vec(vec3_t *v, vec3_t d9[9]) {
   // This version needs half vectors -> more additions and subtractions and
   // more code. However, this means that dots and objects are closer to the
   // center of the grid cell which means fewer grid cells are needed.
@@ -72,15 +72,15 @@ static __noinline void _split_vec(vec3_t *v, vec3_t d9[9]) {
   *v = make_vector(d9[8].x << 1, d9[8].y << 1, d9[8].z << 1);
 }
 
-static inline void _draw_box_points(uint8_t start_idx, uint8_t num_points,
-                                    WorldMapType map_type) {
+static inline void _world_draw_box_points(uint8_t start_idx, uint8_t num_points,
+                                          WorldMapType map_type) {
   uint8_t idx = start_idx & 0x0F;
   uint8_t color = KWorldDotColors[map_type];
   for (uint8_t i = num_points;;) {
     vec_v = _world_vec_v;
-    vec_v.x += _mitch_x[idx];
-    vec_v.y += _mitch_y[idx];
-    vec_v.z += _mitch_z[idx];
+    vec_v.x += _world_mitch_x[idx];
+    vec_v.y += _world_mitch_y[idx];
+    vec_v.z += _world_mitch_z[idx];
     gfx_project_and_draw(color);
     if (--i == 0) {
       break;
@@ -126,7 +126,7 @@ void _world_init_start_dx_dy() {
   _world_dx_vec.x = world_cam.front.x;
   _world_dx_vec.y = world_cam.left.x;
   _world_dx_vec.z = world_cam.up.x;
-  _split_vec(&_world_dx_vec, _world_dx4);
+  _world_split_vec(&_world_dx_vec, _world_dx4);
   if (world_cam.front.x > 0) {
     vec_negate(&_world_dx_vec);
     p_start_world.x = grid_spacing;
@@ -136,7 +136,7 @@ void _world_init_start_dx_dy() {
   _world_dy_vec.x = world_cam.front.y;
   _world_dy_vec.y = world_cam.left.y;
   _world_dy_vec.z = world_cam.up.y;
-  _split_vec(&_world_dy_vec, _world_dy4);
+  _world_split_vec(&_world_dy_vec, _world_dy4);
   if (world_cam.front.y > 0) {
     vec_negate(&_world_dy_vec);
     p_start_world.y = grid_spacing;
@@ -148,9 +148,9 @@ void _world_init_start_dx_dy() {
   for (uint8_t i = 0; i < 16; ++i) {
     uint8_t mx = kMitchellPointsX[i];
     uint8_t my = kMitchellPointsY[i];
-    _mitch_x[i] = _world_dx4[mx].x + _world_dy4[my].x;
-    _mitch_y[i] = _world_dx4[mx].y + _world_dy4[my].y;
-    _mitch_z[i] = _world_dx4[mx].z + _world_dy4[my].z;
+    _world_mitch_x[i] = _world_dx4[mx].x + _world_dy4[my].x;
+    _world_mitch_y[i] = _world_dx4[mx].y + _world_dy4[my].y;
+    _world_mitch_z[i] = _world_dx4[mx].z + _world_dy4[my].z;
   }
 
   uint16_t mx = _down_shift(flight_eye_x);
@@ -217,7 +217,7 @@ __noinline void world_render_grid() {
       } else if (map_type != MAP_NOTHING) {
         uint8_t start_idx = cx2 + cy;
         uint8_t num_points = _num_points_per_radius[_max16(abs_x, _abs16(y))];
-        _draw_box_points(start_idx, num_points, map_type);
+        _world_draw_box_points(start_idx, num_points, map_type);
       }
       if (++y > _world_grid_radius) {
         break;

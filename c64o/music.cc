@@ -17,18 +17,18 @@ bool music_playing = false;
 // Counted rather than derived: the C64 has no divide, and this is the
 // innermost thing the player does. There is deliberately no frame counter -
 // nothing reads one, and unused state is what section 4 warns about.
-static uint16_t _row;          // 0 .. kMusicTotalRows-1
-static uint8_t _row_frame;     // 0 .. kMusicSpeed-1
-static uint8_t _bar;           // 0 .. kMusicBars-1
+static uint16_t _music_row;      // 0 .. kMusicTotalRows-1
+static uint8_t _music_row_frame; // 0 .. kMusicSpeed-1
+static uint8_t _music_bar;       // 0 .. kMusicBars-1
 
 // The pulse width sweep, a triangle over 0x800. The step is 8 because that
 // makes the cycle 256 frames, which divides the 2304-frame loop exactly nine
 // times - a step that did not divide the loop would leave the pulse width
 // somewhere different on every pass. See ../docs/music.md section 6.
-static const uint16_t kPwmStep = 8;
-static const uint16_t kPwmRange = 0x800;
-static const uint16_t kPwmBase = 0x0300;
-static uint16_t _pwm_phase;
+static const uint16_t kMusicPwmStep = 8;
+static const uint16_t kMusicPwmRange = 0x800;
+static const uint16_t kMusicPwmBase = 0x0300;
+static uint16_t _music_pwm_phase;
 
 // --- Voice 3 ----------------------------------------------------------------
 //
@@ -36,18 +36,19 @@ static uint16_t _pwm_phase;
 // four parts out of three voices. The arpeggio is a texture and loses 40 to
 // 100 ms without anyone noticing; a kick that is not on the beat is not a kick.
 //
-// _v3_owner is kV3Arp, kV3Restart, or MUSIC_DRUM_AT()'s code (1 kick, 2 snare,
-// 3 hat) while a drum holds the voice. There is no priority logic between the
-// drums themselves - get_flattened_drums() resolves that when it builds the
-// table, so a row carries at most one hit.
+// _music_v3_owner is kMusicV3Arp, kMusicV3Restart, or MUSIC_DRUM_AT()'s code (1
+// kick, 2 snare, 3 hat) while a drum holds the voice. There is no priority
+// logic between the drums themselves - get_flattened_drums() resolves that when
+// it builds the table, so a row carries at most one hit.
 //
-// kV3Restart is the state between a hit ending and the arpeggio coming back,
-// and it exists because of the SID's ADSR delay bug. Gating a voice on while
-// its envelope counter is somewhere awkward does not restart the envelope; the
-// counter has to wrap its full 15-bit range first, which can take the best part
-// of a second. The cure every SID player uses is the *hard restart*: hold the
-// gate low with the attack/decay and sustain/release registers at zero for a
-// couple of frames, which forces the counter down, and only then gate on.
+// kMusicV3Restart is the state between a hit ending and the arpeggio coming
+// back, and it exists because of the SID's ADSR delay bug. Gating a voice on
+// while its envelope counter is somewhere awkward does not restart the
+// envelope; the counter has to wrap its full 15-bit range first, which can take
+// the best part of a second. The cure every SID player uses is the *hard
+// restart*: hold the gate low with the attack/decay and sustain/release
+// registers at zero for a couple of frames, which forces the counter down, and
+// only then gate on.
 //
 // Handing straight back from a hit to the arpeggio skipped that. The gate went
 // low for one frame with the drum's sustain still in the register, and the
@@ -56,18 +57,20 @@ static uint16_t _pwm_phase;
 // restart, because music_start() zeroes every envelope register before the
 // first gate rises - and, after a loop, silent for two more bars while the
 // counter wrapped.
-static const uint8_t kV3Arp = 0;
-static const uint8_t kV3Restart = 0xFF;
+static const uint8_t kMusicV3Arp = 0;
+static const uint8_t kMusicV3Restart = 0xFF;
 
-static uint8_t _v3_owner;
-static uint8_t _v3_timer;    // frames left in the current hit, or in the restart
-static uint16_t _v3_freq;    // swept down by _v3_step while a drum holds it
-static uint16_t _v3_step;
+static uint8_t _music_v3_owner;
+static uint8_t
+    _music_v3_timer; // frames left in the current hit, or in the restart
+static uint16_t
+    _music_v3_freq; // swept down by _music_v3_step while a drum holds it
+static uint16_t _music_v3_step;
 
 // Which chord tone the arpeggio is on, 0..2. Advanced once per frame, but only
 // while the arpeggio actually owns the voice - a hit does not move it, so the
 // shimmer resumes where it left off instead of jumping.
-static uint8_t _arp_idx;
+static uint8_t _music_arp_idx;
 
 // --- Volume ----------------------------------------------------------------
 //
@@ -199,19 +202,19 @@ static void _hard_restart(uint8_t voice) {
 // --- Public interface ------------------------------------------------------
 
 void music_start(void) {
-  _row = 0;
-  _row_frame = 0;
-  _bar = 0;
-  _pwm_phase = 0;
+  _music_row = 0;
+  _music_row_frame = 0;
+  _music_bar = 0;
+  _music_pwm_phase = 0;
   // Voice 3 starts in the restart state, not straight into the arpeggio - the
   // same state the loop point puts it in. That is what makes "the loop is
   // identical to a fresh start" true rather than nearly true, and it is the
   // property test_loop_identity checks.
-  _v3_owner = kV3Restart;
-  _v3_timer = kV3LoopRestartFrames;
-  _v3_freq = 0;
-  _v3_step = 0;
-  _arp_idx = 0;
+  _music_v3_owner = kMusicV3Restart;
+  _music_v3_timer = kV3LoopRestartFrames;
+  _music_v3_freq = 0;
+  _music_v3_step = 0;
+  _music_arp_idx = 0;
 
   // The chip already arrives silent - gfx_stop_raster_irqs() calls
   // sound_silence(), which write-throughs zeros to $D400 on its way to the
@@ -257,8 +260,9 @@ void music_tick(void) {
     return;
   }
 
-  const bool last_frame_of_row = (_row_frame == kMusicSpeed - 1);
-  const uint16_t next_row = (_row + 1 == kMusicTotalRows) ? 0 : (_row + 1);
+  const bool last_frame_of_row = (_music_row_frame == kMusicSpeed - 1);
+  const uint16_t next_row =
+      (_music_row + 1 == kMusicTotalRows) ? 0 : (_music_row + 1);
 
   // --- voice 1: lead ---
   //
@@ -268,13 +272,13 @@ void music_tick(void) {
   if (last_frame_of_row && kMusicLeadStart[next_row] != 0) {
     _hard_restart(kVoice1);
   }
-  if (_row_frame == 0) {
-    const uint8_t note = kMusicLeadStart[_row];
+  if (_music_row_frame == 0) {
+    const uint8_t note = kMusicLeadStart[_music_row];
     if (note != 0) {
-      _set_voice(kVoice1, music_note_freq(note), kPwmBase,
+      _set_voice(kVoice1, music_note_freq(note), kMusicPwmBase,
                  kMusicInsLead.wave | SID_CTRL_GATE, kMusicInsLead.ad,
                  kMusicInsLead.sr);
-    } else if (!MUSIC_LEAD_ON(_row)) {
+    } else if (!MUSIC_LEAD_ON(_music_row)) {
       _gate_off(kVoice1);
     }
   }
@@ -282,15 +286,15 @@ void music_tick(void) {
   // The pulse width moves every frame, independently of the note, so a held
   // note keeps changing timbre. It is the only movement the design allows
   // itself - the SID filter is chip-dependent and off limits.
-  _pwm_phase += kPwmStep;
-  if (_pwm_phase >= kPwmRange) {
-    _pwm_phase -= kPwmRange;
+  _music_pwm_phase += kMusicPwmStep;
+  if (_music_pwm_phase >= kMusicPwmRange) {
+    _music_pwm_phase -= kMusicPwmRange;
   }
   {
-    const uint16_t tri = (_pwm_phase < (kPwmRange / 2))
-                             ? _pwm_phase
-                             : (uint16_t)(kPwmRange - _pwm_phase);
-    const uint16_t pw = (uint16_t)(kPwmBase + (tri >> 1));
+    const uint16_t tri = (_music_pwm_phase < (kMusicPwmRange / 2))
+                             ? _music_pwm_phase
+                             : (uint16_t)(kMusicPwmRange - _music_pwm_phase);
+    const uint16_t pw = (uint16_t)(kMusicPwmBase + (tri >> 1));
     SID_REGS[kSoundRegV1 + kSoundVoicePwLo] = (uint8_t)pw;
     SID_REGS[kSoundRegV1 + kSoundVoicePwHi] = (uint8_t)((pw >> 8) & 0x0F);
   }
@@ -310,8 +314,8 @@ void music_tick(void) {
   if (last_frame_of_row && kMusicBassStart[next_row] != 0) {
     _hard_restart(kVoice2);
   }
-  if (_row_frame == 0) {
-    const uint8_t note = kMusicBassStart[_row];
+  if (_music_row_frame == 0) {
+    const uint8_t note = kMusicBassStart[_music_row];
     if (note != 0) {
       _set_voice(kVoice2, music_note_freq(note), kMusicBassPw,
                  kMusicInsBass.wave | SID_CTRL_GATE, kMusicInsBass.ad,
@@ -330,7 +334,7 @@ void music_tick(void) {
   // LAST frame of a row and the hand-back below can fire on any frame, so
   // without the flag a hit arriving next row would be un-gated by the same
   // tick that just prepared it. That was a real bug in the reference player.
-  // kV3RestartFrames of hard restart before an incoming hit, not one.
+  // kMusicV3RestartFrames of hard restart before an incoming hit, not one.
   //
   // This used to fire only on the last frame of the row, which gave a drum the
   // same single frame of gate-low that left the arpeggio unable to climb. The
@@ -338,48 +342,51 @@ void music_tick(void) {
   // inaudible. A hit is 2 to 5 frames of noise at full sustain, so an envelope
   // that takes longer than that to start never produces anything at all.
   bool v3_restarted = false;
-  if (_row_frame >= kMusicSpeed - kV3RestartFrames &&
+  if (_music_row_frame >= kMusicSpeed - kMusicV3RestartFrames &&
       MUSIC_DRUM_AT(next_row) != 0) {
     _hard_restart(kVoice3);
     v3_restarted = true;
   }
 
-  const uint8_t hit = MUSIC_DRUM_AT(_row);
-  if (_row_frame == 0 && hit != 0) {
+  const uint8_t hit = MUSIC_DRUM_AT(_music_row);
+  if (_music_row_frame == 0 && hit != 0) {
     const music_instrument_t *d = &kMusicDrumIns[hit - 1];
-    _v3_owner = hit;
-    _v3_timer = d->frames;
-    _v3_freq = d->freq_from;
-    _v3_step = d->freq_step;
-    _set_voice(kVoice3, _v3_freq, 0, d->wave | SID_CTRL_GATE, d->ad, d->sr);
-  } else if (_v3_owner == kV3Restart && _v3_timer == 0 && !v3_restarted) {
+    _music_v3_owner = hit;
+    _music_v3_timer = d->frames;
+    _music_v3_freq = d->freq_from;
+    _music_v3_step = d->freq_step;
+    _set_voice(kVoice3, _music_v3_freq, 0, d->wave | SID_CTRL_GATE, d->ad,
+               d->sr);
+  } else if (_music_v3_owner == kMusicV3Restart && _music_v3_timer == 0 &&
+             !v3_restarted) {
     // The hard restart has run its course. Now the gate may rise, and the
     // envelope starts from a counter that has actually been forced down.
-    _v3_owner = kV3Arp;
+    _music_v3_owner = kMusicV3Arp;
     SID_REGS[kSoundRegV3 + kSoundVoiceAttDec] = kMusicInsArp.ad;
     SID_REGS[kSoundRegV3 + kSoundVoiceSusRel] = kMusicInsArp.sr;
     _write_ctrl(kVoice3, kMusicInsArp.wave | SID_CTRL_GATE);
   }
 
-  if (_v3_owner == kV3Arp) {
+  if (_music_v3_owner == kMusicV3Arp) {
     // One chord tone per frame with the gate HELD. Rewriting the frequency
     // does not retrigger the envelope, and that is the whole trick: at 50 Hz
     // it reads as a chord shimmering rather than as three notes being played
     // very fast. Re-gating here would turn it into a machine gun.
-    _set_freq(kVoice3, music_note_freq(kMusicChords[_bar].triad[_arp_idx]));
-    if (++_arp_idx == 3) {
-      _arp_idx = 0;
+    _set_freq(kVoice3,
+              music_note_freq(kMusicChords[_music_bar].triad[_music_arp_idx]));
+    if (++_music_arp_idx == 3) {
+      _music_arp_idx = 0;
     }
     // The one exception: a row boundary is allowed to re-gate, because that is
     // where a hard restart from the previous frame has to be undone if no hit
-    // actually arrived. Restricting it to _row_frame == 0 is what stops it
-    // cancelling the restart on the frame the restart happened.
-    if (_row_frame == 0 && !_gated(kVoice3)) {
+    // actually arrived. Restricting it to _music_row_frame == 0 is what stops
+    // it cancelling the restart on the frame the restart happened.
+    if (_music_row_frame == 0 && !_gated(kVoice3)) {
       SID_REGS[kSoundRegV3 + kSoundVoiceAttDec] = kMusicInsArp.ad;
       SID_REGS[kSoundRegV3 + kSoundVoiceSusRel] = kMusicInsArp.sr;
       _write_ctrl(kVoice3, kMusicInsArp.wave | SID_CTRL_GATE);
     }
-  } else if (_v3_owner == kV3Restart) {
+  } else if (_music_v3_owner == kMusicV3Restart) {
     // Holding the gate low with the envelope registers at zero. Nothing to
     // write - _hard_restart() already put the chip in this state - just count
     // the frames out.
@@ -388,53 +395,53 @@ void music_tick(void) {
     // restart that expires on the same frame a pre-drum restart fires stays in
     // this state with the counter already at zero, and an unguarded decrement
     // would wrap it to 255 and hold voice 3 silent for five seconds.
-    if (_v3_timer != 0) {
-      --_v3_timer;
+    if (_music_v3_timer != 0) {
+      --_music_v3_timer;
     }
   } else {
     // A drum holds the voice. Write the current sweep value, then step it: the
     // first frame therefore emits freq_from, which is what makes the kick's
     // descent start where the instrument says.
-    _set_freq(kVoice3, _v3_freq);
-    _v3_freq -= _v3_step;  // zero for the flat drums
-    if (--_v3_timer == 0) {
+    _set_freq(kVoice3, _music_v3_freq);
+    _music_v3_freq -= _music_v3_step; // zero for the flat drums
+    if (--_music_v3_timer == 0) {
       // Not just a gate-off: a full hard restart, which zeroes the envelope
-      // registers too. Then kV3RestartFrames frames before the arpeggio is
+      // registers too. Then kMusicV3RestartFrames frames before the arpeggio is
       // allowed back. See the ADSR delay bug note above.
       _hard_restart(kVoice3);
-      _v3_owner = kV3Restart;
-      _v3_timer = kV3RestartFrames;
+      _music_v3_owner = kMusicV3Restart;
+      _music_v3_timer = kMusicV3RestartFrames;
     }
   }
 
   // --- master volume ---
   SID_REGS[kSoundRegModeVol] =
-      music_master_volume(kMusicVolMap[_bar], sound_volume);
+      music_master_volume(kMusicVolMap[_music_bar], sound_volume);
 
   // --- advance the clock ---
-  if (++_row_frame == kMusicSpeed) {
-    _row_frame = 0;
-    if (++_row == kMusicTotalRows) {
-      _row = 0;
-      _bar = 0;
+  if (++_music_row_frame == kMusicSpeed) {
+    _music_row_frame = 0;
+    if (++_music_row == kMusicTotalRows) {
+      _music_row = 0;
+      _music_bar = 0;
       // Reset with the row counter so the loop point is identical. 2304 is a
       // multiple of 3, so a free-running index would in fact land back on 0 -
       // but that is a coincidence of the bar count, and the loop-identity test
       // would start failing the next time the arrangement is resized.
-      _arp_idx = 0;
+      _music_arp_idx = 0;
 
       // Make the loop point a real start for voice 3, the way music_start() is.
       // The other two voices get this for free from the note-ahead rule; voice
       // 3 does not, because bars 1-4 have no drums to ask for it. See
       // kV3LoopRestartFrames in music.h.
       _hard_restart(kVoice3);
-      _v3_owner = kV3Restart;
-      _v3_timer = kV3LoopRestartFrames;
-      // _pwm_phase is deliberately not reset: kPwmStep divides the loop, so it
-      // is already back where it started. The test asserts that rather than
-      // trusting it.
-    } else if ((_row % kMusicRowsPerBar) == 0) {
-      ++_bar;
+      _music_v3_owner = kMusicV3Restart;
+      _music_v3_timer = kV3LoopRestartFrames;
+      // _music_pwm_phase is deliberately not reset: kMusicPwmStep divides the
+      // loop, so it is already back where it started. The test asserts that
+      // rather than trusting it.
+    } else if ((_music_row % kMusicRowsPerBar) == 0) {
+      ++_music_bar;
     }
   }
 }

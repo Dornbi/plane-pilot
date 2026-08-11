@@ -21,15 +21,15 @@ view_state_t view_state = VIEW_UNKNOWN;
 static view_state_t view_bitmap_state = VIEW_UNKNOWN;
 
 #pragma data(data_compr)
-static const char kPanelBitmapCompressed[] = {
+static const char kViewPanelBitmapCompressed[] = {
 #embed 3904 4098 lzo "panel.koa"
 };
 
-static const char kPanelScreenCompressed[] = {
+static const char kViewPanelScreenCompressed[] = {
 #embed 440 8562 lzo "panel.koa"
 };
 
-static const char kPanelColorCompressed[] = {
+static const char kViewPanelColorCompressed[] = {
 #embed 440 9562 lzo "panel.koa"
 };
 #pragma data(data)
@@ -54,19 +54,19 @@ void view_update_cam() {
 // the per-frame render path, so the outliner's trade is free here.
 #pragma optimize(push, outline)
 
-static char *const kBitmapDst = (char *)0xF000;
-static char *const kScreenDst = (char *)0xEE30;
-static char *const kColorDst = (char *)0xDA30;
+static char *const kViewBitmapDst = (char *)0xF000;
+static char *const kViewScreenDst = (char *)0xEE30;
+static char *const kViewColorDst = (char *)0xDA30;
 
 // clang-format off
-static const uint8_t kFillPattern[] = {
+static const uint8_t kViewFillPattern[] = {
     0xFF, 0xFF, 0xBB, 0xEE, 0xBB, 0xEE, 0xBB, 0xEE,
     0xBB, 0xEE, 0xBB, 0xEE, 0xBB, 0xEE, 0xBB, 0xEE,
     0xBB, 0xEE, 0xAA, 0xEE, 0xAA, 0xEE, 0xAA, 0xAA,
 };
 // clang-format on
 
-static void _fill_with_pattern(char *dst, const char *src) {
+static void _view_fill_with_pattern(char *dst, const char *src) {
   for (uint8_t n = 0; n < kFillWidthChars; ++n) {
     for (uint8_t c = 0; c < 8; ++c) {
       *dst++ = src[c];
@@ -74,16 +74,16 @@ static void _fill_with_pattern(char *dst, const char *src) {
   }
 }
 
-static void _copy_and_fill(bool is_left_view) {
+static void _view_copy_and_fill(bool is_left_view) {
   char *bmp_src = (char *)0xE000 + 320 * kViewportHeight;
   char *bmp_dst = (char *)0xE000 + 320 * kViewportHeight;
   char *bmp_fill = (char *)0xE000 + 320 * kViewportHeight;
-  char *screen_src = (char *)kScreenDst;
-  char *screen_dst = (char *)kScreenDst;
-  char *screen_fill = (char *)kScreenDst;
-  char *color_src = (char *)kColorDst;
-  char *color_dst = (char *)kColorDst;
-  char *color_fill = (char *)kColorDst;
+  char *screen_src = (char *)kViewScreenDst;
+  char *screen_dst = (char *)kViewScreenDst;
+  char *screen_fill = (char *)kViewScreenDst;
+  char *color_src = (char *)kViewColorDst;
+  char *color_dst = (char *)kViewColorDst;
+  char *color_fill = (char *)kViewColorDst;
   if (is_left_view) {
     bmp_dst += kFillWidthChars * 8;
     screen_dst += kFillWidthChars;
@@ -101,7 +101,8 @@ static void _copy_and_fill(bool is_left_view) {
     if (row >= 3) {
       memset(bmp_fill, 0xAA, kFillWidthChars * 8);
     } else {
-      _fill_with_pattern(bmp_fill, (const char *)kFillPattern + row * 8);
+      _view_fill_with_pattern(bmp_fill,
+                              (const char *)kViewFillPattern + row * 8);
     }
     // The fill leaves color 01 black rather than picking something for it:
     // kFillPattern uses only the 10 and 11 pairs, so 01 never appears.
@@ -125,10 +126,10 @@ void view_refresh_panel() {
   if (mem_debug_enabled) {
     return;
   }
-  oscar_expand_lzo(kScreenDst, kPanelScreenCompressed);
-  oscar_expand_lzo(kColorDst, kPanelColorCompressed);
+  oscar_expand_lzo(kViewScreenDst, kViewPanelScreenCompressed);
+  oscar_expand_lzo(kViewColorDst, kViewPanelColorCompressed);
   if (view_bitmap_state != VIEW_CENTER) {
-    oscar_expand_lzo(kBitmapDst, kPanelBitmapCompressed);
+    oscar_expand_lzo(kViewBitmapDst, kViewPanelBitmapCompressed);
     // The expansion overwrote the heading strip with the default bitmap.
     gfx_invalidate_heading_bitmap();
   }
@@ -137,9 +138,9 @@ void view_refresh_panel() {
     return;
   }
   if (view_state == VIEW_LEFT) {
-    _copy_and_fill(/*view_left=*/true);
+    _view_copy_and_fill(/*view_left=*/true);
   } else {
-    _copy_and_fill(/*view_left=*/false);
+    _view_copy_and_fill(/*view_left=*/false);
   }
 }
 
@@ -157,9 +158,9 @@ void view_update_view(view_state_t new_state) {
     // Optimization: if the previous state was already center,
     // don't rebuild it first.
     if (new_state == VIEW_LEFT) {
-      _copy_and_fill(/*view_left=*/true);
+      _view_copy_and_fill(/*view_left=*/true);
     } else {
-      _copy_and_fill(/*view_left=*/false);
+      _view_copy_and_fill(/*view_left=*/false);
     }
     view_state = new_state;
     view_bitmap_state = new_state;

@@ -84,7 +84,7 @@ static uint8_t *_screen_cell_bitmap(uint8_t row, uint8_t col) {
 
 // The same, for a cell inside the map, by *screen* row and column
 // (0..15, 0..31 -- already rotated).
-static uint8_t *_cell_bitmap(uint8_t screen_row, uint8_t screen_col) {
+static uint8_t *_map_cell_bitmap(uint8_t screen_row, uint8_t screen_col) {
   return _screen_cell_bitmap(kMapOriginRow + screen_row,
                              kMapOriginCol + screen_col);
 }
@@ -94,7 +94,7 @@ static uint8_t *_cell_bitmap(uint8_t screen_row, uint8_t screen_col) {
 // cell, so py >> 3 and px >> 2 are the cell and the remainders address the
 // row and the bit pair within it.
 void map_set_overlay_pixel(uint8_t px, uint8_t py) {
-  uint8_t *dst = _cell_bitmap(py >> 3, px >> 2) + (py & 7);
+  uint8_t *dst = _map_cell_bitmap(py >> 3, px >> 2) + (py & 7);
   const uint8_t shift = (3 - (px & 3)) << 1;
   *dst = (*dst & ~(3 << shift)) | (1 << shift);
 }
@@ -113,7 +113,7 @@ void map_set_overlay_pixel(uint8_t px, uint8_t py) {
 // and '2' superimposed in cell [12][24] rather than letting the last one
 // win. It also keeps a flight path crossing the cell from filling in the
 // counters of the digit.
-static void _draw_stencil(const uint8_t *mask, uint8_t row, uint8_t col) {
+static void _map_draw_stencil(const uint8_t *mask, uint8_t row, uint8_t col) {
   uint8_t *dst = _screen_cell_bitmap(row, col);
   for (uint8_t r = 0; r < 8; ++r) {
     // b & ~(b >> 1) & 0x55 is 1 in the low bit of every pair that is 01 and
@@ -128,19 +128,19 @@ static void _draw_stencil(const uint8_t *mask, uint8_t row, uint8_t col) {
 // They land in the surround, which is solid 11 over black color RAM, so the
 // stencil's 01 pairs come out white against black with no extra work -- the
 // same overlay layer the digits and the path use.
-static void _draw_compass(void) {
+static void _map_draw_compass(void) {
   static const uint8_t kMapCenterRow = kMapOriginRow + kWorldMapHeight / 2;
   static const uint8_t kMapCenterCol = kMapOriginCol + kWorldMapWidth / 2;
   static const uint8_t kGap = 2; // one blank cell between map and letter
 
-  _draw_stencil(kMapCompassMask[kMapCompassN], kMapOriginRow - kGap,
-                kMapCenterCol);
-  _draw_stencil(kMapCompassMask[kMapCompassS],
-                kMapOriginRow + kWorldMapHeight + kGap - 1, kMapCenterCol);
-  _draw_stencil(kMapCompassMask[kMapCompassW], kMapCenterRow,
-                kMapOriginCol - kGap);
-  _draw_stencil(kMapCompassMask[kMapCompassE], kMapCenterRow,
-                kMapOriginCol + kWorldMapWidth + kGap - 1);
+  _map_draw_stencil(kMapCompassMask[kMapCompassN], kMapOriginRow - kGap,
+                    kMapCenterCol);
+  _map_draw_stencil(kMapCompassMask[kMapCompassS],
+                    kMapOriginRow + kWorldMapHeight + kGap - 1, kMapCenterCol);
+  _map_draw_stencil(kMapCompassMask[kMapCompassW], kMapCenterRow,
+                    kMapOriginCol - kGap);
+  _map_draw_stencil(kMapCompassMask[kMapCompassE], kMapCenterRow,
+                    kMapOriginCol + kWorldMapWidth + kGap - 1);
 }
 
 // Plots the recent flight path. flight.cc already stores map pixels, and
@@ -148,7 +148,7 @@ static void _draw_compass(void) {
 // walk with no line drawing between the points -- see kFlightPathLen in
 // flight.h. Entries 0 .. count - 1 are the live ones whether or not the ring
 // has wrapped.
-static void _draw_path(void) {
+static void _map_draw_path(void) {
   for (uint8_t i = 0; i < flight_path_count; ++i) {
     map_set_overlay_pixel(flight_path_px[i], flight_path_py[i]);
   }
@@ -161,7 +161,7 @@ static void _draw_path(void) {
 //
 // Drawn ascending so that when two navpoints share a cell the higher number
 // is the one left standing.
-static void _draw_navpoints(void) {
+static void _map_draw_navpoints(void) {
   uint8_t n = flight_num_nav_points;
   if (n > kMapDigitCount) {
     n = kMapDigitCount;
@@ -173,8 +173,9 @@ static void _draw_navpoints(void) {
                         kWorldMapHeightMask;
     const uint8_t col = ((uint8_t)((flight_nav_point_y[i] >> 8) + 0x04) >> 3) &
                         kWorldMapWidthMask;
-    _draw_stencil(kMapDigitMask[i], kMapOriginRow + (kWorldMapHeight - 1) - row,
-                  kMapOriginCol + (kWorldMapWidth - 1) - col);
+    _map_draw_stencil(kMapDigitMask[i],
+                      kMapOriginRow + (kWorldMapHeight - 1) - row,
+                      kMapOriginCol + (kWorldMapWidth - 1) - col);
   }
 }
 
@@ -213,7 +214,7 @@ static const uint16_t kMapSprPtrOffset = 1016;
 
 // Positions one sprite, handling the $D010 MSB. The map spans sprite x
 // 44..298, so both sprites cross 255.
-static void _set_sprite_pos(uint8_t idx, int16_t x, uint8_t y) {
+static void _map_set_sprite_pos(uint8_t idx, int16_t x, uint8_t y) {
   vic.spr_pos[idx].x = (uint8_t)x;
   vic.spr_pos[idx].y = y;
   if (x > 255) {
@@ -228,7 +229,7 @@ static void _set_sprite_pos(uint8_t idx, int16_t x, uint8_t y) {
 // grid variants by the parity of its *map* row and column -- matching
 // tools/render_map_preview.py, which is the reference for what the finished
 // screen should look like.
-static uint8_t _tile_index(uint8_t cell, uint8_t row, uint8_t col) {
+static uint8_t _map_tile_index(uint8_t cell, uint8_t row, uint8_t col) {
   if (cell == MAP_DOT_GROUND) {
     return kMapTileGrid + (((row & 1) << 1) | (col & 1));
   }
@@ -247,12 +248,12 @@ static uint8_t _tile_index(uint8_t cell, uint8_t row, uint8_t col) {
 //
 // Pass A -- the object layer. I/O is banked in, so color RAM is writable and
 // the bitmap at $E000 is plain RAM either way.
-static void _draw_object_layer(void) {
+static void _map_draw_object_layer(void) {
   uint8_t *bm = kMapBitmap + kMapCharOffset * 8;
   uint8_t *cr = kColorRam + kMapCharOffset;
   for (uint8_t row = kWorldMapHeight; row-- != 0;) {
     for (uint8_t col = kWorldMapWidth; col-- != 0;) {
-      const uint8_t idx = _tile_index(kWorldMap[row][col], row, col);
+      const uint8_t idx = _map_tile_index(kWorldMap[row][col], row, col);
       // Eight indexed loads sharing one index register, off a
       // compile-time-constant base per row. This is what kMapTileRows is
       // transposed for: a [tile][8] layout would need a multiply by 8 and a
@@ -277,11 +278,11 @@ static void _draw_object_layer(void) {
 // tile index is recomputed rather than carried over from pass A: there is no
 // 512-byte scratch buffer to spare in main, and this runs once per
 // map_enter(), not per frame.
-static void _draw_screen_layer(void) {
+static void _map_draw_screen_layer(void) {
   uint8_t *sm = kMapScreenRam + kMapCharOffset;
   for (uint8_t row = kWorldMapHeight; row-- != 0;) {
     for (uint8_t col = kWorldMapWidth; col-- != 0;) {
-      const uint8_t idx = _tile_index(kWorldMap[row][col], row, col);
+      const uint8_t idx = _map_tile_index(kWorldMap[row][col], row, col);
       *sm++ = (kColorWhite << 4) | kMapTileLo[idx];
     }
     sm += kMapCharGap;
@@ -324,13 +325,13 @@ void map_enter() {
   // computing the non-contiguous border.
   memset(kMapBitmap, 0xFF, kMapBitmapSize);
   memset(kColorRam, kColorBlack, kMapScreenSize);
-  _draw_object_layer();
+  _map_draw_object_layer();
   // Overlay, on top of the object art. Path first: a digit clears its own
   // cell's overlay before stencilling, so drawing it last keeps the trail
   // from filling in the glyph's counters.
-  _draw_path();
-  _draw_navpoints();
-  _draw_compass();
+  _map_draw_path();
+  _map_draw_navpoints();
+  _map_draw_compass();
 
   // The aircraft marker. _get_heading() runs 0..47 clockwise from north and
   // the sprite tables 0..31 clockwise from up, and the map puts north up, so
@@ -357,7 +358,7 @@ void map_enter() {
   // above), so no handler can touch $D000..$DFFF while it is RAM.
   mmap_set(MMAP_RAM);
   memset(kMapScreenRam, kMapScreenSurround, kMapScreenSize);
-  _draw_screen_layer();
+  _map_draw_screen_layer();
   // Sprite pointers live past the 1000 bytes the memset covers, so only the
   // two in use are written; the other six are left as they are and stay
   // disabled.
@@ -367,8 +368,8 @@ void map_enter() {
 
   // I/O is back, so the VIC registers are reachable again. The simulation is
   // frozen while the map is up, so this is the only time they are set.
-  _set_sprite_pos(kMapSprBody, body_x, body_y);
-  _set_sprite_pos(kMapSprWing, body_x + fx, body_y + fy);
+  _map_set_sprite_pos(kMapSprBody, body_x, body_y);
+  _map_set_sprite_pos(kMapSprWing, body_x + fx, body_y + fy);
   vic.spr_color[kMapSprBody] = kColorLightGreen;
   vic.spr_color[kMapSprWing] = kColorLightGreen;
   vic.spr_enable = (1 << kMapSprBody) | (1 << kMapSprWing);

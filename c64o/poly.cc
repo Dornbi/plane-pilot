@@ -23,14 +23,14 @@ static uint8_t _min_x[2 * kViewportHeight];
 static uint8_t _max_x[2 * kViewportHeight];
 
 // Initialize the scanline buffers for the sub-rows in [start, end].
-static inline void _clear_buffers(uint8_t start, uint8_t end) {
+static inline void _poly_clear_buffers(uint8_t start, uint8_t end) {
   for (uint8_t i = start; i <= end; i++) {
     _min_x[i] = kScreenWidth * 2; // Set to out-of-bounds max
     _max_x[i] = 0;                // Set to out-of-bounds min
   }
 }
 
-static void _trace_edge_dda(int8_t x1, uint8_t y1, int8_t x2, uint8_t y2) {
+static void _poly_trace_edge_dda(int8_t x1, uint8_t y1, int8_t x2, uint8_t y2) {
   if (y1 == y2) {
     return; // Skip horizontal edges
   }
@@ -83,8 +83,8 @@ static void _trace_edge_dda(int8_t x1, uint8_t y1, int8_t x2, uint8_t y2) {
   }
 }
 
-static void _trace_edge_bresenham(int8_t x1, uint8_t y1, int8_t x2,
-                                  uint8_t y2) {
+static void _poly_trace_edge_bresenham(int8_t x1, uint8_t y1, int8_t x2,
+                                       uint8_t y2) {
   if (y1 == y2) {
     return; // Skip horizontal edges
   }
@@ -193,13 +193,13 @@ static void _trace_edge_bresenham(int8_t x1, uint8_t y1, int8_t x2,
   }
 }
 
-static inline void _set_char(uint8_t *dst, uint8_t fill_char_start_idx,
-                             uint8_t val) {
+static inline void _poly_set_char(uint8_t *dst, uint8_t fill_char_start_idx,
+                                  uint8_t val) {
   dst[0] = fill_char_start_idx | (dst[0] & 0xF) | val;
 }
 
 // This implementation is simpler and faster for small filled polygons.
-static inline void _scan_lines(uint8_t fill_char_start_idx) {
+static inline void _poly_scan_lines(uint8_t fill_char_start_idx) {
   for (uint8_t sy = 0; sy < 2 * kViewportHeight; ++sy) {
     uint8_t min_x = _min_x[sy];
     uint8_t max_x = _max_x[sy];
@@ -218,21 +218,21 @@ static inline void _scan_lines(uint8_t fill_char_start_idx) {
     // 1. Handle left edge: if min_x is odd, it only occupies the right half of
     // the pixel
     if (min_x & 1) {
-      _set_char(row + (min_x >> 1), fill_char_start_idx, right_mask);
+      _poly_set_char(row + (min_x >> 1), fill_char_start_idx, right_mask);
       ++min_x; // Snap to the next even boundary
     }
 
     // 2. Handle right edge: if max_x is even, it only occupies the left half of
     // the pixel
     if ((max_x & 1) == 0 && max_x >= min_x) {
-      _set_char(row + (max_x >> 1), fill_char_start_idx, left_mask);
+      _poly_set_char(row + (max_x >> 1), fill_char_start_idx, left_mask);
       --max_x; // Snap back to previous odd boundary
     }
 
     // 3. Fast bulk fill for everything in between (now guaranteed to be full
     // 2-wide pixels)
     for (uint8_t px = min_x >> 1; px <= max_x >> 1; ++px) {
-      _set_char(row + px, fill_char_start_idx, full_mask);
+      _poly_set_char(row + px, fill_char_start_idx, full_mask);
     }
 #ifdef __DEBUG_POLY__
     if (py < 20) {
@@ -247,7 +247,7 @@ static inline void _scan_lines(uint8_t fill_char_start_idx) {
   }
 }
 
-static inline void _set_line(uint8_t *dst, uint8_t val, int8_t cnt) {
+static inline void _poly_set_line(uint8_t *dst, uint8_t val, int8_t cnt) {
   for (int8_t i = cnt - 1; i >= 0; --i) {
     if (dst[i] < kCharSolidGround) {
       continue;
@@ -256,9 +256,9 @@ static inline void _set_line(uint8_t *dst, uint8_t val, int8_t cnt) {
   }
 }
 
-static inline void _set_color_line(uint8_t *dst, uint8_t val,
-                                   uint8_t *color_dst, uint8_t color,
-                                   int8_t cnt) {
+static inline void _poly_set_color_line(uint8_t *dst, uint8_t val,
+                                        uint8_t *color_dst, uint8_t color,
+                                        int8_t cnt) {
   for (int8_t i = cnt - 1; i >= 0; --i) {
     if (dst[i] < kCharSolidGround) {
       continue;
@@ -269,15 +269,15 @@ static inline void _set_color_line(uint8_t *dst, uint8_t val,
 }
 
 // This version does not take the previous value into account.
-static inline void _set_char2(uint8_t *dst, uint8_t fill_char_start_idx,
-                              uint8_t val) {
+static inline void _poly_set_char2(uint8_t *dst, uint8_t fill_char_start_idx,
+                                   uint8_t val) {
   dst[0] = fill_char_start_idx + val;
 }
 
 // About 250 bytes more code, faster for large polygons.
 // Only processes char rows in [py_start, py_end] (inclusive).
-void _scan_lines2(uint8_t fill_char_start_idx, uint8_t color, uint8_t py_start,
-                  uint8_t py_end) {
+void _poly_scan_lines2(uint8_t fill_char_start_idx, uint8_t color,
+                       uint8_t py_start, uint8_t py_end) {
   for (uint8_t py = py_start; py <= py_end; ++py) {
     uint8_t t_min, b_min, t_max, b_max;
     t_min = _min_x[py << 1];
@@ -337,12 +337,12 @@ void _scan_lines2(uint8_t fill_char_start_idx, uint8_t color, uint8_t py_start,
     // 3. Fast path: Memset the Solid Core (No read-modify-write!)
     if (overlap_end >= overlap_start) {
       if (color) {
-        _set_color_line(row + overlap_start, fill_char_start_idx | 0xF,
-                        color_row + overlap_start, color,
-                        overlap_end - overlap_start + 1);
+        _poly_set_color_line(row + overlap_start, fill_char_start_idx | 0xF,
+                             color_row + overlap_start, color,
+                             overlap_end - overlap_start + 1);
       } else {
-        _set_line(row + overlap_start, fill_char_start_idx | 0xF,
-                  overlap_end - overlap_start + 1);
+        _poly_set_line(row + overlap_start, fill_char_start_idx | 0xF,
+                       overlap_end - overlap_start + 1);
       }
     }
 
@@ -381,7 +381,7 @@ void _scan_lines2(uint8_t fill_char_start_idx, uint8_t color, uint8_t py_start,
         }
       }
       if (mask) {
-        _set_char2(dst, fill_char_start_idx, mask);
+        _poly_set_char2(dst, fill_char_start_idx, mask);
         if (color) {
           color_row[px] = color;
         }
@@ -435,7 +435,7 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
   uint8_t py_end = max_y >> 1;
 
   bm_poly_start();
-  _clear_buffers(py_start << 1, (py_end << 1) + 1);
+  _poly_clear_buffers(py_start << 1, (py_end << 1) + 1);
   bm_poly_end(670, "CLR:");
 
   // 1. Trace all edges
@@ -445,8 +445,8 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
     if (next == num_vertices) {
       next = 0; // Wrap around to the first vertex
     }
-    _trace_edge_bresenham(vertices[i].x, vertices[i].y, vertices[next].x,
-                          vertices[next].y);
+    _poly_trace_edge_bresenham(vertices[i].x, vertices[i].y, vertices[next].x,
+                               vertices[next].y);
   }
   bm_poly_end(710, "TRC:");
 
@@ -456,7 +456,7 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
     color_val = color | 8;
   }
   bm_poly_start();
-  _scan_lines2(fill_char_start_idx, color_val, py_start, py_end);
+  _poly_scan_lines2(fill_char_start_idx, color_val, py_start, py_end);
   bm_poly_end(750, "SCN:");
 }
 

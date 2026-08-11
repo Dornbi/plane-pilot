@@ -194,13 +194,11 @@ static uint16_t freq_at_throttle(uint8_t t) {
 // from the tuning constant rather than repeated as a literal, so turning the
 // roughness up or down does not falsify the test.
 static uint16_t jitter_bound(uint16_t base) {
-  return base >> kEngineJitterShift;
+  return base >> kSoundEngineJitterShift;
 }
 
 // The control register the engine should be driving voice 1 with.
-static uint8_t expected_ctrl(void) {
-  return SID_CTRL_RECT | SID_CTRL_GATE;
-}
+static uint8_t expected_ctrl(void) { return SID_CTRL_RECT | SID_CTRL_GATE; }
 
 // --- Voice 3 helpers -------------------------------------------------------
 
@@ -326,11 +324,11 @@ int main() {
   assert(sound_volume == kSoundVolumeDefault);
   assert(kSoundVolumeDefault == kSoundVolumeSteps - 1);
   sound_cycle_volume();
-  assert(sound_volume == 1);  // full -> low
+  assert(sound_volume == 1); // full -> low
   sound_cycle_volume();
-  assert(sound_volume == 0);  // low  -> off
+  assert(sound_volume == 0); // low  -> off
   sound_cycle_volume();
-  assert(sound_volume == 2);  // off  -> full, wrapping rather than sticking
+  assert(sound_volume == 2); // off  -> full, wrapping rather than sticking
   assert(sound_volume == kSoundVolumeDefault);
 
   // Every step has a label, they are all the documented fixed width, and the
@@ -520,7 +518,7 @@ int main() {
   // the same reason as the engine's: a linear ramp would spend most of its
   // range in the bottom of the speed envelope, where an aircraft rarely is.
   {
-    const uint16_t step = 1 << 8;  // one table entry
+    const uint16_t step = 1 << 8; // one table entry
     for (uint16_t s = 0; s + step <= kMaxSpeed; s += step) {
       uint32_t lo = sound_wind_freq((int16_t)s);
       uint32_t hi = sound_wind_freq((int16_t)(s + step));
@@ -551,7 +549,8 @@ int main() {
     bool prev_on = sound_wind_audible(0);
     for (int16_t s = 1; s <= (int16_t)kMaxSpeed; ++s) {
       bool on = sound_wind_audible(s);
-      if (on != prev_on) ++crossings;
+      if (on != prev_on)
+        ++crossings;
       prev_on = on;
     }
     assert(crossings == 1);
@@ -662,10 +661,13 @@ int main() {
           break;
         }
       }
-      if (!dup) seen[n_seen++] = f;
+      if (!dup)
+        seen[n_seen++] = f;
 
-      if (f < f_min) f_min = f;
-      if (f > f_max) f_max = f;
+      if (f < f_min)
+        f_min = f;
+      if (f > f_max)
+        f_max = f;
     }
 
     // It has to actually move, and over many distinct values rather than
@@ -687,8 +689,8 @@ int main() {
   flight_stall = 1;
   idle_frame();
   assert(v3_gated());
-  assert(v3_wave() == SID_CTRL_RECT);  // a tone, not noise - it competes with
-                                       // the wind bed on voice 2
+  assert(v3_wave() == SID_CTRL_RECT); // a tone, not noise - it competes with
+                                      // the wind bed on voice 2
   {
     // Full sustain and a release, like every other effect on this voice. A
     // warning horn that fades while it sounds is the same mistake that made
@@ -710,7 +712,8 @@ int main() {
     for (int i = 0; i < 40; ++i) {
       mark();
       idle_frame();
-      if (retriggered()) ++bursts;
+      if (retriggered())
+        ++bursts;
       if (v3_gated()) {
         ++on;
       } else {
@@ -731,7 +734,8 @@ int main() {
   {
     reset_state();
     flight_stall = 1;
-    for (int i = 0; i < 6; ++i) idle_frame();
+    for (int i = 0; i < 6; ++i)
+      idle_frame();
     flight_stall = 0;
     for (int i = 0; i < 30; ++i) {
       mark();
@@ -748,7 +752,8 @@ int main() {
   {
     reset_state();
     flight_stall = 1;
-    for (int i = 0; i < 4; ++i) idle_frame();
+    for (int i = 0; i < 4; ++i)
+      idle_frame();
     flight_status = FLIGHT_CRASH_VSPEED;
     idle_frame();
     assert(shadow_is_silent());
@@ -843,10 +848,11 @@ int main() {
   {
     reset_state();
     flight_stall = 1;
-    for (int i = 0; i < 6; ++i) idle_frame();
+    for (int i = 0; i < 6; ++i)
+      idle_frame();
     publish_events(FLIGHT_EV_TOUCHDOWN);
     sound_update();
-    assert(v3_wave() == SID_CTRL_NOISE);  // the impact, not the warning
+    assert(v3_wave() == SID_CTRL_NOISE); // the impact, not the warning
   }
 
   // Gear and flap do NOT outrank a stall, and are dropped rather than queued.
@@ -857,10 +863,11 @@ int main() {
   {
     reset_state();
     flight_stall = 1;
-    for (int i = 0; i < 6; ++i) idle_frame();
+    for (int i = 0; i < 6; ++i)
+      idle_frame();
     publish_events(FLIGHT_EV_GEAR);
     sound_update();
-    assert(v3_wave() == SID_CTRL_RECT);  // still the stall tone
+    assert(v3_wave() == SID_CTRL_RECT); // still the stall tone
     // And it is gone, not deferred: many quiet frames later, no noise burst
     // ever appears.
     for (int i = 0; i < 20; ++i) {
@@ -879,12 +886,13 @@ int main() {
     assert(v3_wave() == SID_CTRL_NOISE);
     flight_stall = 1;
     idle_frame();
-    assert(v3_wave() == SID_CTRL_NOISE);  // the gear burst still owns it
+    assert(v3_wave() == SID_CTRL_NOISE); // the gear burst still owns it
     // But the stall does get the voice back shortly afterwards.
     bool got_it = false;
     for (int i = 0; i < 10 && !got_it; ++i) {
       idle_frame();
-      if (v3_wave() == SID_CTRL_RECT) got_it = true;
+      if (v3_wave() == SID_CTRL_RECT)
+        got_it = true;
     }
     assert(got_it);
   }
@@ -903,8 +911,9 @@ int main() {
     int refires = 0;
     for (int i = 0; i < 20; ++i) {
       mark();
-      sound_update();  // deliberately NOT publish_events: no new generation
-      if (retriggered()) ++refires;
+      sound_update(); // deliberately NOT publish_events: no new generation
+      if (retriggered())
+        ++refires;
     }
     assert(refires == 0);
   }
@@ -916,7 +925,8 @@ int main() {
     idle_frame();
     publish_events(FLIGHT_EV_FLAP);
     sound_update();
-    for (int i = 0; i < 20; ++i) idle_frame();
+    for (int i = 0; i < 20; ++i)
+      idle_frame();
     assert(!v3_gated());
   }
 
@@ -951,7 +961,7 @@ int main() {
     flight_throttle = kMaxThrottle;
     flight_speed = kMaxSpeed;
     idle_frame();
-    assert(model_audible(0) || true);  // engine running before the crash
+    assert(model_audible(0) || true); // engine running before the crash
     assert((sound_shadow[kSoundRegV1Ctrl] & SID_CTRL_GATE) != 0);
 
     // The wreck: the model sets the status during the step and publishes the
@@ -1023,7 +1033,8 @@ int main() {
   {
     reset_state();
     flight_stall = 1;
-    for (int i = 0; i < 4; ++i) idle_frame();
+    for (int i = 0; i < 4; ++i)
+      idle_frame();
     flight_status = FLIGHT_CRASH_VSPEED;
     publish_events(FLIGHT_EV_CRASH);
     sound_update();
@@ -1226,11 +1237,14 @@ int main() {
     assert(f + sweep_bound >= sweep_base && f <= sweep_base + sweep_bound);
 
     if (i > 0) {
-      if (pw > pw_prev) went_up = true;
-      if (pw < pw_prev) came_down = true;
+      if (pw > pw_prev)
+        went_up = true;
+      if (pw < pw_prev)
+        came_down = true;
       // The triangle alone moves in multiples of 8. Anything landing off that
       // grid is the jitter term doing its job.
-      if ((pw & 7) != 0) pw_off_grid = true;
+      if ((pw & 7) != 0)
+        pw_off_grid = true;
     }
     pw_prev = pw;
 
@@ -1243,8 +1257,10 @@ int main() {
     // wider pulse, it is bits landing in a register that ignores them.
     assert((sound_shadow[kSoundRegV1 + kSoundVoicePwHi] & 0xF0) == 0);
 
-    if (pw < pw_min) pw_min = pw;
-    if (pw > pw_max) pw_max = pw;
+    if (pw < pw_min)
+      pw_min = pw;
+    if (pw > pw_max)
+      pw_max = pw;
   }
 
   // A triangle, so both directions must appear. A sweep that only ever rises
@@ -1257,11 +1273,11 @@ int main() {
   assert(pw_off_grid);
 
   // The sweep must not be exactly periodic, which is the other half of why the
-  // phase step varies. The arithmetic: with a fixed step of kPwmStep = 6 and
-  // an 8-bit phase, 128 frames advance the phase by 6 * 128 = 768, which is
+  // phase step varies. The arithmetic: with a fixed step of kSoundPwmStep = 6
+  // and an 8-bit phase, 128 frames advance the phase by 6 * 128 = 768, which is
   // 0 mod 256 - so the triangle would come back to precisely where it was,
   // every 128 frames, and the only thing separating pw[i] from pw[i + 128]
-  // would be the jitter term's kPwmJitterMask. Four seconds is slow enough
+  // would be the jitter term's kSoundPwmJitterMask. Four seconds is slow enough
   // that the ear hears a period that exact as a repeating figure rather than
   // as drift.
   //
@@ -1271,8 +1287,10 @@ int main() {
     int far_apart = 0;
     for (int i = 0; i + 128 < 400; ++i) {
       int d = (int)pw_log[i + 128] - (int)pw_log[i];
-      if (d < 0) d = -d;
-      if (d > (int)kPwmJitterMask) ++far_apart;
+      if (d < 0)
+        d = -d;
+      if (d > (int)kSoundPwmJitterMask)
+        ++far_apart;
     }
     assert(far_apart > 100);
   }
@@ -1312,7 +1330,8 @@ int main() {
   // would restore whatever the last flight was playing.
   assert(shadow_all_zero());
   for (uint8_t i = 0; i < kSoundRegCount; ++i) {
-    assert(sid_regs[i] == 0xAA && "sound_silence() wrote the chip while the tune owned it");
+    assert(sid_regs[i] == 0xAA &&
+           "sound_silence() wrote the chip while the tune owned it");
   }
   music_playing = false;
 

@@ -22,39 +22,39 @@ static const uint8_t kSpriteOffsetY = 50;
 static const uint8_t kSpriteWidthPixels = 24;
 static const uint8_t kSpriteHeightPixels = 21;
 
-static const uint8_t kSpeedPivotX = 112;
-static const uint8_t kSpeedPivotY = 176;
-static const uint8_t kAltPivotX = 208;
-static const uint8_t kAltPivotY = 176;
-static const uint8_t kVSpeedPivotX = 230;
-static const uint8_t kVSpeedPivotY = 138;
-static const uint8_t kRollPivotX = 160;
-static const uint8_t kRollPivotY = 176;
-static const uint8_t kThrottlePivotX = 8; // 264 & 0xff
-static const uint8_t kThrottlePivotY = 166;
-static const uint8_t kFuelPivotX = 56;
-static const uint8_t kFuelPivotY = 166;
+static const uint8_t kSpriteSpeedPivotX = 112;
+static const uint8_t kSpriteSpeedPivotY = 176;
+static const uint8_t kSpriteAltPivotX = 208;
+static const uint8_t kSpriteAltPivotY = 176;
+static const uint8_t kSpriteVSpeedPivotX = 230;
+static const uint8_t kSpriteVSpeedPivotY = 138;
+static const uint8_t kSpriteRollPivotX = 160;
+static const uint8_t kSpriteRollPivotY = 176;
+static const uint8_t kSpriteThrottlePivotX = 8; // 264 & 0xff
+static const uint8_t kSpriteThrottlePivotY = 166;
+static const uint8_t kSpriteFuelPivotX = 56;
+static const uint8_t kSpriteFuelPivotY = 166;
 
-static const uint8_t kIdxFuel = 0;
-static const uint8_t kIdxSpeed = 1;
-static const uint8_t kIdxRoll = 2;
-static const uint8_t kIdxPitch = 3;
-static const uint8_t kIdxAlt1 = 4;
-static const uint8_t kIdxAlt2 = 5;
-static const uint8_t kIdxThrottle = 6;
-static const uint8_t kIdxVSpeed = 7;
+static const uint8_t kSpriteIdxFuel = 0;
+static const uint8_t kSpriteIdxSpeed = 1;
+static const uint8_t kSpriteIdxRoll = 2;
+static const uint8_t kSpriteIdxPitch = 3;
+static const uint8_t kSpriteIdxAlt1 = 4;
+static const uint8_t kSpriteIdxAlt2 = 5;
+static const uint8_t kSpriteIdxThrottle = 6;
+static const uint8_t kSpriteIdxVSpeed = 7;
 
-static const uint8_t kIdxSun = 4;
+static const uint8_t kSpriteIdxSun = 4;
 
 inline void sprites_init(void) {
-  vic.spr_color[kIdxSpeed] = kColorInstrument;
-  vic.spr_color[kIdxRoll] = kColorInstrument;
-  vic.spr_color[kIdxPitch] = kColorInstrument;
-  vic.spr_color[kIdxVSpeed] = kColorInstrument;
-  vic.spr_color[kIdxAlt1] = kColorInstrument;
-  vic.spr_color[kIdxAlt2] = kColorInstrument;
-  vic.spr_color[kIdxFuel] = kColorInstrument;
-  vic.spr_color[kIdxThrottle] = kColorInstrument;
+  vic.spr_color[kSpriteIdxSpeed] = kColorInstrument;
+  vic.spr_color[kSpriteIdxRoll] = kColorInstrument;
+  vic.spr_color[kSpriteIdxPitch] = kColorInstrument;
+  vic.spr_color[kSpriteIdxVSpeed] = kColorInstrument;
+  vic.spr_color[kSpriteIdxAlt1] = kColorInstrument;
+  vic.spr_color[kSpriteIdxAlt2] = kColorInstrument;
+  vic.spr_color[kSpriteIdxFuel] = kColorInstrument;
+  vic.spr_color[kSpriteIdxThrottle] = kColorInstrument;
   vic.spr_enable = 0xFF;
 }
 
@@ -65,38 +65,39 @@ struct sprite_xy_t {
   uint8_t y;
 };
 
-static sprite_xy_t _sprite_terrain_xy[8];
-static uint8_t _sprite_terrain_idx[8];
+static sprite_xy_t _sprites_terrain_xy[8];
+static uint8_t _sprites_terrain_idx[8];
 
-static volatile sprite_xy_t _sprite_instrument_xy[8];
-static volatile uint8_t _sprite_instrument_idx[8];
+static volatile sprite_xy_t _sprites_instrument_xy[8];
+static volatile uint8_t _sprites_instrument_idx[8];
 
-static void _set_instrument_sprite(uint8_t idx, const sprite_meta_t *meta_array,
-                                   uint8_t dir, uint8_t pivot_x,
-                                   uint8_t pivot_y) {
+static void _sprites_set_instrument_sprite(uint8_t idx,
+                                           const sprite_meta_t *meta_array,
+                                           uint8_t dir, uint8_t pivot_x,
+                                           uint8_t pivot_y) {
   const sprite_meta_t *meta = &meta_array[dir];
-  _sprite_instrument_xy[idx].x = pivot_x - meta->pivot_x;
-  _sprite_instrument_xy[idx].y = pivot_y - meta->pivot_y;
-  _sprite_instrument_idx[idx] = meta->bitmap_idx;
+  _sprites_instrument_xy[idx].x = pivot_x - meta->pivot_x;
+  _sprites_instrument_xy[idx].y = pivot_y - meta->pivot_y;
+  _sprites_instrument_idx[idx] = meta->bitmap_idx;
 }
 
 inline void sprites_set_speed(uint8_t speed) {
-  _set_instrument_sprite(kIdxSpeed, kSpriteDefMetaLongArm, (speed >> 1) & 0x1f,
-                         kSpriteOffsetX + kSpeedPivotX,
-                         kSpriteOffsetY + kSpeedPivotY);
+  _sprites_set_instrument_sprite(
+      kSpriteIdxSpeed, kSpriteDefMetaLongArm, (speed >> 1) & 0x1f,
+      kSpriteOffsetX + kSpriteSpeedPivotX, kSpriteOffsetY + kSpriteSpeedPivotY);
 }
 
 inline void sprites_set_alt(uint16_t alt) {
-  _set_instrument_sprite(kIdxAlt1, kSpriteDefMetaLongArm, (alt >> 4) & 0x1f,
-                         kSpriteOffsetX + kAltPivotX,
-                         kSpriteOffsetY + kAltPivotY);
+  _sprites_set_instrument_sprite(
+      kSpriteIdxAlt1, kSpriteDefMetaLongArm, (alt >> 4) & 0x1f,
+      kSpriteOffsetX + kSpriteAltPivotX, kSpriteOffsetY + kSpriteAltPivotY);
   // ((alt >> 4) * 205) >> 11 needs a 32-bit intermediate; vec_fastmul8p8
   // returns the exact middle 16 bits ((t * 205) >> 8), so shifting 3 more
   // is bit-identical without pulling in the mul32 runtime.
-  _set_instrument_sprite(kIdxAlt2, kSpriteDefMetaShortArm,
-                         ((uint16_t)vec_fastmul8p8(alt >> 4, 205) >> 3) & 0x1f,
-                         kSpriteOffsetX + kAltPivotX,
-                         kSpriteOffsetY + kAltPivotY);
+  _sprites_set_instrument_sprite(
+      kSpriteIdxAlt2, kSpriteDefMetaShortArm,
+      ((uint16_t)vec_fastmul8p8(alt >> 4, 205) >> 3) & 0x1f,
+      kSpriteOffsetX + kSpriteAltPivotX, kSpriteOffsetY + kSpriteAltPivotY);
 }
 
 inline void sprites_set_vspeed(int16_t vspeed) {
@@ -106,12 +107,12 @@ inline void sprites_set_vspeed(int16_t vspeed) {
     vspeed = -0x300;
   }
   uint8_t dir = (0x18 + (vspeed >> 6)) & 0x1f;
-  _set_instrument_sprite(kIdxVSpeed, kSpriteDefMetaLongArm, dir,
-                         kSpriteOffsetX + kVSpeedPivotX,
-                         kSpriteOffsetY + kVSpeedPivotY);
+  _sprites_set_instrument_sprite(kSpriteIdxVSpeed, kSpriteDefMetaLongArm, dir,
+                                 kSpriteOffsetX + kSpriteVSpeedPivotX,
+                                 kSpriteOffsetY + kSpriteVSpeedPivotY);
 }
 
-static const uint8_t _roll_to_dir[kRollMax] = {
+static const uint8_t _sprites_roll_to_dir[kRollMax] = {
     8,  7,  7,  6,  6,  5,  5,  4,  4,  3,  3,  2,  2,  1,  1,
     0,  31, 31, 30, 30, 29, 29, 28, 28, 27, 27, 26, 26, 25, 25,
     24, 23, 23, 22, 22, 21, 21, 20, 20, 19, 19, 18, 18, 17, 17,
@@ -119,30 +120,35 @@ static const uint8_t _roll_to_dir[kRollMax] = {
 
 inline void sprites_set_pitch(int8_t pitch_angle) {
   const sprite_meta_t *meta = &kSpriteDefMetaLongArm[8];
-  _sprite_instrument_xy[kIdxPitch].x = kSpriteOffsetX + kRollPivotX - 12;
-  _sprite_instrument_xy[kIdxPitch].y =
-      kSpriteOffsetY + kRollPivotY - 10 - (pitch_angle >> 2);
-  _sprite_instrument_idx[kIdxPitch] = meta->bitmap_idx;
+  _sprites_instrument_xy[kSpriteIdxPitch].x =
+      kSpriteOffsetX + kSpriteRollPivotX - 12;
+  _sprites_instrument_xy[kSpriteIdxPitch].y =
+      kSpriteOffsetY + kSpriteRollPivotY - 10 - (pitch_angle >> 2);
+  _sprites_instrument_idx[kSpriteIdxPitch] = meta->bitmap_idx;
 }
 
 inline void sprites_set_roll(uint8_t roll_angle) {
-  const sprite_meta_t *meta = &kSpriteDefMetaLongArm[_roll_to_dir[roll_angle]];
-  _sprite_instrument_xy[kIdxRoll].x = kSpriteOffsetX + kRollPivotX - 12;
-  _sprite_instrument_xy[kIdxRoll].y = kSpriteOffsetY + kRollPivotY - 10;
-  _sprite_instrument_idx[kIdxRoll] = meta->bitmap_idx;
+  const sprite_meta_t *meta =
+      &kSpriteDefMetaLongArm[_sprites_roll_to_dir[roll_angle]];
+  _sprites_instrument_xy[kSpriteIdxRoll].x =
+      kSpriteOffsetX + kSpriteRollPivotX - 12;
+  _sprites_instrument_xy[kSpriteIdxRoll].y =
+      kSpriteOffsetY + kSpriteRollPivotY - 10;
+  _sprites_instrument_idx[kSpriteIdxRoll] = meta->bitmap_idx;
 }
 
 inline void sprites_set_throttle(uint8_t throttle) {
-  _set_instrument_sprite(kIdxThrottle, kSpriteDefMetaShortArm,
-                         (0x14 + throttle) & 0x1f,
-                         (kSpriteOffsetX + kThrottlePivotX) & 0xff,
-                         kSpriteOffsetY + kThrottlePivotY);
+  _sprites_set_instrument_sprite(
+      kSpriteIdxThrottle, kSpriteDefMetaShortArm, (0x14 + throttle) & 0x1f,
+      (kSpriteOffsetX + kSpriteThrottlePivotX) & 0xff,
+      kSpriteOffsetY + kSpriteThrottlePivotY);
 }
 
 inline void sprites_set_fuel(uint32_t fuel) {
-  _set_instrument_sprite(
-      kIdxFuel, kSpriteDefMetaShortArm, (0x18 + (uint8_t)(fuel >> 13)) & 0x1f,
-      (kSpriteOffsetX + kFuelPivotX) & 0xff, kSpriteOffsetY + kFuelPivotY);
+  _sprites_set_instrument_sprite(kSpriteIdxFuel, kSpriteDefMetaShortArm,
+                                 (0x18 + (uint8_t)(fuel >> 13)) & 0x1f,
+                                 (kSpriteOffsetX + kSpriteFuelPivotX) & 0xff,
+                                 kSpriteOffsetY + kSpriteFuelPivotY);
 }
 
 static uint8_t _sun_x = 0;
@@ -190,16 +196,16 @@ inline void sprites_set_sun_position(int16_t x, int16_t y) {
 }
 
 inline void sprites_show_terrain_sprites() {
-  *(kScreenRamMain + 1016 + kIdxSun) = kSpriteDefSun.bitmap_idx;
-  *(kScreenRamAlt + 1016 + kIdxSun) = kSpriteDefSun.bitmap_idx;
-  vic.spr_pos[kIdxSun].x = _sun_x;
-  vic.spr_pos[kIdxSun].y = _sun_y;
+  *(kScreenRamMain + 1016 + kSpriteIdxSun) = kSpriteDefSun.bitmap_idx;
+  *(kScreenRamAlt + 1016 + kSpriteIdxSun) = kSpriteDefSun.bitmap_idx;
+  vic.spr_pos[kSpriteIdxSun].x = _sun_x;
+  vic.spr_pos[kSpriteIdxSun].y = _sun_y;
   if (_sun_msbx) {
-    vic.spr_msbx |= (1 << kIdxSun);
+    vic.spr_msbx |= (1 << kSpriteIdxSun);
   } else {
-    vic.spr_msbx &= ~(1 << kIdxSun);
+    vic.spr_msbx &= ~(1 << kSpriteIdxSun);
   }
-  vic.spr_color[kIdxSun] = kColorSun;
+  vic.spr_color[kSpriteIdxSun] = kColorSun;
 }
 
 inline void sprites_show_no_sprites() {
@@ -217,45 +223,53 @@ inline void sprites_show_panel_top_sprites() {
   }
   vic.spr_msbx = 0;
   if (view_state == VIEW_CENTER) {
-    vic.spr_pos[kIdxVSpeed].x = _sprite_instrument_xy[kIdxVSpeed].x;
-    vic.spr_pos[kIdxVSpeed].y = _sprite_instrument_xy[kIdxVSpeed].y;
+    vic.spr_pos[kSpriteIdxVSpeed].x =
+        _sprites_instrument_xy[kSpriteIdxVSpeed].x;
+    vic.spr_pos[kSpriteIdxVSpeed].y =
+        _sprites_instrument_xy[kSpriteIdxVSpeed].y;
   } else {
     vic.spr_pos[7].x = 0;
   }
-  *(kScreenRamMain + 1016 + kIdxVSpeed) = _sprite_instrument_idx[kIdxVSpeed];
-  *(kScreenRamAlt + 1016 + kIdxVSpeed) = _sprite_instrument_idx[kIdxVSpeed];
+  *(kScreenRamMain + 1016 + kSpriteIdxVSpeed) =
+      _sprites_instrument_idx[kSpriteIdxVSpeed];
+  *(kScreenRamAlt + 1016 + kSpriteIdxVSpeed) =
+      _sprites_instrument_idx[kSpriteIdxVSpeed];
 }
 
 inline void sprites_show_panel_bottom_sprites() {
 #pragma unroll(full)
   if (view_state == VIEW_CENTER) {
     for (uint8_t i = 0; i < 7; i++) {
-      vic.spr_pos[i].x = _sprite_instrument_xy[i].x;
-      vic.spr_pos[i].y = _sprite_instrument_xy[i].y;
-      *(kScreenRamMain + 1016 + i) = _sprite_instrument_idx[i];
-      *(kScreenRamAlt + 1016 + i) = _sprite_instrument_idx[i];
+      vic.spr_pos[i].x = _sprites_instrument_xy[i].x;
+      vic.spr_pos[i].y = _sprites_instrument_xy[i].y;
+      *(kScreenRamMain + 1016 + i) = _sprites_instrument_idx[i];
+      *(kScreenRamAlt + 1016 + i) = _sprites_instrument_idx[i];
     }
-    vic.spr_color[kIdxSun] = kColorInstrument;
-    vic.spr_msbx = (1 << kIdxThrottle);
+    vic.spr_color[kSpriteIdxSun] = kColorInstrument;
+    vic.spr_msbx = (1 << kSpriteIdxThrottle);
   } else if (view_state == VIEW_LEFT) {
-    vic.spr_pos[kIdxFuel].x = _sprite_instrument_xy[kIdxFuel].x;
-    vic.spr_pos[kIdxFuel].y = _sprite_instrument_xy[kIdxFuel].y;
-    *(kScreenRamMain + 1016 + kIdxFuel) = _sprite_instrument_idx[kIdxFuel];
-    *(kScreenRamAlt + 1016 + kIdxFuel) = _sprite_instrument_idx[kIdxFuel];
-    vic.spr_msbx = (1 << kIdxFuel);
-    if (kIdxFuel == kIdxSun) {
-      vic.spr_color[kIdxFuel] = kColorInstrument;
+    vic.spr_pos[kSpriteIdxFuel].x = _sprites_instrument_xy[kSpriteIdxFuel].x;
+    vic.spr_pos[kSpriteIdxFuel].y = _sprites_instrument_xy[kSpriteIdxFuel].y;
+    *(kScreenRamMain + 1016 + kSpriteIdxFuel) =
+        _sprites_instrument_idx[kSpriteIdxFuel];
+    *(kScreenRamAlt + 1016 + kSpriteIdxFuel) =
+        _sprites_instrument_idx[kSpriteIdxFuel];
+    vic.spr_msbx = (1 << kSpriteIdxFuel);
+    if (kSpriteIdxFuel == kSpriteIdxSun) {
+      vic.spr_color[kSpriteIdxFuel] = kColorInstrument;
     }
   } else {
-    vic.spr_pos[kIdxThrottle].x = _sprite_instrument_xy[kIdxThrottle].x;
-    vic.spr_pos[kIdxThrottle].y = _sprite_instrument_xy[kIdxThrottle].y;
-    *(kScreenRamMain + 1016 + kIdxThrottle) =
-        _sprite_instrument_idx[kIdxThrottle];
-    *(kScreenRamAlt + 1016 + kIdxThrottle) =
-        _sprite_instrument_idx[kIdxThrottle];
+    vic.spr_pos[kSpriteIdxThrottle].x =
+        _sprites_instrument_xy[kSpriteIdxThrottle].x;
+    vic.spr_pos[kSpriteIdxThrottle].y =
+        _sprites_instrument_xy[kSpriteIdxThrottle].y;
+    *(kScreenRamMain + 1016 + kSpriteIdxThrottle) =
+        _sprites_instrument_idx[kSpriteIdxThrottle];
+    *(kScreenRamAlt + 1016 + kSpriteIdxThrottle) =
+        _sprites_instrument_idx[kSpriteIdxThrottle];
     // Assume vic.spr_msbx is already 0
-    if (kIdxThrottle == kIdxSun) {
-      vic.spr_color[kIdxThrottle] = kColorInstrument;
+    if (kSpriteIdxThrottle == kSpriteIdxSun) {
+      vic.spr_color[kSpriteIdxThrottle] = kColorInstrument;
     }
   }
 }

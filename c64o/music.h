@@ -42,7 +42,7 @@
 //
 // Exported so music_test.cc can derive its bounds from it rather than repeat
 // the number. Retuning this should change one constant, not four assertions.
-static const uint8_t kV3RestartFrames = 1;
+static const uint8_t kMusicV3RestartFrames = 1;
 
 // The loop point gets its own, longer restart.
 //

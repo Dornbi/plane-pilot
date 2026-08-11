@@ -49,9 +49,9 @@ static const uint8_t kSoundVoiceSusRel = 6;
 
 // The three gate bits, spelled out because sound_blit() needs them as
 // compile-time constants to stay a flat store sequence.
-static const uint8_t kSoundRegV1Ctrl = kSoundRegV1 + kSoundVoiceCtrl;   // 4
-static const uint8_t kSoundRegV2Ctrl = kSoundRegV2 + kSoundVoiceCtrl;   // 11
-static const uint8_t kSoundRegV3Ctrl = kSoundRegV3 + kSoundVoiceCtrl;   // 18
+static const uint8_t kSoundRegV1Ctrl = kSoundRegV1 + kSoundVoiceCtrl; // 4
+static const uint8_t kSoundRegV2Ctrl = kSoundRegV2 + kSoundVoiceCtrl; // 11
+static const uint8_t kSoundRegV3Ctrl = kSoundRegV3 + kSoundVoiceCtrl; // 18
 
 // The five global registers after the voices.
 static const uint8_t kSoundRegCutoffLo = 21;
@@ -114,13 +114,13 @@ extern void (*sound_shadow_observer)(void);
 // than a held note. 6 halves it, 4 doubles it into a struggling engine.
 // sound_test.cc derives its bound from this constant rather than repeating a
 // number, so retuning it does not break the test.
-static const uint8_t kEngineJitterShift = 5;
+static const uint8_t kSoundEngineJitterShift = 5;
 
 // How far the pulse width is allowed to jump off its triangle sweep. Small
 // against the 0x7F0 the sweep itself covers, so the slow movement still reads
 // as movement and this only roughens its surface. In sound.h for the same
 // reason as the shift above: sound_test.cc bounds itself by it.
-static const uint8_t kPwmJitterMask = 0x7F;
+static const uint8_t kSoundPwmJitterMask = 0x7F;
 
 // The engine's pitch before jitter: the pitch table looked up at throttle,
 // clamped to the table. Exported because it is the thing sound_test.cc has to

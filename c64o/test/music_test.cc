@@ -45,7 +45,8 @@ static void test_guard_writes_nothing(void) {
     music_tick();
   }
   for (size_t i = 0; i < sizeof(sid_regs); ++i) {
-    assert(sid_regs[i] == 0xAA && "music_tick() wrote with music_playing clear");
+    assert(sid_regs[i] == 0xAA &&
+           "music_tick() wrote with music_playing clear");
   }
   printf("  ok  music_tick() writes nothing while music_playing is clear\n");
 }
@@ -85,7 +86,7 @@ static void test_start_and_stop(void) {
 // relying on sound.cc having zeroed the same three registers on its way out of
 // a flight.
 static void test_filter_is_neutralised(void) {
-  memset(sid_regs, 0xFF, sizeof(sid_regs));  // every voice routed, resonance max
+  memset(sid_regs, 0xFF, sizeof(sid_regs)); // every voice routed, resonance max
   music_start();
   assert(sid_regs[kSoundRegResFilt] == 0 &&
          "music_start() left voices routed into the filter");
@@ -96,7 +97,8 @@ static void test_filter_is_neutralised(void) {
     assert(sid_regs[kSoundRegResFilt] == 0 &&
            "something routed a voice into the filter mid-tune");
   }
-  printf("  ok  filter neutralised from hostile initial state and left alone\n");
+  printf(
+      "  ok  filter neutralised from hostile initial state and left alone\n");
 }
 
 // --- 3. The note table ------------------------------------------------------
@@ -148,7 +150,8 @@ static void test_volume_composition(void) {
   assert(distinct >= 6 && "low setting flattened the ramp");
   // Out-of-range settings fall back rather than reading off the end.
   assert(music_master_volume(15, 99) == 15);
-  printf("  ok  volume composition: off silent, full identity, low scales (%u steps)\n",
+  printf("  ok  volume composition: off silent, full identity, low scales (%u "
+         "steps)\n",
          distinct);
 }
 
@@ -227,7 +230,8 @@ static void test_loop_identity(void) {
     }
   }
   assert(gated == 0 && "the loop is not seamless on a gated voice");
-  printf("  ok  loop identity over %u frames: %d strict diffs, %d on gated voices\n",
+  printf("  ok  loop identity over %u frames: %d strict diffs, %d on gated "
+         "voices\n",
          kMusicTotalFrames, strict, gated);
 }
 
@@ -246,7 +250,8 @@ static void test_hard_restart(void) {
       if (rf != kMusicSpeed - 1) {
         continue;
       }
-      const uint16_t next = (row + 1 == kMusicTotalRows) ? 0 : (uint16_t)(row + 1);
+      const uint16_t next =
+          (row + 1 == kMusicTotalRows) ? 0 : (uint16_t)(row + 1);
       const uint8_t b = kSoundRegV1;
       const bool restarted = !(sid_regs[b + kSoundVoiceCtrl] & SID_CTRL_GATE) &&
                              sid_regs[b + kSoundVoiceAttDec] == 0 &&
@@ -265,7 +270,8 @@ static void test_hard_restart(void) {
   assert(missing == 0 && "a new note had no hard restart before it");
   assert(spurious == 0 && "hard restart on a row with no new note");
   assert(restarts > 0);
-  printf("  ok  hard restart on all %d new lead notes, and only there\n", restarts);
+  printf("  ok  hard restart on all %d new lead notes, and only there\n",
+         restarts);
 }
 
 // --- 8. The lead actually plays ---------------------------------------------
@@ -283,14 +289,16 @@ static void test_lead_is_audible(void) {
     if (gate_set(0)) {
       ++gate_frames;
     }
-    const uint16_t freq = (uint16_t)sid_regs[kSoundRegV1 + kSoundVoiceFreqLo] |
-                          ((uint16_t)sid_regs[kSoundRegV1 + kSoundVoiceFreqHi] << 8);
+    const uint16_t freq =
+        (uint16_t)sid_regs[kSoundRegV1 + kSoundVoiceFreqLo] |
+        ((uint16_t)sid_regs[kSoundRegV1 + kSoundVoiceFreqHi] << 8);
     if (freq != last_freq) {
       ++distinct_freqs;
       last_freq = freq;
     }
-    const uint16_t pw = (uint16_t)sid_regs[kSoundRegV1 + kSoundVoicePwLo] |
-                        ((uint16_t)(sid_regs[kSoundRegV1 + kSoundVoicePwHi] & 0x0F) << 8);
+    const uint16_t pw =
+        (uint16_t)sid_regs[kSoundRegV1 + kSoundVoicePwLo] |
+        ((uint16_t)(sid_regs[kSoundRegV1 + kSoundVoicePwHi] & 0x0F) << 8);
     if (pw < pw_min) {
       pw_min = pw;
     }
@@ -349,8 +357,9 @@ static void test_arpeggio(void) {
 
     if ((ctrl & SID_CTRL_GATE) && (ctrl & SID_CTRL_SAW)) {
       ++arp_frames;
-      const uint16_t v = (uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqLo] |
-                         ((uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqHi] << 8);
+      const uint16_t v =
+          (uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqLo] |
+          ((uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqHi] << 8);
       if (v != last) {
         ++freq_changes;
         last = v;
@@ -370,7 +379,8 @@ static void test_arpeggio(void) {
   assert(arp_frames > (kMusicTotalFrames * 2) / 5 &&
          "the arpeggio holds voice 3 for less than two fifths of the tune");
   assert(freq_changes > arp_frames / 2 && "the arpeggio is not advancing");
-  printf("  ok  arpeggio: %d frames on saw, %d pitch moves, longest silence %d frames\n",
+  printf("  ok  arpeggio: %d frames on saw, %d pitch moves, longest silence %d "
+         "frames\n",
          arp_frames, freq_changes, longest_gap);
 }
 
@@ -390,15 +400,16 @@ static void test_drum_steal(void) {
         continue;
       }
       const music_instrument_t *d = &kMusicDrumIns[code - 1];
-      const uint16_t f = (uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqLo] |
-                         ((uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqHi] << 8);
+      const uint16_t f =
+          (uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqLo] |
+          ((uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqHi] << 8);
       if (rf == 0) {
         ++hits[code];
         if (!(sid_regs[kSoundRegV3 + kSoundVoiceCtrl] & SID_CTRL_NOISE)) {
           ++bad_wave;
         }
         if (f != d->freq_from) {
-          ++bad_len;  // a hit must start at its instrument's frequency
+          ++bad_len; // a hit must start at its instrument's frequency
         }
         if (code == 1) {
           kick_first = f;
@@ -415,14 +426,14 @@ static void test_drum_steal(void) {
       // the silence instead.
       if (rf < d->frames - 1) {
         if (!gate_set(2)) {
-          ++bad_len;  // should still be sounding
+          ++bad_len; // should still be sounding
         }
         if (code == 1) {
           kick_last = f;
         }
       } else if (rf == d->frames - 1) {
         if (gate_set(2)) {
-          ++bad_len;  // should have released on this frame
+          ++bad_len; // should have released on this frame
         }
         // And the release must be a *hard* restart, not a bare gate-off. A
         // gate-off alone is what left both the arpeggio and the drums unable
@@ -458,7 +469,8 @@ static void test_v3_hand_back(void) {
   uint8_t prev_ctrl = 0;
 
   for (uint16_t row = 0; row < kMusicTotalRows; ++row) {
-    const uint16_t next = (row + 1 == kMusicTotalRows) ? 0 : (uint16_t)(row + 1);
+    const uint16_t next =
+        (row + 1 == kMusicTotalRows) ? 0 : (uint16_t)(row + 1);
     for (uint8_t rf = 0; rf < kMusicSpeed; ++rf) {
       music_tick();
       const uint8_t ctrl = sid_regs[kSoundRegV3 + kSoundVoiceCtrl];
@@ -504,7 +516,8 @@ static void test_arpeggio_carries_the_opening(void) {
     music_tick();
   }
 
-  const uint16_t build = 4 * kMusicRowsPerBar * kMusicSpeed - kV3LoopRestartFrames;
+  const uint16_t build =
+      4 * kMusicRowsPerBar * kMusicSpeed - kV3LoopRestartFrames;
   int gated = 0, expected = 0;
   uint16_t distinct = 0, last = 0xFFFF;
 
@@ -515,17 +528,18 @@ static void test_arpeggio_carries_the_opening(void) {
     music_tick();
 
     // The tail of the build is a legitimate exception: bar 5 opens with a hat,
-    // so the last row spends kV3RestartFrames preparing voice 3 for it.
-    const bool restart_frame =
-        (rf >= kMusicSpeed - kV3RestartFrames) && MUSIC_DRUM_AT(row + 1) != 0;
+    // so the last row spends kMusicV3RestartFrames preparing voice 3 for it.
+    const bool restart_frame = (rf >= kMusicSpeed - kMusicV3RestartFrames) &&
+                               MUSIC_DRUM_AT(row + 1) != 0;
     if (!restart_frame) {
       ++expected;
       if (gate_set(2)) {
         ++gated;
       }
     }
-    const uint16_t v = (uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqLo] |
-                       ((uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqHi] << 8);
+    const uint16_t v =
+        (uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqLo] |
+        ((uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqHi] << 8);
     if (v != last) {
       ++distinct;
       last = v;
@@ -534,8 +548,9 @@ static void test_arpeggio_carries_the_opening(void) {
   }
   assert(gated == expected && "voice 3 was not continuous through the opening");
   assert(distinct > 100 && "the arpeggio is not moving through the opening");
-  printf("  ok  opening carried by voice 3: %d/%d frames gated, %u pitch moves\n",
-         gated, expected, distinct);
+  printf(
+      "  ok  opening carried by voice 3: %d/%d frames gated, %u pitch moves\n",
+      gated, expected, distinct);
 }
 
 // --- 12a. The loop point is a real start for voice 3 -------------------------
@@ -564,8 +579,9 @@ static void test_loop_point_restarts_voice_3(void) {
   assert(gate_set(2) && "voice 3 never came back after the loop point");
   assert((sid_regs[kSoundRegV3 + kSoundVoiceCtrl] & SID_CTRL_SAW) &&
          "voice 3 came back on the wrong waveform");
-  printf("  ok  loop point restarts voice 3: %u frames low, then the arpeggio\n",
-         kV3LoopRestartFrames);
+  printf(
+      "  ok  loop point restarts voice 3: %u frames low, then the arpeggio\n",
+      kV3LoopRestartFrames);
 }
 
 // --- 13. Voice 3 against the browser reference -------------------------------
@@ -588,8 +604,9 @@ static void test_voice_3_matches_the_reference(void) {
   }
   assert(gated == 1809 &&
          "voice 3's gated-frame count diverged from the browser reference");
-  printf("  ok  voice 3 gated on %d/%u frames - matches the reference exactly\n",
-         gated, kMusicTotalFrames);
+  printf(
+      "  ok  voice 3 gated on %d/%u frames - matches the reference exactly\n",
+      gated, kMusicTotalFrames);
 }
 
 // --- 10. The bass ------------------------------------------------------------
@@ -614,14 +631,17 @@ static void test_bass(void) {
         // Legal only on a hard-restart frame, which is rf == kMusicSpeed-1.
         ever_silent = true;
       }
-      const uint16_t f = (uint16_t)sid_regs[kSoundRegV2 + kSoundVoiceFreqLo] |
-                         ((uint16_t)sid_regs[kSoundRegV2 + kSoundVoiceFreqHi] << 8);
+      const uint16_t f =
+          (uint16_t)sid_regs[kSoundRegV2 + kSoundVoiceFreqLo] |
+          ((uint16_t)sid_regs[kSoundRegV2 + kSoundVoiceFreqHi] << 8);
       if (f != last_freq) {
         ++note_starts;
         last_freq = f;
         if (f) {
-          if (f < lo) lo = f;
-          if (f > hi) hi = f;
+          if (f < lo)
+            lo = f;
+          if (f > hi)
+            hi = f;
         }
       }
     }
@@ -653,8 +673,9 @@ static void test_pedal_opening(void) {
   for (uint16_t row = 0; row < build_rows; ++row) {
     for (uint8_t rf = 0; rf < kMusicSpeed; ++rf) {
       music_tick();
-      const uint16_t f = (uint16_t)sid_regs[kSoundRegV2 + kSoundVoiceFreqLo] |
-                         ((uint16_t)sid_regs[kSoundRegV2 + kSoundVoiceFreqHi] << 8);
+      const uint16_t f =
+          (uint16_t)sid_regs[kSoundRegV2 + kSoundVoiceFreqLo] |
+          ((uint16_t)sid_regs[kSoundRegV2 + kSoundVoiceFreqHi] << 8);
       if (f != last && f != 0) {
         ++retriggers_per_bar[row / kMusicRowsPerBar];
         bar_freq[row / kMusicRowsPerBar] = f;
@@ -684,7 +705,8 @@ static void test_bass_hard_restart(void) {
       if (rf != kMusicSpeed - 1) {
         continue;
       }
-      const uint16_t next = (row + 1 == kMusicTotalRows) ? 0 : (uint16_t)(row + 1);
+      const uint16_t next =
+          (row + 1 == kMusicTotalRows) ? 0 : (uint16_t)(row + 1);
       if (kMusicBassStart[next] == 0) {
         continue;
       }
@@ -723,8 +745,10 @@ static void test_lead_and_bass_differ(void) {
       const uint16_t bass_pw =
           (uint16_t)sid_regs[kSoundRegV2 + kSoundVoicePwLo] |
           ((uint16_t)(sid_regs[kSoundRegV2 + kSoundVoicePwHi] & 0x0F) << 8);
-      assert(bass_pw == kMusicBassPw && "the bass pulse width is not the constant");
-      assert(lead_pw != bass_pw || true);  // the lead sweeps; equality is transient
+      assert(bass_pw == kMusicBassPw &&
+             "the bass pulse width is not the constant");
+      assert(lead_pw != bass_pw ||
+             true); // the lead sweeps; equality is transient
     }
   }
   assert(seen && "lead and bass never sound together");

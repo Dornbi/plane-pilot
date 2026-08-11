@@ -30,14 +30,14 @@ static const uint8_t kVisibleMissions = 4;
 //
 // Prints nothing at all in a build without sound - sound_volume_label()
 // returns null there.
-static void _show_volume_notice(void) {
+static void _menu_show_volume_notice(void) {
   const char *label = sound_volume_label();
   if (label) {
     screen_notice(label, kSoundVolumeLabelLen);
   }
 }
 
-static void _render_menu_items(uint8_t scroll_offset) {
+static void _menu_render_items(uint8_t scroll_offset) {
   memset(mem_screen_row_ptrs[4], ' ', kScreenWidth * 19);
 
   uint8_t row = kMissionRowStart;
@@ -62,21 +62,21 @@ static void _render_menu_items(uint8_t scroll_offset) {
   }
 }
 
-static void _enter_menu(uint8_t scroll_offset) {
+static void _menu_enter(uint8_t scroll_offset) {
   screen_begin_text_page();
 
   print_str(0, 14, STRL("PLANE PILOT"));
   print_str(3, 12, STRL("SELECT MISSION:"));
 
-  _render_menu_items(scroll_offset);
+  _menu_render_items(scroll_offset);
 
   print_str(23, 11, STRL("PRESS H FOR HELP"));
   // No volume readout in the initial paint. It is a notice now, not a status
   // line: it appears when V is pressed and clears itself three seconds later.
 }
 
-static void _draw_mission_cursor(uint8_t selected_mission,
-                                 uint8_t scroll_offset, bool draw) {
+static void _menu_draw_mission_cursor(uint8_t selected_mission,
+                                      uint8_t scroll_offset, bool draw) {
   uint8_t visible_slot = selected_mission - scroll_offset;
   mem_screen_row_ptrs[kMissionRowStart + visible_slot * kMissionRowStep][0] =
       draw ? '>' : ' ';
@@ -86,8 +86,8 @@ uint8_t menu_run() {
   uint8_t selected_mission = 0;
   uint8_t scroll_offset = 0;
 
-  _enter_menu(scroll_offset);
-  _draw_mission_cursor(selected_mission, scroll_offset, true);
+  _menu_enter(scroll_offset);
+  _menu_draw_mission_cursor(selected_mission, scroll_offset, true);
 
   // The menu owns the SID from here. _enter_menu() reached
   // gfx_stop_raster_irqs() a moment ago, which silenced the flight driver and
@@ -130,7 +130,7 @@ uint8_t menu_run() {
     const uint8_t menu_edges = keys_edges(menu_toggles, &prev_menu_toggles);
 
     if (menu_edges & (kMenuKeyI | kMenuKeyK)) {
-      _draw_mission_cursor(selected_mission, scroll_offset, false);
+      _menu_draw_mission_cursor(selected_mission, scroll_offset, false);
       uint8_t old_scroll = scroll_offset;
 
       if (menu_edges & kMenuKeyI) {
@@ -162,9 +162,9 @@ uint8_t menu_run() {
       }
 
       if (scroll_offset != old_scroll) {
-        _render_menu_items(scroll_offset);
+        _menu_render_items(scroll_offset);
       }
-      _draw_mission_cursor(selected_mission, scroll_offset, true);
+      _menu_draw_mission_cursor(selected_mission, scroll_offset, true);
     }
 
     if (menu_edges & (kMenuKeySpace | kMenuKeyReturn)) {
@@ -177,15 +177,15 @@ uint8_t menu_run() {
       // Not bracketed by stop/start. help_run() has its own vsync loop and
       // ticks whatever is already playing, so the tune carries across.
       help_run();
-      _enter_menu(scroll_offset);
-      _draw_mission_cursor(selected_mission, scroll_offset, true);
+      _menu_enter(scroll_offset);
+      _menu_draw_mission_cursor(selected_mission, scroll_offset, true);
     }
     if (menu_edges & kMenuKeyV) {
       // music_tick() reads sound_volume every frame and composes it with the
       // tune's per-bar ramp, so this is audible on the next tick without any
       // notification path of its own.
       sound_cycle_volume();
-      _show_volume_notice();
+      _menu_show_volume_notice();
     }
 
     music_tick();

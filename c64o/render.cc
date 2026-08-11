@@ -60,7 +60,7 @@ static inline int16_t _render_rshift(int16_t x) {
 // of these are checked rather than argued: each call site below was compared
 // exhaustively against the expression it replaced, over the operand's full
 // range, overflow included.
-static inline int16_t _mul(int16_t a, int8_t b) {
+static inline int16_t _render_mul(int16_t a, int8_t b) {
   return vec_fastmul8p8(a, (int16_t)b << 8);
 }
 
@@ -79,18 +79,18 @@ static void _pull_to_center() {
     if (roll_dx < 0) {
       dx = -dx;
     }
-    render_py_pixels = render_cy_pixels + (_mul(dx, roll_dy) << 3);
+    render_py_pixels = render_cy_pixels + (_render_mul(dx, roll_dy) << 3);
   } else {
     int16_t dx = _render_rshift(64 - render_cy_pixels + dy);
     render_py_pixels = render_cy_pixels + _render_lshift(dx);
     if (roll_dy < 0) {
       dx = -dx;
     }
-    render_px_pixels = render_cx_pixels + (_mul(dx, roll_dx) << 3);
+    render_px_pixels = render_cx_pixels + (_render_mul(dx, roll_dx) << 3);
   }
 }
 
-static inline void _set_alt_shift() {
+static inline void _render_set_alt_shift() {
   if (roll_x_is_major) {
     render_alt_shift_x = 0;
     render_alt_shift_y = 4;
@@ -121,7 +121,7 @@ void render_snap_center_chars() {
   _pull_to_center();
 
   if (roll_period == 1) {
-    _set_alt_shift();
+    _render_set_alt_shift();
 
     // 1. Main Lattice
     uint16_t dist = roll_get_dist(render_px_pixels, render_py_pixels);
@@ -224,7 +224,7 @@ static inline void _fill_sky_ground_with_skip() {
     // off screen, so it really does reach -128 and the old product really did
     // overflow there. Negating the result rather than the operand keeps both
     // cases identical to the mul16 version; see the note on _mul.
-    int16_t dx = -_mul(roll_dx_div_dy, render_cy_chars) +
+    int16_t dx = -_render_mul(roll_dx_div_dy, render_cy_chars) +
                  ((render_cx_chars - kViewportStartX) << 4);
     if (roll_dx_div_dy > 0) {
       // Hack to make sure the boxes always cover the horizon.
@@ -334,7 +334,7 @@ static inline void _fill_sky_ground_no_skip() {
     // off screen, so it really does reach -128 and the old product really did
     // overflow there. Negating the result rather than the operand keeps both
     // cases identical to the mul16 version; see the note on _mul.
-    int16_t dx = -_mul(roll_dx_div_dy, render_cy_chars) +
+    int16_t dx = -_render_mul(roll_dx_div_dy, render_cy_chars) +
                  ((render_cx_chars - kViewportStartX) << 4);
     if (roll_dx_div_dy > 0) {
       // Hack to make sure the boxes always cover the horizon.

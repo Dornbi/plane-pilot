@@ -138,40 +138,41 @@ static const mat3_t _m_init = {
     {0, 0, 256},
 };
 
-static const uint32_t kMinEyeZ = 0x2000;
-static const uint16_t kStallSpeedWithoutFlaps = 0x0400;
-static const uint16_t kStallSpeedWithFlaps = 0x0340;
+static const uint32_t kFlightMinEyeZ = 0x2000;
+static const uint16_t kFlightStallSpeedWithoutFlaps = 0x0400;
+static const uint16_t kFlightStallSpeedWithFlaps = 0x0340;
 // kMaxSpeed lives in flight.h: sound.cc sizes its wind table by it.
-static const int16_t kTrimLift = 0x1000;
-static const uint8_t kMinThrottle = 0x00;
+static const int16_t kFlightTrimLift = 0x1000;
+static const uint8_t kFlightMinThrottle = 0x00;
 // kMaxThrottle lives in flight.h: sound.cc sizes its engine pitch table by it.
-static const int16_t kMoveForwardBackwardSpeed = 0x4000;
+static const int16_t kFlightMoveForwardBackwardSpeed = 0x4000;
 
 // Nose attitude above which the stall pitch down has to be done as a rotation
 // instead of by lowering front.z directly. sin(61 deg) * 256; past this the
 // horizontal part of front is small enough that renormalization undoes most
 // of a direct change.
-static const int16_t kMaxStallPitchZ = 224;
+static const int16_t kFlightMaxStallPitchZ = 224;
 
 // Landing thresholds
-static const int16_t kMaxLandingRoll = 32;
+static const int16_t kFlightMaxLandingRoll = 32;
 // Wings-up check. kMaxLandingRoll alone does not catch an inverted arrival:
 // left.z is back to ~0 after a full 180 degree roll, so a belly-up landing
 // used to pass the bank check. up.z is the attitude the roll limit is really
 // trying to express. Zero rather than a tight cos(roll) bound because up.z
 // also drops with nose-up pitch, and a legal flare must not trip this.
-static const int16_t kMinLandingUpZ = 0;
-static const int16_t kMinLandingPitch = -32;
-static const int16_t kMaxLandingPitch = 64;
+static const int16_t kFlightMinLandingUpZ = 0;
+static const int16_t kFlightMinLandingPitch = -32;
+static const int16_t kFlightMaxLandingPitch = 64;
 // Sink rate limit. Has to sit inside the range reachable ABOVE stall speed to
 // mean anything: a below-stall arrival has already had its nose pushed past
 // kMinLandingPitch by the stall break, so trigger 4 owns it. Above stall the
 // worst sink any legal attitude produces is -251, so the old -0x0180 could
 // never fire. At -0x00E0 a level-or-nose-up flare is always survivable and a
 // At -0x0120 a level-or-nose-up flare is always survivable and moderate
-// nose-down landings survive, while steep nose-down dives still trigger sink limits.
-static const int16_t kMaxLandingVSpeed = -0x0120;
-static const uint16_t kMaxLandingSpeed = 0x0A00;
+// nose-down landings survive, while steep nose-down dives still trigger sink
+// limits.
+static const int16_t kFlightMaxLandingVSpeed = -0x0120;
+static const uint16_t kFlightMaxLandingSpeed = 0x0A00;
 // The envelope check runs every frame the aircraft is at ground level, not
 // just on the touchdown frame, so it also polices taxi and takeoff roll. That
 // is wanted for the gear check - rolling on a retracted gear should fail
@@ -181,7 +182,7 @@ static const uint16_t kMaxLandingSpeed = 0x0A00;
 // tweak could turn a normal takeoff run into a crash. Once already rolling the
 // limit is this looser one, which still catches nonsense start states from
 // mission data but leaves the takeoff roll ~45% of headroom.
-static const uint16_t kMaxGroundSpeed = 0x0D00;
+static const uint16_t kFlightMaxGroundSpeed = 0x0D00;
 
 // Host test fixture only; see flight.h.
 #ifndef __OSCAR64__
@@ -230,8 +231,8 @@ void flight_init_from_mission(uint8_t mission_idx) {
   flight_eye_x = (int32_t)kMissionStartX[mission_idx] << 16;
   flight_eye_y = ((int32_t)kMissionStartY[mission_idx] << 16) + 0x8000;
   flight_eye_z = (int32_t)kMissionStartZ[mission_idx] << 16;
-  if (flight_eye_z <= kMinEyeZ) {
-    flight_eye_z = kMinEyeZ;
+  if (flight_eye_z <= kFlightMinEyeZ) {
+    flight_eye_z = kFlightMinEyeZ;
     model_on_ground = true;
   } else {
     model_on_ground = false;
@@ -297,13 +298,13 @@ static void _flight_move_forward(int16_t fspeed, int16_t vspeed) {
   flight_eye_x += vec_fastmul8p8(flight_cam.front.x, fspeed);
   flight_eye_y += vec_fastmul8p8(flight_cam.front.y, fspeed);
   flight_eye_z += vspeed;
-  if (flight_eye_z < kMinEyeZ) {
-    flight_eye_z = kMinEyeZ;
+  if (flight_eye_z < kFlightMinEyeZ) {
+    flight_eye_z = kFlightMinEyeZ;
   }
 }
 
 // True when the aircraft is over a runway tile.
-static bool _on_runway() {
+static bool _flight_on_runway() {
   uint8_t row =
       ((uint8_t)((flight_eye_x >> 16) + 0x04) >> 3) & kWorldMapHeightMask;
   uint8_t col =
@@ -320,27 +321,27 @@ static bool _on_runway() {
 // upright, gear down) to the ones that are trimmed on short final. It also
 // decides which crash is reported when a touchdown breaks several rules at
 // once.
-static enum FlightStatus _landing_fault(uint16_t speed_limit,
-                                        bool check_runway) {
-  if (check_runway && !_on_runway()) {
+static enum FlightStatus _flight_landing_fault(uint16_t speed_limit,
+                                               bool check_runway) {
+  if (check_runway && !_flight_on_runway()) {
     return FLIGHT_CRASH_NOT_ON_RUNWAY;
   }
-  if (flight_cam.up.z < kMinLandingUpZ) {
+  if (flight_cam.up.z < kFlightMinLandingUpZ) {
     return FLIGHT_CRASH_INVERTED;
   }
   if (!flight_gear) {
     return FLIGHT_CRASH_GEAR;
   }
-  if (flight_vspeed < kMaxLandingVSpeed) {
+  if (flight_vspeed < kFlightMaxLandingVSpeed) {
     return FLIGHT_CRASH_VSPEED;
   }
-  if (_abs16(flight_cam.left.z) > kMaxLandingRoll) {
+  if (_abs16(flight_cam.left.z) > kFlightMaxLandingRoll) {
     return FLIGHT_CRASH_ROLL;
   }
-  if (flight_cam.front.z < kMinLandingPitch) {
+  if (flight_cam.front.z < kFlightMinLandingPitch) {
     return FLIGHT_CRASH_PITCH_LOW;
   }
-  if (flight_cam.front.z > kMaxLandingPitch) {
+  if (flight_cam.front.z > kFlightMaxLandingPitch) {
     return FLIGHT_CRASH_PITCH_HIGH;
   }
   if (flight_speed > speed_limit) {
@@ -352,7 +353,7 @@ static enum FlightStatus _landing_fault(uint16_t speed_limit,
 // One text per FlightStatus, with the prefix supplied by the caller, so the
 // approach warnings and the crash report share one set of strings.
 // Keep in sync with the enum in flight.h.
-static const char *const kFaultText[] = {
+static const char *const kFlightFaultText[] = {
     "",               // FLIGHT_ONGOING
     "",               // FLIGHT_MISSION_COMPLETED (handled below)
     "BANK ANGLE",     // FLIGHT_CRASH_ROLL
@@ -369,7 +370,7 @@ static const char *const kFaultText[] = {
 // right place. Indexed by MissionWaypointConstraint; keep in sync with
 // mission.h. WP_NOTHING has nothing to complain about: being there is the
 // whole constraint.
-static const char *const kWaypointFault[] = {
+static const char *const kFlightWaypointFault[] = {
     "",                   // 0 WP_NOTHING
     "",                   // 1 WP_LANDED
     "CLIMB ABOVE 1000FT", // 2 WP_MIN_1000FT
@@ -385,10 +386,10 @@ static const char *const kWaypointFault[] = {
 // than stored per message because msg_show() keeps only the pointer. Every
 // caller below bails out once flight_status is set, so no warning can rewrite
 // the buffer while a crash message is still on screen.
-static char _status_text[40];
+static char _flight_status_text[40];
 
-static const char *_join(const char *prefix, const char *suffix) {
-  char *dst = _status_text;
+static const char *_flight_join(const char *prefix, const char *suffix) {
+  char *dst = _flight_status_text;
   while (*prefix) {
     *dst++ = *prefix++;
   }
@@ -396,20 +397,21 @@ static const char *_join(const char *prefix, const char *suffix) {
     *dst++ = *suffix++;
   }
   *dst = 0;
-  return _status_text;
+  return _flight_status_text;
 }
 
 const char *flight_status_text(enum FlightStatus status, bool crashed) {
   if (status == FLIGHT_MISSION_COMPLETED) {
     return "MISSION COMPLETE!";
   }
-  return _join(crashed ? "CRASHED: " : "WARNING: ", kFaultText[status]);
+  return _flight_join(crashed ? "CRASHED: " : "WARNING: ",
+                      kFlightFaultText[status]);
 }
 
 // Longer than a waypoint message, because it is the one the pilot flew the
 // whole mission for, but still temporary: the flight continues underneath it
 // and the message row belongs to the warnings again once it expires.
-static const uint16_t kMissionCompleteDuration = 3 * MSG_DEFAULT_DURATION;
+static const uint16_t kFlightMissionCompleteDuration = 3 * MSG_DEFAULT_DURATION;
 
 static void _flight_check_mission_waypoints() {
   if (flight_active_mission_idx >= kMissionCount || flight_crashed() ||
@@ -493,7 +495,7 @@ static void _flight_check_mission_waypoints() {
       flight_current_wp = num_wp;
       flight_status = FLIGHT_MISSION_COMPLETED;
       msg_show(flight_status_text(FLIGHT_MISSION_COMPLETED, false),
-               kMissionCompleteDuration);
+               kFlightMissionCompleteDuration);
       if (flight_active_mission_idx < kMissionCount) {
         mission_completed[flight_active_mission_idx] = true;
       }
@@ -502,9 +504,9 @@ static void _flight_check_mission_waypoints() {
     // Over the waypoint but the constraint is not satisfied: say which one,
     // so the player knows they are in the right place and only the altitude
     // or the attitude is wrong.
-    const char *fault = kWaypointFault[constraint];
+    const char *fault = kFlightWaypointFault[constraint];
     if (*fault) {
-      msg_show(_join(fault, " FOR MISSION"));
+      msg_show(_flight_join(fault, " FOR MISSION"));
     }
   }
 }
@@ -557,7 +559,7 @@ void flight_advance() {
         // the inverted stall speed goes up rather than down.
         lift += lift >> 1;
       }
-      int16_t deficit = kTrimLift - lift;
+      int16_t deficit = kFlightTrimLift - lift;
       if (deficit > 0) {
         sink_penalty = deficit >> 4;
         flight_speed -= deficit >> 10;
@@ -566,9 +568,9 @@ void flight_advance() {
       uint16_t base_stall_speed;
       if (flight_flap) {
         base_stall_speed =
-            (flight_cam.up.z >= 0) ? kStallSpeedWithFlaps : 0x0480;
+            (flight_cam.up.z >= 0) ? kFlightStallSpeedWithFlaps : 0x0480;
       } else {
-        base_stall_speed = kStallSpeedWithoutFlaps;
+        base_stall_speed = kFlightStallSpeedWithoutFlaps;
       }
       uint16_t stall_speed = base_stall_speed + ((uint16_t)alt_penalty << 1);
 
@@ -577,7 +579,7 @@ void flight_advance() {
       }
       flight_stall = flight_speed < stall_speed;
       if (flight_stall) {
-        if (flight_cam.front.z > kMaxStallPitchZ) {
+        if (flight_cam.front.z > kFlightMaxStallPitchZ) {
           // Dead spot. front is a unit vector, so with the nose this high its
           // horizontal part is almost nothing, and vec_orthonormalize scales
           // the whole vector back to length 256 at the end of the frame -
@@ -663,23 +665,25 @@ void flight_advance() {
     _flight_move_forward(flight_speed << 1, flight_vspeed);
 
     if (!model_on_ground && flight_vspeed < 0 && flight_eye_z <= 0x4000) {
-      enum FlightStatus fault = _landing_fault(kMaxLandingSpeed, true);
+      enum FlightStatus fault =
+          _flight_landing_fault(kFlightMaxLandingSpeed, true);
       if (fault) {
         msg_show(flight_status_text(fault, false));
       }
     }
 
-    if (flight_eye_z <= kMinEyeZ) {
+    if (flight_eye_z <= kFlightMinEyeZ) {
       // model_on_ground still holds last frame's value here, so it says
       // whether this is a touchdown or another frame of an existing ground
       // roll.
       bool was_on_ground = model_on_ground;
-      uint16_t speed_limit = was_on_ground ? kMaxGroundSpeed : kMaxLandingSpeed;
+      uint16_t speed_limit =
+          was_on_ground ? kFlightMaxGroundSpeed : kFlightMaxLandingSpeed;
       // Only a fault is written back. A clean touchdown leaves the status
       // alone rather than clearing it to FLIGHT_ONGOING, which would erase a
       // FLIGHT_MISSION_COMPLETED the pilot has already earned.
       enum FlightStatus touchdown_fault =
-          _landing_fault(speed_limit, !was_on_ground);
+          _flight_landing_fault(speed_limit, !was_on_ground);
       if (touchdown_fault) {
         flight_status = touchdown_fault;
       }
@@ -843,8 +847,8 @@ void flight_input(enum flight_input_t input) {
       }
       break;
     case FLIGHT_INPUT_PITCH_UP: {
-      uint16_t stall_speed =
-          flight_flap ? kStallSpeedWithFlaps : kStallSpeedWithoutFlaps;
+      uint16_t stall_speed = flight_flap ? kFlightStallSpeedWithFlaps
+                                         : kFlightStallSpeedWithoutFlaps;
       if (flight_speed > stall_speed) {
         vec_transform3(&kVecPitchUp, &flight_cam);
         model_need_normalize = true;
@@ -858,7 +862,7 @@ void flight_input(enum flight_input_t input) {
       }
       break;
     case FLIGHT_INPUT_THROTTLE_DOWN:
-      if (flight_throttle > kMinThrottle) {
+      if (flight_throttle > kFlightMinThrottle) {
         flight_throttle -= 1;
       }
       break;
@@ -876,8 +880,8 @@ void flight_input(enum flight_input_t input) {
     case FLIGHT_INPUT_MOVE_FORWARD:
       if (flight_paused) {
         int16_t speed = input == FLIGHT_INPUT_MOVE_FORWARD
-                            ? kMoveForwardBackwardSpeed
-                            : -kMoveForwardBackwardSpeed;
+                            ? kFlightMoveForwardBackwardSpeed
+                            : -kFlightMoveForwardBackwardSpeed;
         int16_t vspeed = vec_fastmul8p8(flight_cam.front.z, speed);
         _flight_move_forward(speed, vspeed);
       }
@@ -926,7 +930,7 @@ void flight_input(enum flight_input_t input) {
     }
     break;
   case FLIGHT_INPUT_THROTTLE_DOWN:
-    if (flight_throttle > kMinThrottle) {
+    if (flight_throttle > kFlightMinThrottle) {
       flight_throttle -= 1;
     }
     break;
@@ -942,8 +946,8 @@ void flight_input(enum flight_input_t input) {
   case FLIGHT_INPUT_MOVE_FORWARD:
     if (flight_paused) {
       int16_t speed = input == FLIGHT_INPUT_MOVE_FORWARD
-                          ? kMoveForwardBackwardSpeed
-                          : -kMoveForwardBackwardSpeed;
+                          ? kFlightMoveForwardBackwardSpeed
+                          : -kFlightMoveForwardBackwardSpeed;
       int16_t vspeed = vec_fastmul8p8(flight_cam.front.z, speed);
       _flight_move_forward(speed, vspeed);
     }
