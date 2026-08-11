@@ -165,18 +165,27 @@ MELODY = [
     "A5:4 G5:4 F5:4 E5:4"               # Bar 24 (A7): peak, then down onto the 5th
 ]
 
+# The opening ramp is heard ONCE as a build and FOREVER as a hole.
+#
+# It started at 4, then 8, and both were set by asking what the first play
+# should sound like. That is the wrong listener: the menu loops, so almost
+# every pass through bars 1-2 arrives straight off the full-band climax at
+# volume 15 rather than out of silence. At 8 that is -5.5 dB with two voices
+# where there had been four parts, and the arpeggio - a fast mid-range saw -
+# is the first thing to disappear under it. Reported twice as "the arpeggio
+# only starts at bar 3", which is exactly where the ramp climbs back.
+#
+# The floor is 11 now and the outro lands on 11 too, so the seam is flat and
+# the build is 11 -> 15: still audible as a build, no longer a hole. The rule
+# generalises - set the floor from the loop, not from the first play.
 VOL_MAP = [
-    # Bars 1-8: the opening fade. The floor is 8 rather than 4 so that the glide
-    # at the end of bar 16 lands next to it - see the tail of this table. On a
-    # first play a deeper fade would be nicer; on every loop after that it is a
-    # hole. A deeper first-play fade costs one entry if it is ever wanted back.
-    8, 9, 10, 11,      # Bars 1-4: pedal bass and arpeggio only
-    12, 13, 14, 15,    # Bars 5-8: motif and hats entering, full by bar 8
+    11, 12, 13, 14,    # Bars 1-4: pedal bass and arpeggio only
+    15, 15, 15, 15,    # Bars 5-8: motif and hats entering
     15, 15, 15, 15,    # Bars 9-12: main theme
     15, 15, 15, 15,    # Bars 13-16
     15, 15, 15, 15,    # Bars 17-20: climax
     15, 15,            # Bars 21-22
-    12, 10             # Bars 23-24: glide into the loop seam (10 -> bar 1's 8)
+    13, 11             # Bars 23-24: glide into the loop seam (11 -> bar 1's 11)
 ]
 
 # ==========================================================================
@@ -279,12 +288,12 @@ MELODY_ROCK = [
 ]
 
 VOL_MAP_ROCK = [
-    8, 10, 11, 12,      # 1-4   intro build
-    13, 14, 15, 15,     # 5-8   motif and hats
+    11, 12, 13, 14,     # 1-4   intro build - floor set by the loop, not the
+    15, 15, 15, 15,     # 5-8   first play; see VOL_MAP above
     15, 15, 15, 15,     # 9-12  theme
     15, 15, 15, 15,     # 13-16
     15, 15, 15, 15,     # 17-20 climax
-    14, 13, 12, 10,     # 21-24 outro, landing next to bar 1's 8
+    14, 13, 12, 11,     # 21-24 outro, landing level with bar 1
 ]
 
 # Straight eighths alternating root and octave - the engine of the tune, and
@@ -362,12 +371,12 @@ MELODY_WIDE = [
 ]
 
 VOL_MAP_WIDE = [
-    8, 9, 11, 12,
-    13, 14, 15, 15,
+    11, 12, 13, 14,
     15, 15, 15, 15,
     15, 15, 15, 15,
     15, 15, 15, 15,
-    14, 13, 11, 9,
+    15, 15, 15, 15,
+    14, 13, 12, 11,
 ]
 
 # Half-time kit and a bass with space in it. Quarter-note hats rather than

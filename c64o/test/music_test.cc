@@ -359,13 +359,14 @@ static void test_arpeggio(void) {
   }
 
   // Longest legal silence: the release frame, kV3RestartFrames of hard
-  // restart, and the pre-drum hard restart that can immediately follow.
-  const int kMaxGap = 1 + 2 + 1;
+  // restart, and the pre-hit hard restart that can immediately follow.
+  // Derived, so retuning kV3RestartFrames does not falsify this.
+  const int kMaxGap = 1 + kV3LoopRestartFrames;
   assert(longest_gap <= kMaxGap && "voice 3 went silent for too long");
-  // Two fifths, not half. Voice 3 now spends kV3RestartFrames gate-low before
-  // every hit and after every hit, which is what makes the drums audible at
-  // all - and it costs the arpeggio density. 48% is the measured figure; the
-  // bound is here to catch the arpeggio collapsing, not to pin the trade.
+  // Voice 3 spends kV3RestartFrames gate-low before every hit and after every
+  // hit, which is what makes both the drums and the arpeggio audible at all,
+  // and it costs arpeggio density. The bound is here to catch the arpeggio
+  // collapsing, not to pin the trade - the measured figure is 61%.
   assert(arp_frames > (kMusicTotalFrames * 2) / 5 &&
          "the arpeggio holds voice 3 for less than two fifths of the tune");
   assert(freq_changes > arp_frames / 2 && "the arpeggio is not advancing");
@@ -403,12 +404,15 @@ static void test_drum_steal(void) {
           kick_first = f;
         }
       }
-      // The gate pattern of an n-frame hit is n-1 frames on, then the release.
-      // The reference produces exactly this - GGGG.G for the 5-frame kick,
-      // G.GGGG for the 2-frame hat - because the countdown clears the gate on
-      // the frame it reaches zero rather than the frame after. Asserted as the
-      // literal shape rather than recomputed from the countdown, so that an
-      // off-by-one in the player cannot be matched by an off-by-one here.
+      // An n-frame hit sounds for n-1 frames and releases on the nth. The
+      // countdown clears the gate on the frame it reaches zero rather than the
+      // frame after, so the shape is GGGG.G for the 5-frame kick and G.GGGG
+      // for the 2-frame hat.
+      //
+      // Only the sounding frames and the release are asserted here. How long
+      // the voice then stays low is kV3RestartFrames' business, and checking
+      // it here would mean restating the state machine - test_arpeggio bounds
+      // the silence instead.
       if (rf < d->frames - 1) {
         if (!gate_set(2)) {
           ++bad_len;  // should still be sounding
@@ -416,18 +420,16 @@ static void test_drum_steal(void) {
         if (code == 1) {
           kick_last = f;
         }
-      } else if (rf >= d->frames - 1 && rf < kMusicSpeed - 2) {
-        // Released, then held low for the hard restart. Both the release frame
-        // and the restart frames must be un-gated, and the envelope registers
-        // must actually be zero during the restart - a gate-off alone is what
-        // left the arpeggio unable to climb on hardware.
+      } else if (rf == d->frames - 1) {
         if (gate_set(2)) {
-          ++bad_len;
+          ++bad_len;  // should have released on this frame
         }
-        if (rf > d->frames - 1 &&
-            (sid_regs[kSoundRegV3 + kSoundVoiceAttDec] != 0 ||
-             sid_regs[kSoundRegV3 + kSoundVoiceSusRel] != 0)) {
-          ++bad_len;  // gate low but the envelope registers were never cleared
+        // And the release must be a *hard* restart, not a bare gate-off. A
+        // gate-off alone is what left both the arpeggio and the drums unable
+        // to climb on hardware.
+        if (sid_regs[kSoundRegV3 + kSoundVoiceAttDec] != 0 ||
+            sid_regs[kSoundRegV3 + kSoundVoiceSusRel] != 0) {
+          ++bad_len;
         }
       }
     }
@@ -495,38 +497,75 @@ static void test_v3_hand_back(void) {
 // per bar. If it is silent there, the tune opens with almost nothing.
 static void test_arpeggio_carries_the_opening(void) {
   music_start();
-  const uint16_t build_rows = 4 * kMusicRowsPerBar;
+
+  // Voice 3 opens with kV3LoopRestartFrames of hard restart - the same state
+  // the loop point leaves it in. Step past it; test 12a checks the restart.
+  for (uint8_t i = 0; i < kV3LoopRestartFrames; ++i) {
+    music_tick();
+  }
+
+  const uint16_t build = 4 * kMusicRowsPerBar * kMusicSpeed - kV3LoopRestartFrames;
   int gated = 0, expected = 0;
   uint16_t distinct = 0, last = 0xFFFF;
-  for (uint16_t row = 0; row < build_rows; ++row) {
-    const uint16_t next = (uint16_t)(row + 1);
-    for (uint8_t rf = 0; rf < kMusicSpeed; ++rf) {
-      music_tick();
-      // The last two frames of the build are a legitimate exception: bar 5
-      // opens with a hat, so row 63 spends kV3RestartFrames hard-restarting
-      // voice 3 to prepare for it.
-      const bool restart_frame =
-          (rf >= kMusicSpeed - 2) && MUSIC_DRUM_AT(next) != 0;
-      if (!restart_frame) {
-        ++expected;
-        if (gate_set(2)) {
-          ++gated;
-        }
+
+  for (uint16_t f = 0; f < build; ++f) {
+    const uint16_t frame = f + kV3LoopRestartFrames;
+    const uint16_t row = frame / kMusicSpeed;
+    const uint8_t rf = frame % kMusicSpeed;
+    music_tick();
+
+    // The tail of the build is a legitimate exception: bar 5 opens with a hat,
+    // so the last row spends kV3RestartFrames preparing voice 3 for it.
+    const bool restart_frame =
+        (rf >= kMusicSpeed - kV3RestartFrames) && MUSIC_DRUM_AT(row + 1) != 0;
+    if (!restart_frame) {
+      ++expected;
+      if (gate_set(2)) {
+        ++gated;
       }
-      const uint16_t v = (uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqLo] |
-                         ((uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqHi] << 8);
-      if (v != last) {
-        ++distinct;
-        last = v;
-      }
-      assert(!gate_set(0) && "the lead sounds during the pedal build");
     }
+    const uint16_t v = (uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqLo] |
+                       ((uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqHi] << 8);
+    if (v != last) {
+      ++distinct;
+      last = v;
+    }
+    assert(!gate_set(0) && "the lead sounds during the pedal build");
   }
-  const uint16_t build = build_rows * kMusicSpeed;
   assert(gated == expected && "voice 3 was not continuous through the opening");
   assert(distinct > 100 && "the arpeggio is not moving through the opening");
-  printf("  ok  opening carried by voice 3: %d/%u frames gated, %u pitch moves\n",
-         gated, build, distinct);
+  printf("  ok  opening carried by voice 3: %d/%d frames gated, %u pitch moves\n",
+         gated, expected, distinct);
+}
+
+// --- 12a. The loop point is a real start for voice 3 -------------------------
+//
+// Voices 1 and 2 are hard-restarted at the wrap for free, because row 0 begins
+// notes for them and the note-ahead rule fires on the last frame of the last
+// row. Voice 3 has no equivalent - bars 1-4 have no drums to ask for one - so
+// it used to arrive in bar 1 riding whatever hand-back the final drum of bar 24
+// left behind, and the arpeggio was reported missing for the first two bars of
+// every loop while being fine on the first play.
+static void test_loop_point_restarts_voice_3(void) {
+  music_start();
+  for (uint16_t f = 0; f < kMusicTotalFrames; ++f) {
+    music_tick();
+  }
+  // The wrap has just happened. Voice 3 must be gate-low with its envelope
+  // registers cleared, for kV3LoopRestartFrames frames, then rise.
+  for (uint8_t i = 0; i < kV3LoopRestartFrames; ++i) {
+    music_tick();
+    assert(!gate_set(2) && "voice 3 gated during the loop-point restart");
+    assert(sid_regs[kSoundRegV3 + kSoundVoiceAttDec] == 0 &&
+           sid_regs[kSoundRegV3 + kSoundVoiceSusRel] == 0 &&
+           "the loop-point restart did not clear the envelope registers");
+  }
+  music_tick();
+  assert(gate_set(2) && "voice 3 never came back after the loop point");
+  assert((sid_regs[kSoundRegV3 + kSoundVoiceCtrl] & SID_CTRL_SAW) &&
+         "voice 3 came back on the wrong waveform");
+  printf("  ok  loop point restarts voice 3: %u frames low, then the arpeggio\n",
+         kV3LoopRestartFrames);
 }
 
 // --- 13. Voice 3 against the browser reference -------------------------------
@@ -547,7 +586,7 @@ static void test_voice_3_matches_the_reference(void) {
       ++gated;
     }
   }
-  assert(gated == 1500 &&
+  assert(gated == 1809 &&
          "voice 3's gated-frame count diverged from the browser reference");
   printf("  ok  voice 3 gated on %d/%u frames - matches the reference exactly\n",
          gated, kMusicTotalFrames);
@@ -713,6 +752,7 @@ int main(void) {
   test_drum_steal();
   test_v3_hand_back();
   test_arpeggio_carries_the_opening();
+  test_loop_point_restarts_voice_3();
   test_voice_3_matches_the_reference();
   printf("music_test: all passed\n");
   return 0;

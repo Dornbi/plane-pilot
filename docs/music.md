@@ -461,9 +461,16 @@ low before the first gate rises. The single place it worked was the single place
 the envelope had been forced down first.
 
 So voice 3 gained a `kV3Restart` state between a hit ending and the arpeggio
-returning: gate low, envelope registers zero, `kV3RestartFrames` frames. Two,
-which is the conventional figure; one is what the code accidentally had and is
-not enough.
+returning: gate low, envelope registers zero, `kV3RestartFrames` frames.
+
+**The fix was always two independent things — zeroing the envelope registers,
+and waiting — and they got changed together.** The original code did neither
+properly: it gated off for one frame with the drum's sustain still in the
+register. The repair set both at once, to zeroing plus two frames, and that
+worked. Backing the count down to one afterwards showed the zeroing was doing
+all the work: one frame plus zeroed registers behaves the same, and the second
+frame was paying for nothing. Voice 3 pays this twice per hit, so it is worth
+knowing which half mattered.
 
 **And then the drums turned out to have the identical bug.** The pre-hit hard
 restart fired only on the last frame of the row — the same single frame that
@@ -479,11 +486,20 @@ true of anything added to this voice later:
 > with the envelope registers at zero.** Every path onto the voice — a hit, the
 > arpeggio's return — has to pay it.
 
-The cost is arpeggio density. Voice 3's gated frames went 1976 → 1657 → **1500
-of 2304**, of which 404 are drums and 1096 arpeggio: the shimmer now holds the
-voice 48% of the time rather than 57%. That is the price of the drums existing
-at all, and it is the right way round — a texture can afford gaps, a backbeat
-cannot.
+The cost is arpeggio density, and the numbers are worth keeping because each
+one was a different bug:
+
+| Voice 3 gated | State |
+| ------------: | ----- |
+| 1976 / 2304 | no hard restart anywhere — arpeggio inaudible past bar 4 |
+| 1657 | arpeggio restarted, drums still not — percussion inaudible |
+| 1500 | both restarted, `kV3RestartFrames` = 2 |
+| **1814** | **`kV3RestartFrames` = 1 — the zeroing was doing the work** |
+
+At 1814 the split is 404 drum frames and **1410 arpeggio**, so the shimmer holds
+the voice 61% of the time rather than 48%. `kV3RestartFrames` is exported from
+`music.h` and `music_test.cc` derives its bounds from it, so the next retune is
+one constant rather than four assertions.
 
 One implementation note, because it bit: the restart countdown must be guarded
 against decrementing at zero. A restart that expires on the same frame a
@@ -1116,7 +1132,7 @@ Each phase leaves the program in a working, committable state.
    hit — a bug that was real in the reference player and is now pinned in both.
 
    **And the strongest check available:** voice 3 is gated on **1976 of 2304
-   frames** (1500 once both the arpeggio and the drums got their hard restart), which is exactly what the browser reference produces. That is a
+   frames** (1814 with `kV3RestartFrames` at 1), which is exactly what the browser reference produces. That is a
    literal in the test, deliberately — deriving it would mean reimplementing
    the arbitration, which is the thing under test.
 6. **Hard restart, the volume ramp, and envelope tuning.** Ordered deliberately

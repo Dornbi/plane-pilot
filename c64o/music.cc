@@ -36,12 +36,10 @@ static uint16_t _pwm_phase;
 // four parts out of three voices. The arpeggio is a texture and loses 40 to
 // 100 ms without anyone noticing; a kick that is not on the beat is not a kick.
 //
-// _v3_owner is 0 for the arpeggio, or MUSIC_DRUM_AT()'s code (1 kick, 2 snare,
-// 3 hat) while a drum holds it. There is no priority logic between the drums
-// themselves - get_flattened_drums() resolves that when it builds the table, so
-// a row carries at most one hit.
 // _v3_owner is kV3Arp, kV3Restart, or MUSIC_DRUM_AT()'s code (1 kick, 2 snare,
-// 3 hat) while a drum holds the voice.
+// 3 hat) while a drum holds the voice. There is no priority logic between the
+// drums themselves - get_flattened_drums() resolves that when it builds the
+// table, so a row carries at most one hit.
 //
 // kV3Restart is the state between a hit ending and the arpeggio coming back,
 // and it exists because of the SID's ADSR delay bug. Gating a voice on while
@@ -60,11 +58,6 @@ static uint16_t _pwm_phase;
 // counter wrapped.
 static const uint8_t kV3Arp = 0;
 static const uint8_t kV3Restart = 0xFF;
-
-// Two frames. One is what the code accidentally had and is not enough; two is
-// what SID players conventionally use. It costs the arpeggio two frames of
-// shimmer after each hit, which is 40 ms and inaudible.
-static const uint8_t kV3RestartFrames = 2;
 
 static uint8_t _v3_owner;
 static uint8_t _v3_timer;    // frames left in the current hit, or in the restart
@@ -210,8 +203,12 @@ void music_start(void) {
   _row_frame = 0;
   _bar = 0;
   _pwm_phase = 0;
-  _v3_owner = kV3Arp;
-  _v3_timer = 0;
+  // Voice 3 starts in the restart state, not straight into the arpeggio - the
+  // same state the loop point puts it in. That is what makes "the loop is
+  // identical to a fresh start" true rather than nearly true, and it is the
+  // property test_loop_identity checks.
+  _v3_owner = kV3Restart;
+  _v3_timer = kV3LoopRestartFrames;
   _v3_freq = 0;
   _v3_step = 0;
   _arp_idx = 0;
@@ -425,6 +422,14 @@ void music_tick(void) {
       // but that is a coincidence of the bar count, and the loop-identity test
       // would start failing the next time the arrangement is resized.
       _arp_idx = 0;
+
+      // Make the loop point a real start for voice 3, the way music_start() is.
+      // The other two voices get this for free from the note-ahead rule; voice
+      // 3 does not, because bars 1-4 have no drums to ask for it. See
+      // kV3LoopRestartFrames in music.h.
+      _hard_restart(kVoice3);
+      _v3_owner = kV3Restart;
+      _v3_timer = kV3LoopRestartFrames;
       // _pwm_phase is deliberately not reset: kPwmStep divides the loop, so it
       // is already back where it started. The test asserts that rather than
       // trusting it.

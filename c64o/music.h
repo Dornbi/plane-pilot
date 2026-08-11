@@ -26,6 +26,43 @@
 
 #ifdef __ENABLE_SOUND__
 
+// Frames of hard restart before voice 3's gate may rise - after a hit ends and
+// before the next one starts. The SID's ADSR delay bug means a gate raised over
+// an envelope counter that has not been forced down may not start the envelope
+// at all; holding the gate low with the attack/decay and sustain/release
+// registers at zero forces the counter down first.
+//
+// The fix has always been two independent things: *zeroing the envelope
+// registers*, and *waiting*. The code originally did neither properly - it
+// gated off for one frame with the drum's sustain still in the register - and
+// when that was fixed both were changed at once, to zeroing plus two frames.
+// One frame plus the zeroing turns out to be enough, and it is worth having:
+// every frame here is a frame the arpeggio is not sounding, and voice 3 pays it
+// twice per hit.
+//
+// Exported so music_test.cc can derive its bounds from it rather than repeat
+// the number. Retuning this should change one constant, not four assertions.
+static const uint8_t kV3RestartFrames = 1;
+
+// The loop point gets its own, longer restart.
+//
+// Voices 1 and 2 are hard-restarted at the wrap for free: row 0 starts notes
+// for both, so the "next row begins a note" rule fires on the last frame of the
+// last row. Voice 3 has no equivalent - bars 1-4 have no drums, so nothing asks
+// for one - and it arrives in bar 1 still riding whatever hand-back the final
+// drum of the last bar happened to leave behind.
+//
+// That is the one structural difference between a loop and a fresh start, and
+// the arpeggio was reported missing for the first two bars of every loop while
+// being fine on the first play. The register streams either side are identical,
+// so this is not a fix with a mechanism attached - it is making the loop point
+// deliberate instead of incidental, which it should have been regardless.
+//
+// Four frames because there is room: nothing else is competing for voice 3 at
+// the top of the loop, and 80 ms is comfortably more than any hard-restart
+// convention asks for.
+static const uint8_t kV3LoopRestartFrames = 4;
+
 // Set by music_start(), cleared by music_stop(). Read by music_tick(), which
 // returns immediately when it is clear.
 //

@@ -40,9 +40,9 @@ const music_chord_t kMusicChords[24] = {
 
 // Master volume per bar (24 entries, 0..15)
 const uint8_t kMusicVolMap[24] = {
-      8,   9,  10,  11,  12,  13,  14,  15,
+     11,  12,  13,  14,  15,  15,  15,  15,
      15,  15,  15,  15,  15,  15,  15,  15,
-     15,  15,  15,  15,  15,  15,  12,  10,
+     15,  15,  15,  15,  15,  15,  13,  11,
 };
 
 // Lead start midi notes (384 entries, 0 = rest)
