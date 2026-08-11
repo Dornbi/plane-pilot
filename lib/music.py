@@ -215,6 +215,175 @@ MELODY_TUNE1 = [
 
 VOL_MAP_TUNE1 = [15] * 16
 
+# ==========================================================================
+#  TUNE 3: "Afterburner" - 24 bars, E minor, driving rock
+# ==========================================================================
+# Written from scratch rather than as a variation. The brief was Last Ninja
+# catchiness in something a flight sim could open with, which pulled two ways:
+# Last Ninja hooks are modal, syncopated and rhythmically stubborn, while a
+# flight sim wants lift - fourths and fifths, ascending lines, open intervals.
+#
+# The answer is E minor with an i - VI - III - VII loop (Em C G D). That is the
+# most forward-leaning progression in minor rock: every chord is major except
+# the tonic, so the harmony keeps opening outward while the key stays dark.
+#
+# The hook is one rhythmic cell repeated over all four chords - a long note, a
+# pickup, two quarters (6:2:4:4). A cell that survives transposition is what
+# makes a tune hummable after one listen; Ben Daglish built most of Last Ninja
+# on exactly that.
+#
+# Triads are voiced in octave 4 directly, at 260-590 Hz, so they need no
+# ARP_OCTAVE_SHIFT: one arpeggio tone is 5 to 12 waveform cycles, well clear of
+# the threshold that made the D minor tune sound thin.
+CHORDS_ROCK = [
+    # bars 1-4   intro: bass and arpeggio only
+    ['Em', 40, [64, 67, 71]], ['C', 36, [60, 64, 67]], ['G', 43, [67, 71, 74]], ['D', 38, [62, 66, 69]],
+    # bars 5-8   motif enters, hats
+    ['Em', 40, [64, 67, 71]], ['C', 36, [60, 64, 67]], ['G', 43, [67, 71, 74]], ['D', 38, [62, 66, 69]],
+    # bars 9-16  main theme, full kit
+    ['Em', 40, [64, 67, 71]], ['C', 36, [60, 64, 67]], ['G', 43, [67, 71, 74]], ['D', 38, [62, 66, 69]],
+    ['Em', 40, [64, 67, 71]], ['C', 36, [60, 64, 67]], ['G', 43, [67, 71, 74]], ['B', 35, [71, 75, 78]],
+    # bars 17-20 climax: starts on VI so the section lifts off its own downbeat
+    ['C', 36, [60, 64, 67]], ['G', 43, [67, 71, 74]], ['Em', 40, [64, 67, 71]], ['D', 38, [62, 66, 69]],
+    # bars 21-24 outro, closing on V for the turn back to Em
+    ['C', 36, [60, 64, 67]], ['D', 38, [62, 66, 69]], ['Em', 40, [64, 67, 71]], ['B', 35, [71, 75, 78]],
+]
+
+MELODY_ROCK = [
+    "-:16", "-:16", "-:16", "-:16",
+    # 5-8: the motif, low and plain - long tone then a rising third and fifth
+    "E4:8 G4:4 B4:4",
+    "C5:8 B4:4 G4:4",
+    "D5:8 B4:4 G4:4",
+    "A4:8 F#4:4 D4:4",
+    # 9-16: the hook. 6:2:4:4 on every chord - long, pickup, two quarters.
+    "E5:6 D5:2 B4:4 G4:4",
+    "G4:6 A4:2 C5:4 B4:4",
+    "D5:6 B4:2 G4:4 A4:4",
+    "F#4:6 A4:2 D5:4 F#4:4",
+    "B4:6 A4:2 G4:4 E4:4",
+    "C5:6 B4:2 A4:4 G4:4",
+    "B4:6 D5:2 G5:4 D5:4",
+    "F#5:6 E5:2 D#5:4 B4:4",   # D# is B major's third - the one leading tone
+    # 17-20: climax. Sixteenth pairs, top of the range, same cell underneath.
+    "E5:2 G5:2 E5:2 C5:2 G4:4 C5:4",
+    "D5:2 G5:2 D5:2 B4:2 G4:4 D5:4",
+    "E5:2 B4:2 G4:2 B4:2 E5:4 G5:4",
+    "F#5:2 D5:2 A4:2 D5:2 F#5:4 A5:4",
+    # 21-24: outro. Quarters, thinning out, then a scalar descent onto F# -
+    # the fifth of B - which pulls back to E without ever stating it.
+    "G5:4 E5:4 C5:4 E5:4",
+    "F#5:4 D5:4 A4:4 D5:4",
+    "E5:8 D5:4 B4:4",
+    "B4:2 A4:2 G4:2 F#4:2 E4:4 F#4:4",
+]
+
+VOL_MAP_ROCK = [
+    8, 10, 11, 12,      # 1-4   intro build
+    13, 14, 15, 15,     # 5-8   motif and hats
+    15, 15, 15, 15,     # 9-12  theme
+    15, 15, 15, 15,     # 13-16
+    15, 15, 15, 15,     # 17-20 climax
+    14, 13, 12, 10,     # 21-24 outro, landing next to bar 1's 8
+]
+
+# Straight eighths alternating root and octave - the engine of the tune, and
+# the thing that most separates it from the atmospheric arrangement's pedal.
+RHYTHM_ROCK = {
+    'bass': [[0, 0, 2], [2, 12, 2], [4, 0, 2], [6, 12, 2],
+             [8, 0, 2], [10, 12, 2], [12, 0, 2], [14, 12, 2]],
+    'bass_push': [[0, 0, 2], [2, 12, 2], [4, 0, 1], [5, 7, 1], [6, 12, 2],
+                  [8, 0, 2], [10, 7, 2], [12, 12, 2], [14, 10, 1], [15, 12, 1]],
+    'kick': [0, 6, 8, 14],          # busier than the default: pushes the beat
+    'kick_push': [0, 3, 6, 8, 10, 14],
+    'snare': [4, 12],
+    'snare_fill': [4, 12, 13, 14, 15],
+    'hat': [0, 2, 4, 6, 8, 10, 12, 14],
+}
+
+# ==========================================================================
+#  TUNE 4: "High Country" - 24 bars, A Dorian, anthemic rock
+# ==========================================================================
+# The other half of the brief. Where Afterburner is busy and syncopated, this
+# is wide: half-time drums, a bass with air in it, and a melody built out of
+# rising fourths and fifths.
+#
+# A Dorian rather than natural minor - the raised sixth (F#) is the difference
+# between "dark" and "high up". The Am - G - D turn is the mode's signature
+# and does not exist in Aeolian at all, which is what keeps this from sounding
+# like the same key as the other two tunes.
+#
+# The hook is an interval rather than a rhythm: root, leap up a fifth, hold,
+# fall back. It is the most flight-shaped gesture available - the same one
+# behind most fanfares - and it survives being played over four different
+# chords, which is what makes it a hook rather than a phrase.
+CHORDS_WIDE = [
+    # bars 1-4   intro
+    ['Am', 33, [69, 72, 76]], ['G', 31, [67, 71, 74]], ['D', 38, [62, 66, 69]], ['Am', 33, [69, 72, 76]],
+    # bars 5-8   motif
+    ['Am', 33, [69, 72, 76]], ['G', 31, [67, 71, 74]], ['D', 38, [62, 66, 69]], ['Am', 33, [69, 72, 76]],
+    # bars 9-16  theme
+    ['Am', 33, [69, 72, 76]], ['G', 31, [67, 71, 74]], ['C', 36, [60, 64, 67]], ['D', 38, [62, 66, 69]],
+    ['Am', 33, [69, 72, 76]], ['G', 31, [67, 71, 74]], ['D', 38, [62, 66, 69]], ['Am', 33, [69, 72, 76]],
+    # bars 17-20 climax
+    ['C', 36, [60, 64, 67]], ['G', 31, [67, 71, 74]], ['Am', 33, [69, 72, 76]], ['D', 38, [62, 66, 69]],
+    # bars 21-24 outro, closing on E major - borrowed V, the one chord that
+    # pulls hard enough to restart a Dorian loop
+    ['G', 31, [67, 71, 74]], ['D', 38, [62, 66, 69]], ['Am', 33, [69, 72, 76]], ['E', 40, [64, 68, 71]],
+]
+
+MELODY_WIDE = [
+    "-:16", "-:16", "-:16", "-:16",
+    # 5-8: motif, one long tone and two answering notes
+    "A4:8 C5:4 E5:4",
+    "B4:8 D5:4 G4:4",
+    "F#4:8 A4:4 D5:4",
+    "E5:8 C5:4 A4:4",
+    # 9-16: the hook - step, leap up, hold, fall back. Same shape, four chords.
+    "A4:4 D5:4 E5:6 C5:2",
+    "G4:4 D5:4 B4:6 D5:2",
+    "C5:4 G5:4 E5:6 C5:2",
+    "D5:4 A5:4 F#5:6 D5:2",
+    "E5:4 A5:4 G5:6 E5:2",
+    "D5:4 G5:4 F#5:6 D5:2",
+    "F#5:4 D5:4 A4:6 D5:2",
+    "C5:4 E5:4 A4:8",
+    # 17-20: climax. The hook broken into sixteenths and pushed to the top.
+    "G5:2 A5:2 G5:2 E5:2 C5:4 G5:4",
+    "F#5:2 G5:2 F#5:2 D5:2 B4:4 F#5:4",
+    "E5:2 G5:2 A5:2 G5:2 E5:4 A5:4",
+    "F#5:2 A5:2 F#5:2 D5:2 A4:4 D5:4",
+    # 21-24: outro. Quarters, then the highest note in the tune, then an
+    # E major arpeggio walking down into the loop.
+    "G5:4 D5:4 B4:4 D5:4",
+    "F#5:4 D5:4 A4:4 D5:4",
+    "A5:8 E5:4 C5:4",
+    "B4:4 G#4:4 E4:4 -:4",
+]
+
+VOL_MAP_WIDE = [
+    8, 9, 11, 12,
+    13, 14, 15, 15,
+    15, 15, 15, 15,
+    15, 15, 15, 15,
+    15, 15, 15, 15,
+    14, 13, 11, 9,
+]
+
+# Half-time kit and a bass with space in it. Quarter-note hats rather than
+# eighths: the tune's motion comes from the melody's leaps, and an eighth-note
+# hat under it just fills the gaps the leaps depend on.
+RHYTHM_WIDE = {
+    'bass': [[0, 0, 4], [4, 0, 2], [6, 7, 2], [8, 0, 4], [12, 7, 2], [14, 12, 2]],
+    'bass_push': [[0, 0, 4], [4, 0, 2], [6, 7, 2], [8, 0, 2], [10, 12, 2],
+                  [12, 7, 2], [14, 12, 2]],
+    'kick': [0, 8],
+    'kick_push': [0, 8, 14],
+    'snare': [4, 12],
+    'snare_fill': [4, 12, 14],
+    'hat': [0, 4, 8, 12],
+}
+
 # ---------- Tunes Catalogue ----------
 TUNES = [
     {
@@ -229,6 +398,29 @@ TUNES = [
         'melody': MELODY,
         'vol_map': VOL_MAP,
         'soft_intro': True
+    },
+    {
+        'id': 'rock',
+        'name': '24-Bar "Afterburner" - E minor driving rock (125 BPM)',
+        'speed': SPEED, 'rows_per_bar': ROWS_PER_BAR, 'bars': BARS,
+        'total_rows': TOTAL_ROWS, 'total_frames': TOTAL_FRAMES,
+        # No shift_triads(): these are already voiced in octave 4.
+        'chords': CHORDS_ROCK,
+        'melody': MELODY_ROCK,
+        'vol_map': VOL_MAP_ROCK,
+        'rhythm': RHYTHM_ROCK,
+        'soft_intro': True,
+    },
+    {
+        'id': 'wide',
+        'name': '24-Bar "High Country" - A Dorian anthem (125 BPM)',
+        'speed': SPEED, 'rows_per_bar': ROWS_PER_BAR, 'bars': BARS,
+        'total_rows': TOTAL_ROWS, 'total_frames': TOTAL_FRAMES,
+        'chords': CHORDS_WIDE,
+        'melody': MELODY_WIDE,
+        'vol_map': VOL_MAP_WIDE,
+        'rhythm': RHYTHM_WIDE,
+        'soft_intro': True,
     },
     {
         'id': 'tune1',
@@ -263,13 +455,31 @@ def get_flattened_lead(melody=MELODY, total_rows=TOTAL_ROWS):
             r += duration
     return lead_start, lead_on
 
+# Default rhythm, used by any tune that does not carry its own. A tune's
+# groove is part of what makes it that tune, so a new arrangement that inherits
+# these ends up sounding like a variation of the old one however different its
+# notes are.
+DEFAULT_RHYTHM = {
+    'bass': BASS_A, 'bass_push': BASS_B,
+    'kick': KICK_A, 'kick_push': KICK_B,
+    'snare': SNR_A, 'snare_fill': SNR_B,
+    'hat': HAT,
+}
+
+def rhythm_of(tune):
+    r = dict(DEFAULT_RHYTHM)
+    r.update(tune.get('rhythm', {}))
+    return r
+
+
 def get_flattened_bass(chords=CHORDS, bars=BARS, total_rows=TOTAL_ROWS,
-                       soft_intro=True):
+                       soft_intro=True, rhythm=None):
     bass_start = [0] * total_rows
     bass_on = [False] * total_rows
     for bar in range(bars):
         root = chords[bar][1]
-        pattern = BASS_B if is_push(bar) else BASS_A
+        r = rhythm or DEFAULT_RHYTHM
+        pattern = r['bass_push'] if is_push(bar) else r['bass']
         # One pedal note per bar through the opening build.
         if soft_intro and bar < SOFT_INTRO_BARS:
             r = bar * ROWS_PER_BAR
@@ -284,20 +494,22 @@ def get_flattened_bass(chords=CHORDS, bars=BARS, total_rows=TOTAL_ROWS,
                 bass_on[r + i] = True
     return bass_start, bass_on
 
-def get_flattened_drums(bars=BARS, total_rows=TOTAL_ROWS, soft_intro=True):
+def get_flattened_drums(bars=BARS, total_rows=TOTAL_ROWS, soft_intro=True,
+                        rhythm=None):
+    r = rhythm or DEFAULT_RHYTHM
     drum_at = [None] * total_rows
     for bar in range(bars):
         if soft_intro:
             if bar < SOFT_INTRO_BARS:
                 continue                      # no drums at all under the build
             elif bar < SOFT_HAT_BARS:
-                for s in HAT:                 # hats only under the motif
+                for s in r['hat']:            # hats only under the motif
                     drum_at[bar * ROWS_PER_BAR + s] = 'hat'
                 continue
 
-        kick_p = KICK_B if is_push(bar) else KICK_A
-        snr_p = SNR_B if is_fill(bar) else SNR_A
-        for s in HAT:
+        kick_p = r['kick_push'] if is_push(bar) else r['kick']
+        snr_p = r['snare_fill'] if is_fill(bar) else r['snare']
+        for s in r['hat']:
             drum_at[bar * ROWS_PER_BAR + s] = 'hat'
         for s in snr_p:
             drum_at[bar * ROWS_PER_BAR + s] = 'snare'
