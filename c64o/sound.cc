@@ -77,7 +77,7 @@ static const uint8_t kSoundEngineSusRel = 0xF0; // sustain 15, release 0
 static const uint16_t kSoundPwmMin = 0x0400;
 static const uint8_t kSoundPwmStep = 6;
 
-static uint8_t _pwm_phase;
+static uint8_t _sound_pwm_phase;
 
 // --- Voice 2: wind ---------------------------------------------------------
 
@@ -223,16 +223,16 @@ static const uint8_t kSoundOneShotAttDec = 0x00; // attack 0, decay 0 -> sustain
 // as low as it was. 0x0300 put its energy under about 360 Hz, right on top of
 // the engine's fundamental and first harmonics, which is the worst place to
 // put a sound that has to be noticed over the engine.
-static const uint16_t kTouchdownFreq = 0x1800; // bright, an impact
-static const uint16_t kGearFreq = 0x0900;      // low, mechanical
-static const uint16_t kFlapFreq = 0x0C00;      // between the two
+static const uint16_t kSoundTouchdownFreq = 0x1800; // bright, an impact
+static const uint16_t kSoundGearFreq = 0x0900;      // low, mechanical
+static const uint16_t kSoundFlapFreq = 0x0C00;      // between the two
 
 // Sustain 15 on all three: they are brief, and the whole complaint was that
 // they could not be heard against the continuous voices. The release nibble is
 // the tail after the gate drops.
-static const uint8_t kTouchdownSusRel = 0xF5; // release 5 (168 ms)
-static const uint8_t kGearSusRel = 0xF6;      // release 6 (204 ms), longest
-static const uint8_t kFlapSusRel = 0xF4;      // release 4 (114 ms)
+static const uint8_t kSoundTouchdownSusRel = 0xF5; // release 5 (168 ms)
+static const uint8_t kSoundGearSusRel = 0xF6; // release 6 (204 ms), longest
+static const uint8_t kSoundFlapSusRel = 0xF4; // release 4 (114 ms)
 
 // How many frames each one-shot holds the voice. At the wobbling ~10 Hz frame
 // rate these are roughly 300, 500 and 400 ms - all comfortably past the 200 ms
@@ -243,9 +243,9 @@ static const uint8_t kFlapSusRel = 0xF4;      // release 4 (114 ms)
 // now that both sit at full sustain: section 6 asks for flap to be "shorter
 // and quieter", and quieter is still not available on a chip with no per-voice
 // volume, so shorter carries the whole difference along with pitch.
-static const uint8_t kTouchdownFrames = 3;
-static const uint8_t kGearFrames = 5;
-static const uint8_t kFlapFrames = 4;
+static const uint8_t kSoundTouchdownFrames = 3;
+static const uint8_t kSoundGearFrames = 5;
+static const uint8_t kSoundFlapFrames = 4;
 
 // The crash. The one sound that outlives the aircraft, and the only effect on
 // this voice that plays while _flying() is false.
@@ -255,29 +255,32 @@ static const uint8_t kFlapFrames = 4;
 // none of the "stay out of the engine's fundamental" reasoning that pushed
 // gear up to $0900 applies here - the crash can be as low as it likes.
 //
-// It also sweeps. The noise clock falls from kCrashFreqStart to kCrashFreqEnd
-// across the burst, so the rumble collapses rather than sitting on one note,
-// which is the difference between an impact and a long hiss. Amplitude still
-// does not fall: this is a pitch sweep under a held sustain, not a decay.
+// It also sweeps. The noise clock falls from kSoundCrashFreqStart to
+// kSoundCrashFreqEnd across the burst, so the rumble collapses rather than
+// sitting on one note, which is the difference between an impact and a long
+// hiss. Amplitude still does not fall: this is a pitch sweep under a held
+// sustain, not a decay.
 //
 // 16 frames is around 1.6 s at the wobbling ~10 Hz frame rate. A power of two
 // so the interpolation below is a shift; the arithmetic stays in 16 bits
 // because the span times the frame count is 3584 * 16 = 57344.
-static const uint8_t kCrashFrames = 16;
-static const uint8_t kCrashShift = 4;           // log2(kCrashFrames)
-static const uint16_t kCrashFreqStart = 0x1000; // 3850 shifts/sec, a crunch
-static const uint16_t kCrashFreqEnd = 0x0200;   //  481 shifts/sec, a rumble
+static const uint8_t kSoundCrashFrames = 16;
+static const uint8_t kSoundCrashShift = 4; // log2(kSoundCrashFrames)
+static const uint16_t kSoundCrashFreqStart =
+    0x1000;                                        // 3850 shifts/sec, a crunch
+static const uint16_t kSoundCrashFreqEnd = 0x0200; //  481 shifts/sec, a rumble
 
 // The sweep below is written as (n << 8) - (n << 5), which is only the right
 // interpolation while the span per frame is exactly 256 - 32. Retuning either
 // endpoint or the frame count without checking this is an easy mistake, and it
 // would go unnoticed - the sound would still sweep, just to the wrong places.
-static_assert(((kCrashFreqStart - kCrashFreqEnd) >> kCrashShift) == 256 - 32,
+static_assert(((kSoundCrashFreqStart - kSoundCrashFreqEnd) >>
+               kSoundCrashShift) == 256 - 32,
               "crash sweep constants no longer match the shift form");
-static_assert((1u << kCrashShift) == kCrashFrames,
-              "kCrashShift must be log2(kCrashFrames)");
-static const uint8_t kCrashAttDec = 0x00; // attack 0, decay 0 -> sustain
-static const uint8_t kCrashSusRel = 0xF9; // sustain 15, release 9 (750 ms)
+static_assert((1u << kSoundCrashShift) == kSoundCrashFrames,
+              "kSoundCrashShift must be log2(kSoundCrashFrames)");
+static const uint8_t kSoundCrashAttDec = 0x00; // attack 0, decay 0 -> sustain
+static const uint8_t kSoundCrashSusRel = 0xF9; // sustain 15, release 9 (750 ms)
 
 // Which effect owns voice 3 right now.
 enum Voice3Effect {
@@ -289,10 +292,10 @@ enum Voice3Effect {
   V3_FLAP,
 };
 
-static uint8_t _v3_effect;   // enum Voice3Effect
-static uint8_t _v3_frames;   // frames left before a one-shot releases
-static uint8_t _stall_phase; // counts frames within one warble cycle
-static uint8_t _flight_gen_seen;
+static uint8_t _sound_v3_effect;   // enum Voice3Effect
+static uint8_t _sound_v3_frames;   // frames left before a one-shot releases
+static uint8_t _sound_stall_phase; // counts frames within one warble cycle
+static uint8_t _sound_flight_gen_seen;
 
 // --- Roughness -------------------------------------------------------------
 //
@@ -316,18 +319,18 @@ static uint8_t _flight_gen_seen;
 // about 25 seconds at the frame rate, long enough that the engine never
 // audibly loops. Zero is the one state it cannot enter and cannot leave, which
 // is why sound_init() seeds it non-zero.
-static const uint8_t kRngTaps = 0xB8;
-static const uint8_t kRngSeed = 0xA5;
+static const uint8_t kSoundRngTaps = 0xB8;
+static const uint8_t kSoundRngSeed = 0xA5;
 
-static uint8_t _rng;
+static uint8_t _sound_rng;
 
-static uint8_t _next_rand(void) {
-  bool lsb = _rng & 1;
-  _rng >>= 1;
+static uint8_t _sound_next_rand(void) {
+  bool lsb = _sound_rng & 1;
+  _sound_rng >>= 1;
   if (lsb) {
-    _rng ^= kRngTaps;
+    _sound_rng ^= kSoundRngTaps;
   }
-  return _rng;
+  return _sound_rng;
 }
 
 // --- Driver ----------------------------------------------------------------
@@ -350,14 +353,14 @@ void (*sound_shadow_observer)(void) = nullptr;
 // test can simulate the raster interrupt landing between any two stores.
 //
 // The store is through a volatile pointer, and that is load-bearing rather
-// than decorative. The safety of a torn read (see _set_voice) depends on the
-// order these stores actually happen in, and nothing else in the program can
-// tell the difference - so an optimiser is entitled to reorder or coalesce
+// than decorative. The safety of a torn read (see _sound_set_voice) depends on
+// the order these stores actually happen in, and nothing else in the program
+// can tell the difference - so an optimiser is entitled to reorder or coalesce
 // them. Volatile stores may not be reordered against each other, which pins
 // the order without making sound_shadow volatile outright: that would also
 // make all 25 of sound_blit()'s reads volatile, and the blit's code generation
 // is the one thing in this module that must not be disturbed.
-static void _poke(uint8_t idx, uint8_t val) {
+static void _sound_poke(uint8_t idx, uint8_t val) {
   ((volatile uint8_t *)sound_shadow)[idx] = val;
   SHADOW_OBSERVE();
 }
@@ -365,7 +368,7 @@ static void _poke(uint8_t idx, uint8_t val) {
 // Writes the chip directly, bypassing the shadow. Only for the two callers
 // below, both of which run when sound_blit() either has not started yet or is
 // about to be masked - so nothing else is going to push the shadow out.
-static void _write_through(void) {
+static void _sound_write_through(void) {
   for (uint8_t i = 0; i < kSoundRegCount; ++i) {
     SID_REGS[i] = sound_shadow[i];
   }
@@ -391,15 +394,15 @@ static void _write_through(void) {
 // Writing the control register last means a torn read sees either the old
 // gate with the new envelope, or the new gate with the new envelope. It can
 // never see a gate turned on ahead of the sustain that gate is going to latch.
-static void _set_voice(uint8_t base, uint16_t freq, uint16_t pw, uint8_t ctrl,
-                       uint8_t attdec, uint8_t susrel) {
-  _poke(base + kSoundVoiceFreqLo, (uint8_t)freq);
-  _poke(base + kSoundVoiceFreqHi, (uint8_t)(freq >> 8));
-  _poke(base + kSoundVoicePwLo, (uint8_t)pw);
-  _poke(base + kSoundVoicePwHi, (uint8_t)(pw >> 8) & 0x0F);
-  _poke(base + kSoundVoiceAttDec, attdec);
-  _poke(base + kSoundVoiceSusRel, susrel);
-  _poke(base + kSoundVoiceCtrl, ctrl);
+static void _sound_set_voice(uint8_t base, uint16_t freq, uint16_t pw,
+                             uint8_t ctrl, uint8_t attdec, uint8_t susrel) {
+  _sound_poke(base + kSoundVoiceFreqLo, (uint8_t)freq);
+  _sound_poke(base + kSoundVoiceFreqHi, (uint8_t)(freq >> 8));
+  _sound_poke(base + kSoundVoicePwLo, (uint8_t)pw);
+  _sound_poke(base + kSoundVoicePwHi, (uint8_t)(pw >> 8) & 0x0F);
+  _sound_poke(base + kSoundVoiceAttDec, attdec);
+  _sound_poke(base + kSoundVoiceSusRel, susrel);
+  _sound_poke(base + kSoundVoiceCtrl, ctrl);
 }
 
 // The derived half of the silence rule. The other half - menu, help and map -
@@ -487,16 +490,16 @@ bool sound_wind_audible(int16_t speed) {
 void sound_init(void) {
   sound_gen = 0;
   sound_gen_seen = 0;
-  _pwm_phase = 0;
-  _rng = kRngSeed;
-  _v3_effect = V3_NONE;
-  _v3_frames = 0;
-  _stall_phase = 0;
+  _sound_pwm_phase = 0;
+  _sound_rng = kSoundRngSeed;
+  _sound_v3_effect = V3_NONE;
+  _sound_v3_frames = 0;
+  _sound_stall_phase = 0;
   // Deliberately synchronised with whatever the model has published so far,
   // rather than zeroed. Starting from a stale value would make the first frame
   // of a flight look like a new generation and fire whatever event happened to
   // be left in flight_events from the previous one.
-  _flight_gen_seen = flight_gen;
+  _sound_flight_gen_seen = flight_gen;
   sound_silence();
 }
 
@@ -524,7 +527,7 @@ void sound_silence(void) {
   // The chip has to be written here and not left to the next blit: the
   // callers are on their way to an sei, and map_enter() additionally banks
   // I/O out, so $D400 is about to stop being the SID for a while.
-  _write_through();
+  _sound_write_through();
 }
 
 void sound_update(void) {
@@ -539,20 +542,20 @@ void sound_update(void) {
   // the ear picks out as machinery of the wrong kind. Within the pulse width
   // the same byte drives both terms, and that correlation is immaterial: they
   // are the same parameter.
-  uint8_t r_pw = _next_rand();
-  uint8_t r_pitch = _next_rand();
+  uint8_t r_pw = _sound_next_rand();
+  uint8_t r_pitch = _sound_next_rand();
 
   // Stepping the phase by a varying amount is half the grit: a fixed step
   // makes the sweep exactly periodic, and at four seconds a period that is
   // slow enough to be heard as a repeating figure rather than as drift.
-  _pwm_phase += kSoundPwmStep + (r_pw & 3);
+  _sound_pwm_phase += kSoundPwmStep + (r_pw & 3);
 
   // No zeroing pass. An earlier version wiped the whole shadow here and then
   // filled in whatever was audible, which read well but left the shadow
   // momentarily all zeros - and an interrupt landing in that window blitted
   // master volume 0 and every gate clear to the chip. That much was
   // self-correcting, but it also meant every voice was written from a zeroed
-  // sustain, which is not (see _set_voice).
+  // sustain, which is not (see _sound_set_voice).
   //
   // So every register is written every frame with its final value, silent or
   // not, and silence is expressed as gates clear and master volume zero rather
@@ -564,9 +567,9 @@ void sound_update(void) {
   // Triangle from the 8-bit phase: count up over the bottom half, back down
   // over the top. Scaled by 8 into the 12-bit pulse width register, then
   // knocked off it by a small random offset - the other half of the grit.
-  uint8_t tri = (_pwm_phase & 0x80)
-                    ? (uint8_t)(0xFE - ((_pwm_phase & 0x7F) << 1))
-                    : (uint8_t)((_pwm_phase & 0x7F) << 1);
+  uint8_t tri = (_sound_pwm_phase & 0x80)
+                    ? (uint8_t)(0xFE - ((_sound_pwm_phase & 0x7F) << 1))
+                    : (uint8_t)((_sound_pwm_phase & 0x7F) << 1);
   uint16_t pw =
       kSoundPwmMin + ((uint16_t)tri << 3) + (r_pw & kSoundPwmJitterMask);
 
@@ -619,8 +622,8 @@ void sound_update(void) {
   // a new generation guarantees a complete one, and a wrecked aircraft stops
   // bumping it and therefore stops retriggering its last event forever.
   uint8_t events = 0;
-  if (flight_gen != _flight_gen_seen) {
-    _flight_gen_seen = flight_gen;
+  if (flight_gen != _sound_flight_gen_seen) {
+    _sound_flight_gen_seen = flight_gen;
     events = flight_events;
   }
 
@@ -629,76 +632,77 @@ void sound_update(void) {
   // each period gated off, which is where its gap comes from.
   bool stall_sounding = false;
 
-  if (_v3_frames != 0) {
-    --_v3_frames;
+  if (_sound_v3_frames != 0) {
+    --_sound_v3_frames;
   }
 
   if (!driver_live) {
     // Nothing survives a pause or the volume key. Dropping the effect here
     // rather than letting it run down means unpausing does not resume a
     // half-finished gear click.
-    _v3_effect = V3_NONE;
-    _v3_frames = 0;
-    _stall_phase = 0;
+    _sound_v3_effect = V3_NONE;
+    _sound_v3_frames = 0;
+    _sound_stall_phase = 0;
   } else if (events & FLIGHT_EV_CRASH) {
-    _v3_effect = V3_CRASH;
-    _v3_frames = kCrashFrames;
+    _sound_v3_effect = V3_CRASH;
+    _sound_v3_frames = kSoundCrashFrames;
     retrigger = true;
-  } else if (_v3_effect == V3_CRASH && _v3_frames != 0 && flight_crashed()) {
+  } else if (_sound_v3_effect == V3_CRASH && _sound_v3_frames != 0 &&
+             flight_crashed()) {
     // The crash burst runs to the end, uninterrupted.
     //
     // The flight_crashed() term is what stops it running on past an `R`
     // restart: that clears the status without going near the sound driver, and
     // a wreck still rumbling over the first two seconds of the next attempt
     // would be a strange thing to hear.
-  } else if (_v3_effect == V3_CRASH) {
+  } else if (_sound_v3_effect == V3_CRASH) {
     // Either the burst is over or the aircraft is no longer wrecked. Dropped
     // explicitly rather than left to fall through: the "a one-shot is still
     // running" branch below would otherwise adopt it and keep it going, since
     // a crash looks exactly like a long one-shot from there.
-    _v3_effect = V3_NONE;
-    _v3_frames = 0;
+    _sound_v3_effect = V3_NONE;
+    _sound_v3_frames = 0;
   } else if (!flying) {
     // Out of fuel, or wrecked with the crash burst already finished.
-    _v3_effect = V3_NONE;
-    _v3_frames = 0;
-    _stall_phase = 0;
+    _sound_v3_effect = V3_NONE;
+    _sound_v3_frames = 0;
+    _sound_stall_phase = 0;
   } else if (events & FLIGHT_EV_TOUCHDOWN) {
     // Outranks everything, including a stall in progress. It is a single
     // unmissable event, it is over in a fraction of a second, and by
     // definition the aircraft is on the ground - where flight_stall is already
     // false on the very next step.
-    _v3_effect = V3_TOUCHDOWN;
-    _v3_frames = kTouchdownFrames;
+    _sound_v3_effect = V3_TOUCHDOWN;
+    _sound_v3_frames = kSoundTouchdownFrames;
     retrigger = true;
-  } else if (_v3_frames != 0 && _v3_effect != V3_STALL) {
+  } else if (_sound_v3_frames != 0 && _sound_v3_effect != V3_STALL) {
     // A one-shot still running. Left alone.
   } else if (flight_stall) {
     // The warble: gated on for the first kSoundStallOnFrames of each period,
     // off for the rest. Both halves are stated here rather than one being left
     // to an envelope running out.
-    if (_v3_effect != V3_STALL) {
-      _stall_phase = 0;
+    if (_sound_v3_effect != V3_STALL) {
+      _sound_stall_phase = 0;
     }
-    _v3_effect = V3_STALL;
-    if (_stall_phase == 0) {
+    _sound_v3_effect = V3_STALL;
+    if (_sound_stall_phase == 0) {
       retrigger = true;
     }
-    stall_sounding = _stall_phase < kSoundStallOnFrames;
-    if (++_stall_phase >= kSoundStallPeriodFrames) {
-      _stall_phase = 0;
+    stall_sounding = _sound_stall_phase < kSoundStallOnFrames;
+    if (++_sound_stall_phase >= kSoundStallPeriodFrames) {
+      _sound_stall_phase = 0;
     }
   } else if (events & FLIGHT_EV_GEAR) {
-    _v3_effect = V3_GEAR;
-    _v3_frames = kGearFrames;
+    _sound_v3_effect = V3_GEAR;
+    _sound_v3_frames = kSoundGearFrames;
     retrigger = true;
   } else if (events & FLIGHT_EV_FLAP) {
-    _v3_effect = V3_FLAP;
-    _v3_frames = kFlapFrames;
+    _sound_v3_effect = V3_FLAP;
+    _sound_v3_frames = kSoundFlapFrames;
     retrigger = true;
-  } else if (_v3_frames == 0) {
-    _v3_effect = V3_NONE;
-    _stall_phase = 0;
+  } else if (_sound_v3_frames == 0) {
+    _sound_v3_effect = V3_NONE;
+    _sound_stall_phase = 0;
   }
 
   // Only the main line writes sound_gen; only sound_blit() writes
@@ -714,7 +718,7 @@ void sound_update(void) {
     uint8_t v3_wave = 0;
     uint8_t v3_attdec = 0;
     uint8_t v3_susrel = 0;
-    switch (_v3_effect) {
+    switch (_sound_v3_effect) {
     case V3_STALL:
       v3_freq = kSoundStallFreq;
       v3_pw = kSoundStallPw;
@@ -723,75 +727,77 @@ void sound_update(void) {
       v3_susrel = kSoundStallSusRel;
       break;
     case V3_CRASH:
-      // Sweeps down as the burst runs. _v3_frames counts from kCrashFrames to
-      // zero, so this is a plain linear interpolation across the span.
+      // Sweeps down as the burst runs. _sound_v3_frames counts from
+      // kSoundCrashFrames to zero, so this is a plain linear interpolation
+      // across the span.
       //
       // Written as shifts rather than as a multiply, and that is worth the
       // ugliness. The span divided by the frame count is
-      // (kCrashFreqStart - kCrashFreqEnd) >> kCrashShift = 0xE00 >> 4 = 224,
-      // and 224 is 256 - 32 - so the whole interpolation is two shifts and a
-      // subtract. The obvious spelling with a 32-bit cast pulled oscar64's
-      // mul32by8 runtime routine into the binary for this one line, and
-      // nothing else in the program used it.
+      // (kSoundCrashFreqStart - kSoundCrashFreqEnd) >> kSoundCrashShift = 0xE00
+      // >> 4 = 224, and 224 is 256 - 32 - so the whole interpolation is two
+      // shifts and a subtract. The obvious spelling with a 32-bit cast pulled
+      // oscar64's mul32by8 runtime routine into the binary for this one line,
+      // and nothing else in the program used it.
       //
-      // kCrashSweepCheck below fails the build if the constants ever stop
+      // kSoundCrashSweepCheck below fails the build if the constants ever stop
       // satisfying the identity.
-      v3_freq = kCrashFreqEnd + ((uint16_t)_v3_frames << 8) -
-                ((uint16_t)_v3_frames << 5);
+      v3_freq = kSoundCrashFreqEnd + ((uint16_t)_sound_v3_frames << 8) -
+                ((uint16_t)_sound_v3_frames << 5);
       v3_wave = SID_CTRL_NOISE;
-      v3_attdec = kCrashAttDec;
-      v3_susrel = kCrashSusRel;
+      v3_attdec = kSoundCrashAttDec;
+      v3_susrel = kSoundCrashSusRel;
       break;
     case V3_TOUCHDOWN:
-      v3_freq = kTouchdownFreq;
+      v3_freq = kSoundTouchdownFreq;
       v3_wave = SID_CTRL_NOISE;
       v3_attdec = kSoundOneShotAttDec;
-      v3_susrel = kTouchdownSusRel;
+      v3_susrel = kSoundTouchdownSusRel;
       break;
     case V3_GEAR:
-      v3_freq = kGearFreq;
+      v3_freq = kSoundGearFreq;
       v3_wave = SID_CTRL_NOISE;
       v3_attdec = kSoundOneShotAttDec;
-      v3_susrel = kGearSusRel;
+      v3_susrel = kSoundGearSusRel;
       break;
     case V3_FLAP:
-      v3_freq = kFlapFreq;
+      v3_freq = kSoundFlapFreq;
       v3_wave = SID_CTRL_NOISE;
       v3_attdec = kSoundOneShotAttDec;
-      v3_susrel = kFlapSusRel;
+      v3_susrel = kSoundFlapSusRel;
       break;
     default:
       break;
     }
     // A one-shot sounds for the whole time it owns the voice; the stall only
     // sounds during the on-half of its warble.
-    const bool gate_open =
-        _v3_effect == V3_STALL ? stall_sounding : _v3_effect != V3_NONE;
-    _set_voice(kSoundRegV3, v3_freq, v3_pw,
-               gate_open ? (v3_wave | SID_CTRL_GATE) : v3_wave, v3_attdec,
-               v3_susrel);
+    const bool gate_open = _sound_v3_effect == V3_STALL
+                               ? stall_sounding
+                               : _sound_v3_effect != V3_NONE;
+    _sound_set_voice(kSoundRegV3, v3_freq, v3_pw,
+                     gate_open ? (v3_wave | SID_CTRL_GATE) : v3_wave, v3_attdec,
+                     v3_susrel);
   }
 
   // Voice 1: engine. Gate clear when inaudible rather than the whole voice
   // blanked, so the envelope releases instead of being cut dead, and so the
   // sustain register is never zero underneath a gate that is about to be set.
-  _set_voice(kSoundRegV1, freq, pw,
-             flying ? (SID_CTRL_RECT | SID_CTRL_GATE) : SID_CTRL_RECT,
-             kSoundEngineAttDec, kSoundEngineSusRel);
+  _sound_set_voice(kSoundRegV1, freq, pw,
+                   flying ? (SID_CTRL_RECT | SID_CTRL_GATE) : SID_CTRL_RECT,
+                   kSoundEngineAttDec, kSoundEngineSusRel);
 
   // Voice 2: wind, which additionally gates off below the speed threshold.
-  _set_voice(kSoundRegV2, sound_wind_freq(flight_speed), 0,
-             (flying && sound_wind_audible(flight_speed))
-                 ? (SID_CTRL_NOISE | SID_CTRL_GATE)
-                 : SID_CTRL_NOISE,
-             kSoundWindAttDec, kSoundWindSusRel);
+  _sound_set_voice(kSoundRegV2, sound_wind_freq(flight_speed), 0,
+                   (flying && sound_wind_audible(flight_speed))
+                       ? (SID_CTRL_NOISE | SID_CTRL_GATE)
+                       : SID_CTRL_NOISE,
+                   kSoundWindAttDec, kSoundWindSusRel);
 
   // The filter is deliberately unused - section 3 on why depending on it is a
   // portability trap - but the registers still have to be written, since
   // nothing zeroes them for us any more.
-  _poke(kSoundRegCutoffLo, 0);
-  _poke(kSoundRegCutoffHi, 0);
-  _poke(kSoundRegResFilt, 0);
+  _sound_poke(kSoundRegCutoffLo, 0);
+  _sound_poke(kSoundRegCutoffHi, 0);
+  _sound_poke(kSoundRegResFilt, 0);
 
   // Master volume last. It is the one register with no latching behaviour, so
   // a torn read that catches the old value is a single frame at the wrong
@@ -808,12 +814,13 @@ void sound_update(void) {
   // off. Zeroing it once nothing is left keeps silence expressible as a single
   // property of the register set rather than as "gates clear, and also check
   // whether anything is mid-release".
-  const bool anything_sounding = flying || _v3_effect != V3_NONE;
-  _poke(kSoundRegModeVol, (driver_live && anything_sounding)
-                              ? kMasterVolume[sound_volume < kSoundVolumeSteps
-                                                  ? sound_volume
-                                                  : kSoundVolumeDefault]
-                              : 0);
+  const bool anything_sounding = flying || _sound_v3_effect != V3_NONE;
+  _sound_poke(kSoundRegModeVol,
+              (driver_live && anything_sounding)
+                  ? kMasterVolume[sound_volume < kSoundVolumeSteps
+                                      ? sound_volume
+                                      : kSoundVolumeDefault]
+                  : 0);
 }
 
 #endif // __ENABLE_SOUND__

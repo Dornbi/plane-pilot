@@ -82,7 +82,7 @@ static uint8_t _music_arp_idx;
 // which is what keeps the opening fade a fade at the low setting.
 //
 // 48 bytes. See ../docs/music.md section 3.
-static const uint8_t kVolumeMix[kSoundVolumeSteps][16] = {
+static const uint8_t kMusicVolumeMix[kSoundVolumeSteps][16] = {
     // off
     {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
     // low: round(v * 7 / 15)
@@ -95,7 +95,7 @@ uint8_t music_master_volume(uint8_t bar_volume, uint8_t setting) {
   if (setting >= kSoundVolumeSteps) {
     setting = kSoundVolumeDefault;
   }
-  return kVolumeMix[setting][bar_volume & 0x0F];
+  return kMusicVolumeMix[setting][bar_volume & 0x0F];
 }
 
 // --- Pitch -----------------------------------------------------------------
@@ -192,7 +192,7 @@ static bool _gated(uint8_t voice) {
 //
 // Applied only where the *next* row actually starts a note, so held notes
 // never pay for it. See ../docs/music.md section 3.
-static void _hard_restart(uint8_t voice) {
+static void _music_hard_restart_restart(uint8_t voice) {
   const uint8_t base = voice * kVoiceRegs;
   _gate_off(voice);
   SID_REGS[base + kSoundVoiceAttDec] = 0;
@@ -270,7 +270,7 @@ void music_tick(void) {
   // exclusive only because kMusicSpeed is 6; writing them as alternatives
   // would quietly stop being correct at speed 1.
   if (last_frame_of_row && kMusicLeadStart[next_row] != 0) {
-    _hard_restart(kVoice1);
+    _music_hard_restart_restart(kVoice1);
   }
   if (_music_row_frame == 0) {
     const uint8_t note = kMusicLeadStart[_music_row];
@@ -312,7 +312,7 @@ void music_tick(void) {
   // starts halfway up is a note with no front edge - on the one voice whose
   // front edge *is* the rhythm.
   if (last_frame_of_row && kMusicBassStart[next_row] != 0) {
-    _hard_restart(kVoice2);
+    _music_hard_restart_restart(kVoice2);
   }
   if (_music_row_frame == 0) {
     const uint8_t note = kMusicBassStart[_music_row];
@@ -344,7 +344,7 @@ void music_tick(void) {
   bool v3_restarted = false;
   if (_music_row_frame >= kMusicSpeed - kMusicV3RestartFrames &&
       MUSIC_DRUM_AT(next_row) != 0) {
-    _hard_restart(kVoice3);
+    _music_hard_restart_restart(kVoice3);
     v3_restarted = true;
   }
 
@@ -388,8 +388,8 @@ void music_tick(void) {
     }
   } else if (_music_v3_owner == kMusicV3Restart) {
     // Holding the gate low with the envelope registers at zero. Nothing to
-    // write - _hard_restart() already put the chip in this state - just count
-    // the frames out.
+    // write - _music_hard_restart_restart() already put the chip in this state
+    // - just count the frames out.
     //
     // Guarded, because the hand-back above can be blocked by v3_restarted: a
     // restart that expires on the same frame a pre-drum restart fires stays in
@@ -408,7 +408,7 @@ void music_tick(void) {
       // Not just a gate-off: a full hard restart, which zeroes the envelope
       // registers too. Then kMusicV3RestartFrames frames before the arpeggio is
       // allowed back. See the ADSR delay bug note above.
-      _hard_restart(kVoice3);
+      _music_hard_restart_restart(kVoice3);
       _music_v3_owner = kMusicV3Restart;
       _music_v3_timer = kMusicV3RestartFrames;
     }
@@ -434,7 +434,7 @@ void music_tick(void) {
       // The other two voices get this for free from the note-ahead rule; voice
       // 3 does not, because bars 1-4 have no drums to ask for it. See
       // kV3LoopRestartFrames in music.h.
-      _hard_restart(kVoice3);
+      _music_hard_restart_restart(kVoice3);
       _music_v3_owner = kMusicV3Restart;
       _music_v3_timer = kV3LoopRestartFrames;
       // _music_pwm_phase is deliberately not reset: kMusicPwmStep divides the

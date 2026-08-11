@@ -151,24 +151,24 @@ inline void sprites_set_fuel(uint32_t fuel) {
                                  kSpriteOffsetY + kSpriteFuelPivotY);
 }
 
-static uint8_t _sun_x = 0;
-static uint8_t _sun_y = 0;
-static bool _sun_msbx = false;
+static uint8_t _sprites_sun_x = 0;
+static uint8_t _sprites_sun_y = 0;
+static bool _sprites_sun_msbx = false;
 
 // A terrain sprite that would land on the message text hides for as long as
 // the message is up, rather than drawing over it. The test is a box overlap
 // against the message span, so a message narrow enough — or a sprite far
 // enough to the side — leaves the sprite alone. Coordinates are VIC sprite
 // coordinates, i.e. already shifted by kSpriteOffsetX / kSpriteOffsetY.
-static const int16_t kMsgBoxTop = kSpriteOffsetY;
-static const int16_t kMsgBoxBottom = kSpriteOffsetY + kMsgHeightPixels;
+static const int16_t kSpritesMsgBoxTop = kSpriteOffsetY;
+static const int16_t kSpritesMsgBoxBottom = kSpriteOffsetY + kMsgHeightPixels;
 
-static bool _hidden_by_msg(int16_t x, int16_t y, uint8_t width,
-                           uint8_t height) {
+static bool _sprites_hidden_by_msg(int16_t x, int16_t y, uint8_t width,
+                                   uint8_t height) {
   if (!msg_active()) {
     return false;
   }
-  if (y >= kMsgBoxBottom || y + (int16_t)height <= kMsgBoxTop) {
+  if (y >= kSpritesMsgBoxBottom || y + (int16_t)height <= kSpritesMsgBoxTop) {
     return false;
   }
   int16_t x0 = kSpriteOffsetX + (int16_t)msg_span_x0;
@@ -185,22 +185,22 @@ inline void sprites_set_sun_position(int16_t x, int16_t y) {
     x += kSpriteOffsetX - kSpriteDefSun.pivot_x;
     y += kSpriteOffsetY - kSpriteDefSun.pivot_y;
     if (y >= kRasterScreenYStart + kViewportEndYPixels ||
-        _hidden_by_msg(x, y, kSpriteWidthPixels, kSpriteHeightPixels)) {
+        _sprites_hidden_by_msg(x, y, kSpriteWidthPixels, kSpriteHeightPixels)) {
       x = 0;
       y = 0;
     }
   }
-  _sun_x = (uint8_t)x;
-  _sun_y = (uint8_t)y;
-  _sun_msbx = (x & 0x100);
+  _sprites_sun_x = (uint8_t)x;
+  _sprites_sun_y = (uint8_t)y;
+  _sprites_sun_msbx = (x & 0x100);
 }
 
 inline void sprites_show_terrain_sprites() {
   *(kScreenRamMain + 1016 + kSpriteIdxSun) = kSpriteDefSun.bitmap_idx;
   *(kScreenRamAlt + 1016 + kSpriteIdxSun) = kSpriteDefSun.bitmap_idx;
-  vic.spr_pos[kSpriteIdxSun].x = _sun_x;
-  vic.spr_pos[kSpriteIdxSun].y = _sun_y;
-  if (_sun_msbx) {
+  vic.spr_pos[kSpriteIdxSun].x = _sprites_sun_x;
+  vic.spr_pos[kSpriteIdxSun].y = _sprites_sun_y;
+  if (_sprites_sun_msbx) {
     vic.spr_msbx |= (1 << kSpriteIdxSun);
   } else {
     vic.spr_msbx &= ~(1 << kSpriteIdxSun);
