@@ -28,42 +28,42 @@ def get_category(name):
         return 'Benchmarks & Timing'
 
     # Debug Messages & Overlays
-    if any(n.startswith(p) for p in ['panel_maybe_print_debug', 'mem_debug_enabled', 'mem_switch_debug', 'print_labeled_']):
+    if any(n.startswith(p) for p in ['panel_maybe_print_debug', 'mem_debug_enabled', 'mem_switch_debug', 'print_labeled_', 'bcd_convert32', 'bcd_result', 'print_bcd']):
         return 'Debug Messages & Overlay'
 
     # Message System (in-game HUD messages)
-    if n.startswith('msg_') or n.startswith('_status_text') or n == 'msg.cc':
+    if n.startswith('msg_') or n.startswith('_status_text') or n.startswith('screen_notice') or n.startswith('screen_begin_text_page') or n in ['msg.cc', '_notice_frames', '_notice_len']:
         return 'Message System'
 
     # Music (must be before Menu & Missions so kMusicVolMap is not matched by 'map')
-    if any(n.startswith(p) for p in ['music_', 'kmusic', '_music', 'kvolumemix']) or 'music' in n:
+    if any(n.startswith(p) for p in ['music_', '_music_', 'kmusic', '_music', 'kvolumemix', 'kmusicvolumemix', '_row', '_bar', '_arp_idx', '_hard_restart', '_music_hard_restart']) or 'music' in n:
         return 'Music'
 
     # Sound Effects
-    if any(n.startswith(p) for p in ['sound_', '_set_voice', 'sound_wind_freq', 'sound_gen', '_pwm_phase', '_rng', '_v3_effect', '_v3_frames', '_stall_phase', 'kenginefreq', 'kwindfreq', 'ksoundvolumenames']) or 'sound' in n or 'sid' in n:
+    if any(n.startswith(p) for p in ['sound_', '_sound_', 'ksound', '_set_voice', '_sound_set_voice', 'sound_wind_freq', 'sound_gen', '_pwm_phase', '_sound_pwm_phase', '_rng', '_sound_rng', '_v3_', '_sound_v3_', '_stall_phase', '_sound_stall_phase', 'kenginefreq', 'kwindfreq', 'ksoundvolumenames', 'kmastervolume', '_next_rand', '_sound_next_rand', '_ctrl']) or 'sound' in n or 'sid' in n:
         return 'Sound Effects'
 
     # Menu & Missions
-    if any(n.startswith(p) for p in ['menu_', 'help_', 'mission_', 'map_', '_render_menu_items', '_enter_menu', '_draw_mission_cursor', '_tile_index', '_draw_object_layer', '_draw_path', '_draw_stencil', '_draw_navpoints', '_draw_compass', '_draw_screen_layer', '_map_poll_exit']) or any(k in n for k in ['menu', 'help', 'mission', 'map']):
+    if any(n.startswith(p) for p in ['menu_', '_menu_', 'kmenu', 'help_', '_help_', 'khelp', 'mission_', 'map_', '_map_', 'kmap', '_render_menu_items', '_enter_menu', '_draw_mission_cursor', '_tile_index', '_draw_object_layer', '_draw_path', '_draw_stencil', '_draw_navpoints', '_draw_compass', '_draw_screen_layer', '_map_poll_exit']) or any(k in n for k in ['menu', 'help', 'mission', 'map']):
         if 'world_map' in n or 'mapdefs' in n:
             pass # handle elsewhere
         else:
             return 'Menu & Missions'
 
     # Instrument Panel (incl Sprites)
-    if any(n.startswith(p) for p in ['panel_', 'view_', 'sprites_', 'spritedef_', 'mapdefs_', '_set_instrument_sprite', '_switch_to_panel_top', '_switch_to_panel_bottom', '_switch_to_terrain', '_sprite_instrument_idx', '_sprite_instrument_xy', '_rirq_panel_top', '_rirq_panel_bottom', '_rirq_terrain', 'g_panel_koa_lzo', 'g_spritedef_bin', 'g_mapdefs', '_char_lut', '_color_lut']) or any(k in n for k in ['panel', 'view', 'sprite', 'mapdefs', 'koa']):
+    if any(n.startswith(p) for p in ['panel_', '_panel_', 'kpanel', 'view_', '_view_', 'kview', 'sprites_', '_sprites_', 'ksprite', 'spritedef_', 'mapdefs_', '_set_instrument_sprite', '_switch_to_panel_top', '_switch_to_panel_bottom', '_switch_to_terrain', '_gfx_switch_to_panel_top', '_gfx_switch_to_terrain', '_sprite_instrument_idx', '_sprite_instrument_xy', '_rirq_panel_top', '_rirq_panel_bottom', '_rirq_terrain', 'g_panel_koa_lzo', 'g_spritedef_bin', 'g_mapdefs', '_char_lut', '_color_lut', '_copy_color_ram', '_sun_x', '_sun_y', '_sun_msbx', '_sprites_sun_', 'kgfxheading']) or any(k in n for k in ['panel', 'view', 'sprite', 'mapdefs', 'koa']):
         return 'Instrument Panel'
 
     # World Model
-    if any(n.startswith(p) for p in ['world_', 'sim_', 'flight_', '_world_', '_flight_', 'flight_eye_', 'flight_speed', 'flight_throttle', 'flight_fuel', 'flight_flap', 'flight_gear', 'flight_stall', 'flight_events', 'model_', 'flight_waypoint_nav', 'flight_vspeed', 'world_cam', 'flight_cam', 'flight_nav_point_', 'flight_path_', '_world_grid_radius', '_num_points_per_radius', '_world_dx_vec', '_world_dy_vec', '_world_p_start', '_world_step_x', '_world_start_cx', '_world_step_y', '_world_start_cy', '_world_vec_v', '_world_dx4', '_world_dy4', '_mitch_x', '_mitch_y', '_mitch_z']) or any(k in n for k in ['world', 'flight', 'sim']):
+    if any(n.startswith(p) for p in ['world_', '_world_', 'kworld', 'sim_', '_sim_', 'flight_', '_flight_', 'kflight', 'flight_eye_', 'flight_speed', 'flight_throttle', 'flight_fuel', 'flight_flap', 'flight_gear', 'flight_stall', 'flight_events', 'model_', 'flight_waypoint_nav', 'flight_vspeed', 'world_cam', 'flight_cam', 'flight_nav_point_', 'flight_path_', '_world_grid_radius', '_num_points_per_radius', '_world_dx_vec', '_world_dy_vec', '_world_p_start', '_world_step_x', '_world_start_cx', '_world_step_y', '_world_start_cy', '_world_vec_v', '_world_dx4', '_world_dy4', '_mitch_x', '_mitch_y', '_mitch_z', '_get_heading', '_get_ratio', 'kheadinglut', 'kmitchellpoints', 'knumpoints', 'mat3_rot', 'kwpminalthi', 'nav_msg_buf', 'nav_reached_buf']) or any(k in n for k in ['world', 'flight', 'sim']):
         return 'World Model'
 
     # Polygon Graphics & 3D Math
-    if any(n.startswith(p) for p in ['poly_', 'vec_', 'fmath_', '_get_msb', '_split_vec', '_clip_2d', '_project_vertices', '_trace_edge_bresenham', '_scan_lines2', '_limit_vec', 'g_sin_table', 'g_cos_table', 'g_inv_z_table', 'poly_verts', 'clip3_buf', 'proj_buf', '_min_x', '_max_x', 'vec_v', 'project_mul_a', 'project_mul_b', 'vec_sx', 'vec_sy', 'mul_res', 'tmp1', 'tmp2', 'tmp3', 'tmp4']) or any(k in n for k in ['poly', 'vec', 'fmath']):
+    if any(n.startswith(p) for p in ['poly_', '_poly_', 'kpoly', 'vec_', '_vec_', 'kvec', 'fmath_', '_get_msb', '_split_vec', '_clip_2d', '_project_vertices', '_trace_edge_bresenham', '_scan_lines2', '_limit_vec', 'g_sin_table', 'g_cos_table', 'g_inv_z_table', 'poly_verts', 'clip3_buf', 'clip2_buf', 'final_verts', 'proj_buf', '_min_x', '_max_x', 'vec_v', 'project_mul_a', 'project_mul_b', 'vec_sx', 'vec_sy', 'mul_res', 'tmp1', 'tmp2', 'tmp3', 'tmp4']) or any(k in n for k in ['poly', 'vec', 'fmath']):
         return 'Polygon Graphics'
 
     # Horizon Graphics
-    if any(n.startswith(p) for p in ['render_', 'box_', 'boxdef_', 'chardef_', 'roll_', '_fill_line', '_pull_to_center', '_call_roll_mul_dy', '_call_roll_mul_dx', '_get_roll_angle', '_roll_mul_', '_slot_def', '_cur_box_chars', '_cur_box_colors', '_box_chars', '_box_colors', 'g_boxdefs', 'g_alt_boxdefs', 'g_num_boxdefs', 'g_chardefs', 'g_alt_chardefs', 'g_num_chardefs', 'g_roll_mul_table', 'g_roll_slopes', 'roll_dx', 'roll_dy', 'roll_period', 'roll_shift_2chars', 'roll_x_is_major', 'roll_angle', 'roll_dx_div_dy', 'roll_mul_dy', 'roll_mul_dx', 'roll_mul_tmp_val', 'roll_get_dist_res', 'render_cx_pixels', 'render_px_pixels', 'render_cy_pixels', 'render_py_pixels', 'render_alt_shift_x', 'render_alt_shift_y', 'render_cx_chars', 'render_cy_chars', 'render_alt_box']) or any(k in n for k in ['chardef', 'boxdef', 'render', 'box', 'roll']):
+    if any(n.startswith(p) for p in ['render_', '_render_', 'krender', 'box_', '_box_', 'kbox', 'boxdef_', 'chardef_', '_chardef_', 'roll_', '_roll_', 'kroll', '_fill_line', '_pull_to_center', '_call_roll_mul_dy', '_call_roll_mul_dx', '_get_roll_angle', '_roll_mul_', '_slot_def', '_cur_box_chars', '_cur_box_colors', '_box_chars', '_box_colors', 'g_boxdefs', 'g_alt_boxdefs', 'g_num_boxdefs', 'g_chardefs', 'g_alt_chardefs', 'g_num_chardefs', 'g_roll_mul_table', 'g_roll_slopes', 'roll_dx', 'roll_dy', 'roll_period', 'roll_shift_2chars', 'roll_x_is_major', 'roll_angle', 'roll_dx_div_dy', 'roll_mul_dy', 'roll_mul_dx', 'roll_mul_tmp_val', 'roll_get_dist_res', 'render_cx_pixels', 'render_px_pixels', 'render_cy_pixels', 'render_py_pixels', 'render_alt_shift_x', 'render_alt_shift_y', 'render_cx_chars', 'render_cy_chars', 'render_alt_box', 'kgfxcharscompressed', 'gfx_init_chars', 'gfx_init_raster_irqs']) or any(k in n for k in ['chardef', 'boxdef', 'render', 'box', 'roll']):
         return 'Horizon Graphics'
 
     return 'Core System & Drivers'
