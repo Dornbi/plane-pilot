@@ -331,19 +331,13 @@ int main() {
   assert(sound_volume == 2); // off  -> full, wrapping rather than sticking
   assert(sound_volume == kSoundVolumeDefault);
 
-  // Every step has a label, they are all the documented fixed width, and the
-  // label tracks the step. The screens print this without strlen and without
-  // clearing the cell, so a short one would leave the tail of the last.
-  for (uint8_t step = 0; step < kSoundVolumeSteps; ++step) {
-    sound_volume = step;
-    const char *label = sound_volume_label();
-    assert(label != NULL);
-    assert(strlen(label) == kSoundVolumeLabelLen);
-  }
+  // Every step has a label and tracks the step.
   sound_volume = 0;
-  assert(strstr(sound_volume_label(), "OFF") != NULL);
-  sound_volume = kSoundVolumeSteps - 1;
-  assert(strstr(sound_volume_label(), "FULL") != NULL);
+  assert(strcmp(sound_volume_label(), "SOUND OFF") == 0);
+  sound_volume = 1;
+  assert(strcmp(sound_volume_label(), "SOUND LOW") == 0);
+  sound_volume = 2;
+  assert(strcmp(sound_volume_label(), "SOUND FULL") == 0);
   // Out of range falls back rather than reading off the end of the table.
   sound_volume = 99;
   assert(sound_volume_label() != NULL);

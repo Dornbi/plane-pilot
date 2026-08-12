@@ -164,10 +164,6 @@ bool sound_wind_audible(int16_t speed);
 static const uint8_t kSoundVolumeSteps = 3;
 static const uint8_t kSoundVolumeDefault = 2;
 
-// The label the screens show after a press. Fixed width, so a caller can print
-// it over the previous one without clearing the cell first, and so no caller
-// needs strlen.
-static const uint8_t kSoundVolumeLabelLen = 10;
 
 #ifdef __ENABLE_SOUND__
 extern uint8_t sound_volume;

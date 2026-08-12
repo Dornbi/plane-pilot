@@ -443,10 +443,9 @@ static bool _sound_flying(void) {
 // simulation rate is as immediate as any other control. The write-through in
 // sound_silence() exists only because its callers are about to mask interrupts
 // or bank I/O out, and neither is true here.
-// Fixed width, so a screen can print one over another without clearing the
-// cell. Indexed by sound_volume, which sound_cycle_volume() keeps in range.
+// Indexed by sound_volume, which sound_cycle_volume() keeps in range.
 static const char *const kSoundVolumeLabels[kSoundVolumeSteps] = {
-    "SOUND OFF ", "SOUND LOW ", "SOUND FULL"};
+    "SOUND OFF", "SOUND LOW", "SOUND FULL"};
 
 const char *sound_volume_label(void) {
   return kSoundVolumeLabels[sound_volume < kSoundVolumeSteps

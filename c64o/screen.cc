@@ -33,6 +33,9 @@ static uint8_t _notice_frames;
 static uint8_t _notice_len;
 
 void screen_notice(const char *text, uint8_t len) {
+  if (_notice_len > len) {
+    memset(mem_screen_row_ptrs[kNoticeRow] + kNoticeCol, ' ', _notice_len);
+  }
   print_str(kNoticeRow, kNoticeCol, text, len);
   _notice_len = len;
   _notice_frames = kNoticeFrames;

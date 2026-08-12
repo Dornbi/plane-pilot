@@ -55,7 +55,7 @@ static const uint8_t kHelpKeyCol = 2;
 static void _help_show_volume_notice(void) {
   const char *label = sound_volume_label();
   if (label) {
-    screen_notice(label, kSoundVolumeLabelLen);
+    screen_notice(label, (uint8_t)strlen(label));
   }
 }
 
