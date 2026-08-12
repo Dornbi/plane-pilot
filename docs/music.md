@@ -14,15 +14,21 @@ octave-6 table in §5. So it is wrong in the ways a browser is wrong — timer
 jitter, an approximated envelope, noise that is not the real LFSR through the
 real DAC — and right about everything the plan is actually deciding.
 
-It carries **two** arrangements behind a switcher: the atmospheric theme planned
-here, and the earlier rock intro at 150 BPM. The second one is kept
-deliberately. It is the only way to A/B a mood decision by ear, and it costs
-nothing but a table entry — see §9, where the choice between them is still open.
-The comparison is between arrangements rather than lengths; the tempi
-differ because tempo is part of what each arrangement *is*, not because the
-test is uncontrolled. Making both 125 BPM is one byte in `lib/music.py` if the
-stricter comparison is ever wanted, but a rock intro at 125 is a different piece
-than the one being judged.
+It carries **four** arrangements behind a switcher:
+
+| id | | |
+| -- | - | - |
+| `tune2` | 24-bar atmospheric theme, D minor, 125 BPM | the one this plan is written for, and the one exported to C |
+| `rock` | 24-bar *Afterburner*, E minor, 125 BPM | driving, syncopated, `i–VI–III–VII` |
+| `wide` | 24-bar *High Country*, A Dorian, 125 BPM | anthemic, half-time, built on rising fourths |
+| `tune1` | 16-bar rock intro, A minor, 150 BPM | the original; kept as the oldest point of comparison |
+
+They are kept because a mood decision can only be made by ear, and each costs
+nothing but a table entry. The three 24-bar tunes share a tempo and a length so
+that a comparison between them is a comparison of *arrangements*; `tune1` does
+not, because its tempo is part of what it is.
+
+Only `TUNES[0]` reaches the C64 — see §5 for how to change which.
 
 It is a reference, not the source of truth; §5 says what is.
 
@@ -273,10 +279,21 @@ quieter sound**.
 
 ### The fade-in is a per-bar `$D418` ramp, and it has to compose with `V`
 
-The arrangement opens with a volume ramp — `8, 9, 10, 11, 12, 13, 14, 15` across
-bars 1 to 8, flat at 15 through the theme, then `12, 10` across the turnaround.
-It is the one mechanism in the tune that reaches past note data into a global
-register.
+The arrangement opens with a volume ramp — `11, 12, 13, 14` across bars 1 to 4,
+flat at 15 through the theme, then `13, 11` across the turnaround. It is the one
+mechanism in the tune that reaches past note data into a global register.
+
+**The floor is set by the loop, not by the first play**, and getting that
+backwards cost two rounds. It was 4, then 8, both chosen by asking what the
+opening should sound like out of silence. That is the wrong listener: the menu
+loops, so almost every pass through bars 1 to 2 arrives straight off the
+full-band climax at 15. At a floor of 8 that is −5.5 dB with two voices where
+there had been four parts, and the arpeggio — a fast mid-range saw — is the
+first thing to go under it. It was reported twice as *"the arpeggio only starts
+at bar 3"*, which is exactly where the old ramp climbed back.
+
+At 11, with the outro landing on 11 too, the seam is flat and the build is
+11 → 15: still audible as a build, no longer a hole.
 
 It works because `$D418`'s low nibble is the only volume control the chip has,
 and here that limitation is an advantage rather than a problem: a fade that
@@ -511,6 +528,36 @@ bug — the reference exists to predict what the C64 does, not to sound good on
 its own terms. Both players still agree exactly, which is what keeps the
 cross-check in §7 worth anything.
 
+### The loop point has to be a start, not a continuation
+
+Voices 1 and 2 are hard-restarted at the wrap for free: row 0 begins notes for
+both, so the note-ahead rule fires on the last frame of the last row and they
+enter bar 1 with a forced envelope. **Voice 3 has no equivalent** — bars 1 to 4
+have no drums, so nothing asks for one — and it used to arrive still riding
+whatever hand-back the final drum of bar 24 happened to leave behind.
+
+It was the only voice whose loop point was incidental rather than deliberate,
+and the arpeggio was reported missing for the first two bars of every loop while
+being fine on the first play. `kV3LoopRestartFrames` (4) now hard-restarts voice
+3 at the wrap, and **`music_start()` puts it in the same state**, so a fresh
+start and a loop are the same thing rather than nearly the same thing.
+
+That second half is what makes §3's loop-identity invariant mean what it says.
+`test_loop_identity` failed the moment the wrap restart went in — correctly,
+because pass 1 and pass 2 had stopped matching — and the fix was to make the
+start behave like the loop rather than to relax the test.
+
+Four frames because there is room: nothing competes for voice 3 at the top of
+the loop, and 80 ms is comfortably more than any hard-restart convention asks
+for.
+
+**Stated plainly, because this is not a fix with a mechanism attached.** The
+register streams either side of the wrap were textbook and identical to the
+working case, and two frames of gate-low with zeroed envelope registers at row
+383 should not behave differently from essentially none at start-up. Removing
+the one structural asymmetry between the two paths was the right thing to do
+regardless of whether it is what a real 6581 was objecting to.
+
 ### The filter registers are never written by the tick
 
 Related, and found while chasing the same report. `music_tick()` writes
@@ -614,6 +661,11 @@ tables a phase does not yet reference:
 | phase 2 (lead) | 330 | 431 | 529 | 960 | 10.6 KB |
 | phase 3 (+ bass) | 396 | 497 | 913 | 1,410 | 10.2 KB |
 | phases 4–5 (+ voice 3) | 654 | 771 | 1,129 | 1,900 | 9.5 KB |
+| current | 658 | 784 | 1,164 | **1,948** | **9.4 KB** |
+
+The drift since phase 5 is the `_ctrl[]` write-only shadow, the explicit filter
+clear in `music_start()`, and the loop-point restart — 48 bytes for three
+correctness fixes, all in §3.
 
 All three voices exist and the player is **771 bytes of code against the ~940
 estimate**, with every table now linked. The whole feature has taken the heap
@@ -747,15 +799,47 @@ convincing one.**
 
 Two structural notes that are not gaps but are the same shape of hazard:
 
-- `lib/music.py` holds both arrangements and only `TUNES[0]` is emitted to C.
+- `lib/music.py` holds four arrangements and only `TUNES[0]` is emitted to C.
   That is correct — the C64 ships one tune — but it means the exporter has a
   silent selection step, and `test_generation_and_html_sync` is what asserts
   which tune it selected.
+
+  **To ship a different one**, move it to the front of `TUNES` in
+  `lib/music.py` and run `make music`. Everything downstream follows: the
+  header's `kMusicBars` / `kMusicSpeed` / `kMusicTotalFrames`, the packed
+  tables, and the volume map. The player reads all of them, so a tune of a
+  different length or tempo needs no code change — but §3's bar-count rule
+  still applies, and `test_primary_tune_constants` pins the shipping tune's
+  shape deliberately, so it will fail and want updating. That failure is the
+  point: a resize should be a deliberate edit.
 - Whether a tune has the four-bar pedal opening is an explicit `soft_intro`
   flag on the tune dict. It used to be inferred from `bars == 32`, which broke
   the moment the atmospheric arrangement changed length and collided with the
   rock one. Inferring arrangement structure from a length is worth naming: it
   works until two things are the same size.
+
+**And one hazard that is not a divergence but lives in the same file.**
+`musicdef.h` used to `#include <stdbool.h>`, which it did not need — it declares
+no `bool` — and which was actively harmful.
+
+`bool.h` defines `bool` as a **macro** on the host build (`#define bool unsigned
+char`), because the host compiles this C-flavoured code as C++ where `bool` is a
+keyword. Clang's `<stdbool.h>` `#undef`s that macro in C++ mode; gcc's leaves it
+alone. So including it here changed the meaning of `bool` partway through any
+file that includes `music.h` — and `sound.cc` does, for the ownership guard.
+`sound_wind_audible()` ended up **declared** returning `unsigned char` and
+**defined** returning `bool`, which is a hard error. It compiled on Linux and
+failed on macOS.
+
+The include is gone and `test_generated_header_does_not_include_stdbool` keeps
+it gone, because the file is generated and the line would come back silently if
+anyone re-added it to the exporter.
+
+Worth generalising, since `bool.h` is used across the whole program: **any
+header that pulls in `<stdbool.h>` after `bool.h` changes what `bool` means for
+the rest of the translation unit, on clang only.** Making `bool.h`'s host branch
+empty would remove the hazard outright — C++ already has `bool`, `true` and
+`false` — but that touches every host test and is not this module's call.
 
 A fourth gap was in the reference page rather than the data. The tune selector's
 `<option>` labels were written out in the markup and had drifted — the labels
@@ -820,6 +904,56 @@ the tune, the loop point is now the moment the melody is most worth hearing.
 The volume glide in §3 lands under exactly these two bars, so the tune reaches
 its melodic peak while getting quieter — which is what makes it turn over
 instead of stop.
+
+### The other three arrangements
+
+`tune2` above is what ships. The rest exist so a mood decision can be made by
+ear rather than on paper, and they are described here because two of them were
+written from scratch to a brief and that brief is part of the data.
+
+**`rock` — "Afterburner", E minor, 24 bars, 125 BPM.** `Em – C – G – D`, which
+is `i – VI – III – VII`: every chord major except the tonic, so the harmony
+keeps opening outward while the key stays dark. The hook is one rhythmic cell
+repeated over all four chords — long note, pickup, two quarters (`6:2:4:4`). A
+cell that survives transposition is what makes a tune hummable after one
+listen, and it is most of what Last Ninja is built on.
+
+**`wide` — "High Country", A Dorian, 24 bars, 125 BPM.** The deliberate
+opposite: half-time kit, quarter-note hats, a bass with space in it. Dorian
+rather than natural minor because the raised sixth is the difference between
+"dark" and "high up", and the `Am – G – D` turn does not exist in Aeolian at
+all — which is what stops it sounding like the same key as the other two. Its
+hook is an *interval* rather than a rhythm: root, leap up a fifth, hold, fall
+back. Most fanfares are built on that gesture and it holds up over four
+different chords.
+
+**Both are voiced in octave 4 directly** — triads at 260–590 Hz, five to twelve
+waveform cycles per arpeggio tone — so neither needs `ARP_OCTAVE_SHIFT`. That
+constant is a retrofit for `tune2`, which was written an octave too low; a tune
+written after the lesson does not need it.
+
+`tune1` is the original 16-bar rock intro at 150 BPM, kept as the oldest point
+of comparison. Its tempo is part of what it is, so it is the one tune not
+normalised to the others.
+
+### A tune's groove travels with the tune
+
+The bass and drum patterns used to be module globals shared by every
+arrangement. That is a trap rather than a saving: **a tune's rhythm is part of
+what makes it that tune**, so anything new inherits the existing feel however
+different its notes are.
+
+They are per-tune now. `DEFAULT_RHYTHM` holds the original patterns,
+`rhythm_of(tune)` merges a tune's `'rhythm'` dict over it, and the flatteners
+take it as a parameter. `RHYTHM_ROCK` gives Afterburner straight eighths
+alternating root and octave with a busy kick; `RHYTHM_WIDE` gives High Country a
+half-time kick and quarter-note hats.
+
+This bit immediately and is worth recording. The first run after the change had
+all three 24-bar tunes reporting **identical** bass and drum counts: the
+parameter had been added to the flatteners but not passed from the exporter, so
+the new grooves were silently ignored. A three-way comparison caught it; a
+single tune would have looked entirely correct.
 
 ### The note table
 
@@ -976,7 +1110,7 @@ chip. That is phase 8 and it is a real phase.
 Each phase leaves the program in a working, committable state.
 
 0. **Reference implementation.** ✅ Done. `sid-intro-theme.html` — the player,
-   the register shadow and both arrangements, on a 50 Hz tick, with §7's checks
+   the register shadow and every arrangement, on a 50 Hz tick, with §7's checks
    passing. Everything below is a port of something that can be listened to
    rather than a design being discovered in 6502.
 1. **Data and exporter.** ✅ Done, with gaps. `lib/music.py`,
@@ -1135,12 +1269,22 @@ Each phase leaves the program in a working, committable state.
    frames** (1814 with `kV3RestartFrames` at 1), which is exactly what the browser reference produces. That is a
    literal in the test, deliberately — deriving it would mean reimplementing
    the arbitration, which is the thing under test.
-6. **Hard restart, the volume ramp, and envelope tuning.** Ordered deliberately
-   after the drums: both interact with every voice and are easier to get right
-   against an arrangement that already exists. `V` in the menu lands here or is
-   dropped (§9).
-7. **Tests.** `music_test.cc` per §7, and the wiring in `c64o/test/Makefile`
-   next to `sound_test`.
+6. **Hard restart, the volume ramp, and envelope tuning.** ✅ Mostly done, and
+   not where the plan put it. The hard restart landed in phase 2 because voice 1
+   could not be written without it; the `kVolumeMix` composition table landed
+   with it; `V` on every screen landed alongside phase 3. What is genuinely left
+   is *envelope tuning* — the attack, decay and sustain nibbles of the five
+   instruments, none of which has been judged by ear — and that is phase 8 work
+   by nature, so it has moved there.
+
+   The lesson is about the phase list rather than the code: a phase defined as
+   "the things that interact with every voice" cannot come after the voices,
+   because the voices do not work without it.
+7. **Tests.** ✅ Done, in phase 2. `c64o/test/music_test.cc` and the wiring in
+   `c64o/test/Makefile` next to `sound_test`. It now carries 19 assertions and
+   every later phase extended it rather than creating it — which is what §7
+   argued for and what sound.md's own phase 7 note records about
+   `sound_test.cc`.
 8. **Verification.** VICE, PAL and NTSC, 6581 and 8580. Everything in §9 is
    queued behind it, because all of it is a judgement by ear.
 
@@ -1153,11 +1297,11 @@ distracting.
 
 ## 9. Open questions
 
-**Which tune ships?** The reference carries both, now at the same length. The
-atmospheric theme is the default and this plan is written for it, but that is a
-judgement made on paper. The rock intro is more immediate; the atmospheric one
-has an opening that earns its 30 seconds. Decide by ear in phase 8, with the
-switcher, and note that the decision costs one constant in `lib/music.py`.
+**Which tune ships?** Four candidates now, three of them at the same length and
+tempo so the comparison is about the writing rather than the format. `tune2` is
+the default because this plan was written around it, which is not a reason.
+Decide by ear in phase 8 with the switcher; §5 has the mechanics, and the
+decision is one line.
 
 **Is 46 seconds the right length?** 61 was too long — most players would never
 reach what the arrangement built toward. 30.7 fitted a visit but had no climax
