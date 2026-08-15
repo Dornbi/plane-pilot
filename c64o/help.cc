@@ -66,8 +66,10 @@ void help_run(void) {
   const uint8_t rows = print_lines(kHelpRowStart, kHelpKeyCol, kHelpText);
   print_str(kHelpRowStart + rows + 2, 7, STRL("RETURN OR SPACE TO GO BACK"));
 
+  keys_wait_release(KSCAN_H);
+
   // V is a toggle here as it is everywhere else, so it needs edge detection -
-  // the other three keys in this loop are momentary and do not.
+  // the other four keys in this loop are momentary and do not.
   static const uint8_t kHelpKeyV = 0x01;
   uint8_t prev_help_toggles = 0;
 
@@ -104,7 +106,7 @@ void help_run(void) {
     gfx_wait_vsync();
   }
   while (key_pressed(KSCAN_RETURN) || key_pressed(KSCAN_SPACE) ||
-         key_pressed(KSCAN_Q)) {
+         key_pressed(KSCAN_Q) || key_pressed(KSCAN_H)) {
     keyb_poll();
   }
 }
