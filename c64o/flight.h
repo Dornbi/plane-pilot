@@ -169,9 +169,7 @@ extern uint8_t flight_active_mission_idx;
 // Free flight start state. Nothing in the game uses it any more - every
 // flight now starts from a mission - but it is the fixture the host tests
 // build their scenarios on, so it stays out of the C64 build only.
-#ifndef __OSCAR64__
 void flight_init();
-#endif
 void flight_init_from_mission(uint8_t mission_idx = 0);
 
 void flight_advance();
