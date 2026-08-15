@@ -119,7 +119,7 @@ def generate_sun_sprite(bitmap_offset):
 def main():
     parser = argparse.ArgumentParser(description='Generate sprite data for C64 instrument needles.')
     parser.add_argument('--angles_tot', type=int, default=32, help='Number of angles (default: 32)')
-    parser.add_argument('--base_offset', type=int, default=96, help='Base offset for bitmap indicators (default: 64)')
+    parser.add_argument('--base_offset', type=int, default=96, help='Base offset for bitmap indicators (default: 96)')
     args = parser.parse_args()
 
     angles_tot = args.angles_tot
