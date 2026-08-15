@@ -74,7 +74,7 @@ void help_run(void) {
   while (1) {
     keyb_poll();
     if (key_pressed(KSCAN_RETURN) || key_pressed(KSCAN_SPACE) ||
-        key_pressed(KSCAN_Q)) {
+        key_pressed(KSCAN_Q) || key_pressed(KSCAN_H)) {
       break;
     }
 #ifdef __ENABLE_SOUND__
