@@ -66,9 +66,11 @@ bare `sei`. §8's answer was to drive the tune from `menu_run()`'s own
 `gfx_wait_vsync()` loop instead. That is still the answer, and §3 below makes it
 an invariant in its own right rather than an arrangement.
 
-**NTSC tempo is accepted as-is.** A tune driven once per frame runs 20% fast on
-a 60 Hz machine: 46.08 s becomes 38.40 s, and 125 BPM becomes 150. Still not
-worth a fractional-tick counter.
+**NTSC tempo is accepted as-is.** ✅ Verified on hardware in phase 8: it runs
+fast, by about the predicted amount. A tune driven once per frame is 20% quick
+on a 60 Hz machine — 46.08 s becomes 38.40 s and 125 BPM becomes 150 — and the
+whole arrangement shifts together, so it is in tune with itself and simply
+brisker. Still not worth a fractional-tick counter.
 
 **Zero page is tight, but it is a price rather than a wall.** §8 of sound.md
 establishes that `$02–$7F` is oscar64's runtime rather than free space, and
@@ -551,12 +553,19 @@ Four frames because there is room: nothing competes for voice 3 at the top of
 the loop, and 80 ms is comfortably more than any hard-restart convention asks
 for.
 
-**Stated plainly, because this is not a fix with a mechanism attached.** The
+**Stated plainly, because this was a guess rather than a diagnosis.** The
 register streams either side of the wrap were textbook and identical to the
 working case, and two frames of gate-low with zeroed envelope registers at row
 383 should not behave differently from essentially none at start-up. Removing
 the one structural asymmetry between the two paths was the right thing to do
-regardless of whether it is what a real 6581 was objecting to.
+regardless.
+
+✅ **It fixed it.** Confirmed by ear in phase 8. The mechanism is still not
+understood — something about a gate raised on the last frame of the last row
+differs on hardware from one raised after a start, in a way the register stream
+does not show. What can be said is narrower and worth keeping: *making the loop
+point identical to a start* was correct on its own terms, and it happened to be
+the cure.
 
 ### The filter registers are never written by the tick
 
@@ -1103,6 +1112,55 @@ all eventually caught by: whether it sounds right. A player that passes every
 assertion above can still be inaudible, deafening, or in the wrong key on a real
 chip. That is phase 8 and it is a real phase.
 
+### The scoreboard, now that phase 8 is done
+
+The honest summary of this module is that **the tests caught the bugs that were
+cheap, and a listener caught the bugs that mattered**. Both lists are worth
+having in one place, because the second one is longer and every entry passed
+every test.
+
+Found by the tests, or by writing them:
+
+| | |
+| - | - |
+| loop-identity invariant was wrong as written | the 32-bar tune failed it while being correct |
+| reference page reported double the real tempo | `1500/speed` where it should have been `750/speed` |
+| `VOL_MAP` never reached C | fade and loop glide silently absent from the C64 |
+| tune selector's labels named the wrong tunes | picking the rock intro played the atmospheric one |
+| `BASS_PW` never reached C, `INS` hardcoded in the exporter | would have diverged on the first envelope edit |
+| all three tunes reporting identical grooves | per-tune rhythm added but never passed through |
+
+Found only by listening, on hardware:
+
+| | |
+| - | - |
+| the player read back write-only SID registers | four sites; host `SID_REGS` is RAM, so every assertion passed |
+| the arpeggio never climbed after a hit | ADSR delay bug: gate-off without zeroing the envelope |
+| the drums never climbed either | same bug, same voice, half-fixed the first time |
+| the arpeggio was an octave too low | 2.2–4.4 waveform cycles per tone reads as buzz, not pitch |
+| the arpeggio died across the loop point | voice 3's wrap was incidental where voices 1 and 2 got a restart free |
+
+Four things follow, and they generalise past this module:
+
+- **A host test of hardware code tests the model, not the hardware.** `SID_REGS`
+  points at RAM on the host, so a read-back bug is not merely undetected — it is
+  *actively confirmed correct* by every assertion. The strongest version of this
+  test suite would still have passed.
+- **Two implementations agreeing proves they agree, not that they are right.**
+  The C player and the browser reference emitted byte-identical register streams
+  through four of the five bugs above. That cross-check is genuinely valuable —
+  it caught the arrangement resizes — but it cannot see anything both models get
+  wrong, and a model written by the same person will.
+- **Reach for the source when the runtime cannot see it.**
+  `test_player_never_reads_a_sid_register` parses `music.cc` and requires every
+  `SID_REGS[...]` to be the target of a plain `=`. It is the only kind of test
+  that could have caught the worst bug here, and it was written after the fact.
+- **The bugs clustered in one layer.** Every audible defect was in the register
+  writes — gating, envelope restarts, register width, waveform register. None
+  was in the note data, the arrangement, or the envelope values, all of which
+  the tests cover thoroughly and all of which were right the first time. The
+  tests were densest where the risk was lowest.
+
 ---
 
 ## 8. Phases
@@ -1285,8 +1343,31 @@ Each phase leaves the program in a working, committable state.
    every later phase extended it rather than creating it — which is what §7
    argued for and what sound.md's own phase 7 note records about
    `sound_test.cc`.
-8. **Verification.** VICE, PAL and NTSC, 6581 and 8580. Everything in §9 is
-   queued behind it, because all of it is a judgement by ear.
+8. **Verification.** ✅ Done. The platform matrix:
+
+   | | |
+   | - | - |
+   | PAL | ✅ the development target throughout |
+   | NTSC | ✅ runs ~20% fast, as §2 predicted, and in tune with itself |
+   | 6581 / 8580 | ✅ both play it |
+
+   Both chip revisions working is the return on §3's refusal to touch the
+   filter. That decision cost the tune its most obvious source of movement and
+   was made on the argument that a filter tuned on one revision can be
+   inaudible on the other; the payoff is that neither revision needed testing
+   before it worked, and neither needs a special case now.
+
+   **And the judgement by ear is done too.** Every question §9 had been holding
+   for this phase has an answer: the shipping tune is `tune2`, 46 seconds is
+   right for PAL, the envelopes are fine as chosen, the arpeggio survives the
+   loop, and pressing `H` mid-flight stays silent — the one property in this
+   module that could have broken something outside it.
+
+   The envelope nibbles are the item the plan moved here from phase 6 on the
+   grounds that they had never been compared against anything. They were judged
+   and kept, which is a real outcome rather than a skipped step: every audible
+   defect in this module turned out to be in the register writes underneath
+   them, never in the envelopes and never in the note data.
 
 The ordering that matters is phase 2 before everything else: the ownership guard
 is the only part of this module that can break something outside it, and it is
@@ -1297,18 +1378,20 @@ distracting.
 
 ## 9. Open questions
 
-**Which tune ships?** Four candidates now, three of them at the same length and
-tempo so the comparison is about the writing rather than the format. `tune2` is
-the default because this plan was written around it, which is not a reason.
-Decide by ear in phase 8 with the switcher; §5 has the mechanics, and the
-decision is one line.
+**~~Which tune ships?~~ `tune2`, decided by ear in phase 8.** The 24-bar
+atmospheric theme in D minor. The other three stay in `lib/music.py` and in the
+reference page: they cost one table entry each, they are what made the choice a
+comparison rather than an assertion, and they are where a future retune starts.
 
-**Is 46 seconds the right length?** 61 was too long — most players would never
-reach what the arrangement built toward. 30.7 fitted a visit but had no climax
-to reach, which is why it did not last. 46 puts the peak at about 40 s: past a
-quick glance at the mission list, inside a browse. This is the number most
-likely to move again after phase 8, and §3's table says the only places it can
-move to are 30.7 and 61.4.
+**~~Is 46 seconds the right length?~~ Yes, on PAL.** 61 was too long — most
+players would never reach what the arrangement built toward. 30.7 fitted a visit
+but had no climax to reach. 46 puts the peak at about 40 s: past a glance at the
+mission list, inside a browse.
+
+The qualifier is real and is the one thing this answer does not settle. NTSC
+plays the same tune in 38.4 s, so a 60 Hz machine gets a noticeably tighter
+piece — brisker, and its climax arrives sooner. Both were judged acceptable;
+only PAL was judged *right*.
 
 **~~How rough is the help-screen transition?~~ The gap is fixed; a short stall
 remains.** The cause was that `help_run()` and the `_enter_menu()` after it both
@@ -1329,11 +1412,12 @@ gated note simply sustains through them. Whether that is audible as a hitch is a
 phase 8 question. Closing it entirely would mean ticking the player from inside
 the screen-painting code, which is a worse trade than a 40 ms sustain.
 
-**Is the lead loud enough over the arpeggio?** With no per-voice volume this is
-decided entirely by envelope and waveform, and it is the first thing that will
-be wrong. The lever is the arpeggio's sustain, not the lead's — sound.md §10
-makes the same point about the stall warning, and its conclusion, that pitch
-placement works where volume does not, applies here too.
+**~~Is the lead loud enough over the arpeggio?~~ Yes, as chosen.** The
+envelopes were picked on paper and kept unchanged after phase 8. Worth recording
+that the balance was never the problem: every time this module sounded wrong,
+the cause was in the register writes rather than in the mix — a voice reading
+back a write-only register, an envelope that never started, an arpeggio an
+octave too low to read as pitch.
 
 **~~Does the tune miss its climax?~~ Restored at 24 bars.** It was cut when the
 tune dropped to 16 and came back once §4's packing freed 1,008 bytes. Six bars
@@ -1342,12 +1426,13 @@ figures. Whether six is enough to feel like a climb rather than a gesture is a
 phase 8 question; if it is not, the cheap answer is making bars 15–16 push
 harder rather than buying bars back.
 
-**Is the opening the right proportion?** Eight of twenty-four bars are build:
-four with no lead or drums at all, four with hats only. That is a third of the
-tune before the theme starts, which was a reasonable share of 32 bars and is
-more noticeable here. It may be exactly what gives the piece its character, or
-it may mean a browsing player only ever hears pedal tones. Shortening the pedal
-section to two bars is one edit to `SOFT_INTRO_BARS`. Ear decision.
+**~~Is the opening the right proportion?~~ Kept.** Eight of twenty-four bars
+are build — four with no lead or drums, four with hats only. It survived phase 8
+unchanged, though it was also the part that hid the longest-running bug: bars 1
+to 4 are the only stretch where voice 3 plays exposed, which is why "the
+arpeggio is missing" was reported there and nowhere else, three separate times
+and for three different reasons. Shortening the pedal section is one edit to
+`SOFT_INTRO_BARS` if it ever wears thin.
 
 **~~Should `V` work in the menu?~~ Done, and on the help screen too**, with the
 cycle reversed to full → low → off. §3 has the reasoning; the guessed answer
