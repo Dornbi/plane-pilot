@@ -1,7 +1,6 @@
 import argparse
 import math
 import os
-import sys
 
 # Repo root, so outputs land in the right place regardless of the
 # current working directory.
