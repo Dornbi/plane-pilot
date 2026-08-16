@@ -154,6 +154,7 @@ OPTFLAGS = -O2 -Op -Oa -Oi -Oz -Oo
 # and an overrun corrupts globals silently, so every link is followed by this.
 PYTHON ?= python3
 ZPCHECK = $(PYTHON) ../tools/check_zeropage.py
+MATHCHECK = $(PYTHON) ../tools/check_mul_div.py
 RAMANALYSIS = $(PYTHON) ../tools/analyze_ram.py
 
 # Report the size of a built .prg. A .prg starts with a two-byte little-endian
@@ -193,27 +194,35 @@ ram:
 $(PPILOT_PROGRAM).prg: $(PPILOT_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__ENABLE_SOUND__ -D__MAX_RAM__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(PPILOT_PROGRAM).asm
+	@$(MATHCHECK) $(PPILOT_PROGRAM).asm
 
 $(PPILOTD_PROGRAM).prg: $(PPILOTD_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__ENABLE_DEBUG__ -D__MAX_RAM__ -o=$(PPILOTD_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(PPILOTD_PROGRAM).asm
+	@$(MATHCHECK) $(PPILOTD_PROGRAM).asm
 
 $(POLYDEMO_PROGRAM).prg: $(POLYDEMO_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ -D__DEBUG_POLY__ -D__MAX_RAM__ polydemo.cc
 	@$(ZPCHECK) $(POLYDEMO_PROGRAM).asm
+	@$(MATHCHECK) $(POLYDEMO_PROGRAM).asm
 
 $(VECDEMO_PROGRAM).prg: $(VECDEMO_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ vecdemo.cc
 	@$(ZPCHECK) $(VECDEMO_PROGRAM).asm
+	@$(MATHCHECK) $(VECDEMO_PROGRAM).asm
 
 $(VECTEST_PROGRAM).prg: $(VECTEST_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ vectest.cc
 	@$(ZPCHECK) $(VECTEST_PROGRAM).asm
 
-# Re-run the check on whatever is already built, without provoking a build.
+# Re-run the checks on whatever is already built, without provoking a build.
 zpcheck:
 	$(ZPCHECK) $(PPILOT_PROGRAM).asm $(PPILOTD_PROGRAM).asm $(POLYDEMO_PROGRAM).asm \
 		$(VECDEMO_PROGRAM).asm $(VECTEST_PROGRAM).asm
+
+mathcheck:
+	$(MATHCHECK) $(PPILOT_PROGRAM).asm $(PPILOTD_PROGRAM).asm $(POLYDEMO_PROGRAM).asm \
+		$(VECDEMO_PROGRAM).asm
 
 test flight_test msg_test:
 	$(MAKE) -C test $@
@@ -222,7 +231,7 @@ clean:
 	rm -rf $(PPILOT_PROGRAM).prg $(PPILOTD_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg *.asm *.dbj *.int *.lbl *.map
 	$(MAKE) -C test clean
 
-.PHONY: all size ram zpcheck test flight_test msg_test clean
+.PHONY: all size ram zpcheck mathcheck test flight_test msg_test clean
 
 # ZPCHECK runs after the link, so a program that fails it already exists on
 # disk. Without this, the next make would find the .prg newer than its sources,
