@@ -20,7 +20,7 @@ PANEL_FLAGS = --bg-color 0 --optimize-slots \
 # c64o/ (build output, gitignored) to bin/ (checked in, what README links to).
 PROGRAMS = ppilot ppilotd polydemo vecdemo vectest
 
-.PHONY: help data chardefs gfx-chars sprites map-tiles map-tiles-draft panel music map-preview render demo prg ram release test clean
+.PHONY: help data chardefs gfx-chars sprites clouds map-tiles map-tiles-draft panel music map-preview cloud-preview render demo prg ram release test clean
 
 help:
 	@echo "Data generation:"
@@ -28,11 +28,13 @@ help:
 	@echo "  make chardefs    - chardefs/boxdefs for Python and C, plus all reference frames"
 	@echo "  make gfx-chars   - c64o/gfx_chars.bin"
 	@echo "  make sprites     - c64o/spritedef.{bin,h,cc} and lib/spritedef.py"
+	@echo "  make clouds      - c64o/clouddef.{h,cc} and lib/clouddef.py"
 	@echo "  make map-tiles   - c64o/mapdefs.{cc,h} from gfx/ppilot_map_tiles.png"
 	@echo "  make panel       - c64o/panel.koa from gfx/ppilot_panel_40.png"
 	@echo "  make music       - c64o/musicdef.{cc,h} and docs/sid-intro-theme.html from lib/music.py"
 	@echo ""
 	@echo "Preview and build:"
+	@echo "  make cloud-preview - render out/cloud_preview.png and report the cloud density"
 	@echo "  make map-preview - render out/map_preview.png from the current map tiles"
 	@echo "  make render      - render all roll angles to out/rendered_frames"
 	@echo "  make demo        - interactive roll/pitch demo (needs pygame)"
@@ -46,7 +48,7 @@ help:
 
 # --- Data generation -------------------------------------------------------
 
-data: chardefs gfx-chars sprites map-tiles music
+data: chardefs gfx-chars sprites clouds map-tiles music
 
 chardefs:
 	$(PYTHON) tools/generate_all.py $(CHARDEFS_FLAGS)
@@ -56,6 +58,12 @@ gfx-chars:
 
 sprites:
 	$(PYTHON) tools/generate_sprites.py
+
+# Cloud placement constants, emitted for the C64 build and for Python from the
+# four numbers at the top of the script. Retune the density there and rerun
+# this, then check it with `make cloud-preview` - see docs/clouds.md §7.
+clouds:
+	$(PYTHON) tools/generate_clouds.py
 
 # The tile sheet gfx/ppilot_map_tiles.png is the source of truth: edit it in
 # GIMP, then run this. map-tiles-draft only lays down the first version and
@@ -87,6 +95,9 @@ panel:
 
 map-preview:
 	$(PYTHON) tools/render_map_preview.py
+
+cloud-preview:
+	$(PYTHON) tools/render_cloud_preview.py
 
 render:
 	$(PYTHON) tools/render_all.py --centers "$(RENDER_CENTERS)" --debug

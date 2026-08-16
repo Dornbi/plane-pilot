@@ -408,18 +408,28 @@ Constants get generated, not hand-typed — see §7.
 
 ### 2.4. Density
 
-`kCloudGateMask = 0x03` puts a group in one cell in four: about 32 groups in
-the world. Sampled over 4,000 random positions, headings and altitudes:
+**`kCloudGateMask = 0x07`** puts a group in one cell in eight: 20 groups in the
+world. Measured on the tables `generate_clouds.py` actually emits, over 4,000
+random positions and headings at each of four altitudes
+(`make cloud-preview --compare-gates`):
 
-| Gate | Cells with a group | E[groups in view] | P(0) | P(1) | P(≥2) |
-| :--- | ---: | ---: | ---: | ---: | ---: |
-| `0x07` (1 in 8) | 0.15 | 0.39 | 0.65 | 0.31 | **0.04** |
-| **`0x03` (1 in 4)** | **0.20** | **0.50** | **0.58** | **0.36** | **0.07** |
-| `0x01` (1 in 2) | 0.48 | 1.25 | 0.18 | 0.46 | 0.36 |
+| Gate | Cells with a group | E[groups in view] | P(0) | P(1) | P(≥2) | Slot overflow |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **`0x07` (1 in 8)** | **20/128** | **0.44** | **0.61** | **0.34** | **0.05** | **0.6%** |
+| `0x03` (1 in 4) | 30/128 | 0.67 | 0.47 | 0.41 | 0.12 | 3.0% |
+| `0x01` (1 in 2) | 64/128 | 1.43 | 0.21 | 0.34 | 0.45 | 19% |
 
-`0x03` is the recommended default: you see a cloud group about 40% of the time
-and two at once about 7% of the time, which is the brief. The numbers barely
-move with altitude, which is the point of §2.6's deck height.
+You see a cloud group about 39% of the time and two at once 5% of the time,
+which is the brief. The numbers barely move with altitude, which is the point of
+§2.6's deck height.
+
+> **This table replaces an estimate, and the estimate was optimistic.** An
+> earlier draft recommended `0x03` on figures from a prototype hash that
+> realised 20% of cells rather than the nominal 25%. Measured on the real
+> tables, `0x03` puts two groups in frame 12% of the time — occasional rather
+> than rare — and asks for more than seven sprite slots in 3% of frames.
+> `0x07` lands where the estimate thought `0x03` would. This is exactly what
+> §7's preview is for, and it earned its place the first time it was run.
 
 ### 2.5. A group is three blobs
 
@@ -776,10 +786,11 @@ For comparison the sun costs ~850 cycles today and keeps costing it. The
 dominant term when nothing is visible is the 25 hash gates, which is the price
 of the wide scan radius §2.2 argues for.
 
-Sampling the slot demand over 6,000 random frames at the recommended density:
-mean 1.7 of 7 cloud slots, 89% of frames want three or fewer, and **1.5% of
-frames want more than seven** — the case the stack's drop rule exists for, and
-rare enough that dropping the farthest blob is invisible.
+Sampling the slot demand at the recommended density (§2.4): mean **1.4** of 7
+cloud slots, and **0.9% of frames want more than seven** at worst — the case the
+stack's drop rule exists for, and rare enough that dropping the farthest blob is
+invisible. `make cloud-preview` prints this table alongside the density one, so
+retuning the gate shows its cost in sprites as well as in clouds.
 
 None of [sprite_objects.md](sprite_objects.md) §5's mitigations are needed at
 this budget. Its round-robin candidate scan in particular should not be built:
@@ -806,8 +817,10 @@ state it would need.
 | `c64o/test/Makefile` | new target |
 | `tools/generate_sprites.py` | apply the dither procedurally and assert the phase invariant (§4.3) — byte-identical output today |
 | `tests/test_spritedef.py` | **new** — the §4.2 invariant against `lib/spritedef.py`, the byte-for-byte reproduction, and the interlock property of §4.1 |
-| `tools/generate_clouds.py` | **new** — emits the hash tables and rung thresholds |
-| `tools/render_cloud_preview.py` | **new** — density and layout preview |
+| `tools/generate_clouds.py` | **new** — emits the hash tables, rung thresholds and group patterns, and checks the §2.2 / §3.1 couplings |
+| `tests/test_clouddef.py` | **new** — the layout properties, and that the `.h`, `.cc` and `.py` copies agree |
+| `Makefile` | `make clouds` in `make data`, plus `make cloud-preview` |
+| `tools/render_cloud_preview.py` | **new** — layout picture, density and slot-demand tables, `--compare-gates` |
 | `docs/sprite_objects.md` | status header; correct §1.1's parked-expanded-sprite claim; correct §3's "4 × 4 screen-pixel quadrant … 4 raster lines" to 2 × 2 and close the §8 question it feeds; mark §7 resolved |
 | `docs/memory_map.md` | regenerate (`make ram`); note §4's "Sprite RAM at `$E700`" is stale — the blocks are at `$D400–$DFFF` |
 | `TODO.md` | strike "Clouds?" |
@@ -822,12 +835,26 @@ none of them should be typed by hand into `clouds.cc`. Follow the pattern
 `generate_sprites.py` already sets:
 
 `tools/generate_clouds.py` emits `c64o/clouddef.h` / `.cc` **and**
-`lib/clouddef.py`, so the Python preview and the C64 build cannot drift. Wire
-it into `make data` next to `make sprites`.
+`lib/clouddef.py`, wired into `make data` as `make clouds`.
+`tests/test_clouddef.py` parses the header and the table file back and compares
+them to the Python — the three copies agreeing is what makes any of them
+trustworthy.
 
-`tools/render_cloud_preview.py` draws the group layout over the existing map
-preview and reports the density table of §2.4, so a change to `kCloudGateMask`
-can be checked in a second rather than by flying around.
+**The hash tables are searched, not seeded.** The generator walks seeds until it
+finds tables whose density, spread over the world, and presence/jitter
+independence all pass, then stops. Deterministic — the same four numbers always
+give the same tables — while letting the density be retuned by changing one
+constant rather than by hand-editing 88 bytes. Two couplings are checked there
+too, because both are easy to break by retuning one number alone and both fail
+on screen in ways that are hard to attribute: the cull radius must equal the
+scan's guaranteed radius (§2.2), and the smallest rung must land exactly on it
+(§3.1).
+
+`tools/render_cloud_preview.py` writes `out/cloud_preview.png` — the world from
+above, every group at its hashed position with its three blobs, the 5 × 5 scan
+block and the 64° viewport wedge for scale — and prints the density and
+slot-demand tables. `--compare-gates` searches tables for each candidate mask
+and measures all of them, which is the whole tuning loop in one command.
 
 ---
 
@@ -934,7 +961,7 @@ whether a handler touches oscar64's runtime zero page (§1.4 — that is
 | 1 | Sprite stack: API, storage, double buffer, all-8 terrain handler, `$D01D` / colour-7 fixes, register init, `check_irq_zp.py` | yes | Sun is the only client. Screen should be **pixel-identical** to today — that is the test. Read §1.4's zero page rule before touching the handler |
 | 2 | Host `sprites_test` for the stack and the three bands, including the §4.2 position snap | yes | Before clouds, while the only client is trivial. Check it can fail: mutate the sort order, the 21-line offset, the `$D01D` clear, and confirm each one is caught |
 | 3 | Procedural dither + phase assertion in `generate_sprites.py`; `tests/test_spritedef.py` | yes | Must reproduce the checked-in `spritedef.bin` byte for byte (§4.3) |
-| 4 | `generate_clouds.py`, `clouddef.*`, `render_cloud_preview.py` | yes | Tune density on the preview, not in the emulator |
+| 4 | `generate_clouds.py`, `clouddef.*`, `render_cloud_preview.py`, `test_clouddef.py` | yes | Tune density on the preview, not in the emulator. It moved the gate from `0x03` to `0x07` on first run (§2.4) |
 | 5 | Cell scan, hash, one blob per group, rungs 0–4 only, no offsets | yes | One sprite per group. Confirms placement, projection and the ladder in isolation |
 | 6 | Offset basis, three blobs, group patterns | yes | Overlap and rotation. **The first frame where §4 is observable** — three blobs on one lattice or three blobs in a white lump |
 | 7 | Rungs 5–9, two-sprite entries, X-expansion live | yes | The `$D01D` work from phase 1 finally gets exercised, and so does the 21-line seam of §4.4 |
