@@ -67,17 +67,25 @@ struct sprite_cand_t {
   uint8_t flags;
 };
 
-// The committed frame, laid out by register rather than by object so the
-// terrain handler walks four flat arrays instead of striding a struct.
+// The committed frame. The layout is chosen for the *interrupt* that reads it,
+// not for the main line that writes it: `pos` mirrors $D000-$D00F byte for
+// byte, x and y interleaved, so the handler copies it with one index register
+// and one stride. Holding x and y in separate arrays would need two indices at
+// different strides, and on a 6502 that is one live value more than there are
+// registers - oscar64 spills the difference into its runtime zero page, which
+// a raster handler may not touch. See _sprites_program_frame() below.
 struct sprite_frame_t {
-  uint8_t x[8];
-  uint8_t y[8];
+  uint8_t pos[16];
   uint8_t ptr[8];
   uint8_t color[8];
   uint8_t msbx;
   uint8_t expand;
   uint8_t enable;
 };
+
+// $D000, as a literal rather than through the vic struct, so `[i]` is plainly
+// absolute-indexed.
+#define kVicSpritePos ((volatile uint8_t *)0xD000)
 
 static sprite_cand_t _sprites_cand[kSpriteStackSize];
 static uint8_t _sprites_cand_count;
@@ -89,7 +97,10 @@ static uint8_t _sprites_cand_count;
 // a torn read across eight is one object's X against another's Y, which is a
 // sprite in the wrong place. Commit fills the back frame and then stores the
 // index, and a single byte store is atomic on a 6502, so no sei is needed.
-static sprite_frame_t _sprites_frame[2];
+// Two named objects rather than an array of two, because the raster handler
+// must reach them by a *constant* address - see the macro below.
+static sprite_frame_t _sprites_frame_a;
+static sprite_frame_t _sprites_frame_b;
 static volatile uint8_t _sprites_frame_shown;
 
 #pragma bss(bss2)
@@ -303,8 +314,10 @@ bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
 }
 
 void sprites_stack_commit(void) {
+  // Main line, so a pointer is fine here - the restriction above is on the
+  // interrupt side only.
   uint8_t back = _sprites_frame_shown ^ 1;
-  sprite_frame_t *f = back ? &_sprites_frame[1] : &_sprites_frame[0];
+  sprite_frame_t *f = back ? &_sprites_frame_b : &_sprites_frame_a;
 
   uint8_t idx = 0;
   uint8_t bit = 1;
@@ -322,8 +335,8 @@ void sprites_stack_commit(void) {
     uint8_t ptr = c->bitmap;
     uint8_t sy = c->y;
     for (uint8_t s = 0; s < slots; ++s) {
-      f->x[idx] = (uint8_t)c->x;
-      f->y[idx] = sy;
+      f->pos[idx << 1] = (uint8_t)c->x;
+      f->pos[(idx << 1) + 1] = sy;
       f->ptr[idx] = ptr;
       f->color[idx] = c->color;
       enable |= bit;
@@ -345,8 +358,8 @@ void sprites_stack_commit(void) {
   // displayed on; clearing the enable bit costs neither, and it is one store
   // in the handler instead of eight.
   while (idx < kSpriteStackSize) {
-    f->x[idx] = 0;
-    f->y[idx] = 0;
+    f->pos[idx << 1] = 0;
+    f->pos[(idx << 1) + 1] = 0;
     f->ptr[idx] = kSpriteDefSun.bitmap_idx;
     f->color[idx] = kColorInstrument;
     ++idx;
@@ -358,25 +371,53 @@ void sprites_stack_commit(void) {
   _sprites_frame_shown = back;
 }
 
+// Programs one frame into the VIC. A macro, and a duplicated loop, rather than
+// the obvious helper taking a `const sprite_frame_t *` - which is what this was
+// first, and it corrupted the whole screen.
+//
+// **Nothing reached from a raster interrupt may touch oscar64's runtime zero
+// page.** A pointer parameter makes the compiler stage the address in ACCU
+// ($27) and T1..T3 ($33-$38) and read through `(zp),y`. Those bytes are the
+// runtime's, shared with the main line, and this runs at raster 250 straight
+// through whatever the renderer was in the middle of. Naming the frame instead
+// makes every base address a link-time constant, so the loop compiles to
+// absolute-indexed loads and stores and touches no zero page at all.
+//
+// tools/check_irq_zp.py enforces this on every build; mem.h's zero page comment
+// is where the $00-$5F layout it checks against comes from.
+// Two loops rather than one, for the same register-pressure reason as the
+// layout above: each carries a single index and a single value, which is what
+// a 6502 has room for. Neither is unrolled - this sits at raster 250 in the
+// bottom border with ~58 PAL lines of slack after sound_blit(), so the cycles
+// are raster lines nobody is waiting on, and unrolling two copies of it would
+// cost around 500 bytes.
+#define _sprites_program_frame(F)                                              \
+  do {                                                                         \
+    /* Counts down. Counting up made oscar64 increment the index before the  */ \
+    /* store, so it kept the pre-increment copy in X and shuffled the two    */ \
+    /* through ACCU - which is exactly the zero page this must not touch.    */ \
+    /* Downward, one register indexes both sides and nothing spills.         */ \
+    uint8_t i = 16;                                                            \
+    do {                                                                       \
+      --i;                                                                     \
+      kVicSpritePos[i] = (F).pos[i];                                           \
+    } while (i != 0);                                                          \
+    for (uint8_t i = 0; i < 8; i++) {                                          \
+      *(kScreenRamMain + 1016 + i) = (F).ptr[i];                               \
+      *(kScreenRamAlt + 1016 + i) = (F).ptr[i];                                \
+      vic.spr_color[i] = (F).color[i];                                         \
+    }                                                                          \
+    vic.spr_msbx = (F).msbx;                                                   \
+    vic.spr_expand_x = (F).expand;                                             \
+    vic.spr_enable = (F).enable;                                               \
+  } while (0)
+
 inline void sprites_show_terrain_sprites() {
-  const sprite_frame_t *f =
-      _sprites_frame_shown ? &_sprites_frame[1] : &_sprites_frame[0];
-  // Deliberately not unrolled. This is the one loop in the program where the
-  // trade runs the other way: it sits at raster 250 in the bottom border with
-  // ~58 PAL lines of slack after sound_blit(), so the ~200 extra cycles a
-  // rolled loop costs are three raster lines nobody is waiting on, while the
-  // unrolled form costs about 190 bytes - and gfx.cc's optimize(nooutline)
-  // around the handlers means the outliner cannot win them back.
-  for (uint8_t i = 0; i < 8; i++) {
-    vic.spr_pos[i].x = f->x[i];
-    vic.spr_pos[i].y = f->y[i];
-    *(kScreenRamMain + 1016 + i) = f->ptr[i];
-    *(kScreenRamAlt + 1016 + i) = f->ptr[i];
-    vic.spr_color[i] = f->color[i];
+  if (_sprites_frame_shown) {
+    _sprites_program_frame(_sprites_frame_b);
+  } else {
+    _sprites_program_frame(_sprites_frame_a);
   }
-  vic.spr_msbx = f->msbx;
-  vic.spr_expand_x = f->expand;
-  vic.spr_enable = f->enable;
 }
 
 inline void sprites_show_no_sprites() {

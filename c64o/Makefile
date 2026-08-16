@@ -154,6 +154,11 @@ OPTFLAGS = -O2 -Op -Oa -Oi -Oz -Oo
 # and an overrun corrupts globals silently, so every link is followed by this.
 PYTHON ?= python3
 ZPCHECK = $(PYTHON) ../tools/check_zeropage.py
+# Raster handlers run on top of the main line, so they must not touch oscar64's
+# runtime zero page. Nothing in the compiler checks that and the failure mode is
+# a scrambled screen with no obvious cause, so every link is followed by this
+# too. See the header of the script.
+IRQCHECK = $(PYTHON) ../tools/check_irq_zp.py
 MATHCHECK = $(PYTHON) ../tools/check_mul_div.py
 RAMANALYSIS = $(PYTHON) ../tools/analyze_ram.py
 
@@ -194,16 +199,19 @@ ram:
 $(PPILOT_PROGRAM).prg: $(PPILOT_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__ENABLE_SOUND__ -D__MAX_RAM__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(PPILOT_PROGRAM).asm
+	@$(IRQCHECK) $(PPILOT_PROGRAM).asm
 	@$(MATHCHECK) $(PPILOT_PROGRAM).asm
 
 $(PPILOTD_PROGRAM).prg: $(PPILOTD_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__ENABLE_DEBUG__ -D__MAX_RAM__ -o=$(PPILOTD_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(PPILOTD_PROGRAM).asm
+	@$(IRQCHECK) $(PPILOTD_PROGRAM).asm
 	@$(MATHCHECK) $(PPILOTD_PROGRAM).asm
 
 $(POLYDEMO_PROGRAM).prg: $(POLYDEMO_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ -D__DEBUG_POLY__ -D__MAX_RAM__ polydemo.cc
 	@$(ZPCHECK) $(POLYDEMO_PROGRAM).asm
+	@$(IRQCHECK) $(POLYDEMO_PROGRAM).asm
 	@$(MATHCHECK) $(POLYDEMO_PROGRAM).asm
 
 $(VECDEMO_PROGRAM).prg: $(VECDEMO_SRC)
@@ -219,6 +227,7 @@ $(VECTEST_PROGRAM).prg: $(VECTEST_SRC)
 zpcheck:
 	$(ZPCHECK) $(PPILOT_PROGRAM).asm $(PPILOTD_PROGRAM).asm $(POLYDEMO_PROGRAM).asm \
 		$(VECDEMO_PROGRAM).asm $(VECTEST_PROGRAM).asm
+	$(IRQCHECK) $(PPILOT_PROGRAM).asm $(PPILOTD_PROGRAM).asm $(POLYDEMO_PROGRAM).asm
 
 mathcheck:
 	$(MATHCHECK) $(PPILOT_PROGRAM).asm $(PPILOTD_PROGRAM).asm $(POLYDEMO_PROGRAM).asm \

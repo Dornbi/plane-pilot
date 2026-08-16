@@ -166,6 +166,34 @@ comment in `gfx.cc` accounts for ~200 cycles there with 58 PAL lines to spare.
 Another 210 is four raster lines. Fine on PAL; NTSC was already over budget on
 that path before this change and stays that way.
 
+**Nothing reached from a raster handler may touch oscar64's runtime zero
+page.** This is the constraint that governs how the handler above is written,
+and it is not obvious from the C. oscar64 keeps its working registers in the
+low zero page - `mem.h`'s comment maps the layout, `ACCU` at `$27`, `TMP` from
+`$33` - and those bytes belong to whatever the interrupt landed on top of. A
+handler stays clear of them only while every address it touches is a link-time
+constant. Two things break that, and both were hit while building phase 1:
+
+- **a pointer variable.** `const sprite_frame_t *f = shown ? &b : &a;` makes
+  oscar64 stage the address in `ACCU` and `T1..T3` and read through `(zp),y`.
+  The fix is to name the frame in each branch of an `if`, so the base addresses
+  are constants and the loop compiles to absolute indexing.
+- **more live values than there are registers.** Copying `x[8]` and `y[8]` into
+  `$D000` needs two indices at different strides, which is one more than a 6502
+  has, and the spill goes to the same zero page. Storing the positions as a
+  single `pos[16]` that mirrors `$D000-$D00F` byte for byte reduces it to one
+  index and one stride. A loop that counts *down* is also worth having: counting
+  up made oscar64 increment the index before the store and shuffle the two
+  copies through `ACCU`.
+
+The symptom when this goes wrong is not a wrong sprite. It is
+`gfx_update_heading_bitmap()`'s `memcpy` into the panel bitmap running with a
+corrupted pointer, and the screen dissolving a long way from the cause.
+`tools/check_zeropage.py` does not catch it - that guards the boundary between
+oscar64's spilled temporaries and the region `mem.h` claims at `$60`, which is a
+different failure. `tools/check_irq_zp.py` guards this one and runs on every
+link.
+
 **`_gfx_switch_to_panel_top` is cycle-counted, and both additions land after
 its timing-critical block.** The `$d018` / `$d011` / `$d021` stores and the NOP
 padding that positions them are untouched; the new work goes inside
@@ -761,6 +789,8 @@ state it would need.
 | `c64o/world.cc` | `world_update_sun_pos()` → `world_update_objects()`: stack reset, `clouds_add_candidates()`, sun add, commit |
 | `c64o/sim.cc` | one line: the renamed call |
 | `c64o/gfx.cc` | nothing — the handler bodies stay, the `sprites_show_*` functions they call change |
+| `tools/check_irq_zp.py` | **new** — fails the link if a raster handler touches oscar64's runtime zero page (§1.4) |
+| `c64o/Makefile` (again) | run it after every link, next to `check_zeropage.py` |
 | `c64o/Makefile` | `clouds.cc` |
 | `c64o/test/cloud_test.cc` | **new** — §8 |
 | `c64o/test/Makefile` | new target |
@@ -868,7 +898,7 @@ emulator. Add `cloud_test` to `c64o/test/Makefile` alongside `map_test`.
 
 | # | Work | Ships? | Notes |
 | --- | --- | :---: | --- |
-| 1 | Sprite stack: API, storage, double buffer, all-8 terrain handler, `$D01D` / colour-7 fixes, register init | yes | Sun is the only client. Screen should be **pixel-identical** to today — that is the test |
+| 1 | Sprite stack: API, storage, double buffer, all-8 terrain handler, `$D01D` / colour-7 fixes, register init, `check_irq_zp.py` | yes | Sun is the only client. Screen should be **pixel-identical** to today — that is the test. Read §1.4's zero page rule before touching the handler |
 | 2 | Host `cloud_test` for the stack, including the §4.2 position snap | yes | Before clouds, while the only client is trivial |
 | 3 | Procedural dither + phase assertion in `generate_sprites.py`; `tests/test_spritedef.py` | yes | Must reproduce the checked-in `spritedef.bin` byte for byte (§4.3) |
 | 4 | `generate_clouds.py`, `clouddef.*`, `render_cloud_preview.py` | yes | Tune density on the preview, not in the emulator |
