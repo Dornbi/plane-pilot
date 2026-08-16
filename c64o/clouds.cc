@@ -176,13 +176,6 @@ void clouds_add_candidates(void) {
              centre.x <= kCloudRungDepth[rung + 1]) {
         ++rung;
       }
-      // Phase 6 still draws single sprites only; the 1 x 2 stacks arrive with
-      // the rest of the ladder. Clamping rather than culling keeps a near
-      // cloud visible at the largest size it can currently draw.
-      if (rung >= kCloudRungStacked) {
-        rung = kCloudRungStacked - 1;
-      }
-
       if (!_clouds_basis_valid) {
         _clouds_build_basis();
         _clouds_basis_valid = true;
@@ -191,7 +184,19 @@ void clouds_add_candidates(void) {
       // The pattern is the top two bits of the same hash byte the gate read,
       // so a cell's orientation costs nothing to fetch (§2.5).
       const int8_t(*pattern)[3] = kCloudGroupOffset[ha >> 6];
-      const sprite_cloud1_meta_t *meta = &kSpriteDefCloud1Sprite[rung];
+
+      // One flat row per rung, so nothing here has to know which half of the
+      // ladder it is on: bitmap2 is kSpriteNoBitmap below kCloudRungStacked and
+      // the lower block's index above it, and the pivot comes with it (20
+      // rather than 10 for the stacked rungs - the pivot is the centre of the
+      // taller pair). Above kCloudRungStacked the entry becomes two hardware
+      // sprites at commit, the lower one 21 lines down; that 21 flips the
+      // dither row parity and the block's own phase was built with the same 21
+      // in it, so the seam is continuous (§4.4).
+      //
+      // The flat table is also load bearing, not tidiness: selecting between
+      // the two per-half structs in C miscompiles under oscar64 (§3.4).
+      const sprite_cloud_rung_t *meta = &kSpriteDefCloudRung[rung];
 
       for (uint8_t b = 0; b < kCloudBlobsPerGroup; ++b) {
         vec_v = centre;
@@ -200,8 +205,8 @@ void clouds_add_candidates(void) {
         _clouds_add_step(&vec_v, 2, pattern[b][2]);
 
         // The group centre is in front of the camera, but a blob is offset by
-        // up to 54 units, so at the shortest ranges the depth clamp allows one
-        // can still land behind it.
+        // up to 54 units, so at the shortest ranges one can still land behind
+        // it.
         if (vec_v.x <= 8) {
           continue;
         }
@@ -213,8 +218,8 @@ void clouds_add_candidates(void) {
         // a group the near blob really should occlude the far one.
         sprites_stack_add(vec_v.x, (int16_t)kScreenWidthPixels / 2 - vec_sx,
                           (int16_t)kViewportEndYPixels / 2 - vec_sy,
-                          meta->pivot_x, meta->pivot_y, meta->bitmap_idx,
-                          kSpriteNoBitmap, kColorCloud,
+                          meta->pivot_x, meta->pivot_y, meta->bitmap,
+                          meta->bitmap2, kColorCloud,
                           kSpriteFlagExpandX | kSpriteFlagAlignDither);
       }
     }

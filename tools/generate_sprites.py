@@ -477,6 +477,28 @@ def main():
         f.write("    int8_t pivot_x;\n")
         f.write("    int8_t pivot_y;\n")
         f.write("};\n\n")
+        # The two tables above are how the sprites are *described*; this one is
+        # how the simulation *uses* them - one flat row per ladder rung, so a
+        # caller indexes by rung and never has to know which half of the ladder
+        # it is on. bitmap2 is 0xFF (kSpriteNoBitmap) for the single-sprite
+        # rungs, which is exactly what sprites_stack_add() wants.
+        #
+        # This is not sugar. Selecting between the two structs in C - two
+        # differently-typed pointers of the same shape, four parallel field
+        # assignments - miscompiles under oscar64: it folds a constant from one
+        # branch into two fields of the other and drops a third assignment
+        # entirely. See docs/clouds.md §3.4. A flat table has no branch to get
+        # wrong.
+        f.write(f"static const uint8_t kSpriteDefCloudRungCount = "
+                f"{len(cloud1_meta) + len(cloud2_meta)};\n\n")
+        f.write("struct sprite_cloud_rung_t {\n")
+        f.write("    uint8_t bitmap;\n")
+        f.write("    uint8_t bitmap2;   // 0xFF when the rung is one sprite\n")
+        f.write("    int8_t pivot_x;\n")
+        f.write("    int8_t pivot_y;\n")
+        f.write("};\n\n")
+        f.write("extern const sprite_cloud_rung_t "
+                "kSpriteDefCloudRung[kSpriteDefCloudRungCount];\n")
         f.write(
             "extern const sprite_cloud1_meta_t kSpriteDefCloud1Sprite[kSpriteDefCloud1Count];\n"
         )
@@ -511,6 +533,18 @@ def main():
         for m in cloud2_meta:
             f.write(
                 f"    {{ {m['width']}, {m['height']}, {m['top_bitmap_idx']}, {m['bot_bitmap_idx']}, {m['pivot_x']}, {m['pivot_y']} }}, // {m['label']}\n"
+            )
+        f.write("};\n\n")
+        f.write(
+            "const sprite_cloud_rung_t kSpriteDefCloudRung[kSpriteDefCloudRungCount] = {\n"
+        )
+        for m in cloud1_meta:
+            f.write(
+                f"    {{ {m['bitmap_idx']}, 0xFF, {m['pivot_x']}, {m['pivot_y']} }}, // {m['label']}\n"
+            )
+        for m in cloud2_meta:
+            f.write(
+                f"    {{ {m['top_bitmap_idx']}, {m['bot_bitmap_idx']}, {m['pivot_x']}, {m['pivot_y']} }}, // {m['label']}\n"
             )
         f.write("};\n\n")
         f.write(

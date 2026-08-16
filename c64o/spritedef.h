@@ -31,6 +31,16 @@ struct sprite_cloud2_meta_t {
     int8_t pivot_y;
 };
 
+static const uint8_t kSpriteDefCloudRungCount = 10;
+
+struct sprite_cloud_rung_t {
+    uint8_t bitmap;
+    uint8_t bitmap2;   // 0xFF when the rung is one sprite
+    int8_t pivot_x;
+    int8_t pivot_y;
+};
+
+extern const sprite_cloud_rung_t kSpriteDefCloudRung[kSpriteDefCloudRungCount];
 extern const sprite_cloud1_meta_t kSpriteDefCloud1Sprite[kSpriteDefCloud1Count];
 extern const sprite_cloud2_meta_t kSpriteDefCloud2Sprite[kSpriteDefCloud2Count];
 extern const sprite_meta_t kSpriteDefMetaLongArm[kSpriteDefMetaCount];

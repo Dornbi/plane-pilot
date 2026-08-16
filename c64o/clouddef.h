@@ -25,7 +25,7 @@ static const uint8_t kCloudJitterShift = 7;
 // offsets are counted in (§2.5), all in 2 m units.
 static const uint8_t kCloudBlobU = 96;
 static const int16_t kCloudDeckU = 700;
-static const uint8_t kCloudOffsetU = 48;
+static const uint8_t kCloudOffsetU = 32;
 
 // The draw distance. Equal to the scan's guaranteed radius by construction -
 // generate_clouds.py fails the build if they ever disagree (§2.2).

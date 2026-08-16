@@ -245,6 +245,52 @@ class TestGeneratorReproducesCheckedInData(unittest.TestCase):
                     "cloud2 %s disagrees on %s" % (produced["label"], key)
                 )
 
+    def test_flat_rung_table_agrees_with_the_two_it_replaces(self):
+        # docs/clouds.md §3.4. clouds.cc indexes one flat row per rung rather
+        # than branching between sprite_cloud1_meta_t and sprite_cloud2_meta_t,
+        # because that branch miscompiles under oscar64 - it folded a constant
+        # from one arm into two fields of the other and dropped a third
+        # assignment, which put a blank sprite under every near cloud. The flat
+        # table has no branch to get wrong, but it does have a copy to drift,
+        # so check it against the two tables it is derived from.
+        import re
+
+        path = os.path.join(REPO_ROOT, "c64o", "spritedef.cc")
+        with open(path) as f:
+            src = f.read()
+        body = re.search(
+            r"kSpriteDefCloudRung\[[^\]]*\]\s*=\s*\{(.*?)\n\};",
+            src, re.S,
+        )
+        self.assertIsNotNone(body, "kSpriteDefCloudRung is missing from "
+                                   "spritedef.cc - rerun `make sprites`")
+        rows = []
+        for line in body.group(1).splitlines():
+            line = line.split("//")[0].strip()
+            if not line.startswith("{"):
+                continue
+            rows.append([int(v.strip(), 0)
+                         for v in line.strip("{},").split(",")])
+
+        expected = [
+            [m["bitmap_idx"], 0xFF, m["pivot_x"], m["pivot_y"]]
+            for m in spritedef.META_CLOUD1
+        ] + [
+            [m["top_bitmap_idx"], m["bot_bitmap_idx"], m["pivot_x"],
+             m["pivot_y"]]
+            for m in spritedef.META_CLOUD2
+        ]
+        self.assertEqual(rows, expected)
+
+        # The property clouds.cc leans on, spelled out: the sentinel appears on
+        # exactly the single-sprite rungs, because sprites_stack_add() reads it
+        # as "this entry is one hardware sprite, not two".
+        for i, row in enumerate(rows):
+            self.assertEqual(
+                row[1] == 0xFF, i < len(spritedef.META_CLOUD1),
+                "rung %d disagrees with the ladder about being one sprite" % i,
+            )
+
     def test_the_phase_survives_art_with_no_checkerboard_in_it(self):
         # The point of moving the dither into the generator, stated as a test.
         # Before this, the extraction ORed two adjacent source pixels and took

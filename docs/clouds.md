@@ -487,8 +487,27 @@ which is enough variety for something you see one of at a time.
 
 The `½ez` on the third blob is a deliberate small departure from "all at the
 same altitude": a purely horizontal triple reads as a row of dots from the
-side. At `kCloudOffsetU = 48` units the lift is 48 m, which is a bump on top of
+side. At `kCloudOffsetU = 32` units the lift is 32 m, which is a bump on top of
 the group, not a second deck.
+
+**`kCloudOffsetU = 32` units, and it was 48 until phase 7 was flown.** The
+constant used to be derived as "half a blob diameter", which sounds right and
+is not: the coefficients count *halves* of it, so blobs A and B of every
+pattern sat four half-steps — one whole 192 m diameter — apart. Two circles
+exactly one diameter apart are tangent. They touch at a point and read as
+separate lumps from every heading that spreads them, which is what the first
+phase-7 build looked like. At 32 the furthest pair is 64 units, **0.67 of a
+diameter**, so a third of each blob is inside its neighbour and the group is a
+single mass from any angle.
+
+`check_group_offsets()` in the generator now measures the **furthest** pair,
+against `OVERLAP_MAX = 0.75`. It used to ask only that every blob had *a*
+neighbour within a diameter, which the tangent layout passed comfortably —
+each blob's *nearest* neighbour was the lifted third one at 0.94 of a diameter,
+so the check never looked at the pair that was actually wrong. The distinction
+matters because a group is drawn from every direction: the pair that decides
+whether it reads as one cloud is whichever one the current heading spreads
+widest, not the closest one.
 
 **All three blobs of a group share one ladder rung**, chosen from the group
 centre's depth (§3.2). They are within 100 m of each other at a range of
@@ -631,6 +650,84 @@ bitmaps, which puts the blob's centre one line into the lower sprite —
 `generate_sprites.py` slices the concept art at row 100 of a 79–120 band, so
 this is already right and needs no adjustment.
 
+### 3.4. One flat table per rung, because the obvious branch miscompiles
+
+`clouds.cc` does not choose between `sprite_cloud1_meta_t` and
+`sprite_cloud2_meta_t`. It indexes **one flat row per rung**:
+
+```c
+struct sprite_cloud_rung_t {
+    uint8_t bitmap;
+    uint8_t bitmap2;   // 0xFF (kSpriteNoBitmap) when the rung is one sprite
+    int8_t pivot_x;
+    int8_t pivot_y;
+};
+extern const sprite_cloud_rung_t kSpriteDefCloudRung[10];
+```
+
+The two per-half tables stay — they are how the sprites are *described*, and
+`width` / `height` belong there. This one is how the simulation *uses* them.
+
+The reason is not tidiness. The obvious code — two differently-typed pointers
+of the same shape in sibling scopes, four parallel field assignments each —
+**miscompiles under oscar64**:
+
+```c
+if (rung < kCloudRungStacked) {
+  const sprite_cloud1_meta_t *m = &kSpriteDefCloud1Sprite[rung];
+  bitmap = m->bitmap_idx; bitmap2 = kSpriteNoBitmap;
+  pivot_x = m->pivot_x;   pivot_y = m->pivot_y;
+} else {
+  const sprite_cloud2_meta_t *m =
+      &kSpriteDefCloud2Sprite[rung - kCloudRungStacked];
+  bitmap = m->top_bitmap_idx; bitmap2 = m->bot_bitmap_idx;
+  pivot_x = m->pivot_x;       pivot_y = m->pivot_y;
+}
+```
+
+oscar64 normalises `bitmap` correctly — it folds each branch's field offset
+into the pointer so the join can do one `LDA (ptr),0`, which is a good
+optimisation. Then it gets the other three wrong. In the stacked branch it
+emits, for the three lines `bitmap2 = m->bot_bitmap_idx; pivot_x = m->pivot_x;
+pivot_y = m->pivot_y`:
+
+```asm
+LDA #$ff        ; the *other* branch's constant
+STA T18         ; -> pivot_x
+STA T17         ; -> pivot_y
+```
+
+and never stores `bitmap2` at all, so the ninth argument reaches
+`sprites_stack_add()` holding whatever the previous call left in `P9` — `2` in
+this build, from the `vec_transform_inv()` above it. Sprite block 2 is empty
+RAM. Every near cloud therefore drew its upper sprite and a **blank** lower
+one: a flat-bottomed half cloud, at exactly the right place and size, wasting
+one of eight sprites.
+
+Three things are worth taking from this beyond the fix.
+
+**The host test could not have caught it.** `sprites_test.cc` compiles the same
+source with `g++` and asserts on the VIC registers; it passes, and it passed
+throughout. What was wrong was 6502 that no host compiler produces. The
+evidence was in `ppilot.asm` the whole time — reading the generated code for a
+new call site is cheap, and after this it is part of landing one.
+
+**The symptom pointed at the wrong layer.** A missing lower sprite looks
+exactly like the sprite allocator running out of slots, and the allocator does
+refuse to half-place a two-slot entry (`test_overflow` covers it). Three blobs
+at two slots each plus the sun is seven of eight, so it never could have been
+that — the arithmetic ruled out the obvious cause before the search started,
+and confirming that early is what turned the hunt towards codegen.
+
+**Aspect ratio was the tell.** Every full cloud is within 5% of square once
+X-expansion is applied; every upper block alone is exactly 2:1. Measuring one
+blob in a screenshot was enough to know which of the two was on screen, before
+a line of code was read.
+
+The flat table has no branch to get wrong. `tests/test_spritedef.py` checks it
+against the two tables it is derived from, and that `bitmap2` is the sentinel
+on exactly the single-sprite rungs.
+
 ---
 
 ## 4. The dither must share one grid
@@ -750,7 +847,14 @@ not set the flag, and the instrument sprites never go through the stack.
 The lower sprite of a 1 × 2 stack is placed at `y + 21` as usual and needs no
 separate treatment: 21 flips the row parity, and the bitmap's own phase was
 built with the same 21 in it (§4.2), so the two cancel and the stack is
-continuous across the seam. Verified on the generated blocks, not assumed.
+continuous across the seam.
+
+Verified, not assumed, and now at both ends: `tests/test_spritedef.py` checks
+the phase of the generated blocks, and `render_cloud_preview.py --groups` (§7)
+walks the seam as it is actually assembled at runtime — every ink pixel of both
+blocks of all three blobs, at every stacked rung and 32 headings. Two mutants
+confirm it can fail: drawing the lower half from the upper block, and moving
+the join to 22 lines. Each breaks 1,920 groups.
 
 ### 4.5. What it costs
 
@@ -869,7 +973,8 @@ state it would need.
 | `c64o/vic.h`, `c64o/mem.h` | host indirection for the VIC registers and the two screen buffers, by the device `sid.h` already uses — this is what makes the band handlers testable off the C64 |
 | `c64o/sprites.cc` (again) | `#ifdef __OSCAR64__` around the `#embed`, which has no host equivalent |
 | `c64o/test/Makefile` | new target |
-| `tools/generate_sprites.py` | apply the dither procedurally and assert the phase invariant (§4.3) — byte-identical output today |
+| `tools/generate_sprites.py` | apply the dither procedurally and assert the phase invariant (§4.3) — byte-identical output today; **+** emit the flat `kSpriteDefCloudRung` ladder (§3.4) |
+| `c64o/spritedef.h` / `.cc` | generated — **+** `sprite_cloud_rung_t` and `kSpriteDefCloudRung[10]`; `spritedef.bin` is untouched |
 | `tests/test_spritedef.py` | **new** — the §4.2 invariant against `lib/spritedef.py`, the byte-for-byte reproduction, and the interlock property of §4.1 |
 | `tools/generate_clouds.py` | **new** — emits the hash tables, rung thresholds and group patterns, and checks the §2.2 / §3.1 couplings |
 | `tests/test_clouddef.py` | **new** — the layout properties, and that the `.h`, `.cc` and `.py` copies agree |
@@ -940,13 +1045,15 @@ slot-demand tables. `--compare-gates` searches tables for each candidate mask
 and measures all of them, which is the whole tuning loop in one command.
 
 `--groups` answers the other question, the one §4 exists for, and answers it
-without an emulator. It writes `out/cloud_groups.png`: a group at every rung
-and every pattern, from three headings, drawn at C64 pixel resolution through a
-bit-for-bit model of the runtime path — `vec_fastmul8p8`'s truncation, the
-doubled horizontal pivot, the §4.2 snap, and the X-expansion painting each
-bitmap column as two screen pixels. Alongside it, `lattice_report()` walks
-every ink pixel of every blob at 32 headings and asserts they all land on **one
-lattice phase**, which is the difference between a cloud and a white lump.
+without an emulator. It writes `out/cloud_groups.png`: a group at **all ten
+rungs** and every pattern, from three headings, drawn at C64 pixel resolution
+through a bit-for-bit model of the runtime path — `vec_fastmul8p8`'s
+truncation, the doubled horizontal pivot, the §4.2 snap, the X-expansion
+painting each bitmap column as two screen pixels, and above `kCloudRungStacked`
+the second block placed 21 lines down exactly as `sprites_stack_commit()` does
+it. Alongside it, `lattice_report()` walks every ink pixel of every block of
+every blob at 32 headings and asserts they all land on **one lattice phase**,
+which is the difference between a cloud and a white lump.
 
 That check earned its keep immediately by being wrong. The first version
 sampled only the left half of each expanded pixel, and an expanded sprite at an
@@ -1063,7 +1170,7 @@ whether a handler touches oscar64's runtime zero page (§1.4 — that is
 | 4 | `generate_clouds.py`, `clouddef.*`, `render_cloud_preview.py`, `test_clouddef.py` | yes | Tune density on the preview, not in the emulator. It moved the gate from `0x03` to `0x07` on first run, and the layout from random to blue noise on second (§2.4, §7) |
 | 5 | Cell scan, hash, one blob per group, rungs 0–4 only, no offsets, **X-expansion live** | yes | One sprite per group. Confirms placement, projection and the ladder in isolation. See the note below on why expansion moved here from phase 7 |
 | 6 | Offset basis, three blobs, group patterns, wedge reject | yes | Overlap and rotation. **The first frame where §4 is observable** — three blobs on one lattice or three blobs in a white lump. Answered before the emulator by `--groups` (§7) |
-| 7 | Rungs 5–9, two-sprite entries | yes | The 21-line seam of §4.4 gets exercised |
+| 7 | Rungs 5–9, two-sprite entries | yes | The 21-line seam of §4.4 gets exercised. `--groups` covers all ten rungs from here, so the seam is checked before the emulator sees it. Landed twice: the first build hit the oscar64 miscompile of §3.4 and shipped half clouds, and flying it also showed the group spacing of §2.5 was a diameter too wide |
 | 8 | X wrap: measure `kSpriteXWrapFirst` in VICE, ink-box culls, wrap on pack | yes | Improves the sun on its own, so it can also land right after phase 1 |
 | 9 | Benchmark, tune deck / density / blob size, message-strip rule | yes | §5's numbers get measured |
 | 10 | Docs, `make ram`, `TODO.md` | yes | Includes the `sprite_objects.md` §3 correction (§4.5) |

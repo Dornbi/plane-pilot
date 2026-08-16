@@ -16,6 +16,19 @@ const sprite_cloud2_meta_t kSpriteDefCloud2Sprite[kSpriteDefCloud2Count] = {
     { 21, 41, 93, 94, 12, 20 }, // Cloud 2-Sprite 21x41
 };
 
+const sprite_cloud_rung_t kSpriteDefCloudRung[kSpriteDefCloudRungCount] = {
+    { 80, 0xFF, 12, 10 }, // Cloud 1-Sprite 3x5
+    { 81, 0xFF, 12, 10 }, // Cloud 1-Sprite 5x9
+    { 82, 0xFF, 12, 10 }, // Cloud 1-Sprite 7x13
+    { 83, 0xFF, 12, 10 }, // Cloud 1-Sprite 9x17
+    { 84, 0xFF, 12, 10 }, // Cloud 1-Sprite 11x21
+    { 85, 86, 12, 20 }, // Cloud 2-Sprite 13x25
+    { 87, 88, 12, 20 }, // Cloud 2-Sprite 15x29
+    { 89, 90, 12, 20 }, // Cloud 2-Sprite 17x33
+    { 91, 92, 12, 20 }, // Cloud 2-Sprite 19x37
+    { 93, 94, 12, 20 }, // Cloud 2-Sprite 21x41
+};
+
 const sprite_meta_t kSpriteDefMetaLongArm[kSpriteDefMetaCount] = {
     { 12, 17, 96 }, // 0.0 deg
     { 11, 17, 97 }, // 11.25 deg
