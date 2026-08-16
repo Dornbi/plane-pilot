@@ -15,6 +15,10 @@ PPILOT_SRC = \
 		chardefs.h \
 		chardefs.cc \
 		cia.h \
+		clouddef.h \
+		clouddef.cc \
+		clouds.h \
+		clouds.cc \
 		color.h \
 		fmath.h \
 		fmath.cc \

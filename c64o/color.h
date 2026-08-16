@@ -28,6 +28,9 @@ static const uint8_t kColorBg = kColorBlack;
 static const uint8_t kColorPanelBg = kColorBlack;
 static const uint8_t kColorInstrument = kColorWhite;
 static const uint8_t kColorSun = kColorYellow;
+// Clouds are a white-and-transparent checkerboard, one colour per sprite
+// (sprite_objects.md §4). The dither is what makes them read as a half-tone.
+static const uint8_t kColorCloud = kColorWhite;
 static const uint8_t kColorWater = kColorBlue;
 
 #endif /* COLOR_H */

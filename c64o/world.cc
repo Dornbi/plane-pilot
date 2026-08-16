@@ -1,6 +1,7 @@
 #include "world.h"
 
 #include "benchmark.h"
+#include "clouds.h"
 #include "flight.h"
 #include "fmath.h"
 #include "gfx.h"
@@ -290,6 +291,7 @@ static const vec3_t kSunDirWorld = {0, 256, 64};
 // belongs. Clouds (clouds.md) and traffic (planes.md) add themselves here too.
 void world_update_objects() {
   sprites_stack_reset();
+  clouds_add_candidates();
   vec_transform_inv(&world_cam, &kSunDirWorld, &vec_v);
   if (vec_project()) {
     sprites_stack_add(0x7FFF, kScreenWidthPixels / 2 - vec_sx,

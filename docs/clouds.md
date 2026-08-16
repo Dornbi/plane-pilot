@@ -486,7 +486,7 @@ kilometres, so computing three rungs would produce the same answer three times.
 
 ### 2.6. Deck altitude
 
-**`kCloudDeckU = 350` units = 700 m**, one constant, no per-group variation.
+**`kCloudDeckU = 700` units = 1,400 m**, one constant, no per-group variation.
 
 This is the decision the whole feature turns on, and the reason is the
 viewport, not meteorology. The viewport is 320 × 112 screen pixels and
@@ -498,20 +498,37 @@ from the eye's by Δz only enters the viewport once
 D > 256 · Δz / 56  =  4.57 · Δz
 ```
 
-so a realistic 1,500 m deck seen from 100 m needs 6.4 km of horizontal
-separation just to be on screen, and by then it is at the cull. A high deck
-would be a feature you almost never see.
+Since the cull is at 8,192 m, a deck is only ever visible where
+`Δz < 8192 / 4.57 = 1,793 m`. That is the whole budget, and it is what stops
+the deck being placed wherever a meteorologist would want it: put it far enough
+from the aircraft and it is not a feature you rarely see, it is a feature you
+never see.
 
-At 700 m the deck is inside the band the aircraft actually flies in:
+The band to centre it on comes from the flight model, not from taste.
+`kMissionStartZ` is in units of 256 m and takes the values 0, 1, 2 and 4, so
+missions begin on the ground, at 512 m or — most of them — at **1,024 m**;
+`flight.cc` starts thinning the air at **2,048 m**, which is the practical
+ceiling. So the aircraft lives in roughly 0 – 2,000 m, and 1,400 m sits above
+every start altitude while staying inside the Δz budget from all of them:
 
-| Eye altitude | Δz | Deck enters the viewport beyond | Live annulus |
+| Eye altitude | Δz | Deck enters the viewport beyond | Nearest rung reached |
 | ---: | ---: | ---: | :--- |
-| 100 m | 600 m | 2,743 m | 2.7 – 8.2 km |
-| 400 m | 300 m | 1,371 m | 1.4 – 8.2 km |
-| 700 m | 0 | always | 0 – 8.2 km |
-| 1,200 m | −500 m | 2,286 m | 2.3 – 8.2 km, below the horizon |
+| 100 m | 1,300 m | 6.4 km | 0 — specks near the horizon |
+| 512 m | 888 m | 4.1 km | 1 |
+| 1,024 m | 376 m | 1.7 km | 5 |
+| 1,536 m | −136 m | 0.6 km | 9, and below the horizon |
+| 2,048 m | −648 m | 3.0 km | 2, below the horizon |
 
-and you fly under it, through it and over it in a normal climb.
+so you take off under a distant deck, climb into it, and cross above it near
+the ceiling.
+
+**This was 700 m until the phase 5 build was flown.** The original reasoning
+was right about the geometry and wrong about the aircraft: it assumed a
+100 – 700 m operating band and never checked `kMissionStartZ`, so it centred
+the deck on altitudes the plane passes through in the first few seconds. On
+screen every cloud sat *below* the horizon, over the terrain. The lesson is
+narrow but worth keeping — the viewport constraint tells you how wide the band
+can be, and only the flight model tells you where to put it.
 
 ---
 
@@ -986,8 +1003,8 @@ whether a handler touches oscar64's runtime zero page (§1.4 — that is
   from operation counts, exactly the kind of estimate
   [sprite_objects.md](sprite_objects.md) §8 asks to be measured before it is
   treated as settled;
-- fly a full circle at 700 m and confirm nothing flickers at cell boundaries —
-  the §2.2 failure mode;
+- fly a full circle at deck altitude (1,400 m) and confirm nothing flickers at
+  cell boundaries — the §2.2 failure mode;
 - check the panel band is clean with a large cloud straddling raster 161: the
   `$D01D` clear (§1.4) is the thing being tested and its failure is 24 pixels of
   white in the instrument panel;
@@ -1004,9 +1021,9 @@ whether a handler touches oscar64's runtime zero page (§1.4 — that is
 | 2 | Host `sprites_test` for the stack and the three bands, including the §4.2 position snap | yes | Before clouds, while the only client is trivial. Check it can fail: mutate the sort order, the 21-line offset, the `$D01D` clear, and confirm each one is caught |
 | 3 | Procedural dither + phase assertion in `generate_sprites.py`; `tests/test_spritedef.py` | yes | Must reproduce the checked-in `spritedef.bin` byte for byte (§4.3) |
 | 4 | `generate_clouds.py`, `clouddef.*`, `render_cloud_preview.py`, `test_clouddef.py` | yes | Tune density on the preview, not in the emulator. It moved the gate from `0x03` to `0x07` on first run, and the layout from random to blue noise on second (§2.4, §7) |
-| 5 | Cell scan, hash, one blob per group, rungs 0–4 only, no offsets | yes | One sprite per group. Confirms placement, projection and the ladder in isolation |
+| 5 | Cell scan, hash, one blob per group, rungs 0–4 only, no offsets, **X-expansion live** | yes | One sprite per group. Confirms placement, projection and the ladder in isolation. See the note below on why expansion moved here from phase 7 |
 | 6 | Offset basis, three blobs, group patterns | yes | Overlap and rotation. **The first frame where §4 is observable** — three blobs on one lattice or three blobs in a white lump |
-| 7 | Rungs 5–9, two-sprite entries, X-expansion live | yes | The `$D01D` work from phase 1 finally gets exercised, and so does the 21-line seam of §4.4 |
+| 7 | Rungs 5–9, two-sprite entries | yes | The 21-line seam of §4.4 gets exercised |
 | 8 | X wrap: measure `kSpriteXWrapFirst` in VICE, ink-box culls, wrap on pack | yes | Improves the sun on its own, so it can also land right after phase 1 |
 | 9 | Benchmark, tune deck / density / blob size, message-strip rule | yes | §5's numbers get measured |
 | 10 | Docs, `make ram`, `TODO.md` | yes | Includes the `sprite_objects.md` §3 correction (§4.5) |
@@ -1014,6 +1031,19 @@ whether a handler touches oscar64's runtime zero page (§1.4 — that is
 Phase 1 is worth landing alone even if clouds are deferred: it is the
 restructure [planes.md](planes.md) §5 also depends on, and it is the only phase
 that touches a cycle-counted raster handler.
+
+**X-expansion moved from phase 7 to phase 5.** The original ordering held
+`kSpriteFlagExpandX` back so that `$D01D` — the register phase 1 has to get
+right and the one with no second chance — would be exercised on its own. That
+was the wrong trade in both directions. Held back, phase 5 draws every cloud at
+half its designed width around a pivot that is then also wrong (§3.3 doubles
+`pivot_x` only when the flag is set), so the two things phase 5 exists to check
+— placement and the size ladder — cannot be judged: a cloud in the right place
+at the wrong size looks like a cloud in the wrong place. And the isolation was
+worth less than it sounds, because phase 5 is the first phase with more than
+one sprite on screen, so `$D01D` is under test either way. Turning it on here
+puts the riskiest register in front of a human eye two phases earlier, while
+the only other moving part is a single blob.
 
 ---
 
@@ -1036,9 +1066,11 @@ later reader can see what was considered.
   Ship the independent per-blob snap; build the rigid-group version only if a
   screenshot demands it. It is one subtraction per blob and can be added
   without disturbing anything else.
-- ~~**Is 700 m the right deck (§2.6)?**~~ **Provisional, and cheap to change.**
-  It is a single constant and §2.4's density is insensitive to it, so it can be
-  retuned after flying rather than before.
+- ~~**Is 700 m the right deck (§2.6)?**~~ **Answered by flying it — no, and it
+  is now 1,400 m.** The prediction that this was cheap to change held: one
+  constant in `generate_clouds.py`, and the regenerated `clouddef.cc` is byte
+  for byte the old one, because the blue-noise layout does not depend on
+  altitude. See §2.6 for the corrected derivation.
 - ~~**Should the group's third blob keep its `½ez` lift (§2.5)?**~~
   **Answered — keep it.** 48 m of lift is what stops a group reading as a row
   of dots from the side.
