@@ -455,12 +455,22 @@ Doing that naively costs a `vec_transform_inv` per blob. Instead, borrow
 `world.cc`'s trick: transform the *basis* once per frame and add.
 
 ```c
-// Camera-space image of a world-axis displacement of kCloudOffsetU units.
+// Camera-space image of a world-axis displacement of kCloudOffsetU/2 units.
 // vec_transform_inv(cam, (k,0,0)) is (front.x, left.x, up.x) * k / 256, so
 // this is nine multiplies for all three axes, not twenty-seven.
-static vec3_t _cl_ex, _cl_ey, _cl_ez;      // full step
-static vec3_t _cl_hx, _cl_hy;              // half step, a shift each
+static vec3_t _clouds_half_basis[3];       // indexed by world axis
+static bool _clouds_basis_valid;           // built by the first group, if any
 ```
+
+Two notes on what was built against this sketch. The basis is stored at the
+**half** step only, not full-and-half: the table below counts in half steps, so
+a coefficient of ±2 is a shift at the point of use and the six extra shifts the
+sketch budgeted for a second copy never happen. And it is built **lazily** —
+the first group in the frame that gets as far as needing it builds it, and a
+flag stops the second from repeating the work. The basis depends only on the
+camera, so it would be correct to build it unconditionally at the top of the
+scan, but ~58% of frames contain no group at all and would pay nine multiplies
+for nothing.
 
 Then a blob is the group centre plus a fixed integer combination of those —
 adds and negations only, no multiplies:
@@ -796,10 +806,11 @@ line of quantisation is much the cheaper price.
 
 | Step | Cycles | When |
 | :--- | ---: | :--- |
-| Offset basis (9 multiplies, 6 shifts) | ~510 | once per frame |
+| Offset basis (9 multiplies) | ~450 | once per frame, and only if a group is in range |
 | 25 hash gates | ~625 | once per frame |
 | Relative position + Manhattan reject | ~90 | per surviving cell |
 | `vec_transform_inv` of the group centre | ~450 | per group |
+| Wedge reject (4 shifts, 4 compares) | ~60 | per group in front of the camera |
 | Rung compare chain | ~80 | per group |
 | Blob offset adds | ~60 | per blob |
 | `vec_project` | ~350 | per blob |
@@ -815,6 +826,19 @@ line of quantisation is much the cheaper price.
 For comparison the sun costs ~850 cycles today and keeps costing it. The
 dominant term when nothing is visible is the 25 hash gates, which is the price
 of the wide scan radius §2.2 argues for.
+
+**The wedge reject is why the table above still holds at three blobs.** The box
+cull of §2.2 is on the world axes and keeps everything within 8.2 km on each
+axis, but the viewport is a ±32° wedge, so roughly four fifths of what survives
+the box is off to the side. Under phase 5 that cost one `vec_project` each;
+under phase 6 it would cost three, plus the offset adds — around 1,700 cycles
+for a group that draws nothing. So the group centre is now tested against
+`|y| ≤ 0.625x` and `|z| ≤ 0.219x`, the exact conditions for a point to project
+on screen, loosened to two shifts and one shift respectively and given 128
+units of slack for the blob offsets (up to 54) and a blob's own radius (48).
+The looseness is deliberate and one-directional: this reject may keep something
+that will not draw, and `vec_project` will then say so, but it can never drop
+something that would have.
 
 Sampling the slot demand at the recommended density (§2.4): mean **1.4** of 7
 cloud slots, and **0.9% of frames want more than seven** at worst — the case the
@@ -850,7 +874,7 @@ state it would need.
 | `tools/generate_clouds.py` | **new** — emits the hash tables, rung thresholds and group patterns, and checks the §2.2 / §3.1 couplings |
 | `tests/test_clouddef.py` | **new** — the layout properties, and that the `.h`, `.cc` and `.py` copies agree |
 | `Makefile` | `make clouds` in `make data`, plus `make cloud-preview` |
-| `tools/render_cloud_preview.py` | **new** — layout picture, density and slot-demand tables, `--compare-gates` |
+| `tools/render_cloud_preview.py` | **new** — layout picture, density and slot-demand tables, `--compare-gates`, and `--groups` for the eye-level group render and the lattice check (§7) |
 | `docs/sprite_objects.md` | status header; correct §1.1's parked-expanded-sprite claim; correct §3's "4 × 4 screen-pixel quadrant … 4 raster lines" to 2 × 2 and close the §8 question it feeds; mark §7 resolved |
 | `docs/memory_map.md` | regenerate (`make ram`); note §4's "Sprite RAM at `$E700`" is stale — the blocks are at `$D400–$DFFF` |
 | `TODO.md` | strike "Clouds?" |
@@ -914,6 +938,22 @@ above, every group at its hashed position with its three blobs, the 5 × 5 scan
 block and the 64° viewport wedge for scale — and prints the density and
 slot-demand tables. `--compare-gates` searches tables for each candidate mask
 and measures all of them, which is the whole tuning loop in one command.
+
+`--groups` answers the other question, the one §4 exists for, and answers it
+without an emulator. It writes `out/cloud_groups.png`: a group at every rung
+and every pattern, from three headings, drawn at C64 pixel resolution through a
+bit-for-bit model of the runtime path — `vec_fastmul8p8`'s truncation, the
+doubled horizontal pivot, the §4.2 snap, and the X-expansion painting each
+bitmap column as two screen pixels. Alongside it, `lattice_report()` walks
+every ink pixel of every blob at 32 headings and asserts they all land on **one
+lattice phase**, which is the difference between a cloud and a white lump.
+
+That check earned its keep immediately by being wrong. The first version
+sampled only the left half of each expanded pixel, and an expanded sprite at an
+odd `X` splits one bitmap pixel across two lattice cells — so the mutant that
+removes `x &= ~1` passed. Sampling both halves catches it. Both mutants (drop
+the `x` snap, drop the `y` phase term) now fail loudly, which is the only
+evidence that the clean run means anything.
 
 ---
 
@@ -1022,7 +1062,7 @@ whether a handler touches oscar64's runtime zero page (§1.4 — that is
 | 3 | Procedural dither + phase assertion in `generate_sprites.py`; `tests/test_spritedef.py` | yes | Must reproduce the checked-in `spritedef.bin` byte for byte (§4.3) |
 | 4 | `generate_clouds.py`, `clouddef.*`, `render_cloud_preview.py`, `test_clouddef.py` | yes | Tune density on the preview, not in the emulator. It moved the gate from `0x03` to `0x07` on first run, and the layout from random to blue noise on second (§2.4, §7) |
 | 5 | Cell scan, hash, one blob per group, rungs 0–4 only, no offsets, **X-expansion live** | yes | One sprite per group. Confirms placement, projection and the ladder in isolation. See the note below on why expansion moved here from phase 7 |
-| 6 | Offset basis, three blobs, group patterns | yes | Overlap and rotation. **The first frame where §4 is observable** — three blobs on one lattice or three blobs in a white lump |
+| 6 | Offset basis, three blobs, group patterns, wedge reject | yes | Overlap and rotation. **The first frame where §4 is observable** — three blobs on one lattice or three blobs in a white lump. Answered before the emulator by `--groups` (§7) |
 | 7 | Rungs 5–9, two-sprite entries | yes | The 21-line seam of §4.4 gets exercised |
 | 8 | X wrap: measure `kSpriteXWrapFirst` in VICE, ink-box culls, wrap on pack | yes | Improves the sun on its own, so it can also land right after phase 1 |
 | 9 | Benchmark, tune deck / density / blob size, message-strip rule | yes | §5's numbers get measured |
