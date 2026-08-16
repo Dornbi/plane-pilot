@@ -1,5 +1,21 @@
 #include "spritedef.h"
 
+const sprite_cloud1_meta_t kSpriteDefCloud1Sprite[kSpriteDefCloud1Count] = {
+    { 3, 5, 80, 12, 10 }, // Cloud 1-Sprite 3x5
+    { 5, 9, 81, 12, 10 }, // Cloud 1-Sprite 5x9
+    { 7, 13, 82, 12, 10 }, // Cloud 1-Sprite 7x13
+    { 9, 17, 83, 12, 10 }, // Cloud 1-Sprite 9x17
+    { 11, 21, 84, 12, 10 }, // Cloud 1-Sprite 11x21
+};
+
+const sprite_cloud2_meta_t kSpriteDefCloud2Sprite[kSpriteDefCloud2Count] = {
+    { 13, 25, 85, 86, 12, 20 }, // Cloud 2-Sprite 13x25
+    { 15, 29, 87, 88, 12, 20 }, // Cloud 2-Sprite 15x29
+    { 17, 33, 89, 90, 12, 20 }, // Cloud 2-Sprite 17x33
+    { 19, 37, 91, 92, 12, 20 }, // Cloud 2-Sprite 19x37
+    { 21, 41, 93, 94, 12, 20 }, // Cloud 2-Sprite 21x41
+};
+
 const sprite_meta_t kSpriteDefMetaLongArm[kSpriteDefMetaCount] = {
     { 12, 17, 96 }, // 0.0 deg
     { 11, 17, 97 }, // 11.25 deg

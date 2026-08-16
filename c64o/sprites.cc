@@ -11,7 +11,7 @@
 
 #pragma data(data_compr)
 char kSpriteDataCompressed[] = {
-#embed 2112 lzo "spritedef.bin"
+#embed 3072 lzo "spritedef.bin"
 };
 #pragma data(data)
 

@@ -26,7 +26,7 @@ static const char *oscar_expand_lzo(char *dp, const char *sp) { return sp; }
 #include "view.h"
 
 #pragma bss(bss2)
-static uint8_t *const kSpriteData = (uint8_t *)0xD7C0;
+static uint8_t *const kSpriteData = (uint8_t *)0xD400;
 
 uint8_t mem_box_char_start;
 #ifdef __ENABLE_DEBUG__
