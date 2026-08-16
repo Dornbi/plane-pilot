@@ -792,7 +792,9 @@ state it would need.
 | `tools/check_irq_zp.py` | **new** — fails the link if a raster handler touches oscar64's runtime zero page (§1.4) |
 | `c64o/Makefile` (again) | run it after every link, next to `check_zeropage.py` |
 | `c64o/Makefile` | `clouds.cc` |
-| `c64o/test/cloud_test.cc` | **new** — §8 |
+| `c64o/test/sprites_test.cc` | **new** — §8. Named for the module it tests, per the suite's convention; cloud placement gets its own file at phase 5 |
+| `c64o/vic.h`, `c64o/mem.h` | host indirection for the VIC registers and the two screen buffers, by the device `sid.h` already uses — this is what makes the band handlers testable off the C64 |
+| `c64o/sprites.cc` (again) | `#ifdef __OSCAR64__` around the `#embed`, which has no host equivalent |
 | `c64o/test/Makefile` | new target |
 | `tools/generate_sprites.py` | apply the dither procedurally and assert the phase invariant (§4.3) — byte-identical output today |
 | `tests/test_spritedef.py` | **new** — re-check the §4.2 bitmap invariant against `lib/spritedef.py` |
@@ -825,7 +827,18 @@ can be checked in a second rather than by flying around.
 
 The stack is pure logic over integers and the placement is a pure function of
 position — both build on the host, so most of this is testable without an
-emulator. Add `cloud_test` to `c64o/test/Makefile` alongside `map_test`.
+emulator.
+
+Assert on the **VIC registers**, not on the frame struct. `vic.h` and `mem.h`
+point their register and screen-RAM addresses at arrays when `__OSCAR64__` is
+not defined — the device `sid.h` already uses for the SID — so a band handler
+can be called on the host and what it programmed read straight back. That also
+puts the §1.4 restructure under test, which is the part of phase 1 with the
+least margin for error.
+
+Two things this cannot see, and it should say so rather than imply coverage:
+whether a handler touches oscar64's runtime zero page (§1.4 — that is
+`tools/check_irq_zp.py`), and anything about raster timing.
 
 **Sprite stack**
 
@@ -899,7 +912,7 @@ emulator. Add `cloud_test` to `c64o/test/Makefile` alongside `map_test`.
 | # | Work | Ships? | Notes |
 | --- | --- | :---: | --- |
 | 1 | Sprite stack: API, storage, double buffer, all-8 terrain handler, `$D01D` / colour-7 fixes, register init, `check_irq_zp.py` | yes | Sun is the only client. Screen should be **pixel-identical** to today — that is the test. Read §1.4's zero page rule before touching the handler |
-| 2 | Host `cloud_test` for the stack, including the §4.2 position snap | yes | Before clouds, while the only client is trivial |
+| 2 | Host `sprites_test` for the stack and the three bands, including the §4.2 position snap | yes | Before clouds, while the only client is trivial. Check it can fail: mutate the sort order, the 21-line offset, the `$D01D` clear, and confirm each one is caught |
 | 3 | Procedural dither + phase assertion in `generate_sprites.py`; `tests/test_spritedef.py` | yes | Must reproduce the checked-in `spritedef.bin` byte for byte (§4.3) |
 | 4 | `generate_clouds.py`, `clouddef.*`, `render_cloud_preview.py` | yes | Tune density on the preview, not in the emulator |
 | 5 | Cell scan, hash, one blob per group, rungs 0–4 only, no offsets | yes | One sprite per group. Confirms placement, projection and the ladder in isolation |

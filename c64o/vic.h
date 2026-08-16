@@ -36,8 +36,13 @@ struct VIC {
   volatile byte spr_color[8];
 };
 
-// reference to the VIC chip
-#define vic (*((struct VIC *)0xd000))
+// Where the host build's "chip" lives, by the same device sid.h uses for the
+// SID: the test points this at a register-sized buffer, so a write is an array
+// store rather than a segfault at 0xD000. That is what makes the raster
+// handlers in sprites.cc testable off the C64 - see test/sprites_test.cc, and
+// docs/clouds.md §1.4 for why they are worth testing.
+extern struct VIC *vic_host;
+#define vic (*vic_host)
 
 #endif
 

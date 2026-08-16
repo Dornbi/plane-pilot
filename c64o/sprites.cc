@@ -9,11 +9,19 @@
 #include "vic.h"
 #include "view.h"
 
+#ifdef __OSCAR64__
 #pragma data(data_compr)
 char kSpriteDataCompressed[] = {
 #embed 3072 lzo "spritedef.bin"
 };
 #pragma data(data)
+#else
+// The host build has no #embed and no LZO, and the test has no use for the
+// sprite bitmaps. Only the size matters off-target: mem.cc reuses this array as
+// the viewport colour buffer once mem_init() has expanded it to $D400, so the
+// compressed data doubles as 560 bytes of scratch.
+char kSpriteDataCompressed[kViewportWidth * kViewportHeight];
+#endif
 
 static const uint8_t kSpriteOffsetX = 24;
 static const uint8_t kSpriteOffsetY = 50;
@@ -84,8 +92,13 @@ struct sprite_frame_t {
 };
 
 // $D000, as a literal rather than through the vic struct, so `[i]` is plainly
-// absolute-indexed.
+// absolute-indexed. spr_pos is the first member of struct VIC, so on the host
+// the register block's own address is the same thing.
+#ifdef __OSCAR64__
 #define kVicSpritePos ((volatile uint8_t *)0xD000)
+#else
+#define kVicSpritePos ((volatile uint8_t *)vic_host)
+#endif
 
 static sprite_cand_t _sprites_cand[kSpriteStackSize];
 static uint8_t _sprites_cand_count;
@@ -438,7 +451,14 @@ inline void sprites_show_panel_top_sprites() {
   vic.spr_enable = 0xFF;
   vic.spr_expand_x = 0;
   vic.spr_color[kSpriteIdxVSpeed] = kColorInstrument;
+// Guarded because clang - which is what `g++` is on macOS - *recognises*
+// `#pragma unroll` and then rejects `full` as its argument, so it is a hard
+// error rather than something -Wno-unknown-pragmas can wave through. gcc treats
+// the whole pragma as unknown and ignores it, so the host build only breaks on
+// one of the two. oscar64 has no _Pragma, so this cannot be hidden in a macro.
+#ifdef __OSCAR64__
 #pragma unroll(full)
+#endif
   for (uint8_t i = 0; i < 7; i++) {
     vic.spr_pos[i].x = 0;
   }
@@ -463,12 +483,16 @@ inline void sprites_show_panel_bottom_sprites() {
   // write every colour without a handshake with the panel code - which is why
   // the old kIdxThrottle == kIdxSun and kIdxFuel == kIdxSun special cases are
   // gone.
+#ifdef __OSCAR64__
 #pragma unroll(full)
+#endif
   for (uint8_t i = 0; i < 8; i++) {
     vic.spr_color[i] = kColorInstrument;
   }
   if (view_state == VIEW_CENTER) {
+#ifdef __OSCAR64__
 #pragma unroll(full)
+#endif
     for (uint8_t i = 0; i < 7; i++) {
       vic.spr_pos[i].x = _sprites_instrument_xy[i].x;
       vic.spr_pos[i].y = _sprites_instrument_xy[i].y;

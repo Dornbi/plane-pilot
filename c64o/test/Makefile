@@ -35,6 +35,16 @@ MUSIC_TEST_HDRS = ../music.h ../musicdef.h ../sound.h ../sid.h
 MUL_TEST_SRC = mul_test.cc
 MUL_TEST_HDRS = ../vec.h
 
+# sprites_test #includes ../sprites.cc rather than linking it: the band
+# handlers are `inline`, which is how oscar64 folds them into the raster IRQs,
+# and means there is no out-of-line copy for the host linker to find. That is
+# also why sprites.cc is a header dependency here. vic.h and mem.h point their
+# register and screen RAM addresses at arrays in the test when __OSCAR64__ is
+# not defined, the same way sid.h already does for the SID.
+SPRITES_TEST_SRC = sprites_test.cc ../spritedef.cc
+SPRITES_TEST_HDRS = ../sprites.h ../sprites.cc ../spritedef.h ../vic.h \
+		../mem.h ../msg.h ../view.h ../color.h ../roll.h
+
 all: test
 
 flight_test: $(FLIGHT_TEST_SRC) $(FLIGHT_TEST_HDRS)
@@ -55,10 +65,13 @@ music_test: $(MUSIC_TEST_SRC) $(MUSIC_TEST_HDRS)
 mul_test: $(MUL_TEST_SRC) $(MUL_TEST_HDRS)
 	$(HOST_CC) $(HOST_CFLAGS) -o mul_test $(MUL_TEST_SRC)
 
-test: flight_test msg_test map_test sound_test music_test mul_test
-	@./flight_test > output.txt && ./msg_test >> output.txt && ./map_test >> output.txt && ./sound_test >> output.txt && ./music_test >> output.txt && ./mul_test >> output.txt && echo "ALL TESTS PASSED (flight_test, msg_test, map_test, sound_test, music_test, mul_test) -> test/output.txt"
+sprites_test: $(SPRITES_TEST_SRC) $(SPRITES_TEST_HDRS)
+	$(HOST_CC) $(HOST_CFLAGS) -o sprites_test $(SPRITES_TEST_SRC)
+
+test: flight_test msg_test map_test sound_test music_test mul_test sprites_test
+	@./flight_test > output.txt && ./msg_test >> output.txt && ./map_test >> output.txt && ./sound_test >> output.txt && ./music_test >> output.txt && ./mul_test >> output.txt && ./sprites_test >> output.txt && echo "ALL TESTS PASSED (flight_test, msg_test, map_test, sound_test, music_test, mul_test, sprites_test) -> test/output.txt"
 
 clean:
-	rm -rf flight_test msg_test map_test sound_test music_test mul_test output.txt *.dSYM
+	rm -rf flight_test msg_test map_test sound_test music_test mul_test sprites_test output.txt *.dSYM
 
-.PHONY: all test flight_test msg_test map_test sound_test music_test mul_test clean
+.PHONY: all test flight_test msg_test map_test sound_test music_test mul_test sprites_test clean

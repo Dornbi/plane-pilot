@@ -73,11 +73,16 @@ static const uint16_t kViewportEndYPixels = kViewportEndY * 8;
 static uint8_t *const kCharRam = (uint8_t *)0xE000;
 static const uint8_t kRasterScreenYStart = 50;
 
+#ifdef __OSCAR64__
 static uint8_t *const kScreenRamMain = (uint8_t *)0xE800;
 static uint8_t *const kScreenRamAlt = (uint8_t *)0xEC00;
-#ifdef __OSCAR64__
 static uint8_t *const kColorRam = (uint8_t *)0xD800;
 #else
+// Host builds point these at ordinary arrays, like sid.h and vic.h do for the
+// chips. Nothing that builds on the host uses them in a static initializer,
+// which is the one thing losing the constness would break.
+extern uint8_t *kScreenRamMain;
+extern uint8_t *kScreenRamAlt;
 extern uint8_t *kColorRam;
 #endif
 
