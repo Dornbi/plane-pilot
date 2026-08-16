@@ -1,9 +1,6 @@
 # Sprite Objects — Design Notes (`sprite_objects.md`)
 
-**Status: proposal, not implemented.** This describes a scheme for drawing
-world objects — clouds, other aircraft, possibly projectiles — with the eight
-hardware sprites in the viewport band, generalising what `sprites.cc` currently
-does for the sun alone.
+**Status: partially implemented.** Cloud sprite definitions (15 bitmaps, pointers 80–94) are generated and stored in `spritedef.bin`/`mem.cc`. World placement, projection, and viewport multiplexing remain to be implemented. This describes the scheme for drawing world objects — clouds, other aircraft, possibly projectiles — with the eight hardware sprites in the viewport band, generalising what `sprites.cc` currently does for the sun alone.
 
 For how sprites are used today see [project.md](project.md); for the raster
 band split see `gfx.cc`. For the aircraft case in full — which supersedes §6.2
@@ -213,10 +210,9 @@ bit per pixel the 50% dither reads as a light half-tone against the blue sky —
 softer than solid white, and it lets the sky through so the cloud does not read
 as a cut-out. Hires only, so the checkerboard stays a checkerboard (§4).
 
-**Ladder.** One sprite (1 × 1) for the common case, two stacked (1 × 2) when
-near, with X-expansion on the wider rungs. Circles at a handful of radii; the
-sizes want choosing by eye, but roughly 6, 10, 16 and 24 world pixels across
-covers one sprite, and the 1 × 2 rung takes the largest one or two.
+**Ladder.** One sprite (1 × 1) for distant to mid-range clouds, two stacked (1 × 2) when near, all using X-expansion. Extracted from `gfx/ppilot_clouds_concept.png` (upper set) into 10 sizes across 15 sprite blocks:
+- **1 sprite** (5 sizes, pointers 80–84): 3×5, 5×9, 7×13, 9×17, 11×21 (world width × raster lines).
+- **2 sprites stacked** (5 sizes, 10 bitmaps, pointers 85–94 as `[top, bot]` pairs): 13×25, 15×29, 17×33, 19×37, 21×41.
 
 **They occlude the horizon line.** A cloud is drawn in front of the terrain
 like every other sprite, not clipped to the sky. A cloud that cut off at the
@@ -294,8 +290,9 @@ the conflict entirely and is worth considering separately.
 - ~~Should clouds occlude the horizon line, or is drawing them only above it
   sufficient and cheaper?~~ **Answered** — they occlude it (§6.1). A cloud
   clipped at the horizon reads as a hole in the world.
-- How many cloud radii, and at what sizes? §6.1 guesses four. This is a
-  screenshot decision.
+- ~~How many cloud radii, and at what sizes?~~ **Answered** — 10 sizes across
+  15 sprite blocks: 5 single-sprite (3×5 to 11×21) and 5 two-sprite stacks
+  (13×25 to 21×41) (§6.1).
 - ~~Do aircraft need per-object colour at all, or is a single traffic colour
   enough to free the colour writes in the terrain handler?~~ **Answered** —
   [planes.md](planes.md) §8: colour switches on whether the aircraft is above
