@@ -650,9 +650,17 @@ is "the" phase is arbitrary; even is as good as odd.
 
 Checked over all 15 generated blocks in `lib/spritedef.py`: **zero set bits
 violate the rule**, on the single sprites, on the upper blocks and on the lower
-blocks across the 21-line seam. Both pivots — `(12, 10)` for the single
-sprites, `(12, 20)` for the stacks — have an even coordinate sum, which is what
-makes the runtime rule a pure position snap with no per-bitmap correction term.
+blocks across the 21-line seam.
+
+What makes the runtime rule a pure position snap, with no per-bitmap correction
+term, is that all fifteen blocks share **one** phase — not anything about the
+pivots. An earlier draft of this section said the pivots' even coordinate sums
+were load-bearing; they are not. `sprites_stack_add()` subtracts the pivot
+*first* and snaps the sprite's top left, so the pivot never enters the lattice
+arithmetic. It is worth checking anyway, for a different reason: the rungs are
+a size ladder the renderer steps up and down as a cloud approaches, and a rung
+whose pivot disagreed with its neighbours would make the blob jump sideways at
+the step instead of just growing.
 
 That is currently a **property of `gfx/ppilot_clouds_concept.png` and of the
 crop rectangles in `generate_sprites.py`, and nothing enforces it.** The
@@ -797,7 +805,7 @@ state it would need.
 | `c64o/sprites.cc` (again) | `#ifdef __OSCAR64__` around the `#embed`, which has no host equivalent |
 | `c64o/test/Makefile` | new target |
 | `tools/generate_sprites.py` | apply the dither procedurally and assert the phase invariant (§4.3) — byte-identical output today |
-| `tests/test_spritedef.py` | **new** — re-check the §4.2 bitmap invariant against `lib/spritedef.py` |
+| `tests/test_spritedef.py` | **new** — the §4.2 invariant against `lib/spritedef.py`, the byte-for-byte reproduction, and the interlock property of §4.1 |
 | `tools/generate_clouds.py` | **new** — emits the hash tables and rung thresholds |
 | `tools/render_cloud_preview.py` | **new** — density and layout preview |
 | `docs/sprite_objects.md` | status header; correct §1.1's parked-expanded-sprite claim; correct §3's "4 × 4 screen-pixel quadrant … 4 raster lines" to 2 × 2 and close the §8 question it feeds; mark §7 resolved |
@@ -857,15 +865,27 @@ whether a handler touches oscar64's runtime zero page (§1.4 — that is
 **Dither phase**
 
 - every set bit of all 15 blocks satisfies `(c + r + 21·is_lower) ≡ 0 (mod 2)`,
-  and both pivots have an even coordinate sum (§4.3). Runs against
-  `lib/spritedef.py` in `tests/`, so it fails on `make sprites`, not on screen;
-- regenerating with the procedural dither of §4.3 reproduces the checked-in
-  `c64o/spritedef.bin` byte for byte. This is what makes that change safe to
-  land on its own;
-- two blobs at every relative offset in a ±24 × ±21 sweep: union coverage in
-  the overlap stays at the single-blob density when both offsets share a
-  parity. Today that is 48% aligned against 82% misaligned, which is the whole
-  reason §4 exists and is a number worth having in a test rather than in prose.
+  stated both per block and on the assembled 42-row stack, plus the stronger
+  form the runtime actually depends on: all fifteen share *one* phase. Runs
+  against `lib/spritedef.py` in `tests/`, so it fails on `make sprites`, not on
+  screen;
+- regenerating reproduces the checked-in `c64o/spritedef.bin` byte for byte,
+  **and** the metadata matches `lib/spritedef.py`. The second half is not
+  redundant: pivots and block indices never reach the `.bin`, so the byte
+  comparison structurally cannot see a changed pivot;
+- **feeding the generator art with no checkerboard in it still produces one.**
+  This is the test for what §4.3 actually bought — before it, the phase came
+  from the concept PNG, and a silhouette redrawn solid would have come out as
+  solid white blobs;
+- two blobs at every relative offset in a ±24 × ±21 sweep. The strong form is
+  exact rather than statistical: every lit pixel has an even coordinate sum, so
+  an odd `(dx + dy)` puts every pixel of the shifted copy on the *odd*
+  sublattice and the two lit sets are **disjoint** — which is precisely "the
+  rear sprite fills the front one's holes". The 48%-against-82% coverage figure
+  of §4.1 is checked too, with loose bounds, so the number in the prose stays
+  honest if the art is ever redrawn;
+- and the guards themselves: `assert_dither_phase()` and
+  `assert_pivots_consistent()` are each fed something they must reject.
 
 **The X wrap**
 

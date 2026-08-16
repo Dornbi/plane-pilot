@@ -84,6 +84,77 @@ def _grid_to_sprite_bytes(grid):
     return sprite_bytes
 
 
+# --- The cloud dither lattice ------------------------------------------------
+#
+# Clouds are drawn as a white-and-transparent checkerboard, and docs/clouds.md
+# §4 is the reason the phase of that checkerboard is a property of this script
+# rather than of the concept art. Overlapping cloud sprites only read as one
+# cloud if their transparent pixels line up; out of phase, the rear sprite fills
+# the front one's holes and the group turns into a solid white lump with a hard
+# edge where the overlap stops. Measured on these bitmaps: 48% coverage in the
+# overlap when aligned, 82% when not.
+#
+# The rule is that a set pixel at bitmap column c, row r satisfies
+#
+#     (c + r + row_offset) % 2 == 0
+#
+# where row_offset is 0 for a single sprite and for the upper block of a
+# stacked pair, and KSPRITE_ROWS for the lower block - which carries the phase
+# across the 21-line seam, since 21 is odd and would otherwise flip it.
+#
+# The concept art already satisfies this, so ANDing it in changes nothing today
+# (tests/test_spritedef.py checks the output still matches the checked-in
+# spritedef.bin byte for byte). What it buys is that the art no longer has to:
+# it can be redrawn as a plain silhouette, or at a different resolution, and the
+# phase survives. Before this, extracting one pixel further left would have
+# inverted a single rung's phase silently.
+
+KSPRITE_ROWS = 21
+KSPRITE_COLS = 24
+
+
+def on_dither_lattice(c, r, row_offset=0):
+    """True if a set pixel is allowed at this position. See above."""
+    return (c + r + row_offset) % 2 == 0
+
+
+def assert_dither_phase(label, grid, row_offset=0):
+    """Fails the build if any set pixel is off the lattice."""
+    for r, row in enumerate(grid):
+        for c, bit in enumerate(row):
+            if bit and not on_dither_lattice(c, r, row_offset):
+                raise SystemExit(
+                    "generate_sprites: %s has a set pixel off the dither "
+                    "lattice at column %d, row %d (row_offset %d).\n"
+                    "  Every cloud pixel must satisfy (c + r + row_offset) %% 2 "
+                    "== 0, or overlapping\n"
+                    "  clouds fill each other in - see docs/clouds.md §4. If "
+                    "the concept art moved,\n"
+                    "  the AND in generate_cloud_sprites() should have handled "
+                    "it, so reaching this\n"
+                    "  means the lattice itself was bypassed."
+                    % (label, c, r, row_offset)
+                )
+
+
+def assert_pivots_consistent(label, metas):
+    """Every rung of a ladder must share one pivot.
+
+    Not a dither constraint - the lattice is anchored to the sprite's top left,
+    which sprites_stack_add() snaps, so the pivot does not enter it. This guards
+    something else: the rungs are a size ladder the renderer steps up and down
+    as a cloud approaches, and a rung whose pivot disagreed with its neighbours
+    would make the blob jump sideways at the step instead of just growing.
+    """
+    pivots = {(m["pivot_x"], m["pivot_y"]) for m in metas}
+    if len(pivots) != 1:
+        raise SystemExit(
+            "generate_sprites: %s rungs disagree on the pivot: %s.\n"
+            "  All rungs of one ladder must share it, or a cloud jumps when it "
+            "changes size." % (label, sorted(pivots))
+        )
+
+
 def generate_cloud_sprites(cloud_base_offset):
     png_path = os.path.join(REPO_ROOT, "gfx", "ppilot_clouds_concept.png")
     img, w, h = _read_concept_png(png_path)
@@ -111,12 +182,11 @@ def generate_cloud_sprites(cloud_base_offset):
             img_y = miny + dy
             for dx in range(w_world):
                 img_x = minx + dx * 2
-                bit = (
-                    1
-                    if (img[img_y][img_x] == 1 or img[img_y][img_x + 1] == 1)
-                    else 0
-                )
-                grid[start_sy + dy][start_sx + dx] = bit
+                # Coverage from the art, phase from the lattice.
+                covered = img[img_y][img_x] == 1 or img[img_y][img_x + 1] == 1
+                sx = start_sx + dx
+                sy = start_sy + dy
+                grid[sy][sx] = 1 if covered and on_dither_lattice(sx, sy) else 0
 
         bidx = cloud_base_offset + i
         cloud1_data.append(_grid_to_sprite_bytes(grid))
@@ -155,35 +225,32 @@ def generate_cloud_sprites(cloud_base_offset):
         start_sx = 12 - w_world // 2
 
         # 42-line stack: top sprite = concept Y 79..99, bot sprite = concept Y 100..120
-        for sy in range(21):
+        # The upper block carries no row offset; the lower one carries the
+        # 21 lines between them, so the checkerboard runs unbroken across the
+        # seam of a 42-row stack.
+        for sy in range(KSPRITE_ROWS):
             cy = 79 + sy
             if miny <= cy <= maxy:
                 for dx in range(w_world):
                     img_x = minx + dx * 2
-                    bit = (
-                        1
-                        if (
-                            img[cy][img_x] == 1
-                            or img[cy][img_x + 1] == 1
-                        )
-                        else 0
+                    covered = img[cy][img_x] == 1 or img[cy][img_x + 1] == 1
+                    sx = start_sx + dx
+                    grid_top[sy][sx] = (
+                        1 if covered and on_dither_lattice(sx, sy) else 0
                     )
-                    grid_top[sy][start_sx + dx] = bit
 
-        for sy in range(21):
+        for sy in range(KSPRITE_ROWS):
             cy = 100 + sy
             if miny <= cy <= maxy:
                 for dx in range(w_world):
                     img_x = minx + dx * 2
-                    bit = (
+                    covered = img[cy][img_x] == 1 or img[cy][img_x + 1] == 1
+                    sx = start_sx + dx
+                    grid_bot[sy][sx] = (
                         1
-                        if (
-                            img[cy][img_x] == 1
-                            or img[cy][img_x + 1] == 1
-                        )
+                        if covered and on_dither_lattice(sx, sy, KSPRITE_ROWS)
                         else 0
                     )
-                    grid_bot[sy][start_sx + dx] = bit
 
         top_idx = cloud2_base_offset + 2 * i
         bot_idx = cloud2_base_offset + 2 * i + 1
@@ -202,6 +269,19 @@ def generate_cloud_sprites(cloud_base_offset):
                 "label": f"Cloud 2-Sprite {name}",
             }
         )
+
+    # Belt and braces: the AND above is what puts the pixels on the lattice,
+    # so this can only fire if someone edits around it. It costs nothing and it
+    # is the difference between a silent regression and a failed build.
+    for i, grid in enumerate(cloud1_bits):
+        assert_dither_phase(cloud1_meta[i]["label"], grid)
+    for i, (g_top, g_bot) in enumerate(cloud2_bits):
+        assert_dither_phase(cloud2_meta[i]["label"] + " (top)", g_top)
+        assert_dither_phase(
+            cloud2_meta[i]["label"] + " (bottom)", g_bot, KSPRITE_ROWS
+        )
+    assert_pivots_consistent("Cloud 1-sprite", cloud1_meta)
+    assert_pivots_consistent("Cloud 2-sprite", cloud2_meta)
 
     return (
         cloud1_data,
