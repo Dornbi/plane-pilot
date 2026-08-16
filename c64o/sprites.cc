@@ -44,32 +44,85 @@ static const uint8_t kSpriteIdxAlt2 = 5;
 static const uint8_t kSpriteIdxThrottle = 6;
 static const uint8_t kSpriteIdxVSpeed = 7;
 
-static const uint8_t kSpriteIdxSun = 4;
-
-inline void sprites_init(void) {
-  vic.spr_color[kSpriteIdxSpeed] = kColorInstrument;
-  vic.spr_color[kSpriteIdxRoll] = kColorInstrument;
-  vic.spr_color[kSpriteIdxPitch] = kColorInstrument;
-  vic.spr_color[kSpriteIdxVSpeed] = kColorInstrument;
-  vic.spr_color[kSpriteIdxAlt1] = kColorInstrument;
-  vic.spr_color[kSpriteIdxAlt2] = kColorInstrument;
-  vic.spr_color[kSpriteIdxFuel] = kColorInstrument;
-  vic.spr_color[kSpriteIdxThrottle] = kColorInstrument;
-  vic.spr_enable = 0xFF;
-}
-
-#pragma bss(bss2)
-
 struct sprite_xy_t {
   uint8_t x;
   uint8_t y;
 };
 
-static sprite_xy_t _sprites_terrain_xy[8];
-static uint8_t _sprites_terrain_idx[8];
+// The stack's storage stays in the main bss rather than in bss2. bss2 is the
+// 1.4 KB gap at $0280-$07FF and it is already full - poly.cc's scratch buffers
+// are what gets evicted if anything else moves in - while neither of these
+// needs to be anywhere in particular. Only the instrument arrays below stay
+// there, and only because they were there first.
+//
+// One offered object, before indices are handed out. Insertion-sorted by
+// ascending depth, so entry 0 is the nearest.
+struct sprite_cand_t {
+  int16_t depth;
+  int16_t x; // VIC sprite coordinates, top left, pivot already applied.
+  uint8_t y;
+  uint8_t bitmap;
+  uint8_t bitmap2; // kSpriteNoBitmap for a single sprite.
+  uint8_t color;
+  uint8_t flags;
+};
+
+// The committed frame, laid out by register rather than by object so the
+// terrain handler walks four flat arrays instead of striding a struct.
+struct sprite_frame_t {
+  uint8_t x[8];
+  uint8_t y[8];
+  uint8_t ptr[8];
+  uint8_t color[8];
+  uint8_t msbx;
+  uint8_t expand;
+  uint8_t enable;
+};
+
+static sprite_cand_t _sprites_cand[kSpriteStackSize];
+static uint8_t _sprites_cand_count;
+
+// Double buffered, and that is not optional. _gfx_switch_to_terrain() reads the
+// frame from an interrupt at raster 250 while sprites_stack_commit() writes it
+// from the main line at an unrelated point. A torn read of a single object -
+// which is all the old sun path could produce - is one object a frame stale;
+// a torn read across eight is one object's X against another's Y, which is a
+// sprite in the wrong place. Commit fills the back frame and then stores the
+// index, and a single byte store is atomic on a 6502, so no sei is needed.
+static sprite_frame_t _sprites_frame[2];
+static volatile uint8_t _sprites_frame_shown;
+
+#pragma bss(bss2)
 
 static volatile sprite_xy_t _sprites_instrument_xy[8];
 static volatile uint8_t _sprites_instrument_idx[8];
+
+inline void sprites_init(void) {
+  for (uint8_t i = 0; i < 8; i++) {
+    vic.spr_color[i] = kColorInstrument;
+  }
+
+  // Commit an empty stack twice. Both frames end up holding "no objects", so a
+  // terrain interrupt arriving before the first world_update_objects() programs
+  // nothing rather than whatever bss happened to contain - and the two flips
+  // leave the front buffer back where it started. Cheaper in bytes than writing
+  // the two frames out by hand, and it cannot drift from what commit() means by
+  // an empty frame.
+  sprites_stack_reset();
+  sprites_stack_commit();
+  sprites_stack_commit();
+
+  // Nothing else in the program writes these four, and up to now that worked
+  // only because they are zero after a reset. $D01D became a live register when
+  // the stack learned to X-expand, so leaning on the reset state is no longer
+  // defensible for any of them. See sprite_objects.md §0: hires only, never
+  // Y-expanded, and sprites always in front of the terrain.
+  vic.spr_expand_x = 0;
+  vic.spr_expand_y = 0;
+  vic.spr_multi = 0;
+  vic.spr_priority = 0;
+  vic.spr_enable = 0xFF;
+}
 
 static void _sprites_set_instrument_sprite(uint8_t idx,
                                            const sprite_meta_t *meta_array,
@@ -151,10 +204,6 @@ inline void sprites_set_fuel(uint32_t fuel) {
                                  kSpriteOffsetY + kSpriteFuelPivotY);
 }
 
-static uint8_t _sprites_sun_x = 0;
-static uint8_t _sprites_sun_y = 0;
-static bool _sprites_sun_msbx = false;
-
 // A terrain sprite that would land on the message text hides for as long as
 // the message is up, rather than drawing over it. The test is a box overlap
 // against the message span, so a message narrow enough — or a sprite far
@@ -176,47 +225,178 @@ static bool _sprites_hidden_by_msg(int16_t x, int16_t y, uint8_t width,
   return x < x1 && x + (int16_t)width > x0;
 }
 
-inline void sprites_set_sun_position(int16_t x, int16_t y) {
-  if (x < -12 || x > (int16_t)kScreenWidthPixels + 12 || y < -10 ||
-      y > (int16_t)kScreenHeightPixels + 11) {
-    x = 0;
-    y = 0;
+void sprites_stack_reset(void) { _sprites_cand_count = 0; }
+
+bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
+                       int8_t pivot_y, uint8_t bitmap, uint8_t bitmap2,
+                       uint8_t color, uint8_t flags) {
+  // An expanded sprite pixel is two screen pixels, so the horizontal pivot
+  // doubles with it and the vertical one does not.
+  uint8_t width = kSpriteWidthPixels;
+  if (flags & kSpriteFlagExpandX) {
+    width <<= 1;
+    x -= (int16_t)pivot_x << 1;
   } else {
-    x += kSpriteOffsetX - kSpriteDefSun.pivot_x;
-    y += kSpriteOffsetY - kSpriteDefSun.pivot_y;
-    if (y >= kRasterScreenYStart + kViewportEndYPixels ||
-        _sprites_hidden_by_msg(x, y, kSpriteWidthPixels, kSpriteHeightPixels)) {
-      x = 0;
-      y = 0;
+    x -= (int16_t)pivot_x;
+  }
+  uint8_t height = kSpriteHeightPixels;
+  if (bitmap2 != kSpriteNoBitmap) {
+    height <<= 1;
+  }
+  y -= (int16_t)pivot_y;
+  // (x, y) is now the sprite's top left, still in viewport screen pixels.
+
+  // The dither lattice, in screen space. X_vic = x + 24 and Y_vic = y + 50,
+  // and both offsets are even, so "X_vic even and (X_vic >> 1) + Y_vic even"
+  // is the same condition as "x even and (x >> 1) + y even" here.
+  if (flags & kSpriteFlagAlignDither) {
+    x &= ~1;
+    y = (y & ~1) | ((x >> 1) & 1);
+  }
+
+  if (x >= (int16_t)kScreenWidthPixels || x + (int16_t)width <= 0) {
+    return false;
+  }
+  // Unlike the old sun path this does not cull an object that merely reaches
+  // past the bottom of the viewport: the panel handler parks sprites at x = 0
+  // at raster 161 and the VIC compares X per line, so an object straddling the
+  // edge is clipped there rather than hidden whole.
+  if (y >= (int16_t)kViewportEndYPixels || y + (int16_t)height <= 0) {
+    return false;
+  }
+
+  int16_t vx = x + (int16_t)kSpriteOffsetX;
+  int16_t vy = y + (int16_t)kSpriteOffsetY;
+  // No X wrap yet — clouds.md §1.6 and phase 8. Until then a sprite that would
+  // need a negative register position is dropped rather than clipped, which is
+  // what sprites_set_sun_position() did before the stack existed.
+  if (vx < 0) {
+    return false;
+  }
+  if (_sprites_hidden_by_msg(vx, vy, width, height)) {
+    return false;
+  }
+
+  uint8_t i = _sprites_cand_count;
+  if (i == kSpriteStackSize) {
+    // Full. Only a nearer object earns a place, and it takes the farthest
+    // one's.
+    if (depth >= _sprites_cand[kSpriteStackSize - 1].depth) {
+      return false;
+    }
+    i = kSpriteStackSize - 1;
+  } else {
+    _sprites_cand_count = i + 1;
+  }
+  while (i > 0 && _sprites_cand[i - 1].depth > depth) {
+    _sprites_cand[i] = _sprites_cand[i - 1];
+    --i;
+  }
+  _sprites_cand[i].depth = depth;
+  _sprites_cand[i].x = vx;
+  _sprites_cand[i].y = (uint8_t)vy;
+  _sprites_cand[i].bitmap = bitmap;
+  _sprites_cand[i].bitmap2 = bitmap2;
+  _sprites_cand[i].color = color;
+  _sprites_cand[i].flags = flags;
+  return true;
+}
+
+void sprites_stack_commit(void) {
+  uint8_t back = _sprites_frame_shown ^ 1;
+  sprite_frame_t *f = back ? &_sprites_frame[1] : &_sprites_frame[0];
+
+  uint8_t idx = 0;
+  uint8_t bit = 1;
+  uint8_t msbx = 0;
+  uint8_t expand = 0;
+  uint8_t enable = 0;
+
+  for (uint8_t i = 0; i < _sprites_cand_count; ++i) {
+    const sprite_cand_t *c = &_sprites_cand[i];
+    uint8_t slots = (c->bitmap2 == kSpriteNoBitmap) ? 1 : 2;
+    if (idx + slots > kSpriteStackSize) {
+      // The list is sorted, so everything after this is farther still.
+      break;
+    }
+    uint8_t ptr = c->bitmap;
+    uint8_t sy = c->y;
+    for (uint8_t s = 0; s < slots; ++s) {
+      f->x[idx] = (uint8_t)c->x;
+      f->y[idx] = sy;
+      f->ptr[idx] = ptr;
+      f->color[idx] = c->color;
+      enable |= bit;
+      if (c->x & 0x100) {
+        msbx |= bit;
+      }
+      if (c->flags & kSpriteFlagExpandX) {
+        expand |= bit;
+      }
+      ptr = c->bitmap2;
+      sy += kSpriteHeightPixels;
+      bit <<= 1;
+      ++idx;
     }
   }
-  _sprites_sun_x = (uint8_t)x;
-  _sprites_sun_y = (uint8_t)y;
-  _sprites_sun_msbx = (x & 0x100);
+
+  // Unused indices are left disabled rather than parked at x = 0. Parking
+  // hides a sprite but still costs its DMA on every line it would have been
+  // displayed on; clearing the enable bit costs neither, and it is one store
+  // in the handler instead of eight.
+  while (idx < kSpriteStackSize) {
+    f->x[idx] = 0;
+    f->y[idx] = 0;
+    f->ptr[idx] = kSpriteDefSun.bitmap_idx;
+    f->color[idx] = kColorInstrument;
+    ++idx;
+  }
+  f->msbx = msbx;
+  f->expand = expand;
+  f->enable = enable;
+
+  _sprites_frame_shown = back;
 }
 
 inline void sprites_show_terrain_sprites() {
-  *(kScreenRamMain + 1016 + kSpriteIdxSun) = kSpriteDefSun.bitmap_idx;
-  *(kScreenRamAlt + 1016 + kSpriteIdxSun) = kSpriteDefSun.bitmap_idx;
-  vic.spr_pos[kSpriteIdxSun].x = _sprites_sun_x;
-  vic.spr_pos[kSpriteIdxSun].y = _sprites_sun_y;
-  if (_sprites_sun_msbx) {
-    vic.spr_msbx |= (1 << kSpriteIdxSun);
-  } else {
-    vic.spr_msbx &= ~(1 << kSpriteIdxSun);
+  const sprite_frame_t *f =
+      _sprites_frame_shown ? &_sprites_frame[1] : &_sprites_frame[0];
+  // Deliberately not unrolled. This is the one loop in the program where the
+  // trade runs the other way: it sits at raster 250 in the bottom border with
+  // ~58 PAL lines of slack after sound_blit(), so the ~200 extra cycles a
+  // rolled loop costs are three raster lines nobody is waiting on, while the
+  // unrolled form costs about 190 bytes - and gfx.cc's optimize(nooutline)
+  // around the handlers means the outliner cannot win them back.
+  for (uint8_t i = 0; i < 8; i++) {
+    vic.spr_pos[i].x = f->x[i];
+    vic.spr_pos[i].y = f->y[i];
+    *(kScreenRamMain + 1016 + i) = f->ptr[i];
+    *(kScreenRamAlt + 1016 + i) = f->ptr[i];
+    vic.spr_color[i] = f->color[i];
   }
-  vic.spr_color[kSpriteIdxSun] = kColorSun;
+  vic.spr_msbx = f->msbx;
+  vic.spr_expand_x = f->expand;
+  vic.spr_enable = f->enable;
 }
 
 inline void sprites_show_no_sprites() {
-#pragma unroll(full)
-  for (uint8_t i = 0; i < 8; i++) {
-    vic.spr_pos[i].x = 0;
-  }
+  vic.spr_enable = 0;
+  vic.spr_expand_x = 0;
   vic.spr_msbx = 0;
 }
 
 inline void sprites_show_panel_top_sprites() {
+  // Everything the terrain band set up has to be undone before the panel is
+  // drawn, and two of these are easy to miss:
+  //
+  // - $D01D. Parking at x = 0 hides a 24 pixel sprite, because the left border
+  //   ends at 24 and the VIC compares X per raster line. It does *not* hide an
+  //   X-expanded one, which is 48 wide and would poke 24 pixels into the panel.
+  // - Sprite 7's colour. It is the vertical speed needle, the one instrument
+  //   drawn in this band, and the terrain handler now writes all eight colours.
+  vic.spr_enable = 0xFF;
+  vic.spr_expand_x = 0;
+  vic.spr_color[kSpriteIdxVSpeed] = kColorInstrument;
 #pragma unroll(full)
   for (uint8_t i = 0; i < 7; i++) {
     vic.spr_pos[i].x = 0;
@@ -237,15 +417,23 @@ inline void sprites_show_panel_top_sprites() {
 }
 
 inline void sprites_show_panel_bottom_sprites() {
+  // All eight colours, unconditionally. This band is below the split and is not
+  // cycle critical, and doing it here is what frees the terrain handler to
+  // write every colour without a handshake with the panel code - which is why
+  // the old kIdxThrottle == kIdxSun and kIdxFuel == kIdxSun special cases are
+  // gone.
 #pragma unroll(full)
+  for (uint8_t i = 0; i < 8; i++) {
+    vic.spr_color[i] = kColorInstrument;
+  }
   if (view_state == VIEW_CENTER) {
+#pragma unroll(full)
     for (uint8_t i = 0; i < 7; i++) {
       vic.spr_pos[i].x = _sprites_instrument_xy[i].x;
       vic.spr_pos[i].y = _sprites_instrument_xy[i].y;
       *(kScreenRamMain + 1016 + i) = _sprites_instrument_idx[i];
       *(kScreenRamAlt + 1016 + i) = _sprites_instrument_idx[i];
     }
-    vic.spr_color[kSpriteIdxSun] = kColorInstrument;
     vic.spr_msbx = (1 << kSpriteIdxThrottle);
   } else if (view_state == VIEW_LEFT) {
     vic.spr_pos[kSpriteIdxFuel].x = _sprites_instrument_xy[kSpriteIdxFuel].x;
@@ -255,9 +443,6 @@ inline void sprites_show_panel_bottom_sprites() {
     *(kScreenRamAlt + 1016 + kSpriteIdxFuel) =
         _sprites_instrument_idx[kSpriteIdxFuel];
     vic.spr_msbx = (1 << kSpriteIdxFuel);
-    if (kSpriteIdxFuel == kSpriteIdxSun) {
-      vic.spr_color[kSpriteIdxFuel] = kColorInstrument;
-    }
   } else {
     vic.spr_pos[kSpriteIdxThrottle].x =
         _sprites_instrument_xy[kSpriteIdxThrottle].x;
@@ -268,8 +453,5 @@ inline void sprites_show_panel_bottom_sprites() {
     *(kScreenRamAlt + 1016 + kSpriteIdxThrottle) =
         _sprites_instrument_idx[kSpriteIdxThrottle];
     // Assume vic.spr_msbx is already 0
-    if (kSpriteIdxThrottle == kSpriteIdxSun) {
-      vic.spr_color[kSpriteIdxThrottle] = kColorInstrument;
-    }
   }
 }

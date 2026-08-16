@@ -18,11 +18,70 @@ void sprites_set_pitch(int8_t pitch_angle);
 void sprites_set_throttle(uint8_t throttle);
 void sprites_set_fuel(uint32_t fuel);
 
+// --- The sprite stack ------------------------------------------------------
+//
+// A distance-sorted allocator for the eight hardware sprites during the
+// viewport band. Designed in docs/clouds.md §1; the short version is that VIC
+// sprite-to-sprite priority is fixed by index - sprite 0 draws in front of
+// sprite 1, and so on - so "draw the closest object first" is implemented as
+// "give the closest object the lowest index". Sort the candidates by distance,
+// hand out indices in that order, and correct mutual occlusion comes out with
+// no per-frame priority logic and nothing written to $D01B.
+//
+// It also fixes the overflow rule for free: when more objects want sprites
+// than there are sprites, the ones that lose are at the end of the list, which
+// is the farthest ones.
+//
+// Per frame: reset, add candidates in any order, commit. The committed frame
+// is what the terrain raster handler programs.
+
+static const uint8_t kSpriteStackSize = 8;
+
+// bitmap2 value meaning "this entry is a single sprite".
+static const uint8_t kSpriteNoBitmap = 0xFF;
+
+// X-expanded: 48 screen pixels wide, one sprite pixel per world pixel.
+static const uint8_t kSpriteFlagExpandX = 0x01;
+// Snap the position onto the global dither lattice (docs/clouds.md §4): X even
+// and (X >> 1) + Y even, so that overlapping checkerboard-dithered sprites keep
+// their transparent pixels aligned instead of filling each other in. Clouds set
+// it; the sun, which is solid, does not.
+static const uint8_t kSpriteFlagAlignDither = 0x02;
+
+// Begins a new frame's candidate list.
+void sprites_stack_reset(void);
+
+// Offers one object to the stack.
+//
+// (x, y) is the object's *centre* in viewport screen pixels - the same space
+// gfx_project_and_draw() works in:
+//     x = kScreenWidthPixels / 2 - vec_sx
+//     y = kViewportEndYPixels / 2 - vec_sy
+// The pivot is the bitmap's own, in *sprite* pixels as spritedef.cc stores it;
+// this applies it, doubling pivot_x when kSpriteFlagExpandX is set, because an
+// expanded sprite pixel is two screen pixels.
+//
+// bitmap2 is kSpriteNoBitmap for a single sprite, or the lower block of a
+// 1 x 2 stack, in which case the entry claims two consecutive indices and the
+// lower sprite is placed 21 raster lines below the upper one.
+//
+// depth is the camera-space forward distance, used only for ordering; INT16_MAX
+// sorts an object behind everything, which is what the sun passes.
+//
+// Returns false if the object was culled or did not fit.
+bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
+                       int8_t pivot_y, uint8_t bitmap, uint8_t bitmap2,
+                       uint8_t color, uint8_t flags);
+
+// Assigns hardware indices nearest-first and publishes the result to the
+// terrain raster handler. Anything that did not fit is dropped; unused indices
+// are left disabled.
+void sprites_stack_commit(void);
+
 void sprites_show_terrain_sprites();
 void sprites_show_no_sprites();
 void sprites_show_panel_top_sprites();
 void sprites_show_panel_bottom_sprites();
-void sprites_set_sun_position(int16_t x, int16_t y);
 
 #pragma compile("sprites.cc")
 

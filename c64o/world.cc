@@ -6,8 +6,10 @@
 #include "gfx.h"
 #include "mem.h"
 #include "poly.h"
+#include "color.h"
 #include "render.h"
 #include "roll.h"
+#include "spritedef.h"
 #include "sprites.h"
 #include "vec.h"
 
@@ -282,18 +284,20 @@ void world_update_roll_state() {
 
 static const vec3_t kSunDirWorld = {0, 256, 64};
 
-void world_update_sun_pos() {
+// Rebuilds the viewport sprite frame. The sun is the only object today, and it
+// goes through the stack as an ordinary entry rather than owning a fixed sprite
+// index: an "infinite" depth sorts it behind everything, which is where it
+// belongs. Clouds (clouds.md) and traffic (planes.md) add themselves here too.
+void world_update_objects() {
+  sprites_stack_reset();
   vec_transform_inv(&world_cam, &kSunDirWorld, &vec_v);
-  int16_t sx;
-  int16_t sy;
   if (vec_project()) {
-    sx = kScreenWidthPixels / 2 - vec_sx;
-    sy = kViewportEndYPixels / 2 - vec_sy;
-  } else {
-    sx = -100;
-    sy = 0;
+    sprites_stack_add(0x7FFF, kScreenWidthPixels / 2 - vec_sx,
+                      kViewportEndYPixels / 2 - vec_sy, kSpriteDefSun.pivot_x,
+                      kSpriteDefSun.pivot_y, kSpriteDefSun.bitmap_idx,
+                      kSpriteNoBitmap, kColorSun, 0);
   }
-  sprites_set_sun_position(sx, sy);
+  sprites_stack_commit();
   bm_end(670, "UPD:");
 }
 #pragma optimize(pop)

@@ -306,6 +306,11 @@ void map_enter() {
   // Drop the instrument sprites; the aircraft marker turns two back on at the
   // end, once its pointers are in place.
   vic.spr_enable = 0x00;
+  // The marker is hires and unexpanded. $D01D belongs to the sprite stack now
+  // and stopping the raster IRQs freezes whatever the terrain band last wrote
+  // there, so clear it rather than inherit it and draw the aircraft at double
+  // width the first time a viewport object is expanded.
+  vic.spr_expand_x = 0x00;
 
   // Blank the display for the build. Three passes over 8000, 1000 and 1000
   // bytes are several frames long, and with DEN clear they show the black

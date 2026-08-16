@@ -258,7 +258,7 @@ void sim_run(uint8_t selected_mission) {
     bm_start();
     view_update_cam();
     world_update_roll_state();
-    world_update_sun_pos();
+    world_update_objects();
 
     render_snap_center_chars();
     msg_restore_color();

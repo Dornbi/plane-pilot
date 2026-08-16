@@ -19,8 +19,9 @@ void world_render_grid();
 // Updates the roll state.
 void world_update_roll_state();
 
-// Updates the sun position.
-void world_update_sun_pos();
+// Rebuilds the viewport sprite frame: resets the sprite stack, offers every
+// world object to it, and commits. See sprites.h and docs/clouds.md §1.
+void world_update_objects();
 
 enum WorldMapType {
   MAP_NOTHING = 0,

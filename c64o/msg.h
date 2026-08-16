@@ -24,7 +24,7 @@ bool msg_active(void);
 // Horizontal span the message covers on row 0, in screen pixels, half open:
 // [msg_span_x0, msg_span_x1). Only meaningful while msg_active(). Terrain
 // sprites that would overlap this box hide themselves instead of drawing
-// over the text — see sprites_set_sun_position().
+// over the text — see sprites_stack_add().
 extern uint16_t msg_span_x0;
 extern uint16_t msg_span_x1;
 
