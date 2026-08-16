@@ -1,6 +1,6 @@
 # Sprite Objects — Design Notes (`sprite_objects.md`)
 
-**Status: partially implemented.** Cloud sprite definitions (15 bitmaps, pointers 80–94) are generated and stored in `spritedef.bin`/`mem.cc`. World placement, projection, and viewport multiplexing remain to be implemented. This describes the scheme for drawing world objects — clouds, other aircraft, possibly projectiles — with the eight hardware sprites in the viewport band, generalising what `sprites.cc` currently does for the sun alone.
+**Status: partially implemented.** Cloud sprite definitions (15 bitmaps, pointers 80–94) are generated and stored in `spritedef.bin`/`mem.cc`. World placement, projection, and viewport multiplexing remain to be implemented — planned in full in [clouds.md](clouds.md), which supersedes §6.1 the way [planes.md](planes.md) supersedes §6.2, and which turns §2's restructure into a concrete sprite-stack API. This describes the scheme for drawing world objects — clouds, other aircraft, possibly projectiles — with the eight hardware sprites in the viewport band, generalising what `sprites.cc` currently does for the sun alone.
 
 For how sprites are used today see [project.md](project.md); for the raster
 band split see `gfx.cc`. For the aircraft case in full — which supersedes §6.2
@@ -44,9 +44,11 @@ Two further properties fall out of the existing code for free:
 `_switch_to_panel_top` parks sprites at `x = 0` at the viewport edge. The VIC
 compares the X register **per raster line**, so an object straddling the panel
 boundary is cut cleanly at that line rather than having to be culled whole.
-(`x = 0` lands inside the left border; watch that an X-expanded sprite is 48
-screen pixels wide and the border ends at 24, so a sprite parked at 0 with the
-`msbx` bit clear is still fully hidden.)
+(`x = 0` lands inside the left border, which hides a 24-pixel sprite
+completely. **It does not hide an X-expanded one:** that is 48 pixels wide and
+the left border ends at 24, so parked at 0 it pokes 24 pixels into the picture.
+Any band that parks sprites this way must also clear `$D01D` — see
+[clouds.md](clouds.md) §1.4 and [planes.md](planes.md) §5.)
 
 The sun's current `y >= kRasterScreenYStart + kViewportEndYPixels` cull is
 therefore stricter than it needs to be — it hides an object that could legally
@@ -126,14 +128,26 @@ For aircraft the two axes are chosen **independently** rather than as a ladder:
 width picks expansion, height picks the sprite count. A steeply banked aircraft
 is tall and narrow and must not be expanded along with its extra sprite.
 
-**Vertical granularity mismatch.** The terrain dot characters
-(`kGfxQuadGround` and friends, 16 variants per group) put each plotted dot in a
-4 × 4 screen-pixel quadrant, i.e. **4 raster lines tall**. Unexpanded sprite
-pixels are 1 line tall, so sprites will read as four times finer vertically
-than the world they sit in. Y-expansion would have halved that discrepancy and
-is not available (§0), so the mismatch stays. Whether it is a problem or an
-asset — crisp objects against a coarse world — is a judgement call to make with
-a screenshot, not on paper.
+**Vertical granularity mismatch — 2:1, and only vertically.** An earlier draft
+of this paragraph said the terrain dot characters put each plotted dot in a
+"4 × 4 screen-pixel quadrant, i.e. 4 raster lines tall". That is wrong by a
+factor of two on both axes. `gfx_project_and_draw()` selects the character with
+`((lpx & 0x06) >> 1) + ((lpy & 0x06) << 1)` — four sub-positions per axis
+across an 8 × 8 cell, so each is **2 × 2 screen pixels**; the 16 variants are a
+4 × 4 *arrangement*, not a 4 × 4 pixel. `tools/generate_gfx_chars.py` draws the
+glyph to match: one multicolour pixel wide (`alt_lines[x]`, 2 screen pixels)
+and two raster lines tall (`char_bytes[y * 2]` and `char_bytes[y * 2 + 1]`).
+
+So the comparison is: **horizontally 1:1** — an X-expanded sprite pixel is 2
+screen pixels and so is a terrain dot, which is the same point made above — and
+**vertically 2:1**, an unexpanded sprite line against the dot's two. One axis,
+one factor of two, against a world the eye has no finer reference for. This is
+not a problem and does not need Y-expansion to fix, which is just as well,
+since §0 rules it out.
+
+For clouds the question does not arise at all: the dither-phase snap in
+[clouds.md](clouds.md) §4 quantises a cloud's vertical position to two raster
+lines, putting it on exactly the terrain's own 2 × 2 lattice.
 
 ---
 
@@ -286,7 +300,11 @@ the conflict entirely and is worth considering separately.
   estimate from operation counts, exactly like the flight-model budget in
   [flight.md](flight.md) §1, and should be measured before the object count is
   treated as settled.
-- Is the 4:1 vertical granularity mismatch (§3) visible enough to matter?
+- ~~Is the 4:1 vertical granularity mismatch (§3) visible enough to matter?~~
+  **Answered — the premise was wrong.** It is 2:1, not 4:1, and only on the
+  vertical axis; §3 has been corrected. Not visible enough to matter, and moot
+  for clouds, which land on the terrain's lattice exactly
+  ([clouds.md](clouds.md) §4.5).
 - ~~Should clouds occlude the horizon line, or is drawing them only above it
   sufficient and cheaper?~~ **Answered** — they occlude it (§6.1). A cloud
   clipped at the horizon reads as a hole in the world.
