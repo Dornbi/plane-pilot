@@ -395,6 +395,14 @@ correlates the two: every cell that has a cloud also has a small jitter, and
 the layout gets a visible diagonal grain. Two tables indexed by the same
 scrambled byte cost 32 extra bytes and remove the problem.
 
+An earlier draft also *tested* for that correlation directly, by requiring the
+groups' in-cell offsets to spread over all four quadrants of a cell. That test
+was a proxy for "the layout looks even", and once §7 began measuring evenness
+for real the proxy started rejecting the best layouts to enforce a statistic
+nobody looks at. What survives is the one degenerate case the score cannot see:
+if every group sat at the same offset, the positions would form a lattice —
+which scores *well* on evenness and looks manufactured.
+
 Fields of the two bytes:
 
 | Field | Bits | Use |
@@ -415,12 +423,17 @@ random positions and headings at each of four altitudes
 
 | Gate | Cells with a group | E[groups in view] | P(0) | P(1) | P(≥2) | Slot overflow |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| **`0x07` (1 in 8)** | **20/128** | **0.44** | **0.61** | **0.34** | **0.05** | **0.6%** |
+| **`0x07` (1 in 8)** | **19/128** | **0.42** | **0.60** | **0.37** | **0.02** | **0.4%** |
 | `0x03` (1 in 4) | 30/128 | 0.67 | 0.47 | 0.41 | 0.12 | 3.0% |
 | `0x01` (1 in 2) | 64/128 | 1.43 | 0.21 | 0.34 | 0.45 | 19% |
 
-You see a cloud group about 39% of the time and two at once 5% of the time,
-which is the brief. The numbers barely move with altitude, which is the point of
+You see a cloud group about 40% of the time and two at once 2% of the time,
+which is the brief.
+
+`P(≥2)` fell from 5% to 2% when the layout was made *even* rather than merely
+sparse (§7). That is not a coincidence: a clumped pair of groups is exactly the
+arrangement that puts two of them in one viewport, so spreading them out reduces
+the double sightings without reducing the count. The numbers barely move with altitude, which is the point of
 §2.6's deck height.
 
 > **This table replaces an estimate, and the estimate was optimistic.** An
@@ -840,11 +853,40 @@ none of them should be typed by hand into `clouds.cc`. Follow the pattern
 them to the Python — the three copies agreeing is what makes any of them
 trustworthy.
 
-**The hash tables are searched, not seeded.** The generator walks seeds until it
-finds tables whose density, spread over the world, and presence/jitter
-independence all pass, then stops. Deterministic — the same four numbers always
-give the same tables — while letting the density be retuned by changing one
-constant rather than by hand-editing 88 bytes. Two couplings are checked there
+**The hash tables are searched, not seeded, and searched for evenness.** Sparse
+and *clumpy* are different things, and random is clumpy: a Poisson scatter puts
+pairs of groups almost on top of each other and leaves holes between them, which
+reads as an uneven sky rather than a quiet one. The first tables shipped here did
+exactly that — 8 groups in the left half of the world against 12 in the right,
+two adjacent empty columns, and a closest pair at 2.9 km against 10.4 km if
+uniform.
+
+`world.cc` already solves this for the terrain dots, with *"Mitchell's
+Best-Candidate algorithm to maximize distance between points while maintaining an
+organic, non-linear distribution"*. The same idea applies here from the other
+end: the layout is fixed by the hash, so rather than placing points well the
+generator searches for tables whose points happen to *be* placed well. Two
+measures, and both matter —
+
+| | Low means |
+| :--- | :--- |
+| minimum separation | clumps |
+| covering radius | holes |
+
+— and the score is their ratio. A regular lattice scores highest, pure randomness
+about 0.25. The committed tables reach **0.58**, which doubled the closest pair
+and evened the halves to 10/9.
+
+The search is deterministic and takes about three seconds; the winning seed and
+its metrics are recorded in `lib/clouddef.py` so the tests can rebuild and
+re-check the layout without repeating it.
+
+One measured aside worth not relitigating: the balance constraints (per-column
+caps, half and quadrant shares) turn out to be **subsumed** by the evenness
+score. Drop all four and the same seed still wins, out of six times as many
+candidates — balance is a consequence of even spacing, not an independent
+requirement. They are kept because that implication is not guaranteed to survive
+a change of density or world size. Two couplings are checked there
 too, because both are easy to break by retuning one number alone and both fail
 on screen in ways that are hard to attribute: the cull radius must equal the
 scan's guaranteed radius (§2.2), and the smallest rung must land exactly on it
@@ -961,7 +1003,7 @@ whether a handler touches oscar64's runtime zero page (§1.4 — that is
 | 1 | Sprite stack: API, storage, double buffer, all-8 terrain handler, `$D01D` / colour-7 fixes, register init, `check_irq_zp.py` | yes | Sun is the only client. Screen should be **pixel-identical** to today — that is the test. Read §1.4's zero page rule before touching the handler |
 | 2 | Host `sprites_test` for the stack and the three bands, including the §4.2 position snap | yes | Before clouds, while the only client is trivial. Check it can fail: mutate the sort order, the 21-line offset, the `$D01D` clear, and confirm each one is caught |
 | 3 | Procedural dither + phase assertion in `generate_sprites.py`; `tests/test_spritedef.py` | yes | Must reproduce the checked-in `spritedef.bin` byte for byte (§4.3) |
-| 4 | `generate_clouds.py`, `clouddef.*`, `render_cloud_preview.py`, `test_clouddef.py` | yes | Tune density on the preview, not in the emulator. It moved the gate from `0x03` to `0x07` on first run (§2.4) |
+| 4 | `generate_clouds.py`, `clouddef.*`, `render_cloud_preview.py`, `test_clouddef.py` | yes | Tune density on the preview, not in the emulator. It moved the gate from `0x03` to `0x07` on first run, and the layout from random to blue noise on second (§2.4, §7) |
 | 5 | Cell scan, hash, one blob per group, rungs 0–4 only, no offsets | yes | One sprite per group. Confirms placement, projection and the ladder in isolation |
 | 6 | Offset basis, three blobs, group patterns | yes | Overlap and rotation. **The first frame where §4 is observable** — three blobs on one lattice or three blobs in a white lump |
 | 7 | Rungs 5–9, two-sprite entries, X-expansion live | yes | The `$D01D` work from phase 1 finally gets exercised, and so does the 21-line seam of §4.4 |

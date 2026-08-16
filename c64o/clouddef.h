@@ -5,7 +5,7 @@
 // Run `make clouds` after changing the constants at the top of that script.
 //
 // See docs/clouds.md: §2 for the placement, §3 for the size ladder.
-// Hash tables from search seed 77.
+// Hash tables from search seed 28842.
 
 #include <stdint.h>
 
