@@ -423,6 +423,7 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
     content += '#include <stddef.h>\n'
     content += '#include <string.h>\n\n'
     content += '#include "roll.h"\n\n'
+    content += '#pragma data(data_box)\n\n'
 
     box_names = sorted(box_defs.keys())
 
@@ -489,6 +490,7 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
         else:
             content += "    NULL,\n"
     content += "};\n\n"
+    content += '#pragma data(data)\n\n'
 
     content += "boxdef_t boxdef;\n\n"
 

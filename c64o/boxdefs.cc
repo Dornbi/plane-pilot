@@ -12,6 +12,8 @@
 
 #include "roll.h"
 
+#pragma data(data_box)
+
 static const uint8_t box_d8_idx[] = { 44, 0, 43, 30 };
 static const uint8_t box_d8_chars[] = { 2, 5, 6, 3, 4, 2, 5, 6, 3, 4, 2, 5, 6, 3, 4, 2, 5, 6, 3, 4 };
 static const boxdef_t box_d8_def = {
@@ -1293,6 +1295,8 @@ const boxdef_t* const alt_boxes[60] = {
     NULL,
     NULL,
 };
+
+#pragma data(data)
 
 boxdef_t boxdef;
 

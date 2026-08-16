@@ -336,10 +336,14 @@ void map_enter() {
   // The aircraft marker. _get_heading() runs 0..47 clockwise from north and
   // the sprite tables 0..31 clockwise from up, and the map puts north up, so
   // the conversion is just a change of scale: round(heading * 32 / 48), which
-  // is (2 * heading + 1) / 3. map.md proposed a 48-byte lookup table to avoid
-  // the divide, but this runs once per map_enter(), not per frame, so 48
-  // bytes of the scarce region to save one division is the wrong way round.
-  const uint8_t dir = (2 * flight_true_heading + 1) / 3;
+  // is (2 * heading + 1) / 3. A short subtractive loop computes this without
+  // pulling in the 139-byte divmod runtime routine or needing a lookup table.
+  uint8_t rem = (flight_true_heading << 1) + 1;
+  uint8_t dir = 0;
+  while (rem >= 3) {
+    rem -= 3;
+    dir++;
+  }
   const sprite_meta_t *body = &kSpriteDefMetaLongArm[dir];
   const sprite_meta_t *wing = &kSpriteDefMetaLongArm[(dir + 8) & 0x1F];
   // pivot[d ^ 16] - centre is the fore vector at half the arm length, 7 px.

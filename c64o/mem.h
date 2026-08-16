@@ -20,12 +20,13 @@
 // Additional bss.
 #pragma section(bss2, 0, , , bss)
 #pragma region( bss2, 0x280, 0x800, , , {bss2} )
+#pragma section(data_box, 0, , , data)
 #pragma section(data_compr, 0, , , data)
 // Startup code is 0x0801 .. 0x0853, use everything before the VIC
 // range as RAM. In theory we could use everything until kSpriteData
 // but it overlaps with VIC control registers so we would have to
 // switch back and forth.
-#pragma region( main, 0x0860, 0xD000, , , {code, data, data_compr, bss, heap} )
+#pragma region( main, 0x0860, 0xD000, , , {code, data, data_box, data_compr, bss, heap} )
 #endif
 // Zero page. Wider than oscar64's 0x80..0xFF default, in both directions.
 //

@@ -112,8 +112,12 @@ uint16_t music_note_freq(uint8_t midi) {
   if (midi < 12) {
     return 0;
   }
-  uint8_t octave = (uint8_t)(midi / 12) - 1;
-  uint8_t pc = midi % 12;
+  uint8_t octave = 0;
+  while (midi >= 24) {
+    midi -= 12;
+    octave++;
+  }
+  uint8_t pc = midi - 12;
   uint16_t f = kMusicNoteTable[pc];
   if (octave >= 6) {
     return f;

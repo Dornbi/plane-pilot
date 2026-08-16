@@ -4,7 +4,7 @@ This document provides a detailed breakdown of RAM usage by feature area and seg
 
 Segments are categorized into:
 * **Code**: Executable CPU instructions (`code`, `startup`).
-* **Data**: Read-only lookup tables, compressed assets, data constants (`data`, `data_compr`).
+* **Data**: Read-only lookup tables, compressed assets, data constants (`data`, `data_box`, `data_compr`).
 * **BSS**: Dynamic uninitialized variables and scratch buffers (`bss`, `bss2`, hardware stack `$0200-$027F`).
 * **ZP**: Zero Page memory registers (`$0060-$00FC`).
 * **VRAM**: Fixed VIC-II Video RAM allocations (Char RAM `$E000-$E6FF`, Screen RAMs `$E800`/`$EC00`, Color RAM `$D800`, Sprite RAM `$E700`).
