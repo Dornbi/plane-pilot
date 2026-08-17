@@ -199,13 +199,16 @@ static void test_overflow(void) {
   }
   sprites_stack_commit();
   show_terrain();
-  assert(spr_enable() == 0xFF);
-  for (int i = 0; i < 8; ++i) {
+  // Seven, not eight: index 7 is the vertical-speed needle's and the terrain
+  // band never takes it (sprites.h, docs/clouds.md §1.9).
+  assert(spr_enable() == 0x7F);
+  assert(!enabled(kSpriteIdxVSpeed));
+  for (int i = 0; i < kSpriteTerrainSlots; ++i) {
     assert(spr_ptr(i) == (uint8_t)(9 - i));
   }
-  // Bitmap 1 was the farthest of the nine and is the one that is gone.
-  for (int i = 0; i < 8; ++i) {
-    assert(spr_ptr(i) != 1);
+  // Bitmaps 1 and 2 were the farthest of the nine and are the ones that go.
+  for (int i = 0; i < kSpriteTerrainSlots; ++i) {
+    assert(spr_ptr(i) != 1 && spr_ptr(i) != 2);
   }
   // A full stack refuses anything farther than everything in it, rather than
   // displacing something nearer.
@@ -214,7 +217,7 @@ static void test_overflow(void) {
 
   printf("  a two-slot entry that does not fit is not half placed\n");
   sprites_stack_reset();
-  for (int i = 0; i < 7; ++i) {
+  for (int i = 0; i < 6; ++i) {
     sprites_stack_add((int16_t)(100 + i), 160, 56, kSunPivotX, kSunPivotY,
                       (uint8_t)(i + 1), NB, 1, 0);
   }
@@ -222,9 +225,9 @@ static void test_overflow(void) {
   sprites_stack_add(200, 160, 56, 12, 20, 85, 86, 1, 0);
   sprites_stack_commit();
   show_terrain();
-  assert(spr_enable() == 0x7F);
-  assert(!enabled(7));
-  assert(spr_x(7) == 0 && spr_y(7) == 0);
+  assert(spr_enable() == 0x3F);
+  assert(!enabled(6));
+  assert(spr_x(6) == 0 && spr_y(6) == 0);
 }
 
 static void test_no_index_used_twice(void) {
@@ -272,17 +275,37 @@ static void test_culls(void) {
   assert(sprites_stack_add(100, 331, 56, kSunPivotX, kSunPivotY, kSun, NB, 7, 0));
   assert(sprites_stack_add(100, 160, -10, kSunPivotX, kSunPivotY, kSun, NB, 7, 0));
 
-  printf("  an object over the viewport edge is clipped, not hidden\n");
-  // docs/clouds.md §1.7: the old sun path culled anything reaching past the
-  // bottom of the viewport. The panel band parks sprites at x = 0 at raster
-  // 161 and the VIC compares X per line, so this is a clip and the object
-  // stays.
+  printf("  a 1 x 2 stack whose lower half could not start is not admitted\n");
+  // The lower half is a separate hardware sprite 21 lines further down, and
+  // the VIC only starts a sprite on the line its Y matches. Below the cut it
+  // would never begin, and the cloud would draw as a flat-topped half.
   sprites_stack_reset();
-  assert(sprites_stack_add(100, 160, 121, kSunPivotX, kSunPivotY, kSun, NB, 7, 0));
-  sprites_stack_commit();
-  show_terrain();
-  assert(enabled(0));
-  assert(spr_y(0) == (uint8_t)(121 - 10 + 50)); // 161, the last viewport line
+  {
+    // Centre chosen so the *pair's* lower sprite starts exactly on the cut.
+    const int16_t centre =
+        (int16_t)kSpriteVisibleEndYPixels - kSpriteHeightPixels + 20;
+    assert(!sprites_stack_add(100, 160, centre, 12, 20, 85, 86, 7, 0));
+    assert(sprites_stack_add(100, 160, centre - 1, 12, 20, 85, 86, 7, 0));
+    // A single sprite at the same place is fine - it has no second half.
+    assert(sprites_stack_add(100, 160, centre, kSunPivotX, kSunPivotY, kSun, NB,
+                             7, 0));
+  }
+
+  printf("  an object over the bottom edge is clipped, not hidden\n");
+  // docs/clouds.md §1.8: the old sun path culled anything reaching past the
+  // bottom of the viewport. It is admitted and clipped instead - sprite DMA is
+  // switched off above the split, which is what keeps the raster timing
+  // stable, and the cull plays no part in that.
+  sprites_stack_reset();
+  {
+    const int16_t centre = (int16_t)kSpriteVisibleEndYPixels - 1 + kSunPivotY;
+    assert(sprites_stack_add(100, 160, centre, kSunPivotX, kSunPivotY, kSun, NB,
+                             7, 0));
+    sprites_stack_commit();
+    show_terrain();
+    assert(enabled(0));
+    assert(spr_y(0) == (uint8_t)(centre - kSunPivotY + 50));
+  }
 
   printf("  the message strip\n");
   msg_is_active = true;
@@ -325,7 +348,10 @@ static void test_dither_lattice(void) {
       ++placed;
     }
   }
-  assert(placed > 40000); // the sweep actually swept something
+  // "The sweep actually swept something", expressed against the vertical cull
+  // so it does not need retuning every time kSpritesOffLead moves. 300 is a
+  // conservative count of the horizontally admissible x positions.
+  assert(placed > 300 * ((int)kSpriteVisibleEndYPixels - 10));
   printf("    %d positions checked\n", placed);
 
   printf("  an unflagged object is not snapped\n");
@@ -377,8 +403,9 @@ static void test_panel_bands(void) {
   sprites_set_roll(0);
   sprites_set_alt(0);
 
-  // A near, expanded, coloured object in every slot, which is the worst case
-  // for the panel to inherit.
+  // A near, expanded, coloured object in every slot the terrain band may use,
+  // which is the worst case for the panel to inherit. Three 1 x 2 entries fill
+  // six of the seven; the seventh is left over and index 7 is never offered.
   sprites_stack_reset();
   for (int i = 0; i < 4; ++i) {
     sprites_stack_add((int16_t)(100 + i), 160, 56, 12, 20, 85, 86, kColorRed,
@@ -386,8 +413,13 @@ static void test_panel_bands(void) {
   }
   sprites_stack_commit();
   show_terrain();
-  assert(spr_expand() == 0xFF);
-  assert(spr_color(7) == kColorRed);
+  assert(spr_expand() == 0x3F);
+  assert(spr_color(5) == kColorRed);
+  // The needle's index is untouched by the terrain band, in every register
+  // that could reach across the split.
+  assert(!enabled(kSpriteIdxVSpeed));
+  assert(spr_color(kSpriteIdxVSpeed) == kColorInstrument);
+  assert((spr_expand() >> kSpriteIdxVSpeed) == 0);
 
   sprites_show_panel_top_sprites();
   // $D01D. Parking at x = 0 hides a 24 pixel sprite because the left border

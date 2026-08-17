@@ -37,6 +37,14 @@ void sprites_set_fuel(uint32_t fuel);
 
 static const uint8_t kSpriteStackSize = 8;
 
+// How many hardware sprites the terrain band may actually use. One short of
+// the eight, because sprite 7 is the vertical-speed needle and the panel band
+// repositions it a few lines below the split. A sprite cannot be reused until
+// the VIC has finished with it: if a cloud held index 7 low in the viewport,
+// its DMA would still be running when the needle's Y comes round, and the
+// needle would be corrupted or missing. See docs/clouds.md §1.9.
+static const uint8_t kSpriteTerrainSlots = 7;
+
 // bitmap2 value meaning "this entry is a single sprite".
 static const uint8_t kSpriteNoBitmap = 0xFF;
 

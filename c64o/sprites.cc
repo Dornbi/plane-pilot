@@ -281,11 +281,24 @@ bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
   if (x >= (int16_t)kScreenWidthPixels || x + (int16_t)width <= 0) {
     return false;
   }
-  // Unlike the old sun path this does not cull an object that merely reaches
-  // past the bottom of the viewport: the panel handler parks sprites at x = 0
-  // at raster 161 and the VIC compares X per line, so an object straddling the
-  // edge is clipped there rather than hidden whole.
-  if (y >= (int16_t)kViewportEndYPixels || y + (int16_t)height <= 0) {
+  // Vertically the test is on the *last* hardware sprite of the entry, not on
+  // the entry's bottom edge, and the difference is the whole point.
+  //
+  // The VIC only begins fetching a sprite on the line its Y matches, and
+  // clearing $D015 above the split (mem.h) stops any sprite that has not begun
+  // by then. A single sprite reaching the cut is therefore clipped, which is
+  // what we want. A 1 x 2 stack is not: its lower half is a separate hardware
+  // sprite whose Y is 21 lines further down, so if that line falls below the
+  // cut the lower half never starts at all and the cloud draws as a flat-topped
+  // half - the same symptom as the oscar64 miscompile of §3.4, from an
+  // unrelated cause. Rejecting the entry is better than drawing half of it.
+  //
+  // For a single sprite this is exactly `y >= kSpriteVisibleEndYPixels`; for a
+  // stack it is 21 lines stricter.
+  const int16_t last_sprite_top =
+      y + (int16_t)height - (int16_t)kSpriteHeightPixels;
+  if (last_sprite_top >= (int16_t)kSpriteVisibleEndYPixels ||
+      y + (int16_t)height <= 0) {
     return false;
   }
 
@@ -341,7 +354,9 @@ void sprites_stack_commit(void) {
   for (uint8_t i = 0; i < _sprites_cand_count; ++i) {
     const sprite_cand_t *c = &_sprites_cand[i];
     uint8_t slots = (c->bitmap2 == kSpriteNoBitmap) ? 1 : 2;
-    if (idx + slots > kSpriteStackSize) {
+    // kSpriteTerrainSlots, not kSpriteStackSize: index 7 belongs to the
+    // vertical-speed needle (sprites.h).
+    if (idx + slots > kSpriteTerrainSlots) {
       // The list is sorted, so everything after this is farther still.
       break;
     }

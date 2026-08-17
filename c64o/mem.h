@@ -73,6 +73,35 @@ static const uint16_t kViewportEndYPixels = kViewportEndY * 8;
 static uint8_t *const kCharRam = (uint8_t *)0xE000;
 static const uint8_t kRasterScreenYStart = 50;
 
+// Sprites are switched off this many raster lines above the panel split, and
+// therefore stop drawing this far above the bottom of the viewport.
+//
+// The switch to the panel in gfx.cc is cycle counted - nineteen NOPs and then
+// three register writes that have to land in the horizontal blanking - and
+// oscar64's raster IRQ has no stabiliser, so every cycle stolen on that line
+// moves them. The VIC steals two cycles for each sprite it is fetching, about
+// nineteen for all eight, which is far wider than the blanking window.
+// Clearing $D015 a few lines early puts the handler back in the no-sprite case
+// its padding was measured in. See docs/clouds.md §1.8.
+//
+// Ten lines, and the number is set by oscar64's raster IRQ rather than by the
+// VIC. After servicing one interrupt its ISR arms the next and then does
+//
+//     dey / sty $d012 / dey / cpy $d012 / bcc l1
+//
+// - if the next interrupt's line minus two has *already gone past*, it calls
+// that handler inline, immediately, instead of returning and letting the
+// interrupt fire. At a four-line lead that comparison is marginal: the
+// sprites-off interrupt is itself delayed by the sprite DMA it is about to
+// switch off, and if it finishes a line late the panel switch is run at an
+// arbitrary cycle rather than at the top of its line. Ten lines puts the
+// comparison six lines from ever being true.
+// Seventeen. The bracket so far, all flown rather than reasoned: 10 flickers,
+// 15 leaves one line of it, 20 and 30 are clean. See docs/clouds.md §1.8.
+static const uint8_t kSpritesOffLead = 17;
+static const uint16_t kSpriteVisibleEndYPixels =
+    kViewportEndYPixels - kSpritesOffLead;
+
 #ifdef __OSCAR64__
 static uint8_t *const kScreenRamMain = (uint8_t *)0xE800;
 static uint8_t *const kScreenRamAlt = (uint8_t *)0xEC00;

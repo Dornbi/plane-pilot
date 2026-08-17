@@ -317,8 +317,119 @@ One behavioural change comes for free and is an improvement:
 [sprite_objects.md](sprite_objects.md) §1.1 notes the sun's
 `y >= kRasterScreenYStart + kViewportEndYPixels` test culls an object that could
 legally be shown partially. The stack's cull is *does the sprite's box
-intersect the viewport band*, so an object straddling the panel edge is now
-clipped at raster 161 by the parking, not hidden whole.
+intersect the viewport band*, so an object straddling the bottom edge is now
+clipped rather than hidden whole. Where exactly it is clipped is §1.8.
+
+---
+
+### 1.8. Sprite DMA has to be off before the panel switch
+
+**`$D015` is cleared by its own raster IRQ, `kSpritesOffLead = 4` lines above
+the split**, so sprites stop drawing at `kSpriteVisibleEndYPixels` rather than
+at the bottom of the viewport.
+
+`_gfx_switch_to_panel_top()` is cycle counted. It runs nineteen NOPs and then
+writes `$D018`, `$D011` and `$D021`, and those three writes have to land in the
+horizontal blanking or the first line of the panel is drawn with the terrain's
+charset and background. oscar64's `rirq` is a plain raster interrupt with no
+stabiliser — it saves three registers and dispatches — so the padding is not
+compensating for jitter, it *is* the timing, measured once on a line with a
+known length.
+
+The VIC steals two cycles for every sprite whose data it is fetching, about
+nineteen for all eight. That is a quarter of a 63-cycle line and far wider than
+the blanking window. Until clouds existed it never mattered: the only sprite in
+the terrain band was the sun, which is never near the horizon, so the switch
+line always had zero sprite DMA and the measurement held. A cloud at the
+horizon puts up to eight sprites across that line, the writes miss by up to
+nineteen cycles, and a band of terrain colour appears across the top of the
+panel — flickering, because the number of sprites over the horizon changes as
+you fly.
+
+The fix is not to re-tune the padding, which cannot be right for both cases at
+once. It is to restore the condition the padding was measured in: a fourth
+raster IRQ, four lines up, that clears `$D015`. It is a `rirq_write` rather
+than a `rirq_call`, so the interrupt executes it inline with no JSR, and
+nothing about it is cycle critical — it only has to land before the VIC fetches
+sprite data for the switch line. `sprites_show_panel_top_sprites()` sets
+`$D015` back to `0xFF` for the instruments at the split, and the terrain
+handler at raster 250 restores the frame's own enable mask, so neither band
+notices.
+
+**Where the bisect stands.** `kSpritesOffLead` is a probe, not a settled
+number: at 10 the split still flickers, at 30 it is clean, and 20 is the next
+value to fly. The bisect only became possible once one fact was established
+from the aircraft rather than the emulator — *there is no flicker when no
+sprite is near the panel top* — which is what rules out entry latency,
+badlines and every other term that does not depend on sprites.
+
+**A lead is not free, and not only in clipped pixels.** The VIC begins a
+sprite's fetch on the line its Y matches, so clearing `$D015` stops anything
+that has not started yet. A single sprite reaching the cut is therefore clipped
+and looks right. A 1 x 2 stack is not: its lower half is a separate hardware
+sprite 21 lines further down, and if that line is below the cut the lower half
+never begins — the cloud draws as a flat-topped half, exactly like the oscar64
+miscompile of §3.4 and from an entirely unrelated cause. So
+`sprites_stack_add()` tests the **last hardware sprite's start line**, not the
+entry's bottom edge, and rejects a stack that could only draw half of itself.
+That is 21 lines stricter for stacked rungs than for single ones.
+
+**Measured, not reasoned.** `x64sc` runs the real binary here, so this stopped
+being an argument. A diagnostic build (`__DIAG_POSE__`) skips the menu and
+freezes the aircraft at a pose where a rung-8 group straddles the split, and
+the monitor is driven to take a screenshot at a fixed frame. Counting how much
+of raster 162 — the first line of the panel — is still terrain green gives the
+lateness directly, at 8 pixels per cycle:
+
+| Build | Raster 162 |
+| :--- | ---: |
+| no fix | **234** of 320 px still terrain (~29 cycles late) |
+| the cull alone, no `$D015` write | **234** of 320 px — identical |
+| the `$D015` write | **0** px — clean |
+
+Two things fall out of that, and both contradict what this section said when it
+was written from reasoning alone.
+
+**The `$D015` write is the whole fix.** The worry was that it could not work:
+the VIC samples `MxE` in cycles 55/56 only, to *start* a sprite's DMA, and the
+documented state machine turns the DMA off when `MCBASE` reaches 63 rather than
+when `MxE` clears — which reads as "clearing it mid-sprite cannot stop the
+fetches already in flight". The measurement says otherwise, and it is not
+close: with the write the split is clean, without it the tear is the full 234
+pixels.
+
+**The cull was pure cost.** Stopping `sprites_stack_add()` at
+`kSpriteVisibleEndYPixels` was meant to stop an entry below the DMA cut from
+holding a slot it could not draw in. It buys nothing — the middle row above is
+that build — and it is what made clouds vanish near the horizon. The cull is
+back at `kViewportEndYPixels`, so a cloud reaching the bottom of the viewport
+is clipped exactly as before.
+
+So the visual cost of the fix is nil, and `kSpritesOffLead` is now only the
+lead on the interrupt. `_rirq_sprites_off` lives in main bss rather than `bss2`
+with the other three because `bss2` is full.
+
+### 1.9. Sprite 7 belongs to the vertical-speed needle
+
+**The terrain band uses indices 0–6. `kSpriteTerrainSlots = 7`.**
+
+A hardware sprite cannot be reused until the VIC has finished with it, and the
+panel band repositions sprite 7 — the vertical-speed needle, the one instrument
+drawn above the split — to a Y only a few lines below the split. If a cloud
+held index 7 low in the viewport, the VIC would still be fetching that cloud
+when the needle's Y came round, and the check that starts a sprite's DMA is
+*"MxE set, Y matches, and the DMA is still off"*. The third clause fails, and
+the needle is corrupted or simply absent.
+
+The rule could be positional — refuse index 7 only to an entry that reaches far
+enough down — but a whole reserved index is three lines of code with no
+boundary to get wrong, and it makes "sprite 7 is the panel's" an invariant the
+band handlers already half assume: `sprites_show_panel_top_sprites()` parks
+0–6 and leaves 7 alone.
+
+It costs one slot of eight. §5's sampling put cloud demand at a mean of 1.3
+with more than seven wanted in 0.5% of frames, so the drop rule sees slightly
+more use and nothing else changes.
 
 ---
 
