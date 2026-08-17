@@ -1110,6 +1110,29 @@ none of them should be typed by hand into `clouds.cc`. Follow the pattern
 them to the Python — the three copies agreeing is what makes any of them
 trustworthy.
 
+**Density doubled, and the gate became a dial to do it.** The first tuning
+pass settled on 19 of 128 cells (15%); this is 37 (29%). Getting there needed
+two changes, because `kCloudGateMask` could not express it: a mask only steps
+in powers of two, and 128 cells share 32 hash entries so what a given mask
+*realises* varies widely by seed — `0x03` was nominally double and delivered
+1.26×. The gate is now `(ha & kCloudGateBits) < kCloudGateLimit` over five
+bits, which is the same two table reads and a compare instead of a mask, and
+the search aims at `TARGET_CELLS` directly rather than at the gate's nominal.
+The pattern still comes from the top two bits of the same byte, which the five
+gate bits leave alone.
+
+The per-column and per-row caps had to move with it. They were absolute counts
+(3 and 4) tuned for 19 groups, and at twice the density they rejected *every*
+seed — the caps, not the gate, were what made the dial look stuck. They are now
+a multiple of the even share. `tests/test_clouddef.py` still hardcodes the
+numbers rather than importing them, so the change had to be made deliberately
+in both places.
+
+What it costs: two groups on screen at once goes from 2% of the time to 16%,
+and the sprite stack now overruns in **3.6%** of frames at worst against 0.6%.
+The drop rule takes the farthest blob, so what that looks like is a distant
+cloud missing a lobe while a near one is whole.
+
 **The hash tables are searched, not seeded, and searched for evenness.** Sparse
 and *clumpy* are different things, and random is clumpy: a Poisson scatter puts
 pairs of groups almost on top of each other and leaves holes between them, which

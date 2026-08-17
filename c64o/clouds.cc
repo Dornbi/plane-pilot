@@ -109,11 +109,14 @@ void clouds_add_candidates(void) {
     for (int8_t dy = -kCloudScanRadius; dy <= kCloudScanRadius; ++dy) {
       const int8_t cy = centre_cy + dy;
 
-      // The gate, and the reason the scan is affordable: seven cells in eight
-      // stop here, at two table reads and a mask (§2.3).
+      // The gate, and the reason the scan is affordable: most cells stop here,
+      // at two table reads and a compare (§2.3). A limit rather than a mask,
+      // so density is a dial rather than a power of two - the pattern still
+      // comes from the top two bits of the same byte, which the five gate bits
+      // leave alone.
       const uint8_t idx = (hx ^ kCloudHashY[cy & kCloudCellMaskY]) & 31;
       const uint8_t ha = kCloudHashA[idx];
-      if ((ha & kCloudGateMask) != 0) {
+      if ((ha & kCloudGateBits) >= kCloudGateLimit) {
         continue;
       }
       const uint8_t hb = kCloudHashB[idx];

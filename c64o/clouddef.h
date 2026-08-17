@@ -5,7 +5,7 @@
 // Run `make clouds` after changing the constants at the top of that script.
 //
 // See docs/clouds.md: §2 for the placement, §3 for the size ladder.
-// Hash tables from search seed 28842.
+// Hash tables from search seed 34977.
 
 #include <stdint.h>
 
@@ -17,8 +17,9 @@ static const uint8_t kCloudCellMaskX = 7;
 static const uint8_t kCloudCellMaskY = 15;
 static const uint8_t kCloudScanRadius = 2;
 
-// A cell carries a group when (ha & kCloudGateMask) == 0 (§2.4).
-static const uint8_t kCloudGateMask = 0x07;
+// A cell carries a group when (ha & kCloudGateBits) < kCloudGateLimit (§2.4).
+static const uint8_t kCloudGateBits = 0x1F;
+static const uint8_t kCloudGateLimit = 10;
 static const uint8_t kCloudJitterShift = 7;
 
 // Blob diameter (§3.1), deck altitude (§2.6) and the half-basis the group

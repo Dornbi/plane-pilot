@@ -132,7 +132,7 @@ class TestTheHash(unittest.TestCase):
             if clouddef.group_at(cx, cy)
         )
         cells = clouddef.CELLS_X * clouddef.CELLS_Y
-        nominal = 1.0 / (clouddef.GATE_MASK + 1)
+        nominal = clouddef.GATE_LIMIT / 32.0
         self.assertGreaterEqual(present / cells, nominal * 0.75)
         self.assertLessEqual(present / cells, nominal * 1.25)
 
@@ -180,8 +180,12 @@ class TestTheHash(unittest.TestCase):
         # it is testing cannot fail: weaken the generator, regenerate, and the
         # test weakens with it. These are the numbers the layout is required to
         # meet, and changing them has to be a deliberate edit in two places.
-        self.assertLessEqual(max(columns), 3, "a cell column hoards groups")
-        self.assertLessEqual(max(rows), 4, "a cell row hoards groups")
+        # 37 groups over 16 columns and 8 rows is an even share of 2.3 and 4.6;
+        # these caps are a shade under twice that. They were 3 and 4 when the
+        # layout carried 19 groups - if the density moves again these move with
+        # it, deliberately, in both places.
+        self.assertLessEqual(max(columns), 4, "a cell column hoards groups")
+        self.assertLessEqual(max(rows), 8, "a cell row hoards groups")
         self.assertTrue(
             0.40 <= sum(columns[:clouddef.CELLS_Y // 2]) / n <= 0.60,
             "left/right split is %d/%d"
@@ -276,7 +280,8 @@ class TestTheThreeCopiesAgree(unittest.TestCase):
             ("kCloudCellU", "CELL_U"),
             ("kCloudCellShift", "CELL_SHIFT"),
             ("kCloudScanRadius", "SCAN_RADIUS"),
-            ("kCloudGateMask", "GATE_MASK"),
+            ("kCloudGateBits", "GATE_BITS"),
+            ("kCloudGateLimit", "GATE_LIMIT"),
             ("kCloudJitterShift", "JITTER_SHIFT"),
             ("kCloudBlobU", "BLOB_U"),
             ("kCloudDeckU", "DECK_U"),
@@ -333,7 +338,8 @@ class TestTheThreeCopiesAgree(unittest.TestCase):
             [[list(b) for b in p] for p in generate_clouds.GROUP_OFFSETS],
             [[list(b) for b in p] for p in clouddef.GROUP_OFFSET],
         )
-        self.assertEqual(generate_clouds.GATE_MASK, clouddef.GATE_MASK)
+        self.assertEqual(generate_clouds.GATE_BITS, clouddef.GATE_BITS)
+        self.assertEqual(generate_clouds.GATE_LIMIT, clouddef.GATE_LIMIT)
         self.assertEqual(generate_clouds.BLOB_U, clouddef.BLOB_U)
         self.assertEqual(generate_clouds.DECK_U, clouddef.DECK_U)
 
