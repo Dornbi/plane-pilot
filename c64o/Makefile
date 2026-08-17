@@ -153,6 +153,13 @@ CFLAGS = -ii=${OSCAR64_INCLUDE} -D__OSCAR64__ -g -xz
 # extracted sequence costs more than the bytes are worth.
 OPTFLAGS = -O2 -Op -Oa -Oi -Oz -Oo
 
+# Clouds, on by default in both ppilot and ppilotd. Build with CLOUDS= to leave
+# them out: world.cc then never includes clouds.h, so the #pragma compile chain
+# that pulls in clouds.cc and clouddef.cc is never entered and neither the code
+# nor the hash tables reach the binary. Useful for measuring what they cost,
+# and for bisecting anything that only misbehaves with sprites on screen.
+CLOUDS ?= -D__ENABLE_CLOUDS__
+
 # mem.h widens the zeropage region below oscar64's default, into space the
 # compiler's own spilled temporaries grow into. Nothing in oscar64 checks that,
 # and an overrun corrupts globals silently, so every link is followed by this.
@@ -201,13 +208,13 @@ ram:
 	$(RAMANALYSIS) $(PPILOTD_PROGRAM).map
 
 $(PPILOT_PROGRAM).prg: $(PPILOT_SRC)
-	$(CC) $(CFLAGS) $(OPTFLAGS) -D__ENABLE_SOUND__ -D__MAX_RAM__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
+	$(CC) $(CFLAGS) $(OPTFLAGS) -D__ENABLE_SOUND__ $(CLOUDS) -D__MAX_RAM__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(PPILOT_PROGRAM).asm
 	@$(IRQCHECK) $(PPILOT_PROGRAM).asm
 	@$(MATHCHECK) $(PPILOT_PROGRAM).asm
 
 $(PPILOTD_PROGRAM).prg: $(PPILOTD_SRC)
-	$(CC) $(CFLAGS) $(OPTFLAGS) -D__ENABLE_DEBUG__ -D__MAX_RAM__ -o=$(PPILOTD_PROGRAM).prg ppilot.cc
+	$(CC) $(CFLAGS) $(OPTFLAGS) -D__ENABLE_DEBUG__ $(CLOUDS) -D__MAX_RAM__ -o=$(PPILOTD_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(PPILOTD_PROGRAM).asm
 	@$(IRQCHECK) $(PPILOTD_PROGRAM).asm
 	@$(MATHCHECK) $(PPILOTD_PROGRAM).asm
