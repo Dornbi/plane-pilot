@@ -29,6 +29,13 @@ If everything goes well it builds these executables into `c64o/`:
 - `vecdemo.prg`: Simple character mode prototype of the dots on the ground.
 - `vectest.prg`: Correctness test and cycle count for 3D vector operations.
 
+## Running a build in an emulator
+
+`x64sc` runs the real `.prg` headlessly, which is how the cycle counts and the
+pixel-identical comparisons in [clouds.md](clouds.md) were arrived at rather
+than argued about. `tools/vice_shot.sh` takes a screenshot, `tools/vice_dump.sh`
+reads a number out of memory. See [emulator.md](emulator.md).
+
 ## Releasing a build
 
 `c64o/*.prg` is build output and gitignored. The copies in [bin/](../bin) are the
