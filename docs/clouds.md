@@ -324,7 +324,7 @@ clipped rather than hidden whole. Where exactly it is clipped is §1.8.
 
 ### 1.8. Sprite DMA has to be off before the panel switch
 
-**`$D015` is cleared by its own raster IRQ, `kSpritesOffLead = 4` lines above
+**`$D015` is cleared by its own raster IRQ, `kSpritesOffLead = 17` lines above
 the split**, so sprites stop drawing at `kSpriteVisibleEndYPixels` rather than
 at the bottom of the viewport.
 
@@ -348,7 +348,7 @@ you fly.
 
 The fix is not to re-tune the padding, which cannot be right for both cases at
 once. It is to restore the condition the padding was measured in: a fourth
-raster IRQ, four lines up, that clears `$D015`. It is a `rirq_write` rather
+raster IRQ, seventeen lines up, that clears `$D015`. It is a `rirq_write` rather
 than a `rirq_call`, so the interrupt executes it inline with no JSR, and
 nothing about it is cycle critical — it only has to land before the VIC fetches
 sprite data for the switch line. `sprites_show_panel_top_sprites()` sets
@@ -356,12 +356,14 @@ sprite data for the switch line. `sprites_show_panel_top_sprites()` sets
 handler at raster 250 restores the frame's own enable mask, so neither band
 notices.
 
-**Where the bisect stands.** `kSpritesOffLead` is a probe, not a settled
-number: at 10 the split still flickers, at 30 it is clean, and 20 is the next
-value to fly. The bisect only became possible once one fact was established
-from the aircraft rather than the emulator — *there is no flicker when no
-sprite is near the panel top* — which is what rules out entry latency,
-badlines and every other term that does not depend on sprites.
+**Settled at 17, by flying it.** Every value in the bisect was flown rather
+than reasoned: 10 flickers, 15 leaves a single line of it, 17, 20 and 30 are
+clean. 17 is the shipped value — two lines above the last one that showed
+anything, which is the margin, and seventeen lines of clipped sprite is the
+price. The bisect only became possible once one fact was established from the
+aircraft rather than the emulator — *there is no flicker when no sprite is near
+the panel top* — which is what rules out entry latency, badlines and every
+other term that does not depend on sprites.
 
 **A lead is not free, and not only in clipped pixels.** The VIC begins a
 sprite's fetch on the line its Y matches, so clearing `$D015` stops anything
@@ -398,15 +400,18 @@ fetches already in flight". The measurement says otherwise, and it is not
 close: with the write the split is clean, without it the tear is the full 234
 pixels.
 
-**The cull was pure cost.** Stopping `sprites_stack_add()` at
-`kSpriteVisibleEndYPixels` was meant to stop an entry below the DMA cut from
-holding a slot it could not draw in. It buys nothing — the middle row above is
-that build — and it is what made clouds vanish near the horizon. The cull is
-back at `kViewportEndYPixels`, so a cloud reaching the bottom of the viewport
-is clipped exactly as before.
+**Culling whole entries at the cut was pure cost.** Rejecting anything in
+`sprites_stack_add()` whose *bottom edge* fell below `kSpriteVisibleEndYPixels`
+was meant to stop an entry from holding a slot it could not draw in. It buys
+nothing — the middle row above is that build — and it is what made clouds
+vanish near the horizon, so it was reverted. What is in the code now is the
+narrower rule above: the test is on the **last hardware sprite's start line**,
+which only rejects a 1 x 2 stack that could draw its top half and not its
+bottom. A single sprite reaching the cut is still allowed through and clipped.
 
-So the visual cost of the fix is nil, and `kSpritesOffLead` is now only the
-lead on the interrupt. `_rirq_sprites_off` lives in main bss rather than `bss2`
+So the cost of the fix is the clipping itself — seventeen lines of it — and
+`kSpritesOffLead` is both the lead on the interrupt and the height of that
+band. `_rirq_sprites_off` lives in main bss rather than `bss2`
 with the other three because `bss2` is full.
 
 ### 1.9. Sprite 7 belongs to the vertical-speed needle

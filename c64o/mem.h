@@ -84,20 +84,22 @@ static const uint8_t kRasterScreenYStart = 50;
 // Clearing $D015 a few lines early puts the handler back in the no-sprite case
 // its padding was measured in. See docs/clouds.md §1.8.
 //
-// Ten lines, and the number is set by oscar64's raster IRQ rather than by the
-// VIC. After servicing one interrupt its ISR arms the next and then does
+// Seventeen lines, and the number is set by oscar64's raster IRQ rather than
+// by the VIC. After servicing one interrupt its ISR arms the next and then does
 //
 //     dey / sty $d012 / dey / cpy $d012 / bcc l1
 //
 // - if the next interrupt's line minus two has *already gone past*, it calls
 // that handler inline, immediately, instead of returning and letting the
-// interrupt fire. At a four-line lead that comparison is marginal: the
-// sprites-off interrupt is itself delayed by the sprite DMA it is about to
-// switch off, and if it finishes a line late the panel switch is run at an
-// arbitrary cycle rather than at the top of its line. Ten lines puts the
-// comparison six lines from ever being true.
-// Seventeen. The bracket so far, all flown rather than reasoned: 10 flickers,
-// 15 leaves one line of it, 20 and 30 are clean. See docs/clouds.md §1.8.
+// interrupt fire. At a short lead that comparison is marginal: the sprites-off
+// interrupt is itself delayed by the sprite DMA it is about to switch off, and
+// if it finishes a line late the panel switch is run at an arbitrary cycle
+// rather than at the top of its line.
+//
+// Every value here was flown, not reasoned: 10 flickers, 15 leaves a single
+// line of it, 17, 20 and 30 are clean. 17 ships - two lines of margin over the
+// last value that showed anything, and seventeen lines of clipped sprite is
+// what it costs. See docs/clouds.md §1.8.
 static const uint8_t kSpritesOffLead = 17;
 static const uint16_t kSpriteVisibleEndYPixels =
     kViewportEndYPixels - kSpritesOffLead;
