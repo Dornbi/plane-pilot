@@ -34,7 +34,9 @@ If everything goes well it builds these executables into `c64o/`:
 `x64sc` runs the real `.prg` headlessly, which is how the cycle counts and the
 pixel-identical comparisons in [clouds.md](clouds.md) were arrived at rather
 than argued about. `tools/vice_shot.sh` takes a screenshot, `tools/vice_dump.sh`
-reads a number out of memory. See [emulator.md](emulator.md).
+reads a number out of memory. See [emulator.md](emulator.md) for the
+method and [framerate.md](framerate.md) for what the frame is currently
+spent on.
 
 ## Releasing a build
 

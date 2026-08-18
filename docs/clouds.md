@@ -1114,6 +1114,13 @@ line of quantisation is much the cheaper price.
 
 ## 5. Per-frame cost
 
+**Measured, 18 August 2026.** `clouds_add_candidates()` costs 13,824 cycles on
+the runway, 15,367 on approach and 28,283 at the deck — 11% to 19% of the
+render, against 17% to 34% for the polygons drawn in the same frame. The deck
+figure was 36,756 before §3.5. The estimates below are what was reasoned before
+any of it ran; [framerate.md](framerate.md) has the measurement, the poses and
+what it does to the frame rate.
+
 `clouds_add_candidates()` runs once per `flight_advance`, at the wobbling
 ~10 Hz that makes a sim frame ~98,500 cycles
 ([planes.md](planes.md) §11), whose measured figures the estimates below use.
