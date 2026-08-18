@@ -281,6 +281,16 @@ def _half_basis(heading):
     ]
 
 
+def draw_rung(rung):
+    """The ladder row a group at `rung` actually draws from (§3.5).
+
+    Below RUNG_COLLAPSED the whole group is a single blob taken from the next
+    rung up, which is about what the three of them covered. At and above it the
+    group draws three blobs from its own row.
+    """
+    return rung + 1 if rung < clouddef.RUNG_COLLAPSED else rung
+
+
 def rung_meta(rung):
     """(pivot_x, pivot_y, [bitmap, ...]) for a rung, either half of the ladder.
 
@@ -305,10 +315,14 @@ def group_blobs_on_screen(depth, rel_z, pattern, heading, rung):
     Returns them nearest-first, which is the order the stack draws them in.
     """
     basis = _half_basis(heading)
-    pivot_x, pivot_y, _ = rung_meta(rung)
+    pivot_x, pivot_y, _ = rung_meta(draw_rung(rung))
     meta = {"pivot_x": pivot_x, "pivot_y": pivot_y}
+    # A collapsed group is one blob at the group centre - the same single row of
+    # zero coefficients clouds.cc feeds _clouds_add_step() (§3.5).
+    coeff_rows = ([(0, 0, 0)] if rung < clouddef.RUNG_COLLAPSED
+                  else clouddef.GROUP_OFFSET[pattern])
     out = []
-    for coeffs in clouddef.GROUP_OFFSET[pattern]:
+    for coeffs in coeff_rows:
         v = [depth, 0, rel_z]
         for axis, coeff in enumerate(coeffs):
             if coeff == 0:
@@ -386,13 +400,16 @@ def render_groups(out_path, rungs=None, headings=None, zoom=4):
         near = meta[rung + 1] if rung + 1 < len(meta) else meta[rung] * 3 // 4
         depth = (far + near) // 2
         top = label_h + pad + ri * (ch + pad + label_h)
-        sm = (spritedef.META_CLOUD1[rung] if rung < clouddef.RUNG_STACKED
-              else spritedef.META_CLOUD2[rung - clouddef.RUNG_STACKED])
+        dr = draw_rung(rung)
+        sm = (spritedef.META_CLOUD1[dr] if dr < clouddef.RUNG_STACKED
+              else spritedef.META_CLOUD2[dr - clouddef.RUNG_STACKED])
         d.text((pad * z, top * z),
-               "rung %d  -  depth %d units (%d m), sprite %d x %d, %d slot%s"
+               "rung %d  -  depth %d units (%d m), sprite %d x %d, %d slot%s%s"
                % (rung, depth, depth * 2, sm["width"], sm["height"],
-                  len(rung_meta(rung)[2]),
-                  "" if rung < clouddef.RUNG_STACKED else "s each"),
+                  len(rung_meta(dr)[2]),
+                  "" if dr < clouddef.RUNG_STACKED else "s each",
+                  "  COLLAPSED: one blob from rung %d" % dr if dr != rung
+                  else ""),
                fill=(150, 170, 205))
         for pi in range(clouddef.PATTERN_COUNT):
             for hi, heading in enumerate(headings):
@@ -405,12 +422,12 @@ def render_groups(out_path, rungs=None, headings=None, zoom=4):
                 if blobs:
                     ox = cw // 2 - (min(b[0] for b in blobs)
                                     + max(b[0] for b in blobs) + 48) // 2
-                    tall = 21 * len(rung_meta(rung)[2])
+                    tall = 21 * len(rung_meta(dr)[2])
                     oy = ch // 2 - (min(b[1] for b in blobs)
                                     + max(b[1] for b in blobs) + tall) // 2
                     ox &= ~1          # keep the lattice intact while shifting
                     oy &= ~1
-                _, _, blocks = rung_meta(rung)
+                _, _, blocks = rung_meta(dr)
                 for bx, by in blobs:
                     for bi, block in enumerate(blocks):
                         _blit_expanded(canvas, block, bx + ox,
@@ -452,7 +469,7 @@ def lattice_report(rungs=None, headings=None):
     bad = []
     overlaps = 0
     for rung in rungs:
-        blocks = rung_meta(rung)[2]
+        blocks = rung_meta(draw_rung(rung))[2]
         far = clouddef.RUNG_DEPTH[rung]
         near = (clouddef.RUNG_DEPTH[rung + 1]
                 if rung + 1 < len(clouddef.RUNG_DEPTH)

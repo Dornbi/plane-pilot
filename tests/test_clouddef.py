@@ -103,6 +103,65 @@ class TestTheLadder(unittest.TestCase):
             previous = r
 
 
+class TestTheCollapse(unittest.TestCase):
+    """The far-group collapse of §3.5.
+
+    clouds.cc draws a group below RUNG_COLLAPSED as one blob taken from
+    kSpriteDefCloudRung[rung + 1]. Two things have to hold for that index to be
+    safe, and neither is checked anywhere else.
+    """
+
+    def test_the_shifted_rung_is_still_a_single_sprite_entry(self):
+        # rung + 1 must not cross into the stacked half, or a far group would
+        # silently start claiming two hardware slots - the opposite of the point.
+        self.assertLessEqual(
+            clouddef.RUNG_COLLAPSED, clouddef.RUNG_STACKED,
+            "a collapsed group draws from rung + 1, so RUNG_COLLAPSED (%d) "
+            "past RUNG_STACKED (%d) would make it a two-sprite entry"
+            % (clouddef.RUNG_COLLAPSED, clouddef.RUNG_STACKED),
+        )
+
+    def test_the_shifted_rung_is_in_range(self):
+        self.assertLess(clouddef.RUNG_COLLAPSED, clouddef.RUNG_COUNT)
+
+    def test_a_collapsed_group_fits_one_hardware_sprite(self):
+        """The reason the cut is where it is (§3.5).
+
+        A group collapses only while the three blobs it replaces span less than
+        one X-expanded sprite - 48 screen pixels wide and 21 lines tall. Measured
+        at the *near* edge of each rung, where the group is widest on screen.
+        """
+        half = clouddef.OFFSET_U // 2
+        spread_h = max(
+            abs(a[0] - b[0]) + abs(a[1] - b[1])
+            for pattern in clouddef.GROUP_OFFSET
+            for a in pattern
+            for b in pattern
+        ) * half
+        spread_v = max(
+            abs(a[2] - b[2])
+            for pattern in clouddef.GROUP_OFFSET
+            for a in pattern
+            for b in pattern
+        ) * half
+        for rung in range(clouddef.RUNG_COLLAPSED):
+            near = clouddef.RUNG_DEPTH[rung + 1]
+            blob_w = 2 * (3 + 2 * rung)          # X-expanded, §3.1
+            blob_h = 5 + 4 * rung
+            wide = 256 * spread_h // near + blob_w
+            tall = 256 * spread_v // near + blob_h
+            self.assertLessEqual(
+                wide, 48,
+                "rung %d collapses but spans %d screen pixels, wider than one "
+                "expanded sprite" % (rung, wide),
+            )
+            self.assertLessEqual(
+                tall, 21,
+                "rung %d collapses but spans %d raster lines, taller than one "
+                "sprite" % (rung, tall),
+            )
+
+
 class TestTheHash(unittest.TestCase):
     def test_it_wraps_with_the_world(self):
         # world.cc indexes kWorldMap with the cell coordinate masked, so the
@@ -289,6 +348,7 @@ class TestTheThreeCopiesAgree(unittest.TestCase):
             ("kCloudCullU", "CULL_U"),
             ("kCloudRungCount", "RUNG_COUNT"),
             ("kCloudRungStacked", "RUNG_STACKED"),
+            ("kCloudRungCollapsed", "RUNG_COLLAPSED"),
             ("kCloudPatternCount", "PATTERN_COUNT"),
             ("kCloudBlobsPerGroup", "BLOBS_PER_GROUP"),
         ):

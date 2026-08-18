@@ -52,6 +52,13 @@ static void _clouds_build_basis(void) {
   _clouds_half_basis[2].z = vec_fastmul8p8(world_cam.up.z, k);
 }
 
+// The group pattern a collapsed group uses instead of its own (§3.5). One row,
+// because a collapsed group draws one blob, and all zeroes so that the three
+// _clouds_add_step() calls below stay unconditional: each returns on its first
+// compare, which is cheaper in both cycles and bytes than a branch inside the
+// loop - measured, the branch cost 137 bytes and bought nothing.
+static const int8_t kCloudNoOffset[1][3] = {{0, 0, 0}};
+
 // dst += coeff * _clouds_half_basis[axis], for the only coefficients the table
 // contains. generate_clouds.py's check_group_offsets() fails the build if any
 // coefficient exceeds +-2, which is what lets the doubling be a shift and the
@@ -179,6 +186,21 @@ void clouds_add_candidates(void) {
              centre.x <= kCloudRungDepth[rung + 1]) {
         ++rung;
       }
+      // Far groups draw as a single blob (§3.5). Out here the three of them
+      // span less than one hardware sprite, so the other two are a projection
+      // and a stack insertion each spent on pixels the first already covers -
+      // and, because the group count grows as the square of the depth, nearly
+      // every group in range is out here.
+      //
+      // The collapse is three things that cost nothing: a blob count, a zero
+      // offset row, and a rung shift. One rung up is about what the whole
+      // group covered, and it is still a single-sprite entry because
+      // kCloudRungCollapsed is at most kCloudRungStacked. Adding to the index
+      // rather than choosing between two pointers also keeps this well away
+      // from the shape of §3.4.
+      const uint8_t collapsed = rung < kCloudRungCollapsed;
+      const uint8_t blobs = collapsed ? 1 : kCloudBlobsPerGroup;
+
       if (!_clouds_basis_valid) {
         _clouds_build_basis();
         _clouds_basis_valid = true;
@@ -186,7 +208,8 @@ void clouds_add_candidates(void) {
 
       // The pattern is the top two bits of the same hash byte the gate read,
       // so a cell's orientation costs nothing to fetch (§2.5).
-      const int8_t(*pattern)[3] = kCloudGroupOffset[ha >> 6];
+      const int8_t(*pattern)[3] =
+          collapsed ? kCloudNoOffset : kCloudGroupOffset[ha >> 6];
 
       // One flat row per rung, so nothing here has to know which half of the
       // ladder it is on: bitmap2 is kSpriteNoBitmap below kCloudRungStacked and
@@ -199,9 +222,9 @@ void clouds_add_candidates(void) {
       //
       // The flat table is also load bearing, not tidiness: selecting between
       // the two per-half structs in C miscompiles under oscar64 (§3.4).
-      const sprite_cloud_rung_t *meta = &kSpriteDefCloudRung[rung];
+      const sprite_cloud_rung_t *meta = &kSpriteDefCloudRung[rung + collapsed];
 
-      for (uint8_t b = 0; b < kCloudBlobsPerGroup; ++b) {
+      for (uint8_t b = 0; b < blobs; ++b) {
         vec_v = centre;
         _clouds_add_step(&vec_v, 0, pattern[b][0]);
         _clouds_add_step(&vec_v, 1, pattern[b][1]);

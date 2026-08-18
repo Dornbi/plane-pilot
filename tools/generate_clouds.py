@@ -47,6 +47,7 @@ JITTER_SHIFT = 7        # §2.3  a 4-bit jitter nibble scaled to the cell
 
 RUNG_COUNT = 10         # §3.2  ladder widths 3, 5, 7 .. 21 world pixels
 RUNG_STACKED = 5        #       rungs from here up are a 1 x 2 sprite stack
+RUNG_COLLAPSED = 3      # §3.5  below this rung a group draws as one blob
 BLOBS_PER_GROUP = 3     # §2.5
 PATTERN_COUNT = 4
 
@@ -482,6 +483,14 @@ def write_header(path, seed):
         f.write("static const uint8_t kCloudRungStacked = %d;\n\n"
                 % RUNG_STACKED)
 
+        f.write("// Below this rung the whole group draws as a single blob, "
+                "one rung larger\n// than its own (§3.5). The three blobs span "
+                "less than one hardware sprite\n// out here, so the other two "
+                "are a projection and a stack insertion each\n// spent on "
+                "pixels already covered.\n")
+        f.write("static const uint8_t kCloudRungCollapsed = %d;\n\n"
+                % RUNG_COLLAPSED)
+
         f.write("static const uint8_t kCloudPatternCount = %d;\n"
                 % PATTERN_COUNT)
         f.write("static const uint8_t kCloudBlobsPerGroup = %d;\n\n"
@@ -560,6 +569,7 @@ def write_python(path, tables, seed, stats):
             ("OFFSET_U", OFFSET_U), ("JITTER_SHIFT", JITTER_SHIFT),
             ("CULL_U", cull_u()), ("RUNG_COUNT", RUNG_COUNT),
             ("RUNG_STACKED", RUNG_STACKED),
+            ("RUNG_COLLAPSED", RUNG_COLLAPSED),
             ("BLOBS_PER_GROUP", BLOBS_PER_GROUP),
             ("PATTERN_COUNT", PATTERN_COUNT),
             ("PROJECTION_SCALE", PROJECTION_SCALE),

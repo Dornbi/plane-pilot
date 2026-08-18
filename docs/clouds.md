@@ -864,6 +864,82 @@ on exactly the single-sprite rungs.
 
 ---
 
+### 3.5. Far groups collapse to one blob
+
+**Below `kCloudRungCollapsed = 3` a group draws as a single blob, taken from
+`kSpriteDefCloudRung[rung + 1]`.** Three lines in `clouds.cc`:
+
+```c
+const uint8_t collapsed = rung < kCloudRungCollapsed;
+const uint8_t blobs = collapsed ? 1 : kCloudBlobsPerGroup;
+const int8_t(*pattern)[3] =
+    collapsed ? kCloudNoOffset : kCloudGroupOffset[ha >> 6];
+```
+
+and `&kSpriteDefCloudRung[rung + collapsed]` for the metadata.
+
+**Why it is free visually.** The three blobs of a group and the blobs
+themselves both scale as 1/depth, so the *proportion* they overlap by is the
+same at every rung — what changes is the absolute size. Measured at the near
+edge of each rung, where a group is widest on screen:
+
+| rung | group spans | one expanded sprite is |
+| ---: | ---: | ---: |
+| 0 | 13 × 7 px | 48 × 21 |
+| 1 | 19 × 11 | |
+| 2 | 26 × 16 | |
+| 3 | 33 × 21 | |
+| 4 | 39 × 25 | — needs two sprites |
+
+Out to rung 3 the whole group fits inside one hardware sprite, so its internal
+structure is not resolvable and the other two blobs are a projection and a
+stack insertion each spent on pixels the first already covers. The cut is at 3
+rather than 4 because the pop when a group crosses it is a silhouette change,
+not a size change — unlike every other step on the ladder — and it is cheaper
+to look at where the group is 26 pixels wide than where it is 33.
+`test_clouddef.py` fails the build if `kCloudRungCollapsed` is ever raised past
+what the geometry allows; at 5 it reports rung 4 spanning 25 raster lines
+against the sprite's 21.
+
+**What it buys.** Measured in `x64sc` on the release build at a fixed pose with
+groups in view, frame time from a CIA2 timer:
+
+| build | cycles / frame | PAL frames | fps |
+| --- | ---: | ---: | ---: |
+| clouds off | 137,593 | 7 | 7.16 |
+| **collapsed** | **157,246** | **8** | **6.27** |
+| three blobs always | 176,913 | 9 | 5.57 |
+
+**One whole PAL frame, and it halves what clouds cost.** `clouds_add_candidates()`
+itself goes 35,732 → 24,059 cycles. Almost all of the saving is in the far
+rungs and nothing is left on the table by stopping at 3: collapsing *every*
+rung measures 157,263 — within noise of collapsing three. That follows from the
+count of groups growing as the square of the depth, which puts ~93% of
+everything in range beyond rung 3's threshold.
+
+The sprite stack gains more than the clock does. At that pose it was saturated
+— 8 candidates offered, 7 committed, so entries were being dropped — and after
+the collapse it is 3 and 3. Four of the seven terrain slots come back, and the
+depth-sorted stack spends them on groups that were being thrown away.
+
+**What it cost.** Five bytes. The first shape tried put an `if (!collapsed)`
+around the three `_clouds_add_step()` calls inside the blob loop and cost 137;
+feeding those calls a row of zero coefficients instead costs nothing, because
+each one already returns on its first compare when the coefficient is zero. The
+same measurement killed a conditional `_clouds_build_basis()` — skipping the
+nine multiplies when every group in range is collapsed sounds free and is worth
+under 1% of the frame, which is not worth 137 bytes.
+
+**The 3 × 5 blob is now dead.** Rungs 0–2 draw from rows 1–3 and rungs 3–4 from
+their own, so sprite block 80 is unreachable. It is worth keeping rather than
+deleting: the blocks at `$D400` hold exactly 48 and all 48 were in use, so this
+is the only spare slot in the VIC bank, and deleting it would renumber
+everything above it for about twenty bytes of compressed data. The better use
+is to redraw it. A collapsed group is *wider than it is tall* — 13 × 7 at rung
+0 — while every blob on the ladder is taller than wide, so the substituted
+rung-1 blob is narrower than the group it replaces. A purpose-made squat blob
+in slot 80 would fix that at no cost in space.
+
 ## 4. The dither must share one grid
 
 ### 4.1. What goes wrong
@@ -1332,6 +1408,7 @@ whether a handler touches oscar64's runtime zero page (§1.4 — that is
 | 8 | X wrap: measure `kSpriteXWrapFirst` in VICE, ink-box culls, wrap on pack | yes | Improves the sun on its own, so it can also land right after phase 1 |
 | 9 | Benchmark, tune deck / density / blob size, message-strip rule | yes | §5's numbers get measured |
 | 10 | Docs, `make ram`, `TODO.md` | yes | Includes the `sprite_objects.md` §3 correction (§4.5) |
+| 11 | Far groups collapse to one blob (§3.5) | yes | Not in the original plan. Came out of flying it: three sprites on something 13 pixels wide is most of the per-frame cost and most of the slot pressure. One PAL frame back for five bytes |
 
 Phase 1 is worth landing alone even if clouds are deferred: it is the
 restructure [planes.md](planes.md) §5 also depends on, and it is the only phase

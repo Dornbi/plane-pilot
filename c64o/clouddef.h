@@ -38,6 +38,12 @@ static const int16_t kCloudCullU = 4096;
 static const uint8_t kCloudRungCount = 10;
 static const uint8_t kCloudRungStacked = 5;
 
+// Below this rung the whole group draws as a single blob, one rung larger
+// than its own (§3.5). The three blobs span less than one hardware sprite
+// out here, so the other two are a projection and a stack insertion each
+// spent on pixels already covered.
+static const uint8_t kCloudRungCollapsed = 3;
+
 static const uint8_t kCloudPatternCount = 4;
 static const uint8_t kCloudBlobsPerGroup = 3;
 
