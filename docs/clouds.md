@@ -815,6 +815,17 @@ RAM. Every near cloud therefore drew its upper sprite and a **blank** lower
 one: a flat-bottomed half cloud, at exactly the right place and size, wasting
 one of eight sprites.
 
+**Still open on `v1.32.272-113-g5638ec5`.** The bug filed as
+`docs/oscar64-bug/OSCAR64-BUG-REPORT.md` — a `const` struct array read at a
+biased index — *is* fixed there. This one is not: recompiling the branch above
+with that build still drops `pivot_x` and `bitmap2` (`P6` and `P9` are never
+stored at the call site; the only writes to them in the function belong to the
+`vec_transform_inv()` above it). Reduced to 33 lines it needs two things at
+once — the rung ladder, which is what gives `rung` its range, and two
+*different* struct types in the two arms; make either one go away and the code
+is correct. Written up in `docs/oscar64-bug/OSCAR64-BUG-2-REPORT.md` with a
+self-checking repro. **The flat table stays.**
+
 Three things are worth taking from this beyond the fix.
 
 **The host test could not have caught it.** `sprites_test.cc` compiles the same
