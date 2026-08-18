@@ -815,16 +815,23 @@ RAM. Every near cloud therefore drew its upper sprite and a **blank** lower
 one: a flat-bottomed half cloud, at exactly the right place and size, wasting
 one of eight sprites.
 
-**Still open on `v1.32.272-113-g5638ec5`.** The bug filed as
-`docs/oscar64-bug/OSCAR64-BUG-REPORT.md` — a `const` struct array read at a
-biased index — *is* fixed there. This one is not: recompiling the branch above
-with that build still drops `pivot_x` and `bitmap2` (`P6` and `P9` are never
-stored at the call site; the only writes to them in the function belong to the
-`vec_transform_inv()` above it). Reduced to 33 lines it needs two things at
-once — the rung ladder, which is what gives `rung` its range, and two
-*different* struct types in the two arms; make either one go away and the code
-is correct. Written up in `docs/oscar64-bug/OSCAR64-BUG-2-REPORT.md` with a
-self-checking repro. **The flat table stays.**
+**Fixed in oscar64 `v1.32.272-117-ga7305f9`, and the flat table stays anyway.**
+Two compiler releases were needed. `v1.32.272-113-g5638ec5` fixed the biased
+`const` array index filed as `docs/oscar64-bug/OSCAR64-BUG-REPORT.md`, but the
+branch above still came out wrong: what remained was visible one level out, in
+the `sprites_stack_add@proxy` thunk oscar64 builds for arguments it thinks are
+constant at every call site. It folded `bitmap2` to `#$ff` there - correct for
+the single-sprite rungs, wrong for the stacked ones - while `pivot_x` really is
+12 in every entry of both tables and folding *that* was right. `v1.32.272-117`
+(commit 31d4595) fixed the rest; the branch form now renders pixel-identically
+to this one in the emulator, where the previous compiler still drew the half
+clouds. Written up in `docs/oscar64-bug/OSCAR64-BUG-2-REPORT.md`.
+
+The flat table is not reverted, because the workaround turned out to be the
+better code on its own terms: 542 instructions against 557 in
+`clouds_add_candidates()`, 137 bytes smaller over the whole binary, and one
+table read rather than a branch on every group. It also keeps the project
+building on any oscar64 older than this month's.
 
 Three things are worth taking from this beyond the fix.
 
