@@ -15,6 +15,8 @@ PPILOT_SRC = \
 		chardefs.h \
 		chardefs.cc \
 		cia.h \
+		cpu.h \
+		cpu.cc \
 		clouddef.h \
 		clouddef.cc \
 		clouds.h \
@@ -93,6 +95,8 @@ POLYDEMO_SRC = \
 		benchmark.cc \
 		bool.h \
 		cia.h \
+		cpu.h \
+		cpu.cc \
 		fmath.h \
 		fmath.cc \
 		gfx.h \
@@ -159,6 +163,7 @@ OPTFLAGS = -O2 -Op -Oa -Oi -Oz -Oo
 # nor the hash tables reach the binary. Useful for measuring what they cost,
 # and for bisecting anything that only misbehaves with sprites on screen.
 CLOUDS ?= -D__ENABLE_CLOUDS__
+
 
 # mem.h widens the zeropage region below oscar64's default, into space the
 # compiler's own spilled temporaries grow into. Nothing in oscar64 checks that,

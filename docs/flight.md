@@ -307,3 +307,94 @@ Throttle is quoted as a percentage of $\text{kMaxThrottle} = 24$, with the raw v
 | **Inverted Touchdown**       |  Idle (0%)  |    Touchdown Pitch     |    180°    |     Gear Down     | **CRASH** (`INVERTED`) — wings-level inverted passes the bank check, so this is its own trigger      |
 | **Vertical Pitch Up (+90°)** |  100% (24)  |      Vertical Up       |     0°     |       Clean       | Speed bleeds toward 0 $\rightarrow$ auto pitch-down to dive and regain airspeed (no backward flight) |
 | **Vertical Dive (-90°)**     |  100% (24)  |     Vertical Down      |     0°     |       Clean       | Settles at terminal velocity 3693 (`0x0E6D`), under the `0x0F00` clamp                               |
+
+## 8. The step, and the rate it is taken at
+
+The model has no elapsed time in it. It advances in fixed steps, so what the
+aircraft actually does is **(step size) x (steps per second)** and nothing else.
+Two constants set those, and they are deliberately the same knob:
+
+| | where | effect |
+| --- | --- | --- |
+| `flight_step_shift` | `flight.h` | divides the step |
+| `kFlightFramesPerStep` | `flight.h`, `8 >> flight_step_shift` | multiplies the rate |
+
+Their product is invariant, so raising the shift buys smoothness and never
+speed. 0 is the C64: one step every 8 raster frames, 6.25 Hz. 2 is a quarter of
+the step four times as often, 25 Hz, which is what a 20 MHz machine can hold.
+
+**It is measured at boot, not chosen at build time.** `main()` runs `cpu_probe()`
+(`cpu.h`, docs/supercpu.md) and hands the answer to `flight_set_step_shift()`,
+which also rescales the six control rotations — they are ordinary RAM read
+through a pointer, so they can be rebuilt at init. One binary therefore flies
+identically on a stock C64 and on a 20 MHz accelerator, and would do the right
+thing on a 4 MHz Turbo Master nobody has tested it on.
+
+There is one binary and no build-time alternative to it. There briefly was: a
+`-D__FLIGHT_STEP_SHIFT__` that pinned the shift and folded every scale back to a
+constant shift chain. It existed to measure the run-time path against, that
+measurement is below, and it was removed once taken — a second code path that
+nothing builds and no test covers is a liability, and git has it if the number
+ever needs re-deriving.
+
+**What the run-time path costs**, measured on a stock C64 against that pinned
+build: `flight_advance()` goes from 6,559 to 7,117 cycles. That is 558 cycles a
+step, and at 6.25 steps a second, 0.35% of the machine — plus 295 bytes. The
+helper is `__noinline` because of a second measurement: inlining its ten call
+sites saved 206 cycles a step and cost 217 bytes, and bytes are scarcer here.
+
+**It is a shift because every per-step quantity is a power of two.** The rate
+terms are written as shifts already (`speed_sqr >> 10`, `>> 12`, `>> 5`), and
+the six control rotations are matrices whose off-diagonal over 256 is the angle:
+32 is 7.2 degrees of roll, 16 is 3.6 of pitch, 8 is 1.8 of yaw. Halving all of
+those is exact. Dividing them by seven is not, which is why the model rate is a
+power of two times the raster rather than anything matched to a frame rate.
+
+Three terms cannot be divided at all: the flat `-= 2` of ground drag, the floor
+of 1 under the stall break, and the fuel burn. Those are gated on `model_substep
+== 0` instead — applied once per old step and skipped on the substeps — so their
+total over a whole old step is what it always was. At shift 0 the mask is zero,
+every one of them fires on every step, and the arithmetic is bit for bit the
+model this document describes.
+
+**The timebase is the raster, not the render.** `gfx_frame_count` is bumped by
+the handler at raster 250 — the one thing in the program that runs exactly once
+per frame — and `sim.cc` takes a step per `kFlightFramesPerStep` of them, in a
+loop rather than an `if` so that a heavy scene pays its step late instead of
+skipping it.
+
+That fixed a bug that predates any of this. The model used to advance once per
+*render*, so the aircraft covered the same ground per frame however long the
+frame took, and airspeed through the world moved with what was on screen: 13%
+between the runway and cruise on a stock C64 (docs/framerate.md), and **4.67x**
+on a SuperCPU, where the render is twenty times faster.
+
+**How the scaled model is checked.** Not by `flight_test`: that suite counts
+steps — "roll for six frames, then assert the bank" — so a quarter-size step
+does not reach the same attitude in the same number of them, and it refuses to
+build scaled. It is the reference for the model at shift 0 and it passes there
+unchanged. The shift is checked the only way that means anything, by flying the
+same four seconds of wall clock from mission 02's start and comparing where the
+aeroplane ended up. Distance covered, in world units:
+
+| build | C64 | SuperCPU | ratio |
+| --- | ---: | ---: | ---: |
+| once per render (before) | 96,122 | 448,602 | **4.67** |
+| shift 0, raster timebase | 69,480 | 72,200 | 1.04 |
+| shift 2, 25 Hz | 71,838 | 73,229 | 1.02 |
+| **one binary, shift measured** | **69,480** | **73,229** | **1.05** |
+
+The last row is the same binary run twice. Its two numbers are not merely close
+to the pinned builds above, they are identical to them — the run-time path picks
+the same shift each machine would have been compiled with, and then does the
+same arithmetic.
+
+The residual few percent is truncation: a quarter-size step loses a little on
+every shift, which shows up as slightly less drag and so slightly more speed.
+
+**The C64 got slower, on purpose.** Pinning to 8 raster frames costs about a
+quarter of the distance flown at poses where the render was finishing in 6 —
+that is exactly the inconsistency being paid off. `kFlightFramesPerStep` is the
+one constant to move if it feels sluggish, but only multiples of 4 keep the
+halving exact.
+

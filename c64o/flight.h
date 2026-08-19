@@ -7,6 +7,25 @@
 #include "mission.h"
 #include "vec.h"
 
+// Raster frames between model steps - the other half of flight_step_shift, and
+// the reason scaling the step does not change how the aeroplane flies. Eight is a little above the slowest render measured (docs/framerate.md
+// has 8.00 raster frames at cruise, 7.12 on the runway), so the model gets its
+// step in on every pass and the surplus is waited out rather than flown.
+//
+// That waiting is the point. Before this the model advanced once per render,
+// so the aircraft covered the same ground per frame however long the frame
+// took - and airspeed through the world changed by 13% with what was on
+// screen. Now the step rate is the raster's, which nothing on screen can move.
+// Set once at boot from cpu_step_shift (cpu.h). Both derive from the same
+// shift, so their product - the aircraft's real rates - does not move.
+extern uint8_t flight_step_shift;
+extern uint8_t kFlightFramesPerStep;
+extern uint8_t kFlightSubstepMask;
+
+// Sets all three, and rescales the six control rotations to match. Call once,
+// after cpu_probe() and before the first flight_advance().
+void flight_set_step_shift(uint8_t shift);
+
 // Everything from FLIGHT_CRASH_ROLL on is a crash, and only a crash ends the
 // flight. FLIGHT_MISSION_COMPLETED is a record of what the pilot achieved,
 // not a stop state: the simulation keeps running so they can fly on, and

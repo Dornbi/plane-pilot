@@ -328,13 +328,19 @@ clipped rather than hidden whole. Where exactly it is clipped is §1.8.
 the split**, so sprites stop drawing at `kSpriteVisibleEndYPixels` rather than
 at the bottom of the viewport.
 
-`_gfx_switch_to_panel_top()` is cycle counted. It runs nineteen NOPs and then
+`_gfx_switch_to_panel_top()` is cycle counted. It runs twenty-two NOPs and then
 writes `$D018`, `$D011` and `$D021`, and those three writes have to land in the
 horizontal blanking or the first line of the panel is drawn with the terrain's
 charset and background. oscar64's `rirq` is a plain raster interrupt with no
 stabiliser — it saves three registers and dispatches — so the padding is not
 compensating for jitter, it *is* the timing, measured once on a line with a
 known length.
+
+(It was nineteen until the handler was made to drop to 1 MHz for its own
+duration, so that a 20 MHz accelerator runs the padding at the speed it was
+measured at — docs/supercpu.md. The count is `GFX_PANEL_NOPS`, and the window where
+both machines draw the same frame is 18 to 20 — see that document for the
+sweep.)
 
 The VIC steals two cycles for every sprite whose data it is fetching, about
 nineteen for all eight. That is a quarter of a 63-cycle line and far wider than

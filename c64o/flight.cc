@@ -78,6 +78,49 @@ int32_t flight_eye_z;
 static bool model_on_ground = false;
 static bool model_need_normalize;
 
+// Where we are inside one of the model's old, larger steps (vec.h). Terms too
+// small to divide - a flat subtraction, or one with a floor of 1 under it -
+// are applied on the step where this is zero and skipped on the rest, so their
+// total over a whole old step is unchanged. At shift 0 the mask is 0, this is
+// always zero, and every one of them fires on every step exactly as before.
+static uint8_t model_substep;
+
+uint8_t flight_step_shift;
+uint8_t kFlightFramesPerStep = 8;
+uint8_t kFlightSubstepMask = 0;
+
+void flight_set_step_shift(uint8_t shift) {
+  flight_step_shift = shift;
+  kFlightFramesPerStep = (8 >> shift) ? (8 >> shift) : 1;
+  kFlightSubstepMask = (uint8_t)((1 << shift) - 1);
+  vec_set_rotation_shift(shift);
+  model_substep = 0;
+}
+
+// (v >> n) >> flight_step_shift, which is exactly v >> (n + shift) - a right
+// shift truncates, so splitting it changes nothing. Written as a loop because
+// the 6502 has no variable shift.
+//
+// __noinline deliberately, and measured: ten call sites inlined cost 217 bytes
+// more than one copy each and saved 206 cycles a model step. At 6.25 steps a
+// second that is 0.13% of the machine against a fifth of a kilobyte, and bytes
+// are the scarcer thing here.
+static __noinline uint16_t _flight_step_u(uint16_t v) {
+  uint8_t n = flight_step_shift;
+  while (n--) {
+    v >>= 1;
+  }
+  return v;
+}
+
+static __noinline int16_t _flight_step_s(int16_t v) {
+  uint8_t n = flight_step_shift;
+  while (n--) {
+    v >>= 1;
+  }
+  return v;
+}
+
 // Location of navigation waypoints. All three are kMaxNavPoints long, but
 // in two different index spaces: flight_waypoint_nav is indexed by
 // waypoint-within-mission and flight_nav_point_* by navpoint. Four is the
@@ -292,9 +335,11 @@ void flight_init_from_mission(uint8_t mission_idx) {
 }
 
 static void _flight_move_forward(int16_t fspeed, int16_t vspeed) {
-  flight_eye_x += vec_fastmul8p8(flight_cam.front.x, fspeed);
-  flight_eye_y += vec_fastmul8p8(flight_cam.front.y, fspeed);
-  flight_eye_z += vspeed;
+  // The shift is after the multiply, not on fspeed: the product carries the
+  // bits a quarter-sized step needs and fspeed on its own does not.
+  flight_eye_x += _flight_step_s(vec_fastmul8p8(flight_cam.front.x, fspeed));
+  flight_eye_y += _flight_step_s(vec_fastmul8p8(flight_cam.front.y, fspeed));
+  flight_eye_z += _flight_step_s(vspeed);
   if (flight_eye_z < kFlightMinEyeZ) {
     flight_eye_z = kFlightMinEyeZ;
   }
@@ -513,6 +558,11 @@ void flight_advance() {
     return;
   }
 
+  // Whether this step is the one that carries the terms too small to divide
+  // (see model_substep). Needed after the paused branch as well, so it is
+  // declared out here.
+  const bool whole_step = (model_substep == 0);
+
   if (!flight_paused) {
     // Altitude density decay (above Z = 0x080000)
     uint8_t alt_penalty = 0;
@@ -524,22 +574,23 @@ void flight_advance() {
 
     // Speed: Air resistance, gravity, throttle
     uint16_t speed_sqr = vec_fastsqr8p8(flight_speed);
-    flight_speed -= speed_sqr >> 10;
+    flight_speed -= _flight_step_u(speed_sqr) >> 10;
     if (flight_gear) {
-      flight_speed -= speed_sqr >> 12;
+      flight_speed -= _flight_step_u(speed_sqr) >> 12;
     }
     if (flight_flap) {
-      flight_speed -= speed_sqr >> 12;
+      flight_speed -= _flight_step_u(speed_sqr) >> 12;
     }
     if (!model_on_ground) {
-      flight_speed -= vec_fastsqr8p8(flight_cam.left.z) >> 5;
+      flight_speed -= _flight_step_u(vec_fastsqr8p8(flight_cam.left.z)) >> 5;
     }
-    flight_speed -= flight_cam.front.z >> 3;
+    flight_speed -= _flight_step_s(flight_cam.front.z) >> 3;
     if (flight_fuel > 0) {
       // vec_fastmul8p8 rather than a general 16x16 multiply: density is
       // already 8.8 with 256 meaning "sea level", which is exactly the
       // convention this routine expects.
-      flight_speed += vec_fastmul8p8(flight_throttle, density);
+      flight_speed +=
+          _flight_step_s(vec_fastmul8p8(flight_throttle, density));
     }
 
     int16_t sink_penalty = 0;
@@ -559,7 +610,7 @@ void flight_advance() {
       int16_t deficit = kFlightTrimLift - lift;
       if (deficit > 0) {
         sink_penalty = deficit >> 4;
-        flight_speed -= deficit >> 10;
+        flight_speed -= _flight_step_s(deficit) >> 10;
       }
 
       uint16_t base_stall_speed;
@@ -595,9 +646,9 @@ void flight_advance() {
           vec_transform3(flight_cam.up.z < 0 ? &kVecPitchUp : &kVecPitchDown,
                          &flight_cam);
         } else {
-          uint8_t s = (stall_speed - flight_speed) >> 5;
+          uint8_t s = _flight_step_u(stall_speed - flight_speed) >> 5;
           if (s == 0)
-            s = 1;
+            s = whole_step ? 1 : 0;
           flight_cam.front.z -= s;
           if (flight_cam.front.z < -256) {
             flight_cam.front.z = -256;
@@ -610,7 +661,7 @@ void flight_advance() {
     } else {
       // In ground mode: no stall
       flight_stall = false;
-      if (flight_throttle == 0 && flight_speed > 0) {
+      if (whole_step && flight_throttle == 0 && flight_speed > 0) {
         flight_speed -= 2;
       }
       if (flight_speed < 0) {
@@ -708,7 +759,7 @@ void flight_advance() {
     }
 
     // Fuel
-    uint8_t fuel_consumption = flight_throttle;
+    uint8_t fuel_consumption = whole_step ? flight_throttle : 0;
     if (flight_fuel > fuel_consumption) {
       flight_fuel -= fuel_consumption;
     } else {
@@ -724,7 +775,7 @@ void flight_advance() {
 
     // Rotation (only when airborne)
     if (!model_on_ground) {
-      int8_t rot = flight_cam.left.z >> 5;
+      int8_t rot = _flight_step_s(flight_cam.left.z) >> 5;
       if (rot != 0) {
         static mat3_t mat3_rot = {{256, 0, 0}, {0, 256, 0}, {0, 0, 256}};
         mat3_rot.front.y = rot;
@@ -753,7 +804,9 @@ void flight_advance() {
   }
 
   _flight_update_nav();
-  _flight_path_sample();
+  if (whole_step) {
+    _flight_path_sample();
+  }
   _flight_check_mission_waypoints();
 
   // Reaching here while wrecked means the crash happened during *this* step:
@@ -774,6 +827,7 @@ void flight_advance() {
   flight_events = model_pending_events;
   model_pending_events = 0;
   ++flight_gen;
+  model_substep = (model_substep + 1) & kFlightSubstepMask;
 }
 
 void flight_input(enum flight_input_t input) {

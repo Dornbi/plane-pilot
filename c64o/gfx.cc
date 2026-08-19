@@ -1,3 +1,4 @@
+#include "cpu.h"
 #include "gfx.h"
 
 #include <string.h>
@@ -43,7 +44,29 @@ const char kGfxCharsCompressed[] = {
 // Raster IRQ handlers: cycle-counted (note the NOP padding below), so keep
 // the outliner out of them as well.
 #pragma optimize(push, noasm, nooutline)
+
+// The padding below, as a count. It is the number that puts the three register
+// writes in the horizontal blanking, so it is measured on a raster and never
+// reasoned about - docs/clouds.md §1.8 and docs/supercpu.md.
+//
+// Nineteen: the middle of the window where both a stock C64 and a 20 MHz
+// accelerator draw the same frame, which is 18 to 20. Below 18 the accelerator
+// is a raster line out; at 21 the C64 is. Costs about 0.4% of the render either
+// side of the middle, so the value is chosen for margin rather than for cycles.
+#ifndef GFX_PANEL_NOPS
+#define GFX_PANEL_NOPS 19
+#endif
+
 static void _gfx_switch_to_panel_top() {
+  // 1 MHz for the length of this handler, and only this handler. On a 20 MHz
+  // accelerator the padding below would otherwise take a twentieth of the time
+  // and the writes would miss the blanking, drawing one raster line of the
+  // panel in the terrain's colours.
+  //
+  // This is not "run the game slower": the handler takes ~19 us either way, so
+  // against leaving it at 20 MHz it costs about 18 us of a 19,656 us frame -
+  // under a tenth of a percent, and the frame rate is unchanged.
+  cpu_speed_slow();
 #ifdef __ENABLE_DEBUG__
   if (mem_debug_enabled) {
     sprites_show_no_sprites();
@@ -56,7 +79,7 @@ static void _gfx_switch_to_panel_top() {
     nop;
   }
 #endif
-#assign num_nop 16
+#assign num_nop GFX_PANEL_NOPS
 #repeat
   __asm {
       nop;
@@ -76,6 +99,7 @@ static void _gfx_switch_to_panel_top() {
   }
   // clang-format on
   sprites_show_panel_top_sprites();
+  cpu_speed_fast();
 }
 
 static void _switch_to_panel_bottom() {
@@ -86,6 +110,11 @@ static void _switch_to_panel_bottom() {
 }
 
 static void _gfx_switch_to_terrain() {
+  // Once per frame, and the only thing in the program that is. This is the
+  // model's timebase (flight.h kFlightFramesPerStep): the main loop's own rate
+  // depends on what is on screen, and the aircraft must not.
+  ++gfx_frame_count;
+
   sprites_show_terrain_sprites();
   vic.color_back = kColorGrad2;
   vic.ctrl1 = 0x1b; // Multicolor character mode
@@ -105,6 +134,10 @@ static void _gfx_switch_to_terrain() {
 // reached the same way they are - the raster IRQ jumps to it by address - so
 // there is nothing about the low region it needs.
 RIRQCode _rirq_sprites_off;
+
+// Written by the raster handler, read by the main line. One byte, so the read
+// needs no protection; it wraps every 256 frames and every use is a difference.
+volatile uint8_t gfx_frame_count;
 
 #pragma bss(bss2)
 RIRQCode _rirq_panel_top, _rirq_panel_bottom, _rirq_terrain;

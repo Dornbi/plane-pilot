@@ -75,6 +75,10 @@ static bool _map_poll_exit(void) {
 
 #pragma optimize(pop)
 
+// The frame count the last model step was taken at. A difference against
+// gfx_frame_count, so the byte wrapping is harmless.
+static uint8_t model_last_frame;
+
 void sim_run(uint8_t selected_mission) {
   _enter_simulation(selected_mission);
 
@@ -243,7 +247,15 @@ void sim_run(uint8_t selected_mission) {
     }
 
     bm_model_start();
-    flight_advance();
+    // One step per kFlightFramesPerStep raster frames, not one per render. The
+    // loop rather than an if is the catch-up: if a heavy scene overruns the
+    // budget the model owes a step, and paying it late is the only way the
+    // aircraft's speed can stay a property of the aircraft.
+    while ((uint8_t)(gfx_frame_count - model_last_frame) >=
+           kFlightFramesPerStep) {
+      model_last_frame += kFlightFramesPerStep;
+      flight_advance();
+    }
     if (flight_crashed()) {
       // A crash is the end of the flight, so its message stays up until R or
       // Q. Completing a mission is not: flight.cc announces it for a few

@@ -21,7 +21,11 @@ struct CIA {
 #define cia1 (*((struct CIA *)0xdc00))
 #define cia2 (*((struct CIA *)0xdd00))
 
-static void cia_init() {}
+// inline, not plain static: cpu_test includes cia.h for the register struct
+// and never calls this, and -Wall warns about an unused static function. An
+// inline one is exempt, and this is a stand-in for oscar64's own routine
+// rather than something a host build ever wants to run.
+static inline void cia_init() {}
 #endif
 
 #endif

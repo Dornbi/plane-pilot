@@ -19,6 +19,10 @@ static const uint8_t kGfxGroundPoints = 224;
 static const uint8_t kGfxColorPoints = 240;
 
 // Init the fixed characters.
+// Raster frames since boot, bumped by the handler at raster 250. Wraps at 256;
+// use differences, never the absolute value. The flight model's timebase.
+extern volatile uint8_t gfx_frame_count;
+
 void gfx_init_chars(void);
 
 // Init raster interrupts.

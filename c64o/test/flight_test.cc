@@ -10,6 +10,7 @@
 #include "../msg.h"
 #include "../vec.h"
 
+
 // Stubs for msg.cc dependencies when compiling host test
 uint8_t *mem_screen_ram = nullptr;
 uint8_t *mem_screen_row_ptrs[25];

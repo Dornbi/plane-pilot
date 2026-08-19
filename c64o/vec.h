@@ -5,7 +5,21 @@
 
 #include "bool.h"
 
+// The flight model's step size is a run-time value, not a build-time one: the
+// boot probe (cpu.h) measures the machine and flight_set_step_shift() scales
+// the model to match, so one binary flies correctly on a stock C64 and on a
+// 20 MHz accelerator alike. See docs/flight.md §8.
+//
+// The rotation magnitudes below are what that scales - they are the step size
+// expressed as matrices, which is why vec_set_rotation_shift() rebuilds them
+// and why they are powers of two, so that halving is exact.
+
 #ifndef __OSCAR64__
+// Same stand-ins mem.h provides, repeated because flight.cc reaches vec.h and
+// not mem.h. Guarded, so including both is harmless.
+#ifndef __noinline
+#define __noinline
+#endif
 #define __zeropage
 // Multiplies vec_mul_a and b (16-bit signed integers). Interprets b as 8.8
 // fixed point, and returns the middle 16-bits of the 32-bit result. Note:
@@ -86,12 +100,20 @@ void vec_cross(const vec3_t *u, const vec3_t *v, vec3_t *res);
 // Orthonormalizes mat using 8.8 fixed point arithmetic.
 void vec_orthonormalize(mat3_t *mat);
 
-extern const mat3_t kVecRollLeft;
-extern const mat3_t kVecRollRight;
-extern const mat3_t kVecPitchUp;
-extern const mat3_t kVecPitchDown;
-extern const mat3_t kVecYawLeft;
-extern const mat3_t kVecYawRight;
+// One control step each, as a small-angle rotation. Not const: they are the
+// flight model's step size, and vec_set_rotation_shift() rescales them once at
+// init when the shift is not pinned at build time. Everything that uses them
+// takes a const pointer, so nothing else can write to them.
+extern mat3_t kVecRollLeft;
+extern mat3_t kVecRollRight;
+extern mat3_t kVecPitchUp;
+extern mat3_t kVecPitchDown;
+extern mat3_t kVecYawLeft;
+extern mat3_t kVecYawRight;
+
+// Rebuilds the six above at 1 >> shift of their built-in magnitudes. Rebuilds
+// rather than divides, so calling it twice is the same as calling it once.
+void vec_set_rotation_shift(uint8_t shift);
 
 // Transforms u by vec_mat and stores the result in res.
 // Column-major counterpart of vec_transform_inv. ppilot no longer calls it

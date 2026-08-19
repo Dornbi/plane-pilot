@@ -378,32 +378,62 @@ void vec_orthonormalize(mat3_t *mat) {
   _limit_vec(&mat->up);
 }
 
+// One control step, as a small-angle rotation: the off-diagonal over 256 is the
+// angle in radians, so 32 is 7.2 degrees of roll, 16 is 3.6 of pitch and 8 is
+// 1.8 of yaw. These are the magnitudes vecdemo sees. The simulation calls
+// vec_set_rotation_shift() at boot and scales them to the machine the probe
+// measured (docs/flight.md §8), which is why they are powers of two - halving
+// is exact and that is what the whole scheme rests on.
+
 // clang-format off
-const mat3_t kVecRollLeft = {
+mat3_t kVecRollLeft = {
   { 256,    0,    0},
   {   0,  256,  -32},
   {   0,   32,  256}};
-const mat3_t kVecRollRight = {
+mat3_t kVecRollRight = {
   { 256,    0,    0},
   {   0,  256,   32},
   {   0,  -32,  256}};
-const mat3_t kVecPitchUp = {
+mat3_t kVecPitchUp = {
   { 256,    0,   16},
   {   0,  256,    0},
   { -16,    0,  256}};
-const mat3_t kVecPitchDown = {
+mat3_t kVecPitchDown = {
   { 256,    0,  -16},
   {   0,  256,    0},
   {  16,    0,  256}};
-const mat3_t kVecYawLeft = {
+mat3_t kVecYawLeft = {
   { 256,    8,    0},
   {  -8,  256,    0},
   {   0,    0,  256}};
-const mat3_t kVecYawRight = {
+mat3_t kVecYawRight = {
   { 256,   -8,    0},
   {   8,  256,    0},
   {   0,    0,  256}};
 // clang-format on
+
+void vec_set_rotation_shift(uint8_t shift) {
+  // From the built-in magnitudes every time, so this is idempotent - the model
+  // may set it again if the probe is ever re-run, and vecdemo never calls it.
+  const int16_t roll = (int16_t)(32 >> shift);
+  const int16_t pitch = (int16_t)(16 >> shift);
+  const int16_t yaw = (int16_t)(8 >> shift);
+
+  kVecRollLeft.left.z = -roll;
+  kVecRollLeft.up.y = roll;
+  kVecRollRight.left.z = roll;
+  kVecRollRight.up.y = -roll;
+
+  kVecPitchUp.front.z = pitch;
+  kVecPitchUp.up.x = -pitch;
+  kVecPitchDown.front.z = -pitch;
+  kVecPitchDown.up.x = pitch;
+
+  kVecYawLeft.front.y = yaw;
+  kVecYawLeft.left.x = -yaw;
+  kVecYawRight.front.y = -yaw;
+  kVecYawRight.left.x = yaw;
+}
 
 // vec_transform() and vec_transform_inv() are the same nine multiplies, read
 // by column and by row. Only vec_transform3() ever wanted the column form,
