@@ -4,7 +4,7 @@
 of arguments into measurements. Three things it has settled that reasoning had
 got wrong: whether clearing `$D015` can stop sprite DMA already in flight
 (§1.8 of [clouds.md](clouds.md) — it can), whether an oscar64 fix reached the
-real code ([oscar64-bug/](oscar64-bug/) — a pixel-identical screenshot said
+real code ([bugs/](../bugs/) — a pixel-identical screenshot said
 yes), and what the far-group collapse actually buys (§3.5 — one PAL frame).
 
 Reach for it when the question is *how many cycles*, *is this frame identical*,

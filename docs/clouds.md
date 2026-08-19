@@ -822,7 +822,7 @@ one of eight sprites.
 
 **Fixed in oscar64 `v1.32.272-117-ga7305f9`, and the flat table stays anyway.**
 Two compiler releases were needed. `v1.32.272-113-g5638ec5` fixed the biased
-`const` array index filed as `docs/oscar64-bug/OSCAR64-BUG-REPORT.md`, but the
+`const` array index filed as `bugs/const-array-biased-index/OSCAR64-BUG-REPORT.md`, but the
 branch above still came out wrong: what remained was visible one level out, in
 the `sprites_stack_add@proxy` thunk oscar64 builds for arguments it thinks are
 constant at every call site. It folded `bitmap2` to `#$ff` there - correct for
@@ -830,7 +830,7 @@ the single-sprite rungs, wrong for the stacked ones - while `pivot_x` really is
 12 in every entry of both tables and folding *that* was right. `v1.32.272-117`
 (commit 31d4595) fixed the rest; the branch form now renders pixel-identically
 to this one in the emulator, where the previous compiler still drew the half
-clouds. Written up in `docs/oscar64-bug/OSCAR64-BUG-2-REPORT.md`.
+clouds. Written up in `bugs/const-table-struct-select/OSCAR64-BUG-2-REPORT.md`.
 
 The flat table is not reverted, because the workaround turned out to be the
 better code on its own terms: 542 instructions against 557 in
