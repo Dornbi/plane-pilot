@@ -1569,22 +1569,22 @@ static void test_mission_waypoint_constraints() {
   assert(flight_status == FLIGHT_MISSION_COMPLETED);
   assert(mission_completed[1]);
 
-  // Test 3: Multi-waypoint mission 03 (Solo Flight: WP_MIN_2000FT then WP_LANDED)
+  // Test 3: Multi-waypoint mission 03 (Solo Flight: WP_MIN_1000FT then WP_LANDED)
   flight_init_from_mission(2);
   assert(flight_current_wp == 0);
   assert(flight_nav == 0);
   assert(flight_status == FLIGHT_ONGOING);
 
-  // Below 2000ft (0x03F000)
+  // Below 1000ft (0x01F000)
   flight_speed = 0x60;
-  flight_eye_z = 0x03F000;
+  flight_eye_z = 0x01F000;
   flight_advance();
   assert(flight_current_wp == 0);
   assert(flight_status == FLIGHT_ONGOING);
 
-  // Reach 2000ft (0x041000) - waypoint 1 met
+  // Reach 1000ft (0x021000) - waypoint 0 met
   flight_speed = 0x60;
-  flight_eye_z = 0x041000;
+  flight_eye_z = 0x021000;
   flight_advance();
   assert(flight_current_wp == 1);
   assert(flight_nav == 0); // flight_nav does NOT auto-advance now
@@ -1767,16 +1767,16 @@ static void test_mission_03_solo_flight_completion() {
   assert(flight_status == FLIGHT_ONGOING);
   assert(!mission_completed[2]);
 
-  // Below 2000ft (0x03F000)
+  // Below 1000ft (0x01F000)
   flight_speed = 0x60;
-  flight_eye_z = 0x03F000;
+  flight_eye_z = 0x01F000;
   flight_advance();
   assert(flight_current_wp == 0);
   assert(flight_status == FLIGHT_ONGOING);
 
-  // Reach 2000ft (0x050000) - Waypoint 0 met
+  // Reach 1000ft (0x020000) - Waypoint 0 met
   flight_vspeed = 0;
-  flight_eye_z = 0x050000;
+  flight_eye_z = 0x020000;
   flight_advance();
   assert(flight_current_wp == 1);
   assert(flight_status == FLIGHT_ONGOING);

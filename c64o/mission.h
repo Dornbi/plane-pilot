@@ -9,15 +9,14 @@ enum MissionWaypointConstraint {
   WP_NOTHING = 0,
   WP_LANDED = 1,
   WP_MIN_1000FT = 2,
-  WP_MIN_2000FT = 3,
-  WP_MIN_3000FT = 4,
+  WP_MIN_3000FT = 3,
   // 0x004000, which is 125ft on the altitude scale where 1000ft is 0x020000.
-  WP_MAX_125FT = 5,
-  WP_UPSIDE_DOWN = 6,
+  WP_MAX_125FT = 4,
+  WP_UPSIDE_DOWN = 5,
 };
 
 // Waypoints across all missions.
-static const uint8_t kMissionWpCount = 17;
+static const uint8_t kMissionWpCount = 16;
 extern const uint8_t kMissionWpX[kMissionWpCount]; // flight_eye_x = x << 16;
 extern const uint8_t
     kMissionWpY[kMissionWpCount]; // flight_eye_y = y << 16 + 0x8000;

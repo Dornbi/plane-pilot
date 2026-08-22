@@ -416,10 +416,9 @@ static const char *const kFlightWaypointFault[] = {
     "",                   // 0 WP_NOTHING
     "",                   // 1 WP_LANDED
     "CLIMB ABOVE 1000FT", // 2 WP_MIN_1000FT
-    "CLIMB ABOVE 2000FT", // 3 WP_MIN_2000FT
-    "CLIMB ABOVE 3000FT", // 4 WP_MIN_3000FT
-    "GO BELOW 125FT",     // 5 WP_MAX_125FT
-    "FLY INVERTED"        // 6 WP_UPSIDE_DOWN
+    "CLIMB ABOVE 3000FT", // 3 WP_MIN_3000FT
+    "GO BELOW 125FT",     // 4 WP_MAX_125FT
+    "FLY INVERTED"        // 5 WP_UPSIDE_DOWN
     ,
 };
 
@@ -488,17 +487,16 @@ static void _flight_check_mission_waypoints() {
     pos_ok = (dx <= 0x10 && dy <= max_dy);
   }
 
-  // Altitude limits live in a table so the three MIN_*FT cases share one
-  // comparison instead of open-coding three 32-bit ones.
+  // Altitude limits live in a table so the MIN_*FT cases share one
+  // comparison instead of open-coding separate 32-bit ones.
   // Indexed by MissionWaypointConstraint; keep in sync with mission.h.
   static const uint8_t kWpMinAltHi[] = {
       0, // 0 WP_NOTHING
       0, // 1 WP_LANDED       (handled below)
       2, // 2 WP_MIN_1000FT   (0x020000 >> 16)
-      4, // 3 WP_MIN_2000FT
-      6, // 4 WP_MIN_3000FT
-      0, // 5 WP_MAX_125FT    (handled below)
-      0, // 6 WP_UPSIDE_DOWN  (handled below)
+      6, // 3 WP_MIN_3000FT
+      0, // 4 WP_MAX_125FT    (handled below)
+      0, // 5 WP_UPSIDE_DOWN  (handled below)
   };
   bool met = pos_ok;
   if (met) {
@@ -589,8 +587,7 @@ void flight_advance() {
       // vec_fastmul8p8 rather than a general 16x16 multiply: density is
       // already 8.8 with 256 meaning "sea level", which is exactly the
       // convention this routine expects.
-      flight_speed +=
-          _flight_step_s(vec_fastmul8p8(flight_throttle, density));
+      flight_speed += _flight_step_s(vec_fastmul8p8(flight_throttle, density));
     }
 
     int16_t sink_penalty = 0;

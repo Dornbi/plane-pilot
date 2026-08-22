@@ -29,13 +29,13 @@ int main(int argc, char **argv) {
 
     assert(map_type != MAP_NOTHING);
 
-    if (i == 2 || i == 6 || i == 7 || i == 8 || i == 12 || i == 16) {
+    if (i == 1 || i == 5 || i == 6 || i == 7 || i == 11 || i == 15) {
       assert(map_type == MAP_OBJ_RUNWAY);
-    } else if (i >= 3 && i <= 5) {
+    } else if (i >= 2 && i <= 4) {
       assert(map_type == MAP_OBJ_LAKE || map_type == MAP_OBJ_POND);
-    } else if (i >= 9 && i <= 11) {
+    } else if (i >= 8 && i <= 10) {
       assert(map_type == MAP_OBJ_TOWN || map_type == MAP_OBJ_CITY);
-    } else if (i >= 13 && i <= 15) {
+    } else if (i >= 12 && i <= 14) {
       assert(map_type == MAP_OBJ_FIELD || map_type == MAP_OBJ_FIELD_SPARSE ||
              map_type == MAP_OBJ_FIELD_YELLOW || map_type == MAP_OBJ_FIELD_YELLOW_SPARSE);
     }

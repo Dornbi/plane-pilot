@@ -1,82 +1,78 @@
 #include "mission.h"
 
-const uint8_t kWaypointDefault = 2;
+const uint8_t kWaypointDefault = 1;
 static const uint8_t kWaypointMin1000ft = 0;
-static const uint8_t kWaypointMin2000ft = 1;
-static const uint8_t kWaypointLanded1 = 2;
-static const uint8_t kWaypointLake1 = 3;
-static const uint8_t kWaypointLanded2a = 6;
-static const uint8_t kWaypointUpsideDown2 = 7;
-static const uint8_t kWaypointLanded2b = 8;
-static const uint8_t kWaypointCity1 = 9;
-static const uint8_t kWaypointLanded2c = 12;
-static const uint8_t kWaypointField1 = 13;
-static const uint8_t kWaypointLanded2d = 16;
+static const uint8_t kWaypointLanded1 = 1;
+static const uint8_t kWaypointLake1 = 2;
+static const uint8_t kWaypointLanded2a = 5;
+static const uint8_t kWaypointUpsideDown2 = 6;
+static const uint8_t kWaypointLanded2b = 7;
+static const uint8_t kWaypointCity1 = 8;
+static const uint8_t kWaypointLanded2c = 11;
+static const uint8_t kWaypointField1 = 12;
+static const uint8_t kWaypointLanded2d = 15;
 
 const uint8_t kMissionWpX[kMissionWpCount] = {
     0x00, // 00 (Min 1000ft)
-    0x00, // 01 (Min 2000ft)
-    0x20, // 02 (Runway 1)
-    0x10, // 05 (Lake 1)
-    0x40, // 04 (Lake 2)
-    0x58, // 03 (Lake 3)
-    0x60, // 06 (Runway 2)
-    0x60, // 07 (Runway 2 upside down)
-    0x60, // 08 (Runway 2)
-    0x10, // 09 (City 1)
-    0x68, // 10 (City 2)
-    0x70, // 11 (City 3)
-    0x60, // 12 (Runway 2)
-    0x30, // 13 (Field 1)
-    0x08, // 14 (Field 2)
-    0x38, // 15 (Field 3)
-    0x60, // 12 (Runway 2)
+    0x20, // 01 (Runway 1)
+    0x10, // 02 (Lake 1)
+    0x40, // 03 (Lake 2)
+    0x58, // 04 (Lake 3)
+    0x60, // 05 (Runway 2)
+    0x60, // 06 (Runway 2 upside down)
+    0x60, // 07 (Runway 2)
+    0x10, // 08 (City 1)
+    0x68, // 09 (City 2)
+    0x70, // 10 (City 3)
+    0x60, // 11 (Runway 2)
+    0x30, // 12 (Field 1)
+    0x08, // 13 (Field 2)
+    0x38, // 14 (Field 3)
+    0x60, // 15 (Runway 2)
 };
 
 const uint8_t kMissionWpY[kMissionWpCount] = {
     0x00, // 00 (Min 1000ft)
-    0x00, // 01 (Min 2000ft)
-    0x3F, // 02 (Runway 1)
-    0xD0, // 05 (Lake 1)
-    0xE0, // 04 (Lake 2)
-    0x10, // 03 (Lake 3)
-    0xBF, // 06 (Runway 2)
-    0xBF, // 07 (Runway 2 upside down)
-    0xBF, // 08 (Runway 2)
-    0x68, // 09 (City 1)
-    0x98, // 10 (City 2)
-    0xE8, // 11 (City 3)
-    0xBF, // 12 (Runway 2)
-    0x88, // 13 (Field 1)
-    0xA0, // 14 (Field 2)
-    0xB0, // 15 (Field 3)
-    0xBF, // 16 (Runway 2)
+    0x3F, // 01 (Runway 1)
+    0xD0, // 02 (Lake 1)
+    0xE0, // 03 (Lake 2)
+    0x10, // 04 (Lake 3)
+    0xBF, // 05 (Runway 2)
+    0xBF, // 06 (Runway 2 upside down)
+    0xBF, // 07 (Runway 2)
+    0x68, // 08 (City 1)
+    0x98, // 09 (City 2)
+    0xE8, // 10 (City 3)
+    0xBF, // 11 (Runway 2)
+    0x88, // 12 (Field 1)
+    0xA0, // 13 (Field 2)
+    0xB0, // 14 (Field 3)
+    0xBF, // 15 (Runway 2)
 };
 
 const MissionWaypointConstraint kMissionWpConstraint[kMissionWpCount] = {
     WP_MIN_1000FT,  // 00 (Min 1000ft)
-    WP_MIN_2000FT,  // 01 (Min 2000ft)
-    WP_LANDED,      // 02 (Runway 1)
-    WP_NOTHING,     // 03 (Lake 1)
-    WP_NOTHING,     // 04 (Lake 2)
-    WP_NOTHING,     // 05 (Lake 3)
-    WP_LANDED,      // 06 (Runway 2)
-    WP_UPSIDE_DOWN, // 07 (Runway 2)
-    WP_LANDED,      // 08 (Runway 2)
-    WP_MIN_3000FT,  // 09 (City 1)
-    WP_MIN_3000FT,  // 10 (City 2)
-    WP_MIN_3000FT,  // 11 (City 3)
-    WP_LANDED,      // 12 (Runway 2)
-    WP_MAX_125FT,   // 13 (Field 1)
-    WP_MAX_125FT,   // 14 (Field 2)
-    WP_MAX_125FT,   // 15 (Field 3)
-    WP_LANDED,      // 16 (Runway 2)
+    WP_LANDED,      // 01 (Runway 1)
+    WP_NOTHING,     // 02 (Lake 1)
+    WP_NOTHING,     // 03 (Lake 2)
+    WP_NOTHING,     // 04 (Lake 3)
+    WP_LANDED,      // 05 (Runway 2)
+    WP_UPSIDE_DOWN, // 06 (Runway 2)
+    WP_LANDED,      // 07 (Runway 2)
+    WP_MIN_3000FT,  // 08 (City 1)
+    WP_MIN_3000FT,  // 09 (City 2)
+    WP_MIN_3000FT,  // 10 (City 3)
+    WP_LANDED,      // 11 (Runway 2)
+    WP_MAX_125FT,   // 12 (Field 1)
+    WP_MAX_125FT,   // 13 (Field 2)
+    WP_MAX_125FT,   // 14 (Field 3)
+    WP_LANDED,      // 15 (Runway 2)
 };
 
 const uint8_t kMissionWpBegin[kMissionCount] = {
     kWaypointMin1000ft,   // 01
     kWaypointLanded1,     // 02
-    kWaypointMin2000ft,   // 03
+    kWaypointMin1000ft,   // 03
     kWaypointLanded1,     // 04
     kWaypointLanded2a,    // 05
     kWaypointLake1,       // 06
@@ -117,7 +113,7 @@ const char *const kMissionDesc[kMissionCount] = {
     "YOU ARE ON FINAL ON RUNWAY 1.\n"      // 02
     "LAND SAFELY!",                        //
     "PUT IT ALL TOGETHER! GET AIRBORNE,\n" // 03
-    "CLIMB TO 2000FT AND LAND AGAIN.",     //
+    "CLIMB TO 1000FT AND LAND AGAIN.",     //
     "WHERE AM I? FIND THE RUNWAY\n"        // 04
     "AND GET ON THE GROUND.",              //
     "NAVIGATE TO THE OTHER FIELD\n"        // 05
