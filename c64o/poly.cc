@@ -472,13 +472,33 @@ static inline uint8_t _clip_near(const vec3_t *in, uint8_t num_in,
     bool curr_inside = curr->x >= 8;
 
     if (curr_inside != prev_inside) {
-      // compute intersection. t = (8 - prev.x) * 256 / (curr.x - prev.x)
+      // Where the edge crosses, as a 0.16 fraction of it. vec_div8p8's eight
+      // bits are a part in 256 of an edge that is often a thousand units
+      // long, and at the near plane that lands whole characters away.
       int16_t dx = curr->x - prev->x;
-      int16_t t = vec_div8p8(8 - prev->x, dx);
+      int16_t a = 8 - prev->x;
+      int16_t dy = curr->y - prev->y;
+      int16_t dz = curr->z - prev->z;
+      uint16_t t = vec_frac16(a, dx);
+      // Then the resolution of the answer. At x = 8 the projection
+      // multiplies y by 32, so one unit in is eight sub-pixels out: rounded
+      // to whole units the intersection can only land on every fourth
+      // character. Projection is a ratio, so scaling one vertex changes
+      // nothing but its own resolution - lift this one by eight, near plane
+      // included, whenever sixteen bits have the room. The OR is a cheap
+      // "all four fit": any bit at 4096 or above fails the test.
+      bool fits = (uint16_t)(_abs16(prev->y) | _abs16(prev->z) | _abs16(dy) |
+                             _abs16(dz)) < 4096;
       vec3_t *dest = &out[num_out++];
-      dest->x = 8;
-      dest->y = prev->y + vec_fastmul8p8(t, curr->y - prev->y);
-      dest->z = prev->z + vec_fastmul8p8(t, curr->z - prev->z);
+      if (fits) {
+        dest->x = 8 << 3;
+        dest->y = (prev->y << 3) + vec_mulfrac(t, (int16_t)(dy << 3));
+        dest->z = (prev->z << 3) + vec_mulfrac(t, (int16_t)(dz << 3));
+      } else {
+        dest->x = 8;
+        dest->y = prev->y + vec_mulfrac(t, dy);
+        dest->z = prev->z + vec_mulfrac(t, dz);
+      }
     }
     if (curr_inside) {
       out[num_out++] = *curr;
@@ -522,9 +542,20 @@ static uint8_t _clip_2d(const vertex16_t *in, uint8_t num_in, vertex16_t *out,
     if (curr_inside != prev_inside) {
       int16_t *dest = (int16_t *)&out[num_out++];
       int16_t d = curr[other] - prev[other];
-      int16_t t = vec_div8p8(limit - prev[axis], curr[axis] - prev[axis]);
+      int16_t a = limit - prev[axis];
+      int16_t den = curr[axis] - prev[axis];
       dest[axis] = limit;
-      dest[other] = _clip_lerp(prev[other], t, d);
+      if (d >= -255 && d <= 255) {
+        // Over a span this short the 8.8 parameter is worth a sub-pixel, and
+        // this is the common case by far: a polygon that reaches a little
+        // past one edge. Keeping it here is what makes the fix free for
+        // everything except the case that needed it.
+        dest[other] = _clip_lerp(prev[other], vec_div8p8(a, den), d);
+      } else {
+        // A vertex just past the near plane projects thousands of sub-pixels
+        // away, and a part in 256 of that span is characters, not pixels.
+        dest[other] = prev[other] + vec_mulfrac(vec_frac16(a, den), d);
+      }
     }
     if (curr_inside) {
       out[num_out++] = in[i];
@@ -553,8 +584,12 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
   for (uint8_t i = 0; i < num_clip3; ++i) {
     vec_v = clip3_buf[i];
     if (vec_project_nocull()) {
-      proj_buf[i].x = 40 - (vec_sx / 4);
-      proj_buf[i].y = 14 - (vec_sy / 4);
+      // Rounded, not truncated toward zero: the bias is half a sub-pixel and
+      // it is signed, so the two ends of a polygon are pulled in opposite
+      // directions depending on which side of the screen centre they land.
+      // The shift is also two bytes cheaper than the divide.
+      proj_buf[i].x = 40 - ((vec_sx + 2) >> 2);
+      proj_buf[i].y = 14 - ((vec_sy + 2) >> 2);
     } else {
       proj_buf[i].x = 40;
       proj_buf[i].y = 14;

@@ -45,6 +45,13 @@ SPRITES_TEST_SRC = sprites_test.cc ../spritedef.cc
 SPRITES_TEST_HDRS = ../sprites.h ../sprites.cc ../spritedef.h ../vic.h \
 		../mem.h ../msg.h ../view.h ../color.h ../roll.h
 
+# poly_test includes ../poly.cc rather than linking it: the projection and
+# both clippers are static, and it is the projection that is under test. The
+# unused-function warning is for _poly_trace_edge_dda, which poly.cc keeps as
+# the alternative to the bresenham tracer.
+POLY_TEST_SRC = poly_test.cc ../vec.cc ../vec_lut.cc ../fmath.cc
+POLY_TEST_HDRS = ../poly.h ../poly.cc ../vec.h ../mem.h ../chardefs.h
+
 CPU_TEST_SRC = cpu_test.cc
 CPU_TEST_HDRS = ../cpu.h ../cpu.cc ../cia.h
 
@@ -74,10 +81,13 @@ sprites_test: $(SPRITES_TEST_SRC) $(SPRITES_TEST_HDRS)
 cpu_test: $(CPU_TEST_SRC) $(CPU_TEST_HDRS)
 	$(HOST_CC) $(HOST_CFLAGS) -o cpu_test $(CPU_TEST_SRC)
 
-test: flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test
-	@./flight_test > output.txt && ./msg_test >> output.txt && ./map_test >> output.txt && ./sound_test >> output.txt && ./music_test >> output.txt && ./mul_test >> output.txt && ./sprites_test >> output.txt && ./cpu_test >> output.txt && echo "ALL TESTS PASSED (flight_test, msg_test, map_test, sound_test, music_test, mul_test, sprites_test, cpu_test) -> test/output.txt"
+poly_test: $(POLY_TEST_SRC) $(POLY_TEST_HDRS)
+	$(HOST_CC) $(HOST_CFLAGS) -Wno-unused-function -o poly_test $(POLY_TEST_SRC)
+
+test: flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test
+	@./flight_test > output.txt && ./msg_test >> output.txt && ./map_test >> output.txt && ./sound_test >> output.txt && ./music_test >> output.txt && ./mul_test >> output.txt && ./sprites_test >> output.txt && ./cpu_test >> output.txt && ./poly_test >> output.txt && echo "ALL TESTS PASSED (flight_test, msg_test, map_test, sound_test, music_test, mul_test, sprites_test, cpu_test, poly_test) -> test/output.txt"
 
 clean:
-	rm -rf flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test output.txt *.dSYM
+	rm -rf flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test output.txt *.dSYM
 
-.PHONY: all test flight_test msg_test map_test sound_test music_test mul_test sprites_test clean
+.PHONY: all test flight_test msg_test map_test sound_test music_test mul_test sprites_test poly_test clean

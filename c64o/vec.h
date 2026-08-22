@@ -36,6 +36,26 @@ inline int16_t vec_fastmul8p8(int16_t a, int16_t b) {
   int32_t magnitude = (p < 0 ? -p : p) >> 8;
   return (int16_t)(p < 0 ? -magnitude : magnitude);
 }
+
+// Host stand-ins for the two clip primitives, for the same reason: the 6502
+// versions are in vec_asm.cc, and a host result that does not match them says
+// nothing about the target. Both are checked against the assembly in
+// test/host_vec.cc.
+inline uint16_t vec_frac16(int16_t a, int16_t b) {
+  uint32_t ua = a < 0 ? (uint32_t)(-(int32_t)a) : (uint32_t)a;
+  uint32_t ub = b < 0 ? (uint32_t)(-(int32_t)b) : (uint32_t)b;
+  if (ub == 0) {
+    return 0xFFFF;
+  }
+  uint32_t q = (ua << 16) / ub;
+  return q > 0xFFFF ? 0xFFFF : (uint16_t)q;
+}
+
+inline int16_t vec_mulfrac(uint16_t t, int16_t d) {
+  int16_t hi = vec_fastmul8p8((int16_t)(t >> 8), d);
+  int16_t lo = vec_fastmul8p8((int16_t)(t & 0xFF), d);
+  return (int16_t)(hi + (int16_t)((lo + 128) >> 8));
+}
 #else
 int16_t vec_fastmul8p8(int16_t a, int16_t b);
 #endif
@@ -46,6 +66,23 @@ uint16_t vec_fastsqr8p8(int16_t a);
 
 // Divides a by b using 8.8 fixed point semantics. Equivalent to (a << 8) / b.
 int16_t vec_div8p8(int16_t a, int16_t b);
+
+// |a| / |b| as an unsigned 0.16 fraction, saturating at 0xFFFF.
+//
+// This is the clip parameter of poly.cc, and it exists because eight
+// fractional bits are not enough for one. A clip parameter multiplies a delta
+// that can be thousands of units long, so a part in 256 of it is characters
+// on screen rather than pixels - and at the near plane, where the projection
+// magnifies by 32, it is a quarter of the viewport. Sixteen bits put the
+// error back below the sub-pixel the rasterizer works in. See
+// docs/project.md, "poly.cc - filled polygons".
+//
+// The callers pass a and b with the same sign and |a| <= |b| (both hold for a
+// crossing), so the true value is in [0, 1].
+uint16_t vec_frac16(int16_t a, int16_t b);
+
+// (t * d) / 65536 for a 0.16 fraction t from vec_frac16, rounded.
+int16_t vec_mulfrac(uint16_t t, int16_t d);
 
 // 16-bit signed 3D vector.
 struct vec3_t {

@@ -231,6 +231,14 @@ workarounds elsewhere. `vec_lut.cc` also carries a reciprocal table used by
 screen coordinates (`vec_sx`, `vec_sy`); the culling variant rejects anything
 off screen, the other only rejects points behind the near plane (`x <= 8`).
 
+`vec_frac16` and `vec_mulfrac` are the clipping pair, and they exist because
+8.8 is not enough for a clip parameter — see the clipping notes under
+[`poly.cc`](#polycc--filled-polygons) below. `vec_frac16` is a restoring
+32/16 division in assembly (16 iterations, ~927 cycles) returning `|a| / |b|`
+as an unsigned 0.16 fraction; `vec_mulfrac` multiplies that fraction by a
+delta using `vec_fastmul8p8` on each half, rounding the low one (~720
+cycles).
+
 `vectest.prg` and `vecdemo.prg` exist to verify and benchmark these routines
 in isolation.
 
@@ -256,6 +264,38 @@ polygon.
 
 `poly_draw_3d()` clips against the near plane, projects, clips against the four
 viewport edges (one data-driven routine per edge), and fills.
+
+**Clipping precision.** Both clippers interpolate `prev + t * delta`, and `t`
+used to come from `vec_div8p8`, which has eight fractional bits. A part in 256
+sounds harmless and is not: a clipped edge is often a thousand units long, and
+a vertex just past the near plane projects thousands of sub-pixels off screen,
+so a part in 256 of that span is whole characters. The near plane makes it
+worse — at `x = 8` the projection multiplies `y` by 32, so **one world unit is
+eight sub-pixels**, and an intersection rounded to whole units can only land on
+every fourth character column. A polygon covering most of the ground could come
+out as a thin wedge running into a corner of the screen, and it did.
+
+Three things fix it, and `test/poly_test.cc` measures all three against the
+same geometry projected in double precision:
+
+1. `t` is a 0.16 fraction from `vec_frac16`, and the lerp is `vec_mulfrac`.
+   `_clip_2d` keeps the old 8.8 path when the interpolated delta is 255
+   sub-pixels or less, which is the common case and costs nothing.
+2. The near-plane intersection is computed eight times finer and emitted at
+   `x = 64` rather than `x = 8` whenever the components have room for the
+   shift. Projection is a ratio, so scaling one vertex changes nothing but its
+   own resolution.
+3. The projection rounds (`(vec_sx + 2) >> 2`) instead of truncating toward
+   zero. This one is free — two bytes cheaper than the divide it replaced —
+   and it is the only one of the three that helps an ordinary distant polygon,
+   where nothing is clipped at all.
+
+Measured over 65,520 poses of a polygon at takeoff and landing height, in
+sub-pixels filled wrongly out of the viewport's 2,240: mean 28.8 and 5.7% of
+poses more than 128 wrong before, mean 7.8 and none over 128 after. The cost
+is +516 bytes, and about 830 cycles for each near-plane crossing plus 490 for
+each viewport crossing wider than the guard — zero for a polygon that does not
+straddle the camera plane, which is most of them.
 
 Filling works on a scanline buffer at **half-character vertical resolution**
 (`_min_x`/`_max_x` are `2 * kViewportHeight` entries) and half-character

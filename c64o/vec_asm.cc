@@ -383,6 +383,87 @@ inline bool vec_project() {
   return true;
 }
 
+// Restoring 32/16 division, sixteen iterations. The dividend is |a| << 16, so
+// its high half starts as the remainder and the quotient grows into the low
+// half as the whole thing shifts left. |a| <= |b| is what keeps the remainder
+// under the divisor at every step, and therefore what makes sixteen
+// iterations enough; a == b saturates to 0xFFFF, which is the nearest a 0.16
+// fraction gets to one.
+static __zeropage uint8_t frac_q0, frac_q1, frac_r0, frac_r1;
+static __zeropage uint8_t frac_d0, frac_d1;
+
+uint16_t vec_frac16(int16_t a, int16_t b) {
+  // clang-format off
+  __asm {
+        // Remainder starts as |a|, the high half of the dividend.
+        lda a;
+        sta frac_r0;
+        lda a + 1;
+        sta frac_r1;
+        bpl L_a_pos_fr;
+        sec;
+        lda #0;
+        sbc frac_r0;
+        sta frac_r0;
+        lda #0;
+        sbc frac_r1;
+        sta frac_r1;
+    L_a_pos_fr:
+        lda b;
+        sta frac_d0;
+        lda b + 1;
+        sta frac_d1;
+        bpl L_b_pos_fr;
+        sec;
+        lda #0;
+        sbc frac_d0;
+        sta frac_d0;
+        lda #0;
+        sbc frac_d1;
+        sta frac_d1;
+    L_b_pos_fr:
+        // The low half of the dividend is zero; the quotient takes its place.
+        lda #0;
+        sta frac_q0;
+        sta frac_q1;
+        ldx #16;
+    L_loop_fr:
+        asl frac_q0;
+        rol frac_q1;
+        rol frac_r0;
+        rol frac_r1;
+        lda frac_r0;
+        sec;
+        sbc frac_d0;
+        tay;
+        lda frac_r1;
+        sbc frac_d1;
+        bcc L_skip_fr;
+        sty frac_r0;
+        sta frac_r1;
+        inc frac_q0;
+    L_skip_fr:
+        dex;
+        bne L_loop_fr;
+  }
+  // clang-format on
+  return ((uint16_t)frac_q1 << 8) | frac_q0;
+}
+
+// t * d / 65536 = (t_hi * d) / 256 + (t_lo * d) / 65536, both halves through
+// the 8.8 multiply that is already here rather than a second 16x16 routine.
+// The bias rounds the low half. The high half is left with vec_fastmul8p8's
+// truncation toward zero. Buying that back needs a dedicated 16x16 -> 32
+// multiply; against an exact one, this costs 7.8 wrongly filled sub-pixels
+// per clipped polygon rather than 4.4, and 342 in the worst case rather than
+// 94 (test/poly_test.cc measures both). That was judged not worth the bytes
+// of a second multiply routine, not proven not to be.
+int16_t vec_mulfrac(uint16_t t, int16_t d) {
+  int16_t hi = vec_fastmul8p8((int16_t)(t >> 8), d);
+  int16_t lo = vec_fastmul8p8((int16_t)(t & 0xFF), d);
+  return hi + (int16_t)((lo + 128) >> 8);
+}
+
 bool vec_project_nocull() {
   if (vec_v.x < 8) {
     return false;
