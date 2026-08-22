@@ -485,10 +485,19 @@ static inline uint8_t _clip_near(const vec3_t *in, uint8_t num_in,
       // to whole units the intersection can only land on every fourth
       // character. Projection is a ratio, so scaling one vertex changes
       // nothing but its own resolution - lift this one by eight, near plane
-      // included, whenever sixteen bits have the room. The OR is a cheap
-      // "all four fit": any bit at 4096 or above fails the test.
-      bool fits = (uint16_t)(_abs16(prev->y) | _abs16(prev->z) | _abs16(dy) |
-                             _abs16(dz)) < 4096;
+      // included, whenever sixteen bits have the room.
+      //
+      // All six magnitudes have to be tested, not just the near end and the
+      // deltas: the intersection lies between prev and curr, so bounding
+      // prev and the delta bounds neither it nor curr. Missing curr here
+      // wrapped the scaled intersection to the far side of the screen and
+      // filled the whole viewport with one polygon, which is what this
+      // scaling was added to prevent. test_near_clip_scaling_never_overflows
+      // covers it. The OR is a cheap "all six fit": any bit at 4096 or above
+      // fails the test.
+      bool fits =
+          (uint16_t)(_abs16(prev->y) | _abs16(prev->z) | _abs16(curr->y) |
+                     _abs16(curr->z) | _abs16(dy) | _abs16(dz)) < 4096;
       vec3_t *dest = &out[num_out++];
       if (fits) {
         dest->x = 8 << 3;
@@ -587,9 +596,19 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
       // Rounded, not truncated toward zero: the bias is half a sub-pixel and
       // it is signed, so the two ends of a polygon are pulled in opposite
       // directions depending on which side of the screen centre they land.
-      // The shift is also two bytes cheaper than the divide.
-      proj_buf[i].x = 40 - ((vec_sx + 2) >> 2);
-      proj_buf[i].y = 14 - ((vec_sy + 2) >> 2);
+      //
+      // Spelled without the (vec_sx + 2) the rounding wants, because vec_sx
+      // reaches 32767: vec_div8p8 saturates there, and a vertex just past the
+      // near plane saturates it routinely. On the C64 int is 16 bits, so the
+      // + 2 wrapped to -32767 and put the vertex on the *opposite* side of
+      // the screen, which turned a polygon into the whole viewport. The host
+      // cannot see it - there int is 32 bits and the sum simply fits - so
+      // this one was caught in the emulator, not in test/poly_test.cc.
+      //
+      // (x >> 2) + bit 1 of x is the same round-half-up with no addition to
+      // overflow: the bit is set exactly when x mod 4 >= 2.
+      proj_buf[i].x = 40 - ((vec_sx >> 2) + ((vec_sx >> 1) & 1));
+      proj_buf[i].y = 14 - ((vec_sy >> 2) + ((vec_sy >> 1) & 1));
     } else {
       proj_buf[i].x = 40;
       proj_buf[i].y = 14;

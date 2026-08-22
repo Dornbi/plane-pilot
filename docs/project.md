@@ -285,15 +285,24 @@ same geometry projected in double precision:
    `x = 64` rather than `x = 8` whenever the components have room for the
    shift. Projection is a ratio, so scaling one vertex changes nothing but its
    own resolution.
-3. The projection rounds (`(vec_sx + 2) >> 2`) instead of truncating toward
-   zero. This one is free — two bytes cheaper than the divide it replaced —
-   and it is the only one of the three that helps an ordinary distant polygon,
-   where nothing is clipped at all.
+3. The projection rounds instead of truncating toward zero. It is the only
+   one of the three that helps an ordinary distant polygon, where nothing is
+   clipped at all.
+
+   Written as `(vec_sx >> 2) + ((vec_sx >> 1) & 1)` rather than the
+   `(vec_sx + 2) >> 2` it started as. `vec_div8p8` saturates at 32767 and a
+   vertex just past the near plane saturates it routinely, so on a 16-bit
+   `int` the addition wrapped to −32767 and put that vertex on the opposite
+   side of the screen — one polygon then covered the whole viewport. The host
+   suite cannot see that class of bug at all, because there `int` is 32 bits
+   and the sum simply fits; it was found by flying mission 4 and pinned down
+   by reading the projected vertices out of a running C64
+   ([emulator.md](emulator.md)).
 
 Measured over 65,520 poses of a polygon at takeoff and landing height, in
 sub-pixels filled wrongly out of the viewport's 2,240: mean 28.8 and 5.7% of
 poses more than 128 wrong before, mean 7.8 and none over 128 after. The cost
-is +516 bytes, and about 830 cycles for each near-plane crossing plus 490 for
+is +722 bytes, and about 830 cycles for each near-plane crossing plus 490 for
 each viewport crossing wider than the guard — zero for a polygon that does not
 straddle the camera plane, which is most of them.
 

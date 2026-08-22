@@ -15,6 +15,12 @@
 //
 // poly.cc is included rather than linked: its buffers and helpers are static,
 // and the test wants the projection, not the four exported bytes.
+//
+// What this suite cannot see: anything that only goes wrong in 16 bits. Here
+// `int` is 32 bits, so an expression that overflows int16 on the C64 quietly
+// fits, and both sides of the comparison below get the same right answer.
+// The rounding in _project_vertices was exactly that bug, and it took a
+// screenshot from x64sc to find. See docs/emulator.md.
 
 #include <assert.h>
 #include <math.h>
@@ -237,12 +243,17 @@ static void _split_vec(vec3_t v, vec3_t d9[9]) {
   }
 }
 
-// MAP_OBJ_RUNWAY, from world_map.cc.
+// From world_map.cc: the runway is a long thin quad, a field covers most of
+// a cell. The field is the one that broke in flight - a big polygon has the
+// large coordinates, and it is the one that fills the screen when it goes
+// wrong.
 static const uint8_t kRwyX[4] = {0, 8, 8, 0};
 static const uint8_t kRwyY[4] = {4, 4, 3, 3};
+static const uint8_t kFieldX[4] = {0, 4, 8, 2};
+static const uint8_t kFieldY[4] = {2, 0, 5, 8};
 
-static void _runway_verts(const mat3_t *cam, int16_t ox, int16_t oy, int16_t oz,
-                          vec3_t out[4]) {
+static void _obj_verts(const mat3_t *cam, int16_t ox, int16_t oy, int16_t oz,
+                       const uint8_t *vx, const uint8_t *vy, vec3_t out[4]) {
   vec3_t dx9[9], dy9[9];
   _split_vec(make_vector(cam->front.x, cam->left.x, cam->up.x), dx9);
   _split_vec(make_vector(cam->front.y, cam->left.y, cam->up.y), dy9);
@@ -251,13 +262,23 @@ static void _runway_verts(const mat3_t *cam, int16_t ox, int16_t oy, int16_t oz,
   vec_transform_inv(cam, &world, &base);
   for (uint8_t i = 0; i < 4; ++i) {
     vec3_t v = base;
-    const vec3_t &dx = dx9[kRwyX[i]];
-    const vec3_t &dy = dy9[kRwyY[i]];
+    const vec3_t &dx = dx9[vx[i]];
+    const vec3_t &dy = dy9[vy[i]];
     v.x += dx.x + dy.x;
     v.y += dx.y + dy.y;
     v.z += dx.z + dy.z;
     out[i] = v;
   }
+}
+
+static void _runway_verts(const mat3_t *cam, int16_t ox, int16_t oy, int16_t oz,
+                          vec3_t out[4]) {
+  _obj_verts(cam, ox, oy, oz, kRwyX, kRwyY, out);
+}
+
+static void _field_verts(const mat3_t *cam, int16_t ox, int16_t oy, int16_t oz,
+                         vec3_t out[4]) {
+  _obj_verts(cam, ox, oy, oz, kFieldX, kFieldY, out);
 }
 
 // ---------------------------------------------------------------------------
@@ -319,7 +340,71 @@ static void test_near_plane_intersection_lands_on_screen() {
   printf("  PASS\n\n");
 }
 
-// 3. The sweep. Low over the ground, every attitude, the polygon at and
+// 3. The scale on the near-plane intersection has to stay inside sixteen
+// bits. It did not: the test that guards it bounded prev and the deltas but
+// not curr, and the intersection lies between prev and curr, so it could
+// reach |prev| + |delta| and wrap. A wrapped intersection projects to the far
+// side of the screen, and the polygon it belongs to fills the viewport - the
+// exact artifact the scaling exists to prevent, at high altitude where the
+// grid coordinates are largest. Found in flight on mission 4, not by this
+// suite, which is why the sweeps below now reach that far out.
+static void test_near_clip_scaling_never_overflows() {
+  printf("Running test_near_clip_scaling_never_overflows...\n");
+
+  int checked = 0, worst = 0;
+  for (int py = -4000; py <= 4000; py += 137) {
+    for (int dy = -4000; dy <= 4000; dy += 211) {
+      for (int pz = -3000; pz <= 3000; pz += 1500) {
+        vec3_t in[3] = {{1000, (int16_t)py, (int16_t)pz},
+                        {-1000, (int16_t)(py + dy), (int16_t)(pz + dy / 2)},
+                        {1200, (int16_t)py, (int16_t)(pz + 900)}};
+        vec3_t out[8];
+        uint8_t n = _clip_near(in, 3, out);
+
+        // The same two crossings in double precision.
+        dvec3 ex[3];
+        for (uint8_t i = 0; i < 3; ++i) {
+          ex[i] = {(double)in[i].x, (double)in[i].y, (double)in[i].z};
+        }
+        dvec3 ref[8];
+        uint8_t rn = 0;
+        _ref_clip_near(ex, 3, ref, &rn);
+
+        for (uint8_t i = 0; i < n; ++i) {
+          if (out[i].x != 64) {
+            continue; // not a scaled intersection
+          }
+          // Match it to whichever exact intersection is nearer, and require
+          // that one to be close. A wrap lands thousands of units away.
+          double best = 1e9;
+          for (uint8_t j = 0; j < rn; ++j) {
+            if (ref[j].x != 8.0) {
+              continue;
+            }
+            double dyy = out[i].y - ref[j].y * 8.0;
+            double dzz = out[i].z - ref[j].z * 8.0;
+            double d = fabs(dyy) > fabs(dzz) ? fabs(dyy) : fabs(dzz);
+            if (d < best) {
+              best = d;
+            }
+          }
+          ++checked;
+          if (best > worst) {
+            worst = (int)best;
+          }
+        }
+      }
+    }
+  }
+  printf("  %d scaled intersections, worst off by %d eighths of a unit\n",
+         checked, worst);
+  assert(checked > 1000);
+  assert(worst <= 8); // one whole unit; a wrap was tens of thousands
+
+  printf("  PASS\n\n");
+}
+
+// 4. The sweep. Low over the ground, every attitude, the polygon at and
 // around the aircraft: this is the takeoff and landing case, and the one
 // that was broken. Nothing may be grossly wrong, and the average has to stay
 // where the fix put it.
@@ -373,7 +458,7 @@ static void test_low_sweep_has_no_gross_errors() {
   printf("  PASS\n\n");
 }
 
-// 4. The ordinary case has to stay ordinary: a polygon well in front of the
+// 5. The ordinary case has to stay ordinary: a polygon well in front of the
 // camera never touches the new path, and must still land within the
 // sub-pixel the 2d vertices are rounded to.
 static void test_distant_polygons_stay_accurate() {
@@ -414,17 +499,61 @@ static void test_distant_polygons_stay_accurate() {
   printf("  PASS\n\n");
 }
 
+// 6. The same shape check, at the altitude and grid radius mission 4 flies
+// at: a kilometre up, where world.cc widens the grid to radius 4 and cell
+// corners reach four thousand units from the eye. This is where the wrapped
+// intersection showed up in flight, and the low sweep never went near it.
+static void test_high_altitude_sweep() {
+  printf("Running test_high_altitude_sweep...\n");
+
+  long total = 0;
+  int trials = 0, worst = 0, over_128 = 0;
+  for (int yawi = 0; yawi < 24; yawi += 2) {
+    for (int rolli = -6; rolli <= 6; rolli += 2) {
+      for (int pitchi = -3; pitchi <= 3; ++pitchi) {
+        for (int cell = -4; cell <= 4; ++cell) {
+          for (int alt = 128; alt <= 1024; alt *= 2) {
+            mat3_t cam;
+            _build_cam(&cam, {yawi * M_PI / 12, pitchi * M_PI / 24,
+                              rolli * M_PI / 12});
+            vec3_t verts[4];
+            _field_verts(&cam, (int16_t)(cell * 1024), (int16_t)(cell * 512),
+                         (int16_t)-alt, verts);
+            int wrong = _wrong_sub_pixels(verts, 4);
+            total += wrong;
+            ++trials;
+            if (wrong > worst) {
+              worst = wrong;
+            }
+            if (wrong > 128) {
+              ++over_128;
+            }
+          }
+        }
+      }
+    }
+  }
+  printf("  %d poses, mean %.2f wrong sub-pixels, worst %d, over 128: %d\n",
+         trials, (double)total / trials, worst, over_128);
+  assert(worst < 512);
+  assert(over_128 == 0);
+
+  printf("  PASS\n\n");
+}
+
 int main() {
-  printf("\n=== POLYGON PROJECTION SUITE (4 TESTS) ===\n\n");
+  printf("\n=== POLYGON PROJECTION SUITE (6 TESTS) ===\n\n");
   for (uint8_t i = 0; i < kScreenHeight; ++i) {
     mem_screen_row_ptrs[i] = fake_screen + i * kScreenWidth;
   }
 
   test_the_wedge();
   test_near_plane_intersection_lands_on_screen();
+  test_near_clip_scaling_never_overflows();
   test_low_sweep_has_no_gross_errors();
   test_distant_polygons_stay_accurate();
+  test_high_altitude_sweep();
 
-  printf("ALL 4 TESTS PASSED SUCCESSFULLY!\n");
+  printf("ALL 6 TESTS PASSED SUCCESSFULLY!\n");
   return 0;
 }
