@@ -358,9 +358,14 @@ static void test_low_sweep_has_no_gross_errors() {
          trials, mean, worst, over_32);
   // Before the fix, over the same poses: mean 28.8, worst 1266, and 5.7% of
   // them more than 128 sub-pixels out. Now: mean 7.0, worst 342, and none
-  // over 128 except a handful. The tail that is left is vec_mulfrac's
-  // truncation - an exact 16x16 multiply would take the worst to about 90 -
-  // and a long edge one sub-pixel out, which is the floor of the design.
+  // over 128 except a handful.
+  //
+  // The tail that is left is not in the clippers. An exact 32-bit (a * b) / c
+  // in place of vec_frac16 and vec_mulfrac measures 7.64 against 7.75 on the
+  // full sweep, with the same worst case; rounding the projection's /4
+  // symmetrically instead of with a shift is worth more (7.15), and 206
+  // bytes. Under that sits a long edge one sub-pixel out, which is the floor
+  // of a design whose 2d vertices are integers.
   assert(worst < 512);
   assert(mean < 12.0);
   assert(over_32 * 10 < trials); // under 10% of poses

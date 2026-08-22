@@ -453,11 +453,11 @@ uint16_t vec_frac16(int16_t a, int16_t b) {
 // t * d / 65536 = (t_hi * d) / 256 + (t_lo * d) / 65536, both halves through
 // the 8.8 multiply that is already here rather than a second 16x16 routine.
 // The bias rounds the low half. The high half is left with vec_fastmul8p8's
-// truncation toward zero. Buying that back needs a dedicated 16x16 -> 32
-// multiply; against an exact one, this costs 7.8 wrongly filled sub-pixels
-// per clipped polygon rather than 4.4, and 342 in the worst case rather than
-// 94 (test/poly_test.cc measures both). That was judged not worth the bytes
-// of a second multiply routine, not proven not to be.
+// truncation toward zero, and that turns out not to matter: replacing this
+// whole routine with an exact 32-bit (a * b) / c moves test/poly_test.cc's
+// sweep from 7.75 wrongly filled sub-pixels per clipped polygon to 7.64, and
+// the worst case not at all. What is left of the error is in the projection
+// - vec_div8p8 and the rounding of the /4 - not in the clip lerp.
 int16_t vec_mulfrac(uint16_t t, int16_t d) {
   int16_t hi = vec_fastmul8p8((int16_t)(t >> 8), d);
   int16_t lo = vec_fastmul8p8((int16_t)(t & 0xFF), d);
