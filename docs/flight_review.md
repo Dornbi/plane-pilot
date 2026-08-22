@@ -625,6 +625,16 @@ but run `make` before trusting them on target.
 1. **Decide the direction for §A** — either add an AoA term to lift, or rewrite §2.1/§2.3
    and the summary matrix to describe the speed-and-bank lift model that actually exists.
    §2.4 carries a "not yet reconciled" note pointing at this.
+
+   **Partly papered over, not resolved.** The missing pitch term showed at the takeoff end
+   as a liftoff speed of 1608 against a 1024 stall speed — the aircraft was legal to rotate
+   long before it could fly, and skipped off the runway once per frame in between.
+   `kFlightRotatePitchZ` (flight.md §5.2) drives the rotation to ~10.6° instead of 3.6°,
+   which brings liftoff to 1047 and costs nothing else: no trim table, envelope limit or
+   equilibrium test moves, because it changes an attitude and not the lift equation. It is a
+   local fudge and is commented as one. The same hole is still open at the landing end — see
+   E4 below, where a nose-up attitude only descends when the deficit outweighs the pitch
+   term — and that one has no stopgap. If AoA lands, `kFlightRotatePitchZ` gets deleted.
 2. **Re-measure and rewrite the throttle numbers** in §2.1, §2.3, §3.2 and the §7 matrix
    (B1, B2, B5). Blocked on 1, since the numbers move if lift changes.
 3. ~~**C3**~~ — **FIXED**. Correction to the original report: the 51-unit figure was wrong,

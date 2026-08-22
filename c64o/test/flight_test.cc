@@ -552,6 +552,84 @@ static void test_takeoff_stall_speed_gate() {
   printf("  PASS\n\n");
 }
 
+// 10b. Takeoff rotation attitude.
+// The gate above says when the pilot is *allowed* to rotate. This says what
+// rotating actually does, which used to be a different thing entirely: lift
+// has no pitch term (flight_review.md A), so one 3.6 degree pitch step could
+// not out-climb the sink penalty until airspeed 1608 - two thirds of the way
+// up the green arc, with the wheels skipping off the runway once per frame
+// the whole way. The rotation now drives to a takeoff attitude instead.
+static const int16_t kRotatePitchZ = 47; // mirrors flight.cc
+
+// Rolls at a pinned airspeed with the stick back and reports whether the
+// aircraft actually left the ground. Pinned because this is about the attitude
+// the rotation reaches, not about the acceleration that gets it there.
+static bool _rotates_at(int16_t speed, uint8_t flap, int *touchdowns) {
+  _put_on_ground(speed);
+  flight_flap = flap;
+  bool climbed = false;
+  *touchdowns = 0;
+  for (int f = 0; f < 40; ++f) {
+    flight_speed = speed;
+    flight_input(FLIGHT_INPUT_PITCH_UP);
+    flight_speed = speed;
+    flight_advance();
+    if (flight_events & FLIGHT_EV_TOUCHDOWN) {
+      ++*touchdowns;
+    }
+    if (flight_eye_z > kGroundZ) {
+      climbed = true;
+    }
+  }
+  return climbed;
+}
+
+static void test_takeoff_rotation_attitude() {
+  printf("Running test_takeoff_rotation_attitude...\n");
+
+  // One input reaches the takeoff attitude, rather than one pitch step of it.
+  _put_on_ground(0x0800);
+  flight_input(FLIGHT_INPUT_PITCH_UP);
+  printf("  rotation attitude: front.z=%d (target %d)\n", flight_cam.front.z,
+         (int)kRotatePitchZ);
+  assert(flight_cam.front.z >= kRotatePitchZ - 2);
+  // Comfortably inside kMaxLandingPitch, so a rotation that does not fly is
+  // still a legal touchdown rather than a nose-high crash.
+  assert(flight_cam.front.z < kMaxLandingPitch);
+
+  // Liftoff is now just above the stall gate - the bottom of the green arc on
+  // the airspeed dial - rather than half way along it.
+  int touchdowns;
+  assert(!_rotates_at((int16_t)kStallSpeedWithoutFlaps, 0, &touchdowns));
+  assert(_rotates_at(0x0460, 0, &touchdowns)); // 1120, one needle notch up
+  // And it flies away cleanly: no skipping, so no touchdown event per frame.
+  assert(touchdowns == 0);
+
+  // The old threshold is well clear of the new one, which is the whole point.
+  assert(_rotates_at(1500, 0, &touchdowns) && touchdowns == 0);
+
+  // Flaps lower it further, as they lower the gate.
+  assert(_rotates_at(0x03C0, 1, &touchdowns) && touchdowns == 0); // 960
+
+  // Machine independence. The pitch step is scaled by the host's speed
+  // (vec_set_rotation_shift), so a rotation counted in steps would reach a
+  // different attitude - and therefore a different liftoff speed - on a
+  // SuperCPU than on a stock C64. Driving to an attitude is what makes these
+  // agree. kCpuMaxStepShift is 2, so those are the three cases that exist.
+  for (uint8_t shift = 0; shift <= 2; ++shift) {
+    flight_set_step_shift(shift);
+    _put_on_ground(0x0800);
+    flight_input(FLIGHT_INPUT_PITCH_UP);
+    printf("  step shift %d: front.z=%d\n", shift, flight_cam.front.z);
+    assert(flight_cam.front.z >= kRotatePitchZ - 2);
+    assert(flight_cam.front.z < kMaxLandingPitch);
+    assert(_rotates_at(0x0460, 0, &touchdowns));
+  }
+  flight_set_step_shift(0);
+
+  printf("  PASS\n\n");
+}
+
 // 11. Ground deceleration friction test
 static void test_ground_deceleration_friction() {
   printf("Running test_ground_deceleration_friction...\n");
@@ -2542,7 +2620,7 @@ int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   mem_screen_row_ptrs[0] = test_screen_row;
-  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (56 TESTS) ===\n\n");
+  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (57 TESTS) ===\n\n");
   test_host_multiply_matches_c64();
   test_level_cruise_equilibrium();
   test_trim_speed_boundary();
@@ -2555,6 +2633,7 @@ int main(int argc, char **argv) {
   test_flap_drag_lift_and_stall_reduction();
   test_touchdown_flare_and_crash_envelope();
   test_takeoff_stall_speed_gate();
+  test_takeoff_rotation_attitude();
   test_ground_deceleration_friction();
   test_ground_braking();
   test_zero_fuel_flameout_transition();
@@ -2603,6 +2682,6 @@ int main(int argc, char **argv) {
   test_flight_path_samples_are_connected();
   test_flight_path_ring_buffer();
   test_ground_gear_retraction_blocked();
-  printf("ALL 56 TESTS PASSED SUCCESSFULLY!\n");
+  printf("ALL 57 TESTS PASSED SUCCESSFULLY!\n");
   return 0;
 }

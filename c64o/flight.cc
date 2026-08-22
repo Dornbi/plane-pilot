@@ -196,6 +196,30 @@ static const int16_t kFlightMoveForwardBackwardSpeed = 0x4000;
 // of a direct change.
 static const int16_t kFlightMaxStallPitchZ = 224;
 
+// Nose attitude the takeoff rotation drives to, sin(10.6 deg) * 256.
+//
+// This is a fudge, and it is here to compensate for a hole in the model rather
+// than because a wing works this way: lift is f(V^2, up.z) and front.z never
+// enters it (flight_review.md A), so rotating the nose cannot make the force
+// that lifts the aircraft off. All pitch can do is aim the flight path up and
+// out-climb the sink penalty, and with the one step the rotation used to apply
+// (front.z = 16, ~3.6 deg) that crossover sits at airspeed 1608 - about 40% of
+// the way along the green arc on the airspeed dial, whose bottom end is the
+// 0x0400 stall speed. The aircraft was therefore legal to rotate long before it
+// could fly, and every frame in between lifted the wheels and put them straight
+// back down, which the sound driver hears as a fresh touchdown each time.
+//
+// 47 puts the crossover at 1093, just inside the green, which is what the dial
+// has been promising all along. If lift ever grows a pitch term this constant
+// should be deleted rather than retuned.
+static const int16_t kFlightRotatePitchZ = 47;
+// Bound on the loop below. The rotation is expressed as an attitude rather than
+// a number of pitch steps because the steps are scaled by the machine's speed
+// (vec_set_rotation_shift), so a fixed count would rotate a stock C64 and a
+// SuperCPU to different attitudes and give them different liftoff speeds. At
+// kCpuMaxStepShift the step is 16 >> 2 = 4, so twelve is the most it can need.
+static const uint8_t kFlightMaxRotateSteps = 16;
+
 // Landing thresholds
 static const int16_t kFlightMaxLandingRoll = 32;
 // Wings-up check. kMaxLandingRoll alone does not catch an inverted arrival:
@@ -898,7 +922,13 @@ void flight_input(enum flight_input_t input) {
       uint16_t stall_speed = flight_flap ? kFlightStallSpeedWithFlaps
                                          : kFlightStallSpeedWithoutFlaps;
       if (flight_speed > stall_speed) {
-        vec_transform3(&kVecPitchUp, &flight_cam);
+        // Rotation: one action that sets the takeoff attitude, not a pitch step
+        // the pilot has to repeat. Once the wheels are off, the airborne branch
+        // below owns the pitch again and this cannot fire a second time.
+        uint8_t steps = kFlightMaxRotateSteps;
+        while (flight_cam.front.z < kFlightRotatePitchZ && steps--) {
+          vec_transform3(&kVecPitchUp, &flight_cam);
+        }
         model_need_normalize = true;
         model_on_ground = false;
       }

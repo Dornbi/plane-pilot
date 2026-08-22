@@ -196,6 +196,19 @@ At the 71% trim the aircraft sits at ~1049, a few units above the `0x0400` (1024
 - **Below Stall Speed Behaviour**:
   - Pitch UP below $V_{\text{stall}}$ keeps aircraft on ground (or causes tail-drag penalty without leaving ground).
 
+**Rotation is one action, not a pitch step.** Above the gate, the Pitch UP input drives the nose straight to $\text{kRotatePitchZ} = 47$ (~10.6° nose up) and hands the aircraft to the airborne branch, which owns the pitch from there. It is written as a target attitude reached by a bounded loop of `kVecPitchUp` rather than as a fixed number of steps, because the step size is scaled by the host's speed (§8) — a step count would rotate a stock C64 and a SuperCPU to different attitudes and give them different liftoff speeds.
+
+**Why the rotation exists at all.** The gate says when the pilot may rotate; it does not say when the aircraft flies. Because lift has no pitch term (§2.1), rotating cannot make the force that lifts the aircraft off — all pitch can do is aim the flight path up and out-climb the sink penalty of §2.4. With one 3.6° pitch step that crossover sat at **1608**, and the arc on the airspeed dial starts at $V_{\text{stall}}$, so the aircraft read as ready to fly some 600 units before it was. Worse, every frame in between was a full airborne→ground cycle: the wheels lifted, `vspeed` came out non-positive, the ground contact check put them back down and zeroed `front.z`, so the pitch could never accumulate and the pilot could not hold it off into the air. Each of those cycles is a touchdown as far as §5.3 and the sound driver are concerned, so it also rattled the touchdown effect once per frame.
+
+Measured liftoff airspeed, pinned speed with the stick back:
+
+| Rotation attitude | Clean | Flaps down |
+| :--- | ---: | ---: |
+| $\text{front.z} = 16$ (~3.6°, one step) | 1608 | 1372 |
+| $\text{front.z} = 47$ (~10.6°, current) | **1047** | **958** |
+
+Against $V_{\text{stall, clean}} = 1024$ that is 23 units of margin instead of 584, which is what the dial has been promising all along. `kRotatePitchZ` is a fudge that stands in for the missing pitch term in lift — if lift ever grows one, it should be deleted rather than retuned. See `flight_review.md` §A.
+
 ### 5.3. Touchdown & Crash Envelope Checks
 
 The check triggers whenever altitude $Z \le Z_{\text{min}}$ — **every frame the aircraft is at ground level, not only on the touchdown frame**. It therefore also polices taxi and takeoff roll: rolling with the gear retracted, or with the wings or nose out of limits, fails immediately. This is intended.
