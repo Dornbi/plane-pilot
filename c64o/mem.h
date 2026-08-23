@@ -12,28 +12,14 @@
 #endif
 
 // We barely use the stack, make it smaller than the default.
-//
-// 0x40, and the 0x10 of margin in that is deliberate. oscar64's software stack
-// grows *down* from the end of its region, and the linker reports what was
-// never reached rather than what was used: the `sections` line reads
-// `0200 - 0240 + spare`, so on a 0x40 region a line of `0200 - 0211` means 47
-// bytes in use. Measured by sweeping this value - 0x80, 0x60, 0x40 and 0x30 all
-// link, and all four report exactly (region size - 47), which is what pins the
-// figure. 0x30 leaves one byte and is not a margin; 0x40 leaves seventeen.
-//
-// Raise it, not lower it, if a deeper call graph ever appears. Nothing checks
-// this: oscar64 computes the depth exactly for a non-recursive program, so an
-// overflow would mean the compiler was wrong rather than this number being
-// wrong, but the failure mode is bss2 being overwritten from above.
-#pragma stacksize(0x40)
+#pragma stacksize(0x80)
 #ifdef __MAX_RAM__
 // Since the screen ram is moved to 0xE800 and 0xEC00, we can
 // use the original location for stack.
-#pragma region( stack, 0x0200, 0x0240, , , {stack} )
-// Additional bss. Starts where the stack region ends, so the 0x40 above and
-// the 0x240 here move together.
+#pragma region( stack, 0x0200, 0x0280, , , {stack} )
+// Additional bss.
 #pragma section(bss2, 0, , , bss)
-#pragma region( bss2, 0x240, 0x800, , , {bss2} )
+#pragma region( bss2, 0x280, 0x800, , , {bss2} )
 #pragma section(data_box, 0, , , data)
 #pragma section(data_compr, 0, , , data)
 // Startup code is 0x0801 .. 0x0853, use everything before the VIC

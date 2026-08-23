@@ -627,15 +627,16 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
     return 0;
   }
 
-  // Back in bss2, where the rest of this file's scratch lives. These 96 bytes
-  // spent a while in main's bss paying for flight_path_px/py, which needed 256
-  // contiguous bytes and had nowhere else to go; the flight path now lives in
-  // the dead tail of the sprite blob (flight.cc) and the debt is settled.
-  // Keep clip2_buf1 and clip2_buf2 adjacent and in this order: _clip_2d
-  // ping-pongs between them and the pointer swap reads better when they sit
-  // together.
+  // In main's bss rather than bss2: 96 bytes here plus final_verts below are
+  // what pays for flight_path_px/py, which needs 256 contiguous bytes and had
+  // nowhere else to go. Nothing else changes — both regions are plain RAM at
+  // absolute addresses, so an access costs the same either way. Also keep
+  // clip2_buf1 and clip2_buf2 adjacent and in this order: _clip_2d ping-pongs
+  // between them and the pointer swap reads better when they sit together.
+#pragma bss(bss)
   static vertex16_t clip2_buf1[kPolyMax2dVertices];
   static vertex16_t clip2_buf2[kPolyMax2dVertices];
+#pragma bss(bss2)
   uint8_t n = num_clip3;
 
   vertex16_t *src = proj_buf;
@@ -681,8 +682,10 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
 
 __noinline void poly_draw_3d(const vec3_t *vertices, uint8_t num_vertices,
                              uint8_t fill_char_start_idx, uint8_t color) {
-  // bss2, with the clip2 buffers above and for the same reason.
+  // Main's bss, with the clip2 buffers above and for the same reason.
+#pragma bss(bss)
   static vertex_t final_verts[kPolyMax2dVertices];
+#pragma bss(bss2)
   bm_poly_start();
   uint8_t n = _project_vertices(vertices, num_vertices, final_verts);
   bm_poly_end(630, "PRJ:");

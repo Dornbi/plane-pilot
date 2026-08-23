@@ -27,7 +27,7 @@ Free RAM is read off the walk and nowhere else.
 
 That distinction is not academic. This document used to report 18,142 bytes
 free by subtracting the feature total from 64 KB, at a time when the real
-figure was 6,154 - a third of what was claimed. Four allocations were simply not in the model: the
+figure was 6,154. Four allocations were simply not in the model: the
 3,904-byte panel bitmap at `$F000`, the 3,072 bytes of sprite bitmaps at
 `$D400`, 256 bytes of character RAM, and the 1,024-byte map screen buffer
 under I/O. A fifth, "Sprite Data RAM at `$E700-$E7FF`", was in the model but
@@ -56,16 +56,16 @@ Segments:
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
 | **1. Horizon Graphics** | 3,544 B | 9,338 B | 398 B | 37 B | 4,048 B | **17,365 B (17.0 KB)** |
 | **2. Polygon Graphics** | 5,459 B | 1,260 B | 335 B | 20 B | 0 B | **7,074 B (6.9 KB)** |
-| **3. World Model** | 6,459 B | 364 B | 333 B | 59 B | 0 B | **7,215 B (7.0 KB)** |
+| **3. World Model** | 6,455 B | 364 B | 589 B | 59 B | 0 B | **7,467 B (7.3 KB)** |
 | **4. Instrument Panel** | 2,824 B | 1,370 B | 356 B | 10 B | 6,992 B | **11,552 B (11.3 KB)** |
-| **5. Menu & Missions** | 2,607 B | 3,104 B | 0 B | 0 B | 1,024 B | **6,735 B (6.6 KB)** |
+| **5. Menu & Missions** | 2,610 B | 3,104 B | 0 B | 0 B | 1,024 B | **6,738 B (6.6 KB)** |
 | **6. Message System** | 469 B | 13 B | 0 B | 2 B | 0 B | **484 B (0.5 KB)** |
 | **7. Sound Effects** | 948 B | 92 B | 28 B | 8 B | 0 B | **1,076 B (1.1 KB)** |
 | **8. Music** | 814 B | 1,129 B | 2 B | 11 B | 0 B | **1,956 B (1.9 KB)** |
 | **9. Debug Messages & Overlay** | 0 B | 0 B | 0 B | 0 B | 0 B | **0 B (0.0 KB)** |
 | **10. Benchmarks & Timing** | 0 B | 0 B | 0 B | 0 B | 0 B | **0 B (0.0 KB)** |
 | **11. Core System & Drivers** | 4,789 B | 350 B | 231 B | 13 B | 0 B | **5,383 B (5.3 KB)** |
-| **TOTAL** | **27,913 B** | **17,020 B** | **1,683 B** | **160 B** | **12,064 B** | **58,840 B (57.5 KB)** |
+| **TOTAL** | **27,912 B** | **17,020 B** | **1,939 B** | **160 B** | **12,064 B** | **59,095 B (57.7 KB)** |
 
 Color RAM is deliberately absent from the VRAM column. It is a separate
 1000 x 4 bit array inside the I/O block, not part of the 64 KB of DRAM - the
@@ -97,28 +97,25 @@ are not equally reachable:
 | `$0002-$005F` | 94 | used | oscar64 runtime zero page (reserved; headroom checked by check_zeropage.py) |
 | `$0060-$00FF` | 160 | used | linker-allocated: code, data, bss, zero page, stack frames |
 | `$0100-$01FF` | 256 | used | 6502 hardware stack |
-| `$0200-$0210` | 17 | stack headroom | software stack headroom (see #pragma stacksize in mem.h) |
-| `$0211-$02F3` | 227 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$02F4-$02FF` | 12 | free | free, inside a linker region |
-| `$0300-$03EE` | 239 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$03EF-$03FF` | 17 | free | free, inside a linker region |
-| `$0400-$04FA` | 251 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$04FB-$04FF` | 5 | free | free, inside a linker region |
+| `$0200-$0250` | 81 | stack headroom | software stack headroom (see #pragma stacksize in mem.h) |
+| `$0251-$02F9` | 169 | used | linker-allocated: code, data, bss, zero page, stack frames |
+| `$02FA-$02FF` | 6 | free | free, inside a linker region |
+| `$0300-$04EF` | 496 | used | linker-allocated: code, data, bss, zero page, stack frames |
+| `$04F0-$04FF` | 16 | free | free, inside a linker region |
 | `$0500-$05F5` | 246 | used | linker-allocated: code, data, bss, zero page, stack frames |
 | `$05F6-$05FF` | 10 | free | free, inside a linker region |
 | `$0600-$06F5` | 246 | used | linker-allocated: code, data, bss, zero page, stack frames |
 | `$06F6-$06FF` | 10 | free | free, inside a linker region |
-| `$0700-$07BF` | 192 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$07C0-$07FF` | 64 | free | free, inside a linker region |
+| `$0700-$07FF` | 256 | used | linker-allocated: code, data, bss, zero page, stack frames |
 | `$0800-$0800` | 1 | used | BASIC link byte |
 | `$0801-$0852` | 82 | used | linker-allocated: code, data, bss, zero page, stack frames |
 | `$0853-$085F` | 13 | free | free, inside a linker region |
-| `$0860-$7487` | 27,688 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$7488-$749A` | 19 | free | free, inside a linker region |
-| `$749B-$ADFE` | 14,692 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$ADFF-$ADFF` | 1 | free | free, inside a linker region |
-| `$AE00-$B878` | 2,681 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$B879-$CFFF` | 6,023 | free | free, inside a linker region |
+| `$0860-$7493` | 27,700 | used | linker-allocated: code, data, bss, zero page, stack frames |
+| `$7494-$74A6` | 19 | free | free, inside a linker region |
+| `$74A7-$B8F2` | 17,484 | used | linker-allocated: code, data, bss, zero page, stack frames |
+| `$B8F3-$B8FF` | 13 | free | free, inside a linker region |
+| `$B900-$B977` | 120 | used | linker-allocated: code, data, bss, zero page, stack frames |
+| `$B978-$CFFF` | 5,768 | free | free, inside a linker region |
 | `$D000-$D3FF` | 1,024 | used | map view screen RAM, under I/O (map.cc kMapScreenRam) |
 | `$D400-$DFFF` | 3,072 | used | sprite bitmaps, 48 blocks (mem.cc kSpriteData) |
 | `$E000-$E7FF` | 2,048 | used | character RAM, 256 chars (mem.h kCharRam) |
@@ -133,18 +130,18 @@ are not equally reachable:
 | `$FFFA-$FFFF` | 6 | used | NMI / RESET / IRQ vectors |
 
 ```
-Used                       59,127 B   90.2%
-Free, allocatable           6,174 B   largest run 6,023 B at $B879
-Free, stack headroom           17 B   reachable by lowering #pragma stacksize
+Used                       59,382 B   90.6%
+Free, allocatable           5,855 B   largest run 5,768 B at $B978
+Free, stack headroom           81 B   reachable by lowering #pragma stacksize
 Free, orphan fragments        218 B   only reachable by hand-placing
-Free, total                 6,409 B   9.8%
+Free, total                 6,154 B   9.4%
 ```
 
 ```
-Feature table total        58,840 B
+Feature table total        59,095 B
 + machine-owned ranges        359 B   processor port, runtime ZP, hardware stack, BASIC link
 - addresses counted twice      72 B   oscar64 overlays call frames that cannot be live together
-= address space, used      59,127 B
+= address space, used      59,382 B
 ```
 
 ---
@@ -166,11 +163,11 @@ Feature table total        58,840 B
 * **BSS (335 B)**: scratch vertex buffers (`poly_verts`, `clip3_buf`, `proj_buf`, `clip2_buf1/2`, `final_verts`).
 * **ZP (20 B)**: vector registers (`vec_v`, `vec_sx`, `vec_sy`).
 
-### 3. World Model (7,215 B)
+### 3. World Model (7,467 B)
 
-* **Code (6,459 B)**: flight dynamics, physics integration, waypoint checking, terrain grid rendering (`flight.cc`, `world.cc`, `sim.cc`, `world_map.cc`, `clouds.cc`).
+* **Code (6,455 B)**: flight dynamics, physics integration, waypoint checking, terrain grid rendering (`flight.cc`, `world.cc`, `sim.cc`, `world_map.cc`, `clouds.cc`).
 * **Data (364 B)**: orientation matrices (`mat3_rot`, `kHeadingLut`), the world map, cloud hash and ladder tables.
-* **BSS (333 B)**: flight path history (`flight_path_px/py`), delta transform vectors (`_world_dx4`, `_world_dy4`), camera state.
+* **BSS (589 B)**: flight path history (`flight_path_px/py`), delta transform vectors (`_world_dx4`, `_world_dy4`), camera state.
 * **ZP (59 B)**: flight state (`flight_eye_x/y/z`, `flight_speed`, `flight_throttle`, `flight_fuel`, `flight_vspeed`).
 
 ### 4. Instrument Panel (11,552 B)
@@ -181,9 +178,9 @@ Feature table total        58,840 B
 * **ZP (10 B)**: sprite index and pointers.
 * **VRAM (6,992 B)**: sprite bitmaps `$D400-$DFFF`, panel bitmap `$F000-$FF3F` (the four heading strips live in its off-screen head at `$F000-$F17F`), and both screens' sprite pointers.
 
-### 5. Menu & Missions (6,735 B)
+### 5. Menu & Missions (6,738 B)
 
-* **Code (2,607 B)**: menu loop, mission cursor, help screen, map view (`menu.cc`, `mission.cc`, `help.cc`, `map.cc`).
+* **Code (2,610 B)**: menu loop, mission cursor, help screen, map view (`menu.cc`, `mission.cc`, `help.cc`, `map.cc`).
 * **Data (3,104 B)**: menu and mission text, mission definitions, help text, map tiles.
 * **VRAM (1,024 B)**: map view screen RAM at `$D000-$D3FF`, RAM under I/O, live only while the map is open.
 

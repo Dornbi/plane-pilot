@@ -130,18 +130,17 @@ static void _gfx_switch_to_terrain() {
 
 #pragma optimize(pop)
 
-#pragma bss(bss2)
-
-// All four raster blocks together in bss2. This one used to sit in main's bss
-// only because bss2 had no room; it is reached the same way the others are -
-// the raster IRQ jumps to it by address - so nothing about either region
-// suits it better.
+// Main bss, not bss2 with the other three: bss2 is full, and this one is
+// reached the same way they are - the raster IRQ jumps to it by address - so
+// there is nothing about the low region it needs.
 RIRQCode _rirq_sprites_off;
-RIRQCode _rirq_panel_top, _rirq_panel_bottom, _rirq_terrain;
 
 // Written by the raster handler, read by the main line. One byte, so the read
 // needs no protection; it wraps every 256 frames and every use is a difference.
 volatile uint8_t gfx_frame_count;
+
+#pragma bss(bss2)
+RIRQCode _rirq_panel_top, _rirq_panel_bottom, _rirq_terrain;
 
 // Raster-IRQ setup and charset loading; one-off, not per frame. The IRQ
 // handlers themselves are above and are deliberately left alone.

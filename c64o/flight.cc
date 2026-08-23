@@ -4,7 +4,6 @@
 #include <stdlib.h>
 
 #include "fmath.h"
-#include "mem.h"
 #include "msg.h"
 #include "vec.h"
 #include "world.h"
@@ -31,36 +30,14 @@ static const uint8_t kFlightPathMask = kFlightPathLen - 1;
 // 2-byte entries, so an index needs no shift, matching how every other table
 // here is stored.
 //
-// 256 bytes, and they cost nothing: they sit in the tail of the compressed
-// sprite blob, which is scrap from the moment mem_init() has expanded it to
-// $D400. mem.cc already reuses the first 560 bytes of it as the viewport
-// colour buffer; this is the rest. sprites.cc holds the static_assert that
-// the blob is big enough for both, because that is where its size is known -
-// it is however LZO happens to compress spritedef.bin, not a fixed number.
-//
-// Written as a pointer rather than an array placed by pragma because oscar64
-// has no way to pin an array to an address; and spelled without a cast,
-// because `(uint8_t *)kSpriteDataCompressed + n` is not a constant
-// initializer to oscar64 while the implicit char* conversion is.
-//
-// Unlike bss, these 256 bytes start out holding compressed sprite data rather
-// than zeroes. Nothing reads them before they are written: flight_path_count
-// starts at 0, is reset by both flight_init paths, and is the bound on the
-// only reader (_map_draw_path). Keep it that way - an index that is not
-// derived from flight_path_count would read LZO.
-#ifdef __OSCAR64__
-extern char kSpriteDataCompressed[];
-uint8_t *const flight_path_px =
-    kSpriteDataCompressed + kViewportWidth * kViewportHeight;
-uint8_t *const flight_path_py =
-    kSpriteDataCompressed + kViewportWidth * kViewportHeight + kFlightPathLen;
-#else
-// The host tests link flight.cc without sprites.cc, and have no sprite blob to
-// borrow from. Ordinary storage; nothing off-target cares where it is.
-static uint8_t _flight_path_host[2 * kFlightPathLen];
-uint8_t *const flight_path_px = _flight_path_host;
-uint8_t *const flight_path_py = _flight_path_host + kFlightPathLen;
-#endif
+// 256 bytes, which is most of what was left of bss2 ($0280..$0800): the
+// polygon scratch buffers named in poly.cc moved out to main's bss to make
+// room, and between them the region is now full to the byte. bss2 is RAM that
+// exists whether or not anything is put there — the screen moved to $E800 —
+// so leaving it half empty while main's bss grows is the one arrangement with
+// nothing to recommend it.
+uint8_t flight_path_px[kFlightPathLen];
+uint8_t flight_path_py[kFlightPathLen];
 
 mat3_t flight_cam;
 

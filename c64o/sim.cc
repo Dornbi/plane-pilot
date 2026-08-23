@@ -77,9 +77,7 @@ static bool _map_poll_exit(void) {
 
 // The frame count the last model step was taken at. A difference against
 // gfx_frame_count, so the byte wrapping is harmless.
-#pragma bss(bss2)
 static uint8_t model_last_frame;
-#pragma bss(bss)
 
 void sim_run(uint8_t selected_mission) {
   _enter_simulation(selected_mission);
