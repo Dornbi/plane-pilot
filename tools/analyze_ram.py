@@ -1,13 +1,27 @@
 #!/usr/bin/env python3
 """
-Analyzes an oscar64 .map file and reports RAM usage broken down by feature and segment.
+Analyzes an oscar64 .map file and reports RAM usage broken down by feature and
+segment, plus a walk of the whole 64 KB address space.
 
 Segment breakdown includes:
   - Code : Executable CPU instructions (code, startup)
   - Data : Read-only tables, compressed assets, data constants
   - BSS  : Uninitialized dynamic variables and buffers
-  - ZP   : Zero Page memory variables ($0060-$00FC)
-  - VRAM : Fixed VIC-II Video RAM allocations (Char RAM, Screen RAMs, Color RAM, Sprite RAM)
+  - ZP   : Zero Page memory variables ($0060-$00FF)
+  - VRAM : Fixed allocations the linker never sees, placed by hand at absolute
+           addresses in mem.h / view.cc / gfx.cc / map.cc (see FIXED below)
+
+Two things this reports, and the difference between them matters:
+
+  * The feature table adds up what each area of the program costs. It is built
+    from the symbols in the .map plus the FIXED table, so it is only ever as
+    complete as those two.
+
+  * The address space walk covers all 65,536 bytes and reconciles to exactly
+    that. Free space comes out of the walk, never out of 65536 minus the
+    feature total - a symbol nobody wrote down is then missing memory rather
+    than free memory, which is how this tool used to report 18 KB free when
+    the real figure was a third of that.
 
 Usage:
   python3 tools/analyze_ram.py [path/to/ppilot.map] [--markdown] [--verbose]
@@ -19,6 +33,163 @@ import re
 import sys
 
 DEFAULT_MAP = 'c64o/ppilot.map'
+
+# Allocations the linker knows nothing about, because the program writes them
+# at absolute addresses. Every one of these must stay in sync with the source
+# that names it; the address is quoted so a grep finds both ends.
+#
+#   (start, end_exclusive, owning feature or None, label)
+#
+# Not here, deliberately: color RAM at $D800. It is a separate 1000 x 4 bit
+# array inside the I/O block, not part of the 64 KB of DRAM - the DRAM behind
+# those addresses is the sprite bitmap block below. Counting it in the walk
+# would book the same addresses twice. See OFF_BUDGET.
+FIXED = [
+    (0x0000, 0x0002, None, '6510 processor port'),
+    (0x0002, 0x0060, None,
+     'oscar64 runtime zero page (reserved; headroom checked by check_zeropage.py)'),
+    (0x0100, 0x0200, None, '6502 hardware stack'),
+    (0x0800, 0x0801, None, 'BASIC link byte'),
+    (0xD000, 0xD400, 'Menu & Missions',
+     'map view screen RAM, under I/O (map.cc kMapScreenRam)'),
+    (0xD400, 0xE000, 'Instrument Panel',
+     'sprite bitmaps, 48 blocks (mem.cc kSpriteData)'),
+    (0xE000, 0xE800, 'Horizon Graphics',
+     'character RAM, 256 chars (mem.h kCharRam)'),
+    (0xE800, 0xEBE8, 'Horizon Graphics',
+     'main screen RAM (mem.h kScreenRamMain)'),
+    (0xEBF8, 0xEC00, 'Instrument Panel', 'main screen sprite pointers'),
+    (0xEC00, 0xEFE8, 'Horizon Graphics',
+     'alt screen RAM (mem.h kScreenRamAlt)'),
+    (0xEFF8, 0xF000, 'Instrument Panel', 'alt screen sprite pointers'),
+    (0xF000, 0xFF40, 'Instrument Panel',
+     'panel bitmap, incl. the four heading strips at $F000 (view.cc, gfx.cc)'),
+    (0xFFFA, 0x10000, None, 'NMI / RESET / IRQ vectors'),
+]
+
+# Real hardware the program uses that is not part of the 64 KB budget, so it is
+# reported on its own rather than in the walk.
+OFF_BUDGET = [
+    (1000, 'Core System & Drivers',
+     'color RAM $D800-$DBE7: 1000 x 4 bits inside the I/O block, not DRAM'),
+]
+
+# What each feature area is, per segment, for the detail sections of
+# docs/memory_map.md. Prose only - every byte count in that document is filled
+# in from the map at generation time, because the hand-written ones went stale
+# within a release and nobody noticed.
+DESCRIPTIONS = {
+    'Horizon Graphics': {
+        'Code': 'viewport horizon rendering, cell filling, box generation, '
+                'slot drawing (`render.cc`, `box.cc`, `roll.cc`, `roll_asm.cc`)',
+        'Data': 'box definitions (`boxdefs`), character definitions '
+                '(`chardefs`), roll multiply and slope tables, compressed '
+                'charset (`kGfxCharsCompressed`)',
+        'BSS': 'per-slot frame arrays (`_box_chars`, `_box_colors`)',
+        'ZP': 'roll and render registers (`roll_dx`, `roll_dy`, `roll_period`, '
+              '`render_cx_pixels`, ...)',
+        'VRAM': 'character RAM `$E000-$E7FF`, main screen `$E800`, '
+                'alt screen `$EC00` - the two double-buffered VIC screens',
+    },
+    'Polygon Graphics': {
+        'Code': 'polygon pipeline, edge scan conversion, near and screen '
+                'clipping, fixed-point vector math (`poly.cc`, `vec.cc`, '
+                '`vec_asm.cc`, `fmath.cc`)',
+        'Data': 'sine and cosine tables, inverse-Z LUT, the quarter-square '
+                'multiply tables (`vec_sqr_lo`, `vec_sqr_hi`)',
+        'BSS': 'scratch vertex buffers (`poly_verts`, `clip3_buf`, `proj_buf`, '
+               '`clip2_buf1/2`, `final_verts`)',
+        'ZP': 'vector registers (`vec_v`, `vec_sx`, `vec_sy`)',
+        'VRAM': '',
+    },
+    'World Model': {
+        'Code': 'flight dynamics, physics integration, waypoint checking, '
+                'terrain grid rendering (`flight.cc`, `world.cc`, `sim.cc`, '
+                '`world_map.cc`, `clouds.cc`)',
+        'Data': 'orientation matrices (`mat3_rot`, `kHeadingLut`), the world '
+                'map, cloud hash and ladder tables',
+        'BSS': 'flight path history (`flight_path_px/py`), delta transform '
+               'vectors (`_world_dx4`, `_world_dy4`), camera state',
+        'ZP': 'flight state (`flight_eye_x/y/z`, `flight_speed`, '
+              '`flight_throttle`, `flight_fuel`, `flight_vspeed`)',
+        'VRAM': '',
+    },
+    'Instrument Panel': {
+        'Code': 'viewport split raster handlers, gauge updates, the sprite '
+                'stack and hardware controller (`view.cc`, `panel.cc`, '
+                '`sprites.cc`, `spritedef.cc`)',
+        'Data': 'compressed panel image and sprite bitmaps, character and '
+                'color LUTs',
+        'BSS': 'raster IRQ split structures, the sprite candidate stack and '
+               'the two committed sprite frames',
+        'ZP': 'sprite index and pointers',
+        'VRAM': 'sprite bitmaps `$D400-$DFFF`, panel bitmap `$F000-$FF3F` '
+                '(the four heading strips live in its off-screen head at '
+                '`$F000-$F17F`), and both screens\' sprite pointers',
+    },
+    'Menu & Missions': {
+        'Code': 'menu loop, mission cursor, help screen, map view '
+                '(`menu.cc`, `mission.cc`, `help.cc`, `map.cc`)',
+        'Data': 'menu and mission text, mission definitions, help text, '
+                'map tiles',
+        'BSS': '',
+        'ZP': '',
+        'VRAM': 'map view screen RAM at `$D000-$D3FF`, RAM under I/O, live '
+                'only while the map is open',
+    },
+    'Message System': {
+        'Code': 'status message timer, line formatter, clear and restore '
+                '(`msg.cc`, `screen.cc` notices)',
+        'Data': 'format strings and delays',
+        'BSS': 'the active message buffer',
+        'ZP': 'notice countdown and length',
+        'VRAM': '',
+    },
+    'Sound Effects': {
+        'Code': 'SID driver, engine generator, stall alarm, wind noise, '
+                'volume control (`sound.cc`)',
+        'Data': 'engine pitch table, wind frequency table, volume names',
+        'BSS': 'the SID register shadow',
+        'ZP': 'PWM phase, generation counters, RNG, voice-3 arbitration, '
+              'stall phase',
+        'VRAM': '',
+    },
+    'Music': {
+        'Code': 'playback driver, tick handler, note-to-frequency conversion '
+                '(`music.cc`)',
+        'Data': 'note table, per-row lead and bass streams, chord table, '
+                'volume map and mix matrix, bit-packed gate and drum masks',
+        'BSS': 'voice-3 sweep step',
+        'ZP': 'row, bar and frame counters, arpeggio index, voice-3 ownership',
+        'VRAM': '',
+    },
+    'Debug Messages & Overlay': {
+        'Code': 'compiled out of `ppilot.prg`; present only in `ppilotd.prg`',
+        'Data': '', 'BSS': '', 'ZP': '', 'VRAM': '',
+    },
+    'Benchmarks & Timing': {
+        'Code': 'compiled out of `ppilot.prg`; present only in `ppilotd.prg`',
+        'Data': '', 'BSS': '', 'ZP': '', 'VRAM': '',
+    },
+    'Core System & Drivers': {
+        'Code': 'entry point, VIC setup, raster IRQ core, LZO decompressor, '
+                'keyboard, CPU speed probe, oscar64 runtime (`ppilot.cc`, '
+                '`mem.cc`, `gfx.cc`, `screen.cc`, `keys.cc`, `cpu.cc`, '
+                '`bcd.cc`, `print.cc`)',
+        'Data': 'startup header, screen row pointer tables, fill patterns',
+        'BSS': 'raster IRQ lists, keyboard matrix, CPU probe results',
+        'ZP': 'compiler temporaries and kernel flags',
+        'VRAM': '',
+    },
+}
+
+# The map view redecorates memory that is already allocated - it puts its
+# bitmap over char RAM, both screen buffers and the panel bitmap - so only the
+# $D000 window above is extra. Recorded here because the overlap is deliberate
+# and someone will otherwise "find" 8 KB that is not there.
+MAP_VIEW_NOTE = ('The map view also borrows $E000-$FF3F for its bitmap, on top '
+                 'of char RAM, both screens and the panel. That is reuse, not '
+                 'extra memory, and only $D000-$D3FF is charged to it here.')
 
 def get_category(name):
     n = name.lower()
@@ -69,52 +240,177 @@ def get_category(name):
     return 'Core System & Drivers'
 
 
-def parse_map(map_path):
+def read_map(map_path):
+    """Pulls the three blocks this tool needs out of an oscar64 .map.
+
+    Returns (objects, regions, stack_free). `regions` is the linker's own
+    allocatable areas, which is what tells free bytes the compiler can still
+    use apart from free bytes only reachable by hand-placing something.
+
+    `stack_free` is the odd one. oscar64's software stack grows *down* from the
+    end of its region, and the `sections` line for it reports the part that
+    was never reached - so `0200 - 0251` on a $0200..$0280 region means 47
+    bytes of stack in use and 81 spare, not the other way round.
+    """
     if not os.path.exists(map_path):
         sys.exit(f"Error: Map file not found at '{map_path}'. Build project first.")
 
     with open(map_path, 'r') as f:
         lines = f.readlines()
 
-    in_objects = False
+    block = None
     objects = []
+    regions = []
+    stack_free = None
 
     for line in lines:
         line = line.strip()
-        if line == 'objects':
-            in_objects = True
+        if line in ('sections', 'regions', 'objects'):
+            block = line
             continue
-        if not in_objects:
+        if not line:
             continue
-        
-        m = re.match(r'^([0-9a-fA-F]{4})\s*-\s*([0-9a-fA-F]{4})\s*:\s*([^,]+),\s*(.*)$', line)
-        if m:
-            start = int(m.group(1), 16)
-            end = int(m.group(2), 16)
-            name = m.group(3).strip()
-            sec_type = m.group(4).strip()
-            size = end - start
-            if size > 0:
-                objects.append({
-                    'start': start,
-                    'end': end,
-                    'size': size,
-                    'name': name,
-                    'type': sec_type
-                })
+
+        if block == 'sections':
+            m = re.match(r'^([0-9a-fA-F]{4})\s*-\s*([0-9a-fA-F]{4})\s*:\s*STACK,\s*stack$',
+                         line)
+            if m:
+                stack_free = (int(m.group(1), 16), int(m.group(2), 16))
+            continue
+
+        if block == 'regions':
+            # start - end : highwater, used, name
+            m = re.match(r'^([0-9a-fA-F]{4})\s*-\s*([0-9a-fA-F]{4})\s*:\s*'
+                         r'[0-9a-fA-F]+,\s*[0-9a-fA-F]+,\s*(\S+)$', line)
+            if m:
+                start, end = int(m.group(1), 16), int(m.group(2), 16)
+                if end > start:
+                    regions.append((start, end, m.group(3)))
+            continue
+
+        if block == 'objects':
+            m = re.match(r'^([0-9a-fA-F]{4})\s*-\s*([0-9a-fA-F]{4})\s*:\s*([^,]+),\s*(.*)$',
+                         line)
+            if m:
+                start = int(m.group(1), 16)
+                end = int(m.group(2), 16)
+                if end > start:
+                    objects.append({
+                        'start': start,
+                        'end': end,
+                        'size': end - start,
+                        'name': m.group(3).strip(),
+                        'type': m.group(4).strip(),
+                    })
+
+    return objects, regions, stack_free
+
+
+def walk_address_space(objects, regions, stack_free):
+    """Marks every one of the 65,536 bytes, and reconciles.
+
+    Used bytes are the union of the .map's objects and the FIXED table, so an
+    object the linker tucked into a gap between two data sections is counted
+    once and in the right place. Whatever is left over is free, classified by
+    whether the linker could still reach it.
+    """
+    USED, FREE_ALLOC, FREE_STACK, FREE_ORPHAN = 1, 2, 3, 4
+
+    kind = bytearray(0x10000)  # 0 = not yet decided
+    # Which FIXED entry owns each byte, 1-based; 0 means the linker placed it.
+    # Carried per byte so that adjacent hand-placed ranges keep their own
+    # labels in the walk instead of collapsing into one anonymous run.
+    owner = bytearray(0x10000)
+
+    for o in objects:
+        for a in range(o['start'], o['end']):
+            kind[a] = USED
+    for i, (start, end, _owner, _label) in enumerate(FIXED, start=1):
+        for a in range(start, end):
+            kind[a] = USED
+            owner[a] = i
+
+    # An object landing inside a hand-placed range would mean the two are
+    # fighting over the same bytes; the union above would hide it, so say so.
+    clashes = []
+    for o in objects:
+        for start, end, _owner, label in FIXED:
+            if o['start'] < end and start < o['end']:
+                clashes.append((o['name'], label))
+
+    in_region = bytearray(0x10000)
+    for start, end, _name in regions:
+        for a in range(start, end):
+            in_region[a] = 1
+
+    if stack_free:
+        for a in range(stack_free[0], stack_free[1]):
+            if kind[a] == 0:
+                kind[a] = FREE_STACK
+
+    for a in range(0x10000):
+        if kind[a] == 0:
+            kind[a] = FREE_ALLOC if in_region[a] else FREE_ORPHAN
+
+    # Collapse into runs, splitting wherever either the state or the owner
+    # changes.
+    runs = []
+    a = 0
+    while a < 0x10000:
+        b = a
+        while b < 0x10000 and kind[b] == kind[a] and owner[b] == owner[a]:
+            b += 1
+        runs.append((a, b, kind[a], owner[a]))
+        a = b
+
+    totals = {USED: 0, FREE_ALLOC: 0, FREE_STACK: 0, FREE_ORPHAN: 0}
+    for start, end, k, _o in runs:
+        totals[k] += end - start
+    assert sum(totals.values()) == 0x10000, 'address space walk does not reconcile'
+
+    return {
+        'runs': runs,
+        'totals': totals,
+        'clashes': clashes,
+        # For the reconciliation: the feature table adds symbol sizes up, and
+        # oscar64 overlays the hoisted call frames of functions that cannot be
+        # live at the same time, so those bytes are counted more than once
+        # there and exactly once here.
+        'sum_object_sizes': sum(o['size'] for o in objects),
+        'sum_fixed_sizes': sum(e - s for s, e, _o, _l in FIXED),
+        'unowned_fixed': sum(e - s for s, e, o, _l in FIXED if o is None),
+        'names': {USED: 'used', FREE_ALLOC: 'free', FREE_STACK: 'stack headroom',
+                  FREE_ORPHAN: 'free (orphan)'},
+        'USED': USED, 'FREE_ALLOC': FREE_ALLOC,
+        'FREE_STACK': FREE_STACK, 'FREE_ORPHAN': FREE_ORPHAN,
+    }
+
+
+def parse_map(map_path):
+    objects, regions, stack_free = read_map(map_path)
+
+    # FIXED describes the ppilot / ppilotd layout, which is the -D__MAX_RAM__
+    # one from mem.h. Pointed at vecdemo or vectest - built without it, and
+    # without a VIC to speak of - every address above $D000 below would be
+    # invented. Say so rather than printing a confident wrong number.
+    if not any(start == 0x0860 and end == 0xD000 for start, end, _n in regions):
+        print(f"warning: {map_path} is not a __MAX_RAM__ build "
+              f"(no $0860-$D000 main region); the fixed allocations below "
+              f"describe ppilot and do not apply.\n", file=sys.stderr)
+
 
     categories = {
-        'Horizon Graphics': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'items': []},
-        'Polygon Graphics': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'items': []},
-        'World Model': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'items': []},
-        'Instrument Panel': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'items': []},
-        'Menu & Missions': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'items': []},
-        'Message System': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'items': []},
-        'Sound Effects': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'items': []},
-        'Music': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'items': []},
-        'Debug Messages & Overlay': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'items': []},
-        'Benchmarks & Timing': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'items': []},
-        'Core System & Drivers': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'items': []},
+        'Horizon Graphics': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'OFF': 0, 'items': []},
+        'Polygon Graphics': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'OFF': 0, 'items': []},
+        'World Model': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'OFF': 0, 'items': []},
+        'Instrument Panel': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'OFF': 0, 'items': []},
+        'Menu & Missions': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'OFF': 0, 'items': []},
+        'Message System': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'OFF': 0, 'items': []},
+        'Sound Effects': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'OFF': 0, 'items': []},
+        'Music': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'OFF': 0, 'items': []},
+        'Debug Messages & Overlay': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'OFF': 0, 'items': []},
+        'Benchmarks & Timing': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'OFF': 0, 'items': []},
+        'Core System & Drivers': {'Code': 0, 'Data': 0, 'BSS': 0, 'ZP': 0, 'VRAM': 0, 'OFF': 0, 'items': []},
     }
 
     for o in objects:
@@ -135,17 +431,128 @@ def parse_map(map_path):
         categories[cat][seg] += sz
         categories[cat]['items'].append((o['name'], sz, o['type'], seg))
 
-    # Add fixed Video RAM allocations:
-    # - Character RAM: $E000-$E6FF (1792 bytes) -> Horizon Graphics (box chars)
-    # - Main Screen RAM: $E800-$EBFF (1000 bytes) -> Horizon Graphics
-    # - Alt Screen RAM: $EC00-$EFF7 (1000 bytes) -> Horizon Graphics
-    # - Color RAM: $D800-$DBE7 (1000 bytes) -> Core System
-    # - Sprite Data RAM: $E700-$E7FF (256 bytes) -> Instrument Panel
-    categories['Horizon Graphics']['VRAM'] += 1792 + 1000 + 1000
-    categories['Instrument Panel']['VRAM'] += 256
-    categories['Core System & Drivers']['VRAM'] += 1000
+    # The hand-placed allocations, charged to whoever uses them. Ranges with no
+    # owner (the vectors, the hardware stack, the runtime zero page) belong to
+    # the machine rather than to a feature and only appear in the walk.
+    for start, end, owner, _label in FIXED:
+        if owner:
+            categories[owner]['VRAM'] += end - start
+    for size, owner, _label in OFF_BUDGET:
+        categories[owner]['OFF'] += size
 
-    return categories
+    return categories, walk_address_space(objects, regions, stack_free)
+
+
+def _fmt_span(start, end):
+    return f"${start:04X}-${end - 1:04X}"
+
+
+def print_walk(walk, markdown=False):
+    U, FA, FS, FO = walk['USED'], walk['FREE_ALLOC'], walk['FREE_STACK'], walk['FREE_ORPHAN']
+    names = walk['names']
+
+    rows = []
+    for start, end, kind, owner in walk['runs']:
+        if owner:
+            text = FIXED[owner - 1][3]
+        elif kind == U:
+            text = 'linker-allocated: code, data, bss, zero page, stack frames'
+        elif kind == FA:
+            text = 'free, inside a linker region'
+        elif kind == FS:
+            text = 'software stack headroom (see #pragma stacksize in mem.h)'
+        else:
+            text = 'free, but outside every linker region'
+        rows.append((start, end, names[kind], text))
+
+    if markdown:
+        print('| Range | Bytes | State | Contents |')
+        print('| :--- | ---: | :--- | :--- |')
+        for start, end, kind, text in rows:
+            print(f"| `{_fmt_span(start, end)}` | {end - start:,} | {kind} | {text} |")
+    else:
+        for start, end, kind, text in rows:
+            print(f"  {_fmt_span(start, end):>11}  {end - start:>6}  {kind:<14}  {text}")
+
+    free = walk['totals'][FA] + walk['totals'][FS] + walk['totals'][FO]
+    used = walk['totals'][U]
+    biggest = max((e - s, s) for s, e, k, _o in walk["runs"] if k == FA)
+
+    lines = [
+        f"Used                       {used:>6,} B   {used / 655.36:.1f}%",
+        f"Free, allocatable          {walk['totals'][FA]:>6,} B   "
+        f"largest run {biggest[0]:,} B at ${biggest[1]:04X}",
+        f"Free, stack headroom       {walk['totals'][FS]:>6,} B   "
+        f"reachable by lowering #pragma stacksize",
+        f"Free, orphan fragments     {walk['totals'][FO]:>6,} B   "
+        f"only reachable by hand-placing",
+        f"Free, total                {free:>6,} B   {free / 655.36:.1f}%",
+    ]
+    if markdown:
+        print()
+        print('```')
+        for l in lines:
+            print(l)
+        print('```')
+    else:
+        print()
+        for l in lines:
+            print('  ' + l)
+
+    if walk['clashes']:
+        print()
+        for name, text in walk['clashes']:
+            print(f"  WARNING: linker placed '{name}' inside hand-placed range: {text}")
+
+
+def print_reconciliation(walk, feature_total, markdown=False):
+    """Ties the feature table to the walk. They count different things and
+    will not match on their own; printing the bridge is what stops the gap
+    from being read as slack."""
+    used = walk['totals'][walk['USED']]
+    overlap = (walk['sum_object_sizes'] + walk['sum_fixed_sizes']) - used
+    lines = [
+        f"Feature table total        {feature_total:>6,} B",
+        f"+ machine-owned ranges     {walk['unowned_fixed']:>6,} B   "
+        f"processor port, runtime ZP, hardware stack, BASIC link",
+        f"- addresses counted twice  {overlap:>6,} B   "
+        f"oscar64 overlays call frames that cannot be live together",
+        f"= address space, used      {used:>6,} B",
+    ]
+    assert feature_total + walk['unowned_fixed'] - overlap == used, \
+        'feature table and address space walk do not reconcile'
+    if markdown:
+        print()
+        print('```')
+        for l in lines:
+            print(l)
+        print('```')
+    else:
+        print()
+        for l in lines:
+            print('  ' + l)
+
+
+def print_details(categories):
+    """The per-feature detail sections of docs/memory_map.md. Prose from
+    DESCRIPTIONS, every number from the map."""
+    cols = ('Code', 'Data', 'BSS', 'ZP', 'VRAM')
+    for idx, (cname, cat) in enumerate(categories.items(), start=1):
+        tot = sum(cat[c] for c in cols)
+        print(f"### {idx}. {cname} ({tot:,} B)")
+        print()
+        desc = DESCRIPTIONS.get(cname, {})
+        for c in cols:
+            text = desc.get(c, '')
+            if cat[c] == 0 and not text:
+                continue
+            suffix = f": {text}" if text else ''
+            print(f"* **{c} ({cat[c]:,} B)**{suffix}.")
+        if cat['OFF']:
+            for size, owner, text in OFF_BUDGET:
+                if owner == cname:
+                    print(f"* **Off budget ({size:,} B)**: {text}.")
+        print()
 
 
 def main():
@@ -158,66 +565,72 @@ def main():
                         help='Show detailed symbol listing for each category')
     args = parser.parse_args()
 
-    categories = parse_map(args.map_file)
+    categories, walk = parse_map(args.map_file)
 
-    total_code = 0
-    total_data = 0
-    total_bss = 0
-    total_zp = 0
-    total_vram = 0
+    cols = ('Code', 'Data', 'BSS', 'ZP', 'VRAM')
+    totals = {c: 0 for c in cols}
+    total_off = 0
     total_all = 0
 
     if args.markdown:
-        print(f"| Feature Area | Code | Data | BSS | ZP | VRAM | **Total Footprint** |")
-        print(f"| :--- | :---: | :---: | :---: | :---: | :---: | :---: |")
+        print('| Feature Area | Code | Data | BSS | ZP | VRAM | **Total Footprint** |')
+        print('| :--- | :---: | :---: | :---: | :---: | :---: | :---: |')
 
-        idx = 1
-        for cname, cat in categories.items():
-            code = cat['Code']
-            data = cat['Data']
-            bss = cat['BSS']
-            zp = cat['ZP']
-            vram = cat['VRAM']
-            tot = code + data + bss + zp + vram
-            
-            total_code += code
-            total_data += data
-            total_bss += bss
-            total_zp += zp
-            total_vram += vram
+        for idx, (cname, cat) in enumerate(categories.items(), start=1):
+            tot = sum(cat[c] for c in cols)
+            for c in cols:
+                totals[c] += cat[c]
+            total_off += cat['OFF']
             total_all += tot
+            cells = ' | '.join(f"{cat[c]:,} B" for c in cols)
+            print(f"| **{idx}. {cname}** | {cells} | **{tot:,} B ({tot / 1024.0:.1f} KB)** |")
 
-            kb = tot / 1024.0
-            print(f"| **{idx}. {cname}** | {code:,} B | {data:,} B | {bss:,} B | {zp:,} B | {vram:,} B | **{tot:,} B ({kb:.1f} KB)** |")
-            idx += 1
+        cells = ' | '.join(f"**{totals[c]:,} B**" for c in cols)
+        print(f"| **TOTAL** | {cells} | **{total_all:,} B ({total_all / 1024.0:.1f} KB)** |")
 
-        print(f"| **TOTAL** | **{total_code:,} B** | **{total_data:,} B** | **{total_bss:,} B** | **{total_zp:,} B** | **{total_vram:,} B** | **{total_all:,} B ({total_all/1024.0:.1f} KB)** |")
-
+        print()
+        print('### Address space walk')
+        print()
+        print_walk(walk, markdown=True)
+        print_reconciliation(walk, total_all, markdown=True)
+        print()
+        print('### By feature area')
+        print()
+        print_details(categories)
     else:
         print(f"\nRAM Analysis for: {args.map_file}\n")
-        print(f"{'Category':<28} | {'Code (B)':<9} | {'Data (B)':<9} | {'BSS (B)':<8} | {'ZP (B)':<7} | {'VRAM (B)':<9} | {'Total (B)':<9}")
-        print("-" * 95)
+        header = (f"{'Category':<28} | {'Code (B)':<9} | {'Data (B)':<9} | "
+                  f"{'BSS (B)':<8} | {'ZP (B)':<7} | {'VRAM (B)':<9} | {'Total (B)':<9}")
+        print(header)
+        print('-' * len(header))
 
         for cname, cat in categories.items():
-            code = cat['Code']
-            data = cat['Data']
-            bss = cat['BSS']
-            zp = cat['ZP']
-            vram = cat['VRAM']
-            tot = code + data + bss + zp + vram
-            
-            total_code += code
-            total_data += data
-            total_bss += bss
-            total_zp += zp
-            total_vram += vram
+            tot = sum(cat[c] for c in cols)
+            for c in cols:
+                totals[c] += cat[c]
+            total_off += cat['OFF']
             total_all += tot
-            
-            print(f"{cname:<28} | {code:<9} | {data:<9} | {bss:<8} | {zp:<7} | {vram:<9} | {tot:<9}")
+            print(f"{cname:<28} | {cat['Code']:<9} | {cat['Data']:<9} | {cat['BSS']:<8} | "
+                  f"{cat['ZP']:<7} | {cat['VRAM']:<9} | {tot:<9}")
 
-        print("-" * 95)
-        print(f"{'TOTAL':<28} | {total_code:<9} | {total_data:<9} | {total_bss:<8} | {total_zp:<7} | {total_vram:<9} | {total_all:<9}")
-        print(f"\nOverall RAM footprint: {total_all} bytes ({total_all / 1024:.1f} KB / 64 KB C64 RAM)\n")
+        print('-' * len(header))
+        print(f"{'TOTAL':<28} | {totals['Code']:<9} | {totals['Data']:<9} | "
+              f"{totals['BSS']:<8} | {totals['ZP']:<7} | {totals['VRAM']:<9} | {total_all:<9}")
+
+        print(f"\nAddress space walk ({args.map_file}):\n")
+        print_walk(walk)
+        print_reconciliation(walk, total_all)
+
+    print()
+    if args.markdown:
+        for size, _owner, text in OFF_BUDGET:
+            print(f"- **Off budget, {size:,} B** — {text}")
+        print(f"- **Note** — {MAP_VIEW_NOTE}")
+    else:
+        for size, _owner, text in OFF_BUDGET:
+            print(f"  Off budget: {size:,} B  {text}")
+        print(f"  Note: {MAP_VIEW_NOTE}")
+    print()
 
     if args.verbose:
         print("\n--- DETAILED SYMBOLS BY CATEGORY ---")

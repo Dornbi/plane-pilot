@@ -40,13 +40,23 @@ bool map_mode = false;
 //
 // $D000 is RAM under I/O -- useless for almost anything except things the
 // VIC reads, and outside the scarce $0860..$D000 main region. Only
-// $D000..$D7BF is free: mem_init() expands the sprite bitmaps to $D7C0,
-// which runs to $DFFF exactly. Screen RAM needs 1000 bytes and fits with
-// 984 to spare.
+// $D000..$D3FF is free: mem_init() expands the sprite bitmaps to $D400
+// (mem.cc kSpriteData) and spritedef.bin is 3072 bytes, so they run from
+// there to $DFFF exactly. Screen RAM needs 1000 of those 1024 bytes and
+// fits with 24 to spare -- there is no room here for a second buffer, and
+// anything larger dropped at $D000 would eat sprite blocks 80 and up.
 static uint8_t *const kMapBitmap = (uint8_t *)0xE000;
 static uint8_t *const kMapScreenRam = (uint8_t *)0xD000;
 static const uint16_t kMapBitmapSize = 8000;
 static const uint16_t kMapScreenSize = kScreenWidth * kScreenHeight;
+
+// The 24 bytes of margin above, as a check rather than a claim. The comment
+// that used to sit here said 984, having assumed the sprites started at $D7C0
+// rather than $D400, and nothing would have noticed if the screen had grown
+// into them -- the corruption is in sprite shapes, on a screen the map view
+// does not even draw.
+static_assert(kMapScreenSize <= 0x400,
+              "map screen RAM must fit $D000..$D3FF, below mem.cc kSpriteData");
 
 // VIC memory pointers, bank 3 ($C000):
 // - video matrix at $D000 -> offset $1000, bits 4..7 = 0100
