@@ -256,13 +256,13 @@ static void test_hard_restart(void) {
       const bool restarted = !(sid_regs[b + kSoundVoiceCtrl] & SID_CTRL_GATE) &&
                              sid_regs[b + kSoundVoiceAttDec] == 0 &&
                              sid_regs[b + kSoundVoiceSusRel] == 0;
-      if (kMusicLeadStart[next] != 0) {
+      if (MUSIC_LEAD_START(next) != 0) {
         if (restarted) {
           ++restarts;
         } else {
           ++missing;
         }
-      } else if (restarted && kMusicLeadStart[row] != 0) {
+      } else if (restarted && MUSIC_LEAD_START(row) != 0) {
         ++spurious;
       }
     }
@@ -707,7 +707,7 @@ static void test_bass_hard_restart(void) {
       }
       const uint16_t next =
           (row + 1 == kMusicTotalRows) ? 0 : (uint16_t)(row + 1);
-      if (kMusicBassStart[next] == 0) {
+      if (MUSIC_BASS_START(next) == 0) {
         continue;
       }
       const uint8_t b = kSoundRegV2;

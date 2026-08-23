@@ -34,6 +34,50 @@ def pack_bits2(values):
         out[r >> 2] |= (v & 3) << ((r & 3) * 2)
     return list(out)
 
+def dedup_bars(values, per_bar):
+    """Splits a per-row table into distinct bar patterns plus a bar index.
+
+    A 24 bar tune that repeats is stored 24 times over otherwise. Returns
+    (patterns, index) where patterns is a list of per_bar-long lists in first
+    appearance order and index[b] says which one bar b plays, so
+    values[b * per_bar + k] == patterns[index[b]][k] for every b and k.
+
+    Worth it only where bars actually repeat: the index costs one byte a bar,
+    so a table whose bars are all distinct comes out larger. generate() prints
+    the before and after for each so that stays visible.
+    """
+    bars = len(values) // per_bar
+    assert bars * per_bar == len(values), "table is not a whole number of bars"
+    patterns = []
+    seen = {}
+    index = []
+    for b in range(bars):
+        pat = tuple(values[b * per_bar:(b + 1) * per_bar])
+        if pat not in seen:
+            seen[pat] = len(patterns)
+            patterns.append(list(pat))
+        index.append(seen[pat])
+    assert len(patterns) <= 256, "bar index no longer fits in a byte"
+    return patterns, index
+
+
+def _emit_bar_table(f, name, patterns, index, per_bar, per_line, what):
+    """Emits the pattern array and its bar index, with the saving in a
+    comment so the next person can see whether it is still earning its keep."""
+    was = len(index) * per_bar
+    now = len(patterns) * per_bar + len(index)
+    f.write(f"// {what}: {len(patterns)} distinct bars of {len(index)}, "
+            f"{now} bytes instead of {was}.\n")
+    f.write(f"const uint8_t {name}Pat[{len(patterns)}][{per_bar}] = {{\n")
+    for i, pat in enumerate(patterns):
+        body = ", ".join(f"{v:3d}" for v in pat)
+        f.write(f"    {{ {body} }}, // pattern {i}\n")
+    f.write("};\n\n")
+    f.write(f"const uint8_t {name}Bar[{len(index)}] = {{\n")
+    _emit_rows(f, index, per_line)
+    f.write("};\n\n")
+
+
 def _emit_rows(f, values, per_line, comment_every=None):
     for i in range(0, len(values), per_line):
         chunk = values[i:i + per_line]
@@ -58,9 +102,8 @@ def generate_c64_headers():
         # That built on Linux/gcc and failed on macOS/clang.
         f.write("#include <stdint.h>\n\n")
         f.write("// The tune ships in ppilot.prg only. ppilotd.prg is the debug\n")
-        f.write("// build and stays silent, so none of this - including the\n")
-        f.write("// ~1.1 KB of tables in musicdef.cc - should reach it.\n")
-        f.write("// See ../docs/music.md section 4.\n")
+        f.write("// build and stays silent, so none of the tables in musicdef.cc\n")
+        f.write("// should reach it. See ../docs/music.md section 4.\n")
         f.write("#ifdef __ENABLE_SOUND__\n\n")
         f.write(f"static const uint8_t kMusicSpeed = {t1['speed']};\n")
         f.write(f"static const uint8_t kMusicRowsPerBar = {t1['rows_per_bar']};\n")
@@ -87,32 +130,65 @@ def generate_c64_headers():
         f.write("    uint16_t freq_step;\n")
         f.write("};\n\n")
         rows = t1['total_rows']
-        f.write("extern const uint16_t kMusicNoteTable[12];\n")
-        f.write(f"extern const music_chord_t kMusicChords[{t1['bars']}];\n\n")
+        f.write("extern const uint16_t kMusicNoteTable[12];\n\n")
 
         f.write("// Master volume per bar, low nibble of $D418. Composed with\n")
         f.write("// sound_volume through the 3 x 16 table in music.cc, never\n")
         f.write("// written straight to the chip. See docs/music.md section 3.\n")
         f.write(f"extern const uint8_t kMusicVolMap[{t1['bars']}];\n\n")
 
-        f.write("// One byte per row: the MIDI note a lead or bass note starts on,\n")
-        f.write("// or 0 for no new note.\n")
-        f.write(f"extern const uint8_t kMusicLeadStart[{rows}];\n")
-        f.write(f"extern const uint8_t kMusicBassStart[{rows}];\n\n")
+        rpb = t1['rows_per_bar']
+        bar_shift = rpb.bit_length() - 1
+        assert 1 << bar_shift == rpb, "rows per bar must be a power of two"
+        row_mask = rpb - 1
 
-        f.write("// Packed tables - docs/music.md section 4, option B. These were\n")
-        f.write("// one byte per row and are now one and two bits; together with\n")
-        f.write("// dropping kMusicBassOn that is 672 bytes for ~40 bytes of code.\n")
+        f.write("// Packed tables - docs/music.md section 4.\n")
+        f.write("//\n")
+        f.write("// Option B put the gate and drum lanes into one and two bits a row.\n")
+        f.write("// This is the layer above it: the tune is 24 bars and most of them\n")
+        f.write("// are repeats, so each lane is stored as its distinct bar patterns\n")
+        f.write("// plus one index byte a bar. Every read costs the extra index\n")
+        f.write("// lookup, which is why it is only done here - the player runs on the\n")
+        f.write("// menu and help screens, where there is no frame to miss.\n")
         f.write("//\n")
         f.write("// There is deliberately no kMusicBassOn. The bass never rests, so\n")
         f.write("// the array it used to occupy held nothing but the value 1.\n")
-        f.write(f"extern const uint8_t kMusicLeadOnBits[{(rows + 7) // 8}];\n")
-        f.write(f"extern const uint8_t kMusicDrumBits[{(rows + 3) // 4}];\n\n")
+        f.write("//\n")
+        f.write("// Reach these through the macros below, never directly: the split\n")
+        f.write("// into pattern and index is an encoding, not something the player\n")
+        f.write("// should know about.\n")
+        f.write(f"extern const music_chord_t kMusicChordPat[];\n")
+        f.write(f"extern const uint8_t kMusicChordBar[{t1['bars']}];\n")
+        f.write(f"extern const uint8_t kMusicLeadStartPat[][{rpb}];\n")
+        f.write(f"extern const uint8_t kMusicLeadStartBar[{t1['bars']}];\n")
+        f.write(f"extern const uint8_t kMusicBassStartPat[][{rpb}];\n")
+        f.write(f"extern const uint8_t kMusicBassStartBar[{t1['bars']}];\n")
+        f.write(f"extern const uint8_t kMusicLeadOnBitsPat[][{rpb // 8}];\n")
+        f.write(f"extern const uint8_t kMusicLeadOnBitsBar[{t1['bars']}];\n")
+        f.write(f"extern const uint8_t kMusicDrumBitsPat[][{rpb // 4}];\n")
+        f.write(f"extern const uint8_t kMusicDrumBitsBar[{t1['bars']}];\n\n")
+
+        f.write("// The bar a row falls in, and the row within it.\n")
+        f.write(f"#define MUSIC_BAR_OF(row)   ((row) >> {bar_shift})\n")
+        f.write(f"#define MUSIC_IN_BAR(row)   ((row) & {row_mask})\n\n")
+
+        f.write("// The MIDI note a lead or bass note starts on, or 0 for no new note.\n")
+        f.write("#define MUSIC_LEAD_START(row)  \\\n")
+        f.write("    (kMusicLeadStartPat[kMusicLeadStartBar[MUSIC_BAR_OF(row)]]"
+                "[MUSIC_IN_BAR(row)])\n")
+        f.write("#define MUSIC_BASS_START(row)  \\\n")
+        f.write("    (kMusicBassStartPat[kMusicBassStartBar[MUSIC_BAR_OF(row)]]"
+                "[MUSIC_IN_BAR(row)])\n")
+        f.write("#define MUSIC_CHORD(bar)    (kMusicChordPat[kMusicChordBar[bar]])\n")
         f.write("#define MUSIC_LEAD_ON(row)  \\\n")
-        f.write("    ((kMusicLeadOnBits[(row) >> 3] >> ((row) & 7)) & 1)\n")
+        f.write("    ((kMusicLeadOnBitsPat[kMusicLeadOnBitsBar[MUSIC_BAR_OF(row)]]"
+                "[MUSIC_IN_BAR(row) >> 3] \\\n")
+        f.write("      >> ((row) & 7)) & 1)\n")
         f.write("// 0 = none, 1 = kick, 2 = snare, 3 = hat.\n")
         f.write("#define MUSIC_DRUM_AT(row)  \\\n")
-        f.write("    ((kMusicDrumBits[(row) >> 2] >> (((row) & 3) << 1)) & 3)\n")
+        f.write("    ((kMusicDrumBitsPat[kMusicDrumBitsBar[MUSIC_BAR_OF(row)]]"
+                "[MUSIC_IN_BAR(row) >> 2] \\\n")
+        f.write("      >> (((row) & 3) << 1)) & 3)\n")
         f.write("#define MUSIC_BASS_ON(row)  (1)\n\n")
 
         f.write("// The bass voice's pulse width. A per-instrument constant that does\n")
@@ -153,6 +229,12 @@ def generate_c64_source():
     lead_on_bits = pack_bits1(lead_on)
     drum_bits = pack_bits2([DRUM_CODE[v] for v in drum_at])
 
+    rows_per_bar = t1['rows_per_bar']
+    lead_pat = dedup_bars(lead_start, rows_per_bar)
+    bass_pat = dedup_bars(bass_start, rows_per_bar)
+    leadon_pat = dedup_bars(lead_on_bits, rows_per_bar // 8)
+    drum_pat = dedup_bars(drum_bits, rows_per_bar // 4)
+
     with open(cc_path, "w") as f:
         f.write('#include "musicdef.h"\n\n')
         f.write("// Generated by tools/generate_music.py from lib/music.py.\n")
@@ -163,10 +245,26 @@ def generate_c64_source():
         f.write(", ".join(str(v) for v in music.NOTE6))
         f.write("\n};\n\n")
 
-        f.write(f"// Chord table ({bars} entries)\n")
-        f.write(f"const music_chord_t kMusicChords[{bars}] = {{\n")
+        # Chords are already one entry a bar, so the dedup is over whole
+        # entries rather than over rows; four bytes each against a one byte
+        # index makes it the best ratio of the five.
+        chord_pats = []
+        chord_index = []
+        chord_names = []
         for name, root, triad in t1['chords']:
+            key = (root, tuple(triad))
+            if key not in chord_pats:
+                chord_pats.append(key)
+                chord_names.append(name)
+            chord_index.append(chord_pats.index(key))
+        f.write(f"// Chord table: {len(chord_pats)} distinct of {bars} bars, "
+                f"{len(chord_pats) * 4 + bars} bytes instead of {bars * 4}.\n")
+        f.write(f"const music_chord_t kMusicChordPat[{len(chord_pats)}] = {{\n")
+        for (root, triad), name in zip(chord_pats, chord_names):
             f.write(f"    {{ {root}, {{ {triad[0]}, {triad[1]}, {triad[2]} }} }}, // {name}\n")
+        f.write("};\n\n")
+        f.write(f"const uint8_t kMusicChordBar[{bars}] = {{\n")
+        _emit_rows(f, chord_index, 12)
         f.write("};\n\n")
 
         f.write(f"// Master volume per bar ({bars} entries, 0..15)\n")
@@ -174,27 +272,15 @@ def generate_c64_source():
         _emit_rows(f, t1['vol_map'], 8)
         f.write("};\n\n")
 
-        f.write(f"// Lead start midi notes ({tot_rows} entries, 0 = rest)\n")
-        f.write(f"const uint8_t kMusicLeadStart[{tot_rows}] = {{\n")
-        _emit_rows(f, lead_start, 16, "bar")
-        f.write("};\n\n")
+        _emit_bar_table(f, "kMusicLeadStart", *lead_pat, rows_per_bar, 12,
+                        "Lead start midi notes, 0 = rest")
+        _emit_bar_table(f, "kMusicBassStart", *bass_pat, rows_per_bar, 12,
+                        "Bass start midi notes, 0 = rest")
 
-        f.write(f"// Bass start midi notes ({tot_rows} entries, 0 = rest)\n")
-        f.write(f"const uint8_t kMusicBassStart[{tot_rows}] = {{\n")
-        _emit_rows(f, bass_start, 16, "bar")
-        f.write("};\n\n")
-
-        f.write(f"// Lead gate, 1 bit per row, LSB first ({tot_rows} rows in "
-                f"{len(lead_on_bits)} bytes). Read with MUSIC_LEAD_ON(row).\n")
-        f.write(f"const uint8_t kMusicLeadOnBits[{len(lead_on_bits)}] = {{\n")
-        _emit_rows(f, lead_on_bits, 16)
-        f.write("};\n\n")
-
-        f.write(f"// Drum hits, 2 bits per row ({tot_rows} rows in "
-                f"{len(drum_bits)} bytes). Read with MUSIC_DRUM_AT(row).\n")
-        f.write(f"const uint8_t kMusicDrumBits[{len(drum_bits)}] = {{\n")
-        _emit_rows(f, drum_bits, 16)
-        f.write("};\n\n")
+        _emit_bar_table(f, "kMusicLeadOnBits", *leadon_pat, rows_per_bar // 8, 12,
+                        "Lead gate, 1 bit per row LSB first. MUSIC_LEAD_ON(row)")
+        _emit_bar_table(f, "kMusicDrumBits", *drum_pat, rows_per_bar // 4, 12,
+                        "Drum hits, 2 bits per row. MUSIC_DRUM_AT(row)")
 
         ins = music.INS
 

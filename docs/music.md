@@ -643,23 +643,25 @@ the cursor scrolls, which can overrun a frame. A skipped tick is a dropped
 **RAM.** Measured from the `musicdef.cc` the generator actually emits, not
 estimated:
 
-| Item                                    |    Bytes |
-| --------------------------------------- | -------: |
-| `kMusicLeadStart[384]`                  |      384 |
-| `kMusicBassStart[384]`                  |      384 |
-| `kMusicDrumBits[96]` (2 bits/row)       |       96 |
-| `kMusicLeadOnBits[48]` (1 bit/row)      |       48 |
-| `kMusicChords[24]` (root + triad)       |       96 |
-| Six instruments × 8                     |       48 |
-| `kMusicVolMap[24]`                      |       24 |
-| `kMusicNoteTable[12]`                   |       24 |
-| **Data, as generated**                  | **1,104** |
-| Volume composition table (§3)           |       48 |
-| Player code                             |     ~940 |
-| Player state (bss)                      |      ~28 |
-| **Total**                               | **~2.1 KB** |
+| Item                                          |    Bytes |
+| --------------------------------------------- | -------: |
+| `kMusicLeadStartPat[20][16]` + `Bar[24]`      |      344 |
+| `kMusicBassStartPat[11][16]` + `Bar[24]`      |      200 |
+| `kMusicDrumBitsPat[5][4]` + `Bar[24]`         |       44 |
+| `kMusicLeadOnBitsPat[3][2]` + `Bar[24]`       |       30 |
+| `kMusicChordPat[7]` + `Bar[24]`               |       52 |
+| Six instruments × 8                           |       48 |
+| `kMusicVolMap[24]`                            |       24 |
+| `kMusicNoteTable[12]`                         |       24 |
+| **Data, as generated**                        |  **791** |
+| Volume composition table (§3)                 |       48 |
+| Player code                                   |      884 |
+| Player state (bss + zp)                       |       13 |
+| **Total**                                     | **1,688** |
 
-Against `a178 - d000`, **11.6 KB free** in `ppilot.prg` — about a sixth of it.
+Measured from `ppilot.map` by `tools/analyze_ram.py`, not estimated. Against
+6,623 bytes free in `ppilot.prg` — which is to say the tune is a quarter of the
+remaining headroom, and the largest single feature that plays on two screens.
 
 **Running against that estimate**, measured from `ppilot.map` at the end of
 each phase. Data arrives incrementally because oscar64's linker drops the
@@ -706,8 +708,9 @@ byte or not**, on values that mostly did not:
 | `kMusicBassOn`    | always 1       | 384 | **0** | deleted; `MUSIC_BASS_ON(row)` is `1` |
 | `kMusicLeadOn`    | 0 or 1         | 384 | **48** | 1 bit/row, `MUSIC_LEAD_ON(row)` |
 | `kMusicDrumAt`    | 0–3            | 384 | **96** | 2 bits/row, `MUSIC_DRUM_AT(row)` |
-| `kMusicLeadStart` | MIDI note or 0 | 384 | 384 | unchanged — 7 bits, not worth splitting |
-| `kMusicBassStart` | MIDI note or 0 | 384 | 384 | unchanged |
+| `kMusicLeadStart` | MIDI note or 0 | 384 | **344** | bar index; 7 bits is not worth splitting |
+| `kMusicBassStart` | MIDI note or 0 | 384 | **200** | bar index |
+| `kMusicChords`    | root + triad   |  96 | **52** | bar index |
 
 `kMusicBassOn` was 384 bytes in which every byte was `1`: the bass never rests,
 so the array encoded a constant. The generator now asserts that premise before
@@ -719,6 +722,53 @@ The two macros are the whole cost — a shift and a mask each, about 40 bytes of
 code against 1,008 bytes of data. The player reads `MUSIC_LEAD_ON(row)` where it
 read `kMusicLeadOn[row]`, and nothing else changes.
 
+### The layer above: bars, not rows
+
+Option B squeezed the *values*. This squeezes the *repeats*, and it is a
+separate axis: the tune is 24 bars and most of them are played more than once,
+so every lane was storing the same sixteen rows over and over.
+
+Each lane is now its distinct bar patterns plus one index byte per bar —
+`kMusicBassStartPat[11][16]` and `kMusicBassStartBar[24]` in place of
+`kMusicBassStart[384]`. The repeat counts are what make it pay, and they are
+very uneven:
+
+| Lane              | Distinct bars | Was | Now | Saved |
+| ----------------- | ------------: | --: | --: | ----: |
+| `kMusicBassStart` |     11 of 24  | 384 | 200 |   184 |
+| `kMusicDrumBits`  |      5 of 24  |  96 |  44 |    52 |
+| `kMusicChords`    |      7 of 24  |  96 |  52 |    44 |
+| `kMusicLeadStart` |     20 of 24  | 384 | 344 |    40 |
+| `kMusicLeadOnBits`|      3 of 24  |  48 |  30 |    18 |
+| **Total**         |               | **1,008** | **670** | **338** |
+
+The lead barely repeats — 20 distinct bars of 24 — which is what a melody is,
+and it earns only 40 bytes. The bass and the drums are the opposite and carry
+the change. All five are converted anyway, because a uniform encoding is one
+thing to describe and one accessor shape to get right, and the two weak lanes
+still pay rather than cost.
+
+Every read now costs an index lookup and a 16-byte-stride multiply on top of
+what it cost before: **+70 bytes of code against −338 of data, net −268**, and
+`ppilot.prg` went 45,110 → 44,854. The cycles are the reason this is done here
+and nowhere else in the program — the player runs on the menu and help screens,
+where §4's opening paragraph applies and there is no frame to miss.
+
+Reach the lanes through `MUSIC_LEAD_START(row)`, `MUSIC_BASS_START(row)`,
+`MUSIC_CHORD(bar)`, `MUSIC_LEAD_ON(row)` and `MUSIC_DRUM_AT(row)`. The split
+into pattern and index is an encoding; the player should not know about it, and
+`musicdef.h` says so.
+
+**How it was checked.** `test_packed_tables_round_trip` now undoes both layers —
+bar index first, then the bit packing — and requires the result to equal what
+the browser reference got, row for row; `test_chords_round_trip` does the same
+for the chord lane. `test_bar_dedup_still_pays` asserts each lane is smaller
+than the flat array it replaced, so an arrangement whose bars stopped repeating
+fails loudly instead of quietly growing. And because none of that proves the
+*tune* is unchanged, the whole player was run on the host for two full loops at
+all three volume settings, dumping all 25 SID registers after every one of
+13,824 frames: **byte-identical before and after**.
+
 **The reference page keeps the unpacked arrays.** JavaScript has no reason to
 pay for packing, and the player there is clearer reading them directly. That
 makes two encodings of one dataset, which is exactly the situation §5 warns
@@ -726,15 +776,21 @@ about — so `test_packed_tables_round_trip` applies the two macros by hand and
 requires the result to equal what the browser got, row for row. If either shift
 expression in `musicdef.h` changes, that test fails.
 
-**What is still on the table.** `kMusicLeadStart` is 304 zeros carrying 80
-notes, and `kMusicBassStart` is 210 zeros carrying 174. As `(row, note, length)`
-triples the lead would be ~240 bytes instead of 432 including its bit table; and
-the bass only ever plays intervals 0, 7, 10 and 12 above its bar's chord root,
-so two rhythm patterns plus a one-bit-per-bar selector reproduce all of it in
-under 100. That is roughly another 500 bytes, and it is where the original plan
-was before phase 1 flattened everything — but it makes the player a tracker,
-with a pointer walk per channel. Recorded so the option is visible, not because
-it is due.
+**What is still on the table.** Two things, both measured rather than guessed.
+
+`kMusicBassStart` uses only 14 distinct note values, which fits a nibble: bar
+patterns of 8 bytes instead of 16 plus a 14-byte value table would take it from
+200 to 126. `kMusicLeadStart` uses 17, one over the nibble limit, so it would
+need 5-bit fields or a value it can spare — 20 patterns of 10 bytes plus the
+table is ~225 against 344. Together roughly another 190 bytes, for a second
+decode step on every read.
+
+Beyond that is the tracker the original plan specified: `(row, note, length)`
+triples for the lead, and for the bass the observation that it only ever plays
+intervals 0, 7, 10 and 12 above its bar's chord root, so two rhythm patterns
+plus a one-bit-per-bar selector reproduce all of it. That is a few hundred more
+bytes and a pointer walk per channel. Recorded so the options are visible, not
+because either is due.
 
 **`ppilot.prg` only.** The build already splits on `__ENABLE_SOUND__` for
 `ppilot` and `__ENABLE_DEBUG__` for `ppilotd`, and `PPILOTD_SRC` is literally
@@ -745,8 +801,8 @@ compile to nothing in the debug build.
 
 Wrapping `musicdef.cc` as well as the player is belt-and-braces rather than
 strictly needed — oscar64's linker drops unreferenced symbols, as sound.md §10
-records it doing for `mul16` — but 1.4 KB is a lot to leave resting on that, and
-the debug build is the one with less headroom (`a360 - d000`, 11.2 KB).
+records it doing for `mul16` — but the tables are a lot to leave resting on that, and
+the debug build is the one with less headroom.
 
 **Verification.** Unlike sound.md there is no `@stack` gate to worry about —
 the player is main-line and a frame is fine, and all four `music_*@stack`

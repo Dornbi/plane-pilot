@@ -161,7 +161,10 @@ class TestMusicData(unittest.TestCase):
         self.assertIn(f"kMusicBars = {shipped['bars']};", h_content)
         self.assertIn(f"kMusicSpeed = {shipped['speed']};", h_content)
         self.assertIn(f"kMusicTotalFrames = {shipped['total_frames']};", h_content)
-        self.assertIn(f"kMusicLeadStart[{shipped['total_rows']}]", h_content)
+        # The lanes are bar-indexed, so the header declares a pattern array and
+        # a one-byte-per-bar index rather than one flat row array.
+        self.assertIn(f"kMusicLeadStartPat[][{shipped['rows_per_bar']}]", h_content)
+        self.assertIn(f"kMusicLeadStartBar[{shipped['bars']}]", h_content)
 
     def test_volume_map_reaches_the_c64(self):
         """The fade has to exist in all three copies, not just two.
@@ -195,32 +198,103 @@ class TestMusicData(unittest.TestCase):
         self.assertEqual(len(vals), size, f"{name} has {len(vals)} entries, expected {size}")
         return vals
 
+    def _bar_table(self, cc, name, per_bar):
+        """Rebuilds one flat per-row lane from its pattern array and bar index.
+
+        This is MUSIC_BAR_OF / MUSIC_IN_BAR applied by hand. If the split in
+        musicdef.h ever changes shape, this is what notices.
+        """
+        m = re.search(r'const uint8_t ' + name + r'Pat\[(\d+)\]\[' + str(per_bar)
+                      + r'\] = \{(.*?)\n\};', cc, re.S)
+        self.assertIsNotNone(m, f"{name}Pat[][{per_bar}] not found in musicdef.cc")
+        pats = [[int(x) for x in row.split(',') if x.strip()]
+                for row in re.findall(r'\{([^}]*)\}', m.group(2))]
+        self.assertEqual(len(pats), int(m.group(1)))
+        for pat in pats:
+            self.assertEqual(len(pat), per_bar, f"{name}Pat row is not {per_bar} long")
+        index = self._c_array(cc, name + "Bar", music.BARS)
+        for b in index:
+            self.assertLess(b, len(pats), f"{name}Bar points past {name}Pat")
+        return [v for b in index for v in pats[b]]
+
     def test_packed_tables_round_trip(self):
         """Unpacking the C must reproduce exactly what the browser reference got.
 
         The two consumers use different encodings on purpose - JS has no reason
         to pay for packing - so this is the test that keeps them the same data.
-        It applies the MUSIC_LEAD_ON and MUSIC_DRUM_AT macros by hand; if those
-        shift expressions in musicdef.h ever change, this fails.
+        Two layers are undone here: the bar index, and then option B's bit
+        packing. If either changes, this fails.
         """
         generate_music.main()
         cc, _ = self._read_generated()
 
         t = music.TUNES[0]
         rows = t['total_rows']
+        rpb = t['rows_per_bar']
         soft = t.get('soft_intro', False)
-        _, lead_on = music.get_flattened_lead(t['melody'], rows)
+        lead_start, lead_on = music.get_flattened_lead(t['melody'], rows)
         drum_at = music.get_flattened_drums(t['bars'], rows, soft)
+        rhythm = music.rhythm_of(t)
+        bass_start, _ = music.get_flattened_bass(t['chords'], t['bars'], rows,
+                                                 soft, rhythm)
 
-        lead_bits = self._c_array(cc, "kMusicLeadOnBits", (rows + 7) // 8)
-        drum_bits = self._c_array(cc, "kMusicDrumBits", (rows + 3) // 4)
+        # Lane 1 and 2: one byte a row, bar indexed only.
+        self.assertEqual(self._bar_table(cc, "kMusicLeadStart", rpb), lead_start)
+        self.assertEqual(self._bar_table(cc, "kMusicBassStart", rpb), bass_start)
 
-        # MUSIC_LEAD_ON(row) / MUSIC_DRUM_AT(row)
+        # Lane 3 and 4: bar indexed *and* bit packed. MUSIC_LEAD_ON(row) and
+        # MUSIC_DRUM_AT(row), spelled out.
+        lead_bits = self._bar_table(cc, "kMusicLeadOnBits", rpb // 8)
+        drum_bits = self._bar_table(cc, "kMusicDrumBits", rpb // 4)
         unpacked_lead = [(lead_bits[r >> 3] >> (r & 7)) & 1 for r in range(rows)]
         unpacked_drum = [(drum_bits[r >> 2] >> ((r & 3) * 2)) & 3 for r in range(rows)]
 
         self.assertEqual(unpacked_lead, [1 if v else 0 for v in lead_on])
         self.assertEqual(unpacked_drum, [generate_music.DRUM_CODE[v] for v in drum_at])
+
+    def test_chords_round_trip(self):
+        """The chord lane is bar indexed too - 7 distinct of 24."""
+        generate_music.main()
+        cc, _ = self._read_generated()
+
+        m = re.search(r'const music_chord_t kMusicChordPat\[(\d+)\] = \{(.*?)\n\};',
+                      cc, re.S)
+        self.assertIsNotNone(m, "kMusicChordPat not found in musicdef.cc")
+        pats = [(int(a), [int(b), int(c), int(d)]) for a, b, c, d in
+                re.findall(r'\{ (\d+), \{ (\d+), (\d+), (\d+) \} \}', m.group(2))]
+        self.assertEqual(len(pats), int(m.group(1)))
+        index = self._c_array(cc, "kMusicChordBar", music.BARS)
+
+        want = [(root, list(triad)) for _name, root, triad in music.TUNES[0]['chords']]
+        self.assertEqual([pats[b] for b in index], want)
+
+    def test_bar_dedup_still_pays(self):
+        """Every bar-indexed lane must be smaller than the flat array it
+        replaced. The index costs a byte a bar, so a lane whose bars stopped
+        repeating would silently grow - this is the tripwire for that."""
+        t = music.TUNES[0]
+        rpb = t['rows_per_bar']
+        rows = t['total_rows']
+        soft = t.get('soft_intro', False)
+        lead_start, lead_on = music.get_flattened_lead(t['melody'], rows)
+        rhythm = music.rhythm_of(t)
+        bass_start, _ = music.get_flattened_bass(t['chords'], t['bars'], rows,
+                                                 soft, rhythm)
+        drum_at = music.get_flattened_drums(t['bars'], rows, soft)
+
+        lanes = {
+            'lead': (lead_start, rpb),
+            'bass': (bass_start, rpb),
+            'leadOn': (generate_music.pack_bits1(lead_on), rpb // 8),
+            'drum': (generate_music.pack_bits2(
+                [generate_music.DRUM_CODE[v] for v in drum_at]), rpb // 4),
+        }
+        for name, (values, per_bar) in lanes.items():
+            pats, index = generate_music.dedup_bars(values, per_bar)
+            flat = len(values)
+            packed = len(pats) * per_bar + len(index)
+            self.assertLess(packed, flat,
+                            f"{name}: bar dedup now costs {packed} against {flat} flat")
 
     def test_player_never_reads_a_sid_register(self):
         """c64o/music.cc must only ever STORE to SID_REGS, never read it.

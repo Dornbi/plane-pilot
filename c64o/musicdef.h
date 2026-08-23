@@ -4,9 +4,8 @@
 #include <stdint.h>
 
 // The tune ships in ppilot.prg only. ppilotd.prg is the debug
-// build and stays silent, so none of this - including the
-// ~1.1 KB of tables in musicdef.cc - should reach it.
-// See ../docs/music.md section 4.
+// build and stays silent, so none of the tables in musicdef.cc
+// should reach it. See ../docs/music.md section 4.
 #ifdef __ENABLE_SOUND__
 
 static const uint8_t kMusicSpeed = 6;
@@ -37,32 +36,55 @@ struct music_instrument_t {
 };
 
 extern const uint16_t kMusicNoteTable[12];
-extern const music_chord_t kMusicChords[24];
 
 // Master volume per bar, low nibble of $D418. Composed with
 // sound_volume through the 3 x 16 table in music.cc, never
 // written straight to the chip. See docs/music.md section 3.
 extern const uint8_t kMusicVolMap[24];
 
-// One byte per row: the MIDI note a lead or bass note starts on,
-// or 0 for no new note.
-extern const uint8_t kMusicLeadStart[384];
-extern const uint8_t kMusicBassStart[384];
-
-// Packed tables - docs/music.md section 4, option B. These were
-// one byte per row and are now one and two bits; together with
-// dropping kMusicBassOn that is 672 bytes for ~40 bytes of code.
+// Packed tables - docs/music.md section 4.
+//
+// Option B put the gate and drum lanes into one and two bits a row.
+// This is the layer above it: the tune is 24 bars and most of them
+// are repeats, so each lane is stored as its distinct bar patterns
+// plus one index byte a bar. Every read costs the extra index
+// lookup, which is why it is only done here - the player runs on the
+// menu and help screens, where there is no frame to miss.
 //
 // There is deliberately no kMusicBassOn. The bass never rests, so
 // the array it used to occupy held nothing but the value 1.
-extern const uint8_t kMusicLeadOnBits[48];
-extern const uint8_t kMusicDrumBits[96];
+//
+// Reach these through the macros below, never directly: the split
+// into pattern and index is an encoding, not something the player
+// should know about.
+extern const music_chord_t kMusicChordPat[];
+extern const uint8_t kMusicChordBar[24];
+extern const uint8_t kMusicLeadStartPat[][16];
+extern const uint8_t kMusicLeadStartBar[24];
+extern const uint8_t kMusicBassStartPat[][16];
+extern const uint8_t kMusicBassStartBar[24];
+extern const uint8_t kMusicLeadOnBitsPat[][2];
+extern const uint8_t kMusicLeadOnBitsBar[24];
+extern const uint8_t kMusicDrumBitsPat[][4];
+extern const uint8_t kMusicDrumBitsBar[24];
 
+// The bar a row falls in, and the row within it.
+#define MUSIC_BAR_OF(row)   ((row) >> 4)
+#define MUSIC_IN_BAR(row)   ((row) & 15)
+
+// The MIDI note a lead or bass note starts on, or 0 for no new note.
+#define MUSIC_LEAD_START(row)  \
+    (kMusicLeadStartPat[kMusicLeadStartBar[MUSIC_BAR_OF(row)]][MUSIC_IN_BAR(row)])
+#define MUSIC_BASS_START(row)  \
+    (kMusicBassStartPat[kMusicBassStartBar[MUSIC_BAR_OF(row)]][MUSIC_IN_BAR(row)])
+#define MUSIC_CHORD(bar)    (kMusicChordPat[kMusicChordBar[bar]])
 #define MUSIC_LEAD_ON(row)  \
-    ((kMusicLeadOnBits[(row) >> 3] >> ((row) & 7)) & 1)
+    ((kMusicLeadOnBitsPat[kMusicLeadOnBitsBar[MUSIC_BAR_OF(row)]][MUSIC_IN_BAR(row) >> 3] \
+      >> ((row) & 7)) & 1)
 // 0 = none, 1 = kick, 2 = snare, 3 = hat.
 #define MUSIC_DRUM_AT(row)  \
-    ((kMusicDrumBits[(row) >> 2] >> (((row) & 3) << 1)) & 3)
+    ((kMusicDrumBitsPat[kMusicDrumBitsBar[MUSIC_BAR_OF(row)]][MUSIC_IN_BAR(row) >> 2] \
+      >> (((row) & 3) << 1)) & 3)
 #define MUSIC_BASS_ON(row)  (1)
 
 // The bass voice's pulse width. A per-instrument constant that does

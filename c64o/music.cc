@@ -273,11 +273,11 @@ void music_tick(void) {
   // Two independent conditions, not an if/else chain. They are mutually
   // exclusive only because kMusicSpeed is 6; writing them as alternatives
   // would quietly stop being correct at speed 1.
-  if (last_frame_of_row && kMusicLeadStart[next_row] != 0) {
+  if (last_frame_of_row && MUSIC_LEAD_START(next_row) != 0) {
     _music_hard_restart_restart(kVoice1);
   }
   if (_music_row_frame == 0) {
-    const uint8_t note = kMusicLeadStart[_music_row];
+    const uint8_t note = MUSIC_LEAD_START(_music_row);
     if (note != 0) {
       _set_voice(kVoice1, music_note_freq(note), kMusicPwmBase,
                  kMusicInsLead.wave | SID_CTRL_GATE, kMusicInsLead.ad,
@@ -315,11 +315,11 @@ void music_tick(void) {
   // drop to single rows in the push bars, and a bass pickup whose envelope
   // starts halfway up is a note with no front edge - on the one voice whose
   // front edge *is* the rhythm.
-  if (last_frame_of_row && kMusicBassStart[next_row] != 0) {
+  if (last_frame_of_row && MUSIC_BASS_START(next_row) != 0) {
     _music_hard_restart_restart(kVoice2);
   }
   if (_music_row_frame == 0) {
-    const uint8_t note = kMusicBassStart[_music_row];
+    const uint8_t note = MUSIC_BASS_START(_music_row);
     if (note != 0) {
       _set_voice(kVoice2, music_note_freq(note), kMusicBassPw,
                  kMusicInsBass.wave | SID_CTRL_GATE, kMusicInsBass.ad,
@@ -377,7 +377,7 @@ void music_tick(void) {
     // it reads as a chord shimmering rather than as three notes being played
     // very fast. Re-gating here would turn it into a machine gun.
     _set_freq(kVoice3,
-              music_note_freq(kMusicChords[_music_bar].triad[_music_arp_idx]));
+              music_note_freq(MUSIC_CHORD(_music_bar).triad[_music_arp_idx]));
     if (++_music_arp_idx == 3) {
       _music_arp_idx = 0;
     }
