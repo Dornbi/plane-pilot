@@ -1,6 +1,7 @@
 #include "sprites.h"
 
 #include "color.h"
+#include "flight.h"
 #include "mem.h"
 #include "msg.h"
 #include "roll.h"
@@ -17,11 +18,22 @@ char kSpriteDataCompressed[] = {
 #pragma data(data)
 #else
 // The host build has no #embed and no LZO, and the test has no use for the
-// sprite bitmaps. Only the size matters off-target: mem.cc reuses this array as
-// the viewport colour buffer once mem_init() has expanded it to $D400, so the
-// compressed data doubles as 560 bytes of scratch.
-char kSpriteDataCompressed[kViewportWidth * kViewportHeight];
+// sprite bitmaps. Only the size matters off-target, and only so that the
+// assert below means the same thing in both builds.
+char kSpriteDataCompressed[kViewportWidth * kViewportHeight +
+                           2 * kFlightPathLen];
 #endif
+
+// Two other things live in this array, both of them from the moment
+// mem_init() has expanded it to $D400 and left the compressed copy as scrap:
+// mem.cc aliases the viewport colour buffer onto the front of it, and
+// flight.cc puts the map view's flight path immediately after that. Neither
+// can check the size from where it sits, because the length is whatever LZO
+// makes of spritedef.bin rather than a number anyone chose. Edit the sprite
+// art and this is what tells you the tenants no longer fit.
+static_assert(sizeof(kSpriteDataCompressed) >=
+                  kViewportWidth * kViewportHeight + 2 * kFlightPathLen,
+              "sprite blob too small for the colour buffer and flight path");
 
 static const uint8_t kSpriteOffsetX = 24;
 static const uint8_t kSpriteOffsetY = 50;
@@ -57,12 +69,6 @@ struct sprite_xy_t {
   uint8_t y;
 };
 
-// The stack's storage stays in the main bss rather than in bss2. bss2 is the
-// 1.4 KB gap at $0280-$07FF and it is already full - poly.cc's scratch buffers
-// are what gets evicted if anything else moves in - while neither of these
-// needs to be anywhere in particular. Only the instrument arrays below stay
-// there, and only because they were there first.
-//
 // One offered object, before indices are handed out. Insertion-sorted by
 // ascending depth, so entry 0 is the nearest.
 struct sprite_cand_t {
@@ -100,8 +106,12 @@ struct sprite_frame_t {
 #define kVicSpritePos ((volatile uint8_t *)vic_host)
 #endif
 
+// bss2: main-line only, reached by name, and nothing about it wants the main
+// region. 72 bytes that used to be the largest single tenant of main's bss.
+#pragma bss(bss2)
 static sprite_cand_t _sprites_cand[kSpriteStackSize];
 static uint8_t _sprites_cand_count;
+#pragma bss(bss)
 
 // Double buffered, and that is not optional. _gfx_switch_to_terrain() reads the
 // frame from an interrupt at raster 250 while sprites_stack_commit() writes it

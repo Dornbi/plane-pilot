@@ -24,7 +24,9 @@ static inline int16_t _clouds_down_shift(uint32_t val) {
 // The camera-space image of a *half* step along each world axis, indexed by
 // world axis (§2.5). kCloudGroupOffset counts in half steps, so this is the
 // unit its coefficients multiply.
+#pragma bss(bss2)
 static vec3_t _clouds_half_basis[3];
+#pragma bss(bss)
 
 // The basis only depends on the camera, so it is the same for every group in
 // a frame. It is also useless in the ~58% of frames where no group is in

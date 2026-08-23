@@ -147,8 +147,10 @@ extern uint8_t flight_num_nav_points;
 // At cruise a vertical pixel takes about 1.7 s, so 128 samples is roughly
 // 3.5 minutes of flight, about one full traverse of the map.
 static const uint8_t kFlightPathLen = 128;
-extern uint8_t flight_path_px[kFlightPathLen];
-extern uint8_t flight_path_py[kFlightPathLen];
+// Pointers, not arrays: on target these two live in the dead tail of the
+// compressed sprite blob rather than in a segment of their own. See flight.cc.
+extern uint8_t *const flight_path_px;
+extern uint8_t *const flight_path_py;
 // Where the aircraft is now, in the same pixel space. Updated every sample,
 // including the ones the ring drops as a repeat, so the map can place the
 // aircraft marker without repeating the conversion.
