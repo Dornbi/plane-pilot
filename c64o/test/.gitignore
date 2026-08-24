@@ -4,6 +4,7 @@ map_test
 msg_test
 mul_test
 music_test
+poly_test
 sound_test
 sprites_test
 output.txt

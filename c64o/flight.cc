@@ -5,8 +5,6 @@
 
 #include "fmath.h"
 #include "msg.h"
-#include "sprites.h"
-#include "sprites.h"
 #include "vec.h"
 #include "world.h"
 

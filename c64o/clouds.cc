@@ -1,6 +1,5 @@
 #include "clouds.h"
 
-#include "bool.h"
 #include "clouddef.h"
 #include "color.h"
 #include "flight.h"
@@ -208,7 +207,7 @@ void clouds_add_candidates(void) {
 
       // The pattern is the top two bits of the same hash byte the gate read,
       // so a cell's orientation costs nothing to fetch (§2.5).
-      const int8_t(*pattern)[3] =
+      const int8_t (*pattern)[3] =
           collapsed ? kCloudNoOffset : kCloudGroupOffset[ha >> 6];
 
       // One flat row per rung, so nothing here has to know which half of the
