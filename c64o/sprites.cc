@@ -20,8 +20,19 @@ char kSpriteDataCompressed[] = {
 // sprite bitmaps. Only the size matters off-target: mem.cc reuses this array as
 // the viewport colour buffer once mem_init() has expanded it to $D400, so the
 // compressed data doubles as 560 bytes of scratch.
-char kSpriteDataCompressed[kViewportWidth * kViewportHeight];
+char kSpriteDataCompressed[kSpriteScratchEnd];
 #endif
+
+// mem.cc, clouds.cc and poly.cc overlay the scratch map from sprites.h onto
+// this blob, all of them only once mem_init() has expanded it to $D400 and
+// left the compressed copy as scrap. None of them can check the size from
+// where it sits, because the length is whatever LZO makes of spritedef.bin
+// rather than a number anyone chose. Edit the sprite art and this is what
+// tells you the tenants no longer fit.
+static_assert(sizeof(kSpriteDataCompressed) >= kSpriteScratchEnd,
+              "sprite blob too small for the scratch map in sprites.h");
+static_assert(kSpriteScratchStack >= kViewportWidth * kViewportHeight,
+              "scratch map overlaps the viewport colour buffer");
 
 static const uint8_t kSpriteOffsetX = 24;
 static const uint8_t kSpriteOffsetY = 50;
@@ -57,12 +68,6 @@ struct sprite_xy_t {
   uint8_t y;
 };
 
-// The stack's storage stays in the main bss rather than in bss2. bss2 is the
-// 1.4 KB gap at $0280-$07FF and it is already full - poly.cc's scratch buffers
-// are what gets evicted if anything else moves in - while neither of these
-// needs to be anywhere in particular. Only the instrument arrays below stay
-// there, and only because they were there first.
-//
 // One offered object, before indices are handed out. Insertion-sorted by
 // ascending depth, so entry 0 is the nearest.
 struct sprite_cand_t {
@@ -100,7 +105,20 @@ struct sprite_frame_t {
 #define kVicSpritePos ((volatile uint8_t *)vic_host)
 #endif
 
+// In the blob's scratch area (sprites.h) rather than in main's bss: 72 bytes
+// off the main region for no cycles, because the address is a link-time
+// constant and the generated code is the same absolute indexing an ordinary
+// array would get. Needs no zeroing - the stack is empty until
+// sprites_stack_add() fills it and _sprites_cand_count bounds every read.
+static_assert(kSpriteStackSize * sizeof(sprite_cand_t) <=
+                  kSpriteScratchClouds - kSpriteScratchStack,
+              "sprite stack does not fit its slice of the blob");
+#ifdef __OSCAR64__
+static sprite_cand_t *const _sprites_cand =
+    (sprite_cand_t *)(kSpriteDataCompressed + kSpriteScratchStack);
+#else
 static sprite_cand_t _sprites_cand[kSpriteStackSize];
+#endif
 static uint8_t _sprites_cand_count;
 
 // Double buffered, and that is not optional. _gfx_switch_to_terrain() reads the

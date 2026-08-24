@@ -24,7 +24,16 @@ static inline int16_t _clouds_down_shift(uint32_t val) {
 // The camera-space image of a *half* step along each world axis, indexed by
 // world axis (§2.5). kCloudGroupOffset counts in half steps, so this is the
 // unit its coefficients multiply.
+// The blob's scratch area (sprites.h): 18 bytes off the main region, same
+// absolute addressing as before.
+#ifdef __OSCAR64__
+static_assert(3 * sizeof(vec3_t) <= kSpriteScratchPoly - kSpriteScratchClouds,
+              "cloud basis does not fit its slice of the blob");
+static vec3_t *const _clouds_half_basis =
+    (vec3_t *)(kSpriteDataCompressed + kSpriteScratchClouds);
+#else
 static vec3_t _clouds_half_basis[3];
+#endif
 
 // The basis only depends on the camera, so it is the same for every group in
 // a frame. It is also useless in the ~58% of frames where no group is in

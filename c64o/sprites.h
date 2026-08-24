@@ -7,6 +7,38 @@
 
 extern char kSpriteDataCompressed[];
 
+// The compressed sprite blob doubles as scratch RAM. mem_init() expands it to
+// $D400 at boot and nothing reads the compressed copy afterwards, so from the
+// first frame onwards it is 817 bytes of ordinary RAM that cost nothing --
+// they are already in the image. mem.cc has aliased the viewport colour
+// buffer onto the front of it for a while; the rest is let out below.
+//
+// One map, in one place, because the tenants live in three different files
+// and nothing but arithmetic stops two of them claiming the same byte. Each
+// user static_asserts its own slice; add a tenant here first, never by
+// picking an offset locally.
+//
+// Everything here came out of the *main* region's bss, which is the point:
+// the blob buys main-region bytes without moving anything in bss2. Do not put
+// the flight path here. It lives in bss2, so moving it out repacks that
+// region, and this program does not currently survive a bss2 repack -- see
+// docs/memory_map.md.
+//
+// Nothing placed here is zeroed at startup: it holds LZO bytes until it is
+// written, so a tenant must not read a slot before it has filled one.
+// Slices are sized for the *host* build where that is larger: oscar64 packs
+// sprite_cand_t into 9 bytes and a host compiler pads it to 10, and the
+// asserts have to hold in both. The slack is a few bytes out of 817.
+static const uint16_t kSpriteScratchColor = 0;    // 560, mem.cc
+static const uint16_t kSpriteScratchStack = 560;  //  80, sprites.cc
+static const uint16_t kSpriteScratchClouds = 640; //  24, clouds.cc
+static const uint16_t kSpriteScratchPoly = 664;   // 120, poly.cc
+static const uint16_t kSpriteScratchEnd = 784;
+
+// Deliberately not here: the raster IRQ blocks. The dispatcher jumps into
+// them and the panel switch they drive is cycle counted against the raster
+// (mem.h kSpritesOffLead); that is not a thing to relocate for 32 bytes.
+
 void sprites_init(void);
 
 // Update instrument panel sprites.
