@@ -176,6 +176,12 @@ ZPCHECK = $(PYTHON) ../tools/check_zeropage.py
 # too. See the header of the script.
 IRQCHECK = $(PYTHON) ../tools/check_irq_zp.py
 MATHCHECK = $(PYTHON) ../tools/check_mul_div.py
+# Until mem_init() banks the ROM out, $A000-$BFFF reads BASIC and $E000-$FFFF
+# reads KERNAL, while writes to the same addresses reach the RAM underneath. A
+# global the linker happens to place there is therefore written correctly and
+# read back as a ROM byte by anything that runs before mem_init(). It cost a
+# frozen simulation once; see the header of the script.
+ROMCHECK = $(PYTHON) ../tools/check_rom_window.py
 RAMANALYSIS = $(PYTHON) ../tools/analyze_ram.py
 
 # Report the size of a built .prg. A .prg starts with a two-byte little-endian
@@ -217,18 +223,21 @@ $(PPILOT_PROGRAM).prg: $(PPILOT_SRC)
 	@$(ZPCHECK) $(PPILOT_PROGRAM).asm
 	@$(IRQCHECK) $(PPILOT_PROGRAM).asm
 	@$(MATHCHECK) $(PPILOT_PROGRAM).asm
+	@$(ROMCHECK) $(PPILOT_PROGRAM).asm
 
 $(PPILOTD_PROGRAM).prg: $(PPILOTD_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__ENABLE_DEBUG__ $(CLOUDS) -D__MAX_RAM__ -o=$(PPILOTD_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(PPILOTD_PROGRAM).asm
 	@$(IRQCHECK) $(PPILOTD_PROGRAM).asm
 	@$(MATHCHECK) $(PPILOTD_PROGRAM).asm
+	@$(ROMCHECK) $(PPILOTD_PROGRAM).asm
 
 $(POLYDEMO_PROGRAM).prg: $(POLYDEMO_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ -D__DEBUG_POLY__ -D__MAX_RAM__ polydemo.cc
 	@$(ZPCHECK) $(POLYDEMO_PROGRAM).asm
 	@$(IRQCHECK) $(POLYDEMO_PROGRAM).asm
 	@$(MATHCHECK) $(POLYDEMO_PROGRAM).asm
+	@$(ROMCHECK) $(POLYDEMO_PROGRAM).asm
 
 $(VECDEMO_PROGRAM).prg: $(VECDEMO_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ vecdemo.cc
@@ -249,6 +258,9 @@ mathcheck:
 	$(MATHCHECK) $(PPILOT_PROGRAM).asm $(PPILOTD_PROGRAM).asm $(POLYDEMO_PROGRAM).asm \
 		$(VECDEMO_PROGRAM).asm
 
+romcheck:
+	$(ROMCHECK) $(PPILOT_PROGRAM).asm $(PPILOTD_PROGRAM).asm $(POLYDEMO_PROGRAM).asm
+
 test flight_test msg_test:
 	$(MAKE) -C test $@
 
@@ -256,7 +268,7 @@ clean:
 	rm -rf $(PPILOT_PROGRAM).prg $(PPILOTD_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg *.asm *.dbj *.int *.lbl *.map
 	$(MAKE) -C test clean
 
-.PHONY: all size ram zpcheck mathcheck test flight_test msg_test clean
+.PHONY: all size ram zpcheck mathcheck romcheck test flight_test msg_test clean
 
 # ZPCHECK runs after the link, so a program that fails it already exists on
 # disk. Without this, the next make would find the .prg newer than its sources,

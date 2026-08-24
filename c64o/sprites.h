@@ -10,34 +10,26 @@ extern char kSpriteDataCompressed[];
 // The compressed sprite blob doubles as scratch RAM. mem_init() expands it to
 // $D400 at boot and nothing reads the compressed copy afterwards, so from the
 // first frame onwards it is 817 bytes of ordinary RAM that cost nothing --
-// they are already in the image. mem.cc has aliased the viewport colour
-// buffer onto the front of it for a while; the rest is let out below.
+// they are already in the image. mem.cc has aliased the viewport colour buffer
+// onto the front of it for a while; the flight path takes the rest, and
+// between them they fill it almost exactly: 816 of 817.
 //
-// One map, in one place, because the tenants live in three different files
-// and nothing but arithmetic stops two of them claiming the same byte. Each
-// user static_asserts its own slice; add a tenant here first, never by
-// picking an offset locally.
+// One map, in one place, because the two tenants live in different files and
+// nothing but arithmetic stops them claiming the same byte. sprites.cc holds
+// the assert that the blob is long enough, because that is the only place its
+// length is known -- it is whatever LZO makes of spritedef.bin, not a number
+// anyone chose. Add a tenant here first, never by picking an offset locally.
 //
-// Everything here came out of the *main* region's bss, which is the point:
-// the blob buys main-region bytes without moving anything in bss2. Do not put
-// the flight path here. It lives in bss2, so moving it out repacks that
-// region, and this program does not currently survive a bss2 repack -- see
-// docs/memory_map.md.
+// Two large tenants rather than a handful of small ones is deliberate. Every
+// object moved changes the layout, and layout changes in this program have a
+// history of waking up bugs that had nothing to do with them; see
+// tools/check_rom_window.py for the one that cost the most.
 //
 // Nothing placed here is zeroed at startup: it holds LZO bytes until it is
 // written, so a tenant must not read a slot before it has filled one.
-// Slices are sized for the *host* build where that is larger: oscar64 packs
-// sprite_cand_t into 9 bytes and a host compiler pads it to 10, and the
-// asserts have to hold in both. The slack is a few bytes out of 817.
-static const uint16_t kSpriteScratchColor = 0;    // 560, mem.cc
-static const uint16_t kSpriteScratchStack = 560;  //  80, sprites.cc
-static const uint16_t kSpriteScratchClouds = 640; //  24, clouds.cc
-static const uint16_t kSpriteScratchPoly = 664;   // 120, poly.cc
-static const uint16_t kSpriteScratchEnd = 784;
-
-// Deliberately not here: the raster IRQ blocks. The dispatcher jumps into
-// them and the panel switch they drive is cycle counted against the raster
-// (mem.h kSpritesOffLead); that is not a thing to relocate for 32 bytes.
+static const uint16_t kSpriteScratchColor = 0;   // 560, mem.cc
+static const uint16_t kSpriteScratchPath = 560;  // 256, flight.cc
+static const uint16_t kSpriteScratchEnd = 816;
 
 void sprites_init(void);
 

@@ -6,7 +6,6 @@
 #include "chardefs.h"
 #include "fmath.h"
 #include "mem.h"
-#include "sprites.h"
 #include "vec.h"
 
 // Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
@@ -16,11 +15,6 @@ struct vertex16_t {
   int16_t x;
   int16_t y;
 };
-
-static_assert(2 * kPolyMax2dVertices * sizeof(vertex16_t) +
-                      kPolyMax2dVertices * sizeof(vertex_t) <=
-                  kSpriteScratchEnd - kSpriteScratchPoly,
-              "polygon scratch does not fit its slice of the blob");
 
 #pragma bss(bss2)
 
@@ -633,22 +627,16 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
     return 0;
   }
 
-  // In the sprite blob's scratch area (sprites.h), which is 120 bytes of main
-  // region these three no longer occupy. bss2 has no room for them, and main's
-  // bss is exactly what the blob is being used to empty. The blob is plain RAM
-  // at a link-time constant address, so an access costs what it always did.
-  // Keep clip2_buf1 and clip2_buf2 adjacent and in this order: _clip_2d
-  // ping-pongs between them and the pointer swap reads better that way.
-#ifdef __OSCAR64__
-  static vertex16_t *const clip2_buf1 =
-      (vertex16_t *)(kSpriteDataCompressed + kSpriteScratchPoly);
-  static vertex16_t *const clip2_buf2 =
-      (vertex16_t *)(kSpriteDataCompressed + kSpriteScratchPoly +
-                     kPolyMax2dVertices * sizeof(vertex16_t));
-#else
+  // In main's bss rather than bss2: 96 bytes here plus final_verts below are
+  // what pays for flight_path_px/py, which needs 256 contiguous bytes and had
+  // nowhere else to go. Nothing else changes — both regions are plain RAM at
+  // absolute addresses, so an access costs the same either way. Also keep
+  // clip2_buf1 and clip2_buf2 adjacent and in this order: _clip_2d ping-pongs
+  // between them and the pointer swap reads better when they sit together.
+#pragma bss(bss)
   static vertex16_t clip2_buf1[kPolyMax2dVertices];
   static vertex16_t clip2_buf2[kPolyMax2dVertices];
-#endif
+#pragma bss(bss2)
   uint8_t n = num_clip3;
 
   vertex16_t *src = proj_buf;
@@ -694,15 +682,10 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
 
 __noinline void poly_draw_3d(const vec3_t *vertices, uint8_t num_vertices,
                              uint8_t fill_char_start_idx, uint8_t color) {
-  // The blob's scratch area, with the clip2 buffers above and for the same
-  // reason. Last of the three, so it is what kSpriteScratchEnd measures.
-#ifdef __OSCAR64__
-  static vertex_t *const final_verts =
-      (vertex_t *)(kSpriteDataCompressed + kSpriteScratchPoly +
-                   2 * kPolyMax2dVertices * sizeof(vertex16_t));
-#else
+  // Main's bss, with the clip2 buffers above and for the same reason.
+#pragma bss(bss)
   static vertex_t final_verts[kPolyMax2dVertices];
-#endif
+#pragma bss(bss2)
   bm_poly_start();
   uint8_t n = _project_vertices(vertices, num_vertices, final_verts);
   bm_poly_end(630, "PRJ:");
