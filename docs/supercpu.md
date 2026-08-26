@@ -60,16 +60,59 @@ diffing frames against a stock C64:
 | 20 | identical | identical |
 | 21 | row 147 wrong | identical |
 
-**19**, the middle of the joint window, with a NOP of margin either side. One
-constant, one code path, no run-time branch in a cycle-counted handler. The
-three values that work differ by about 0.4% of the render at the runway pose and
-nothing measurable at cruise, so the choice is margin rather than cycles.
+**19** was taken as the middle of the joint window, with a NOP of margin either
+side. That is where this section stood, and it was wrong about the margin.
 
-The window is three NOPs wide, so real hardware may want a different number —
-`GFX_PANEL_NOPS` is a `#define` for that reason, and a photograph of the split
-settles it rather than an argument. If the two machines ever need different
-values, the way out is a data-driven delay count set from the probe at init: a
-constant-shape loop in the handler rather than a branch.
+## What was wrong: a NOP of margin is not a margin
+
+A stock C64 tore the top of the panel about **one frame in 250** — a single
+raster line of character-mode colour across raster 163, gone the next frame,
+which reads as an occasional flicker at the split and is what
+[clouds.md](clouds.md) §1.8's sprite fix left behind.
+
+The joint window above is not three NOPs wide because the switch is tolerant.
+It is three NOPs wide because two ten-NOP windows barely overlap, and 19 was
+against the C64's own late edge. Counting torn frames rather than looking at one
+screenshot puts numbers on it: at 19 the C64 tears one frame in 250, at 20 two
+frames in twelve, at 21 ten in twelve. There was never a NOP of margin on that
+side; there was a NOP of *overlap*, and the interrupt's entry jitter — six
+cycles, with no stabiliser under `rirq` — spends it.
+
+Two changes, and neither is a re-tune:
+
+**The write block was made shorter.** All three writes share one deadline, and
+it is not "the horizontal blanking" in general: raster 163 is the panel's first
+line and a badline, so the VIC starts fetching the row at cycle 15. `$D018`'s
+video matrix, `$D011`'s BMM bit and `$D021` all have to be in before that.
+Three `lda`/`sta` pairs spread that deadline over eighteen cycles; three loads
+followed by three stores spread it over twelve. Six cycles of window, for no
+bytes and no branch.
+
+**The count became two counts.** Swept on the split itself, with the shorter
+block:
+
+| | window | middle |
+| --- | :---: | ---: |
+| stock C64 (`x64sc`) | 8 – 17 | **12** |
+| SuperCPU (`xscpu64`) | 15 – 24 | **19** |
+
+Ten NOPs each, overlapping by three. `gfx_init_raster_irqs()` installs
+`_gfx_switch_to_panel_top` or `_gfx_switch_to_panel_top_fast` — same handler,
+different `#assign` count, one shared `__noinline` tail with the writes in it —
+according to `cpu_step_shift`, which the boot probe already sets. One
+`rirq_call`, no run-time branch inside a cycle-counted handler, and each machine
+gets four NOPs of margin below and five above instead of one.
+
+This is exactly the escape hatch the previous section ended with: *"If the two
+machines ever need different values, the way out is a data-driven delay count
+set from the probe at init."* It turned out to be a function pointer rather than
+a delay count, which is cheaper still.
+
+**Measured after.** 1,000 consecutive frames in the side view and 800 in the
+centre view, each grabbed from the monitor at the terrain interrupt and checked
+at rasters 162 and 163: **no torn frame, and in the centre view the whole split
+band renders byte-identically every frame.** The frozen-pose frame is
+**pixel-identical between `x64sc` and `xscpu64`** over the entire screen.
 
 ## What was wrong: the flight model flew 4.67× too fast
 

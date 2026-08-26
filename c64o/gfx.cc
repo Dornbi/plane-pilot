@@ -45,17 +45,59 @@ const char kGfxCharsCompressed[] = {
 // the outliner out of them as well.
 #pragma optimize(push, noasm, nooutline)
 
-// The padding below, as a count. It is the number that puts the three register
-// writes in the horizontal blanking, so it is measured on a raster and never
-// reasoned about - docs/clouds.md §1.8 and docs/supercpu.md.
+// The padding in the two handlers below, in NOPs. It is what puts the three
+// register writes in the horizontal blanking between rasters 162 and 163, so it
+// is measured on a raster and never reasoned about - docs/clouds.md §1.8 and
+// docs/supercpu.md.
 //
-// Nineteen: the middle of the window where both a stock C64 and a 20 MHz
-// accelerator draw the same frame, which is 18 to 20. Below 18 the accelerator
-// is a raster line out; at 21 the C64 is. Costs about 0.4% of the render either
-// side of the middle, so the value is chosen for margin rather than for cycles.
+// **Two numbers, because one cannot serve both machines.** Swept on the split
+// itself, the window is ten NOPs wide on either machine and the two barely
+// overlap: a stock C64 draws the frame correctly from **8 to 17** and xscpu64
+// from **15 to 24**, because the interrupt entry and oscar64's rirq dispatcher
+// ahead of the handler still run at 20 MHz on the accelerator. Any shared value
+// is within a NOP or two of one machine's edge, and a NOP or two is what let a
+// stock C64 tear one frame in a few hundred. docs/supercpu.md named this as the
+// way out if the two ever needed different values; they do.
+//
+// 12 and 19 are the middles, with four NOPs of margin on the early side and
+// five on the late one, which is the side the interrupt's entry jitter wanders
+// towards.
+//
+// The choice is made once, in gfx_init_raster_irqs(), from the boot probe: two
+// handlers, one rirq_call, no run-time branch inside a cycle-counted handler.
 #ifndef GFX_PANEL_NOPS
-#define GFX_PANEL_NOPS 19
+#define GFX_PANEL_NOPS 12
 #endif
+#ifndef GFX_PANEL_NOPS_FAST
+#define GFX_PANEL_NOPS_FAST 19
+#endif
+
+// The writes, and everything after them. Shared by both handlers so that the
+// padding is the only difference between them; __noinline so the JSR is in both
+// and the two counts stay comparable.
+//
+// The three values are loaded and *then* stored, rather than in load/store
+// pairs. That is not tidying: all three have the same deadline, which is not
+// "the blanking" in general but raster 163's badline - the VIC starts fetching
+// the panel's first character row at cycle 15 and shifts its first pixel out at
+// ~16, and $D018's video matrix, $D011's BMM bit and $D021 all have to be in
+// before that. Three lda/sta pairs span the deadline over eighteen cycles;
+// three loads and three stores span it over twelve. Six cycles of the window,
+// for no bytes and no branch.
+static __noinline void _gfx_panel_top_writes(void) {
+  // clang-format off
+  __asm {
+    lda #$b8;
+    ldx #$3b;
+    ldy #$00;
+    sta $d018;
+    stx $d011;
+    sty $d021;
+  }
+  // clang-format on
+  sprites_show_panel_top_sprites();
+  cpu_speed_fast();
+}
 
 static void _gfx_switch_to_panel_top() {
   // 1 MHz for the length of this handler, and only this handler. On a 20 MHz
@@ -87,19 +129,34 @@ static void _gfx_switch_to_panel_top() {
 #assign num_nop num_nop - 1
 #until num_nop == 0
 #undef num_nop
+  _gfx_panel_top_writes();
+}
 
-  // clang-format off
-  __asm {
-    lda #$b8;
-    sta $d018;
-    lda #$3b;
-    sta $d011;
-    lda #$00;
-    sta $d021;
+// The same handler for a machine whose interrupt entry runs faster than its
+// padding does. Only the count differs; see the comment on the two constants.
+static void _gfx_switch_to_panel_top_fast() {
+  cpu_speed_slow();
+#ifdef __ENABLE_DEBUG__
+  if (mem_debug_enabled) {
+    sprites_show_no_sprites();
+    return;
   }
-  // clang-format on
-  sprites_show_panel_top_sprites();
-  cpu_speed_fast();
+#else
+  __asm {
+    nop;
+    nop;
+    nop;
+  }
+#endif
+#assign num_nop GFX_PANEL_NOPS_FAST
+#repeat
+  __asm {
+      nop;
+  }
+#assign num_nop num_nop - 1
+#until num_nop == 0
+#undef num_nop
+  _gfx_panel_top_writes();
 }
 
 static void _switch_to_panel_bottom() {
@@ -165,7 +222,12 @@ void gfx_init_raster_irqs(void) {
            &_rirq_sprites_off);
 
   rirq_build(&_rirq_panel_top, 1);
-  rirq_call(&_rirq_panel_top, 0, (void *)_gfx_switch_to_panel_top);
+  // Which of the two padding counts this machine needs, from the boot probe.
+  // cpu_step_shift is 0 on a stock C64 and 2 on a SuperCPU (docs/supercpu.md),
+  // and it is the only thing in the program that already knows the difference.
+  rirq_call(&_rirq_panel_top, 0,
+            cpu_step_shift ? (void *)_gfx_switch_to_panel_top_fast
+                           : (void *)_gfx_switch_to_panel_top);
   rirq_set(1, kRasterScreenYStart + kViewportEndYPixels - 1, &_rirq_panel_top);
   rirq_build(&_rirq_panel_bottom, 1);
   rirq_call(&_rirq_panel_bottom, 0, (void *)_switch_to_panel_bottom);

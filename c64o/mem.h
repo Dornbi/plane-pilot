@@ -73,34 +73,40 @@ static const uint16_t kViewportEndYPixels = kViewportEndY * 8;
 static uint8_t *const kCharRam = (uint8_t *)0xE000;
 static const uint8_t kRasterScreenYStart = 50;
 
-// Sprites are switched off this many raster lines above the panel split, and
-// therefore stop drawing this far above the bottom of the viewport.
+// Sprites are switched off this many raster lines above the panel split, so
+// this is also the last line in the viewport a sprite may *start* on.
 //
 // The switch to the panel in gfx.cc is cycle counted - nineteen NOPs and then
-// three register writes that have to land in the horizontal blanking - and
-// oscar64's raster IRQ has no stabiliser, so every cycle stolen on that line
-// moves them. The VIC steals two cycles for each sprite it is fetching, about
-// nineteen for all eight, which is far wider than the blanking window.
-// Clearing $D015 a few lines early puts the handler back in the no-sprite case
-// its padding was measured in. See docs/clouds.md §1.8.
+// three register writes that have to land in the blanking between raster 162
+// and 163 - and oscar64's raster IRQ has no stabiliser, so every cycle the VIC
+// steals on those two lines moves them. It steals two for each sprite whose
+// data it is fetching, about nineteen for all eight, which is far wider than
+// the window.
 //
-// Seventeen lines, and the number is set by oscar64's raster IRQ rather than
-// by the VIC. After servicing one interrupt its ISR arms the next and then does
+// Twenty-two, and unlike every earlier value here this one is derived rather
+// than flown. **A sprite's DMA runs for 21 raster lines from the line its Y
+// matches, and clearing $D015 does not stop one already in flight** - it only
+// stops sprites that have not started yet. So the last line a sprite may begin
+// on is 21 lines above the switch, plus one line of margin:
 //
-//     dey / sty $d012 / dey / cpy $d012 / bcc l1
+//     161 - 21 - 1 = 139, which is 22 lines above the split at 161.
 //
-// - if the next interrupt's line minus two has *already gone past*, it calls
-// that handler inline, immediately, instead of returning and letting the
-// interrupt fire. At a short lead that comparison is marginal: the sprites-off
-// interrupt is itself delayed by the sprite DMA it is about to switch off, and
-// if it finishes a line late the panel switch is run at an arbitrary cycle
-// rather than at the top of its line.
+// Measured in x64sc with seven sprites parked at a swept Y and a breakpoint on
+// the handler's `sta $d018` (docs/clouds.md §1.8):
 //
-// Every value here was flown, not reasoned: 10 flickers, 15 leaves a single
-// line of it, 17, 20 and 30 are clean. 17 ships - two lines of margin over the
-// last value that showed anything, and seventeen lines of clipped sprite is
-// what it costs. See docs/clouds.md §1.8.
-static const uint8_t kSpritesOffLead = 17;
+//     Y <= 139   lands exactly where it lands with no sprites at all
+//     Y  = 140   up to 4 cycles late, and the last value that is harmless
+//     Y  = 141   up to 55 cycles late
+//     Y  = 142   ~70 late;  Y = 143, 144: ~85 late - the $d018 write misses
+//                the badline on 163 and a whole character row of terrain
+//                charset is drawn across the top of the panel
+//
+// One sprite alone in that band is 9 cycles late, which is inside the window
+// but barely. That is why the old value of 17 - which let a sprite start as
+// low as 144 - flickered only sometimes, and worse the more sprites were near
+// the panel: the band that breaks it is five raster lines wide and objects
+// pass through it.
+static const uint8_t kSpritesOffLead = 22;
 static const uint16_t kSpriteVisibleEndYPixels =
     kViewportEndYPixels - kSpritesOffLead;
 

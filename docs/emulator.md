@@ -3,7 +3,8 @@
 `x64sc` runs the real `.prg` cycle-exactly and headlessly, which turns a class
 of arguments into measurements. Three things it has settled that reasoning had
 got wrong: whether clearing `$D015` can stop sprite DMA already in flight
-(§1.8 of [clouds.md](clouds.md) — it can), whether an oscar64 fix reached the
+(§1.8 of [clouds.md](clouds.md) — it cannot, and the first answer it gave was
+"it can", from a pose that did not contain the case), whether an oscar64 fix reached the
 real code ([bugs/](../bugs/) — a pixel-identical screenshot said
 yes), and what the far-group collapse actually buys (§3.5 — one PAL frame).
 

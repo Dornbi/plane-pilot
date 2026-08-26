@@ -5,6 +5,11 @@
 
 #include "fmath.h"
 #include "msg.h"
+// For kSpriteDataCompressed / kSpriteScratchPath below. Nothing else here needs
+// it, and no other header in this file's chain pulls it in - without this the
+// borrowed path buffer only compiles when some earlier translation unit
+// happened to have included it first.
+#include "sprites.h"
 #include "vec.h"
 #include "world.h"
 

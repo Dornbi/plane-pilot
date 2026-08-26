@@ -39,6 +39,8 @@ import sys
 HANDLERS = (
     "_gfx_switch_to_terrain",
     "_gfx_switch_to_panel_top",
+    "_gfx_switch_to_panel_top_fast",
+    "_gfx_panel_top_writes",
     "_switch_to_panel_bottom",
 )
 
