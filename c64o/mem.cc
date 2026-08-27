@@ -34,6 +34,11 @@ bool mem_debug_enabled;
 #endif
 bool mem_using_alt_buffer;
 
+// Initialized, so it lives in data rather than in the bss2 region above -
+// which is full, and which the startup code clears to zero anyway, the one
+// value this must never power up holding.
+volatile uint8_t mem_den = 0x10;
+
 static uint8_t *const kScreenRowPtrsMain[kScreenHeight] = {
     kScreenRamMain + kScreenWidth * 0,  kScreenRamMain + kScreenWidth * 1,
     kScreenRamMain + kScreenWidth * 2,  kScreenRamMain + kScreenWidth * 3,
@@ -224,8 +229,9 @@ void mem_use_main_buffer(void) {
 }
 
 inline void mem_set_mccm_mode(void) {
-  // Switch to multicolor character mode
-  vic.ctrl1 = 0x1b;
+  // Switch to multicolor character mode, display on unless a transition is
+  // holding it blanked (mem_den, mem.h).
+  vic.ctrl1 = 0x0b | mem_den;
   vic.ctrl2 = 0xd8;
 }
 
@@ -239,7 +245,7 @@ void mem_init_mccm(void) {
 
 void mem_init_mcbm(void) {
   vic.color_back = kColorPanelBg;
-  vic.ctrl1 = 0x3b;
+  vic.ctrl1 = 0x2b | mem_den;
   vic.ctrl2 = 0xd8;
 }
 

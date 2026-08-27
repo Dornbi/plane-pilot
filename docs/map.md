@@ -312,11 +312,22 @@ exists to protect, to save work that happens once per `map_enter()`.
 `map_exit()`:
 
 ```
-gfx_init_chars()             // NEW — rebuild the font at $E000
-box_invalidate()             // NEW — clear box.cc _slot_def[0..1]
-view_invalidate_bitmap()     // NEW — force panel bitmap re-expansion
+screen_blank()               // display off before the font goes back
+gfx_init_chars()             // rebuild the font at $E000
+box_invalidate()             // clear box.cc _slot_def[0..1]
+view_invalidate_bitmap()     // force panel bitmap re-expansion
 screen_restore_simulation()
 ```
+
+The blank is the same trick `map_enter()` opens with, and it is needed for the
+same reason at this end: the map's bitmap is still on display and reads its
+pixels from `$E000`, which is exactly where `gfx_init_chars()` expands the
+character set. Without it the several frames of that expansion, and of the
+panel bitmap that `screen_restore_simulation()` expands after it, are visible
+as the charset being drawn as map tiles. `screen_blank()` is defined in
+`screen.h`; nothing turns the display back on until the raster split restarts
+inside `gfx_init_raster_irqs()`, whose own `$d011` writes always have `DEN`
+set.
 
 ### Restore-path gaps
 

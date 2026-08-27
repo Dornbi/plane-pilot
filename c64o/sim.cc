@@ -26,6 +26,13 @@
 #pragma optimize(push, outline)
 
 static void _enter_simulation(uint8_t selected_mission) {
+  // The menu is still on display and everything below rewrites what is under
+  // it: both screen buffers, the character set, the panel bitmap, the sprite
+  // pointers. Blank until gfx_init_raster_irqs() near the end of this function
+  // starts the split, whose own $d011 writes bring the display back with a
+  // finished screen behind it.
+  screen_blank();
+
   memset(kScreenRamMain, kCharSolid11, 1000);
   memset(kScreenRamAlt, kCharSolid11, 1000);
 

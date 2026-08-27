@@ -22,6 +22,39 @@ void screen_begin_text_page(void);
 // the VIC-II, such as the map view or the help screen.
 void screen_restore_simulation(void);
 
+// --- Blanking a transition --------------------------------------------------
+//
+// Turns the display off by clearing $d011's DEN bit, so that the several
+// frames a transition spends rewriting character RAM, screen RAM or the panel
+// bitmap are not seen at all: with DEN clear the whole screen is border
+// colour, and the border is black on every screen this program has. It is also
+// faster than leaving the display on - a blanked screen has no badlines to
+// steal cycles - so the transitions it covers are shorter as well as cleaner.
+// map_enter() has done this since it was written; these two put the same trick
+// on the other transitions.
+//
+// Two details that are easy to get wrong:
+//
+//   - The write is a constant, never a read-modify-write of $d011. Bit 7 of
+//     that register reads back as the current raster line's bit 8, so
+//     `&= ~0x10` would write that bit back as the raster compare's high bit
+//     and move the split.
+//   - Clearing DEN mid-frame does not re-close the vertical border flip flop,
+//     which was already opened at raster $30; the VIC drops to idle state and
+//     shows whatever byte is at $ffff for the rest of the frame. Blanking
+//     therefore waits for the lower border first, which costs at most one
+//     frame and is the difference between a clean cut and a flash.
+//
+// Only safe with the raster interrupts stopped - the split rewrites $d011
+// three times a frame - which every caller has already done.
+//
+// Only the static text pages pair blank with unblank. The simulation does not
+// need to: gfx_init_raster_irqs() restores mem_den and the split's next $d011
+// write turns the display back on, which is exactly the moment a finished
+// screen exists to show.
+void screen_blank(void);
+void screen_unblank(void);
+
 // --- Transient notices on a text page ---------------------------------------
 //
 // A one-line message that clears itself after a few seconds, for the menu and

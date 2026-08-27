@@ -146,6 +146,23 @@ extern bool mem_using_alt_buffer;
 void mem_switch_buffer(void);
 void mem_use_main_buffer(void);
 
+// $d011's DEN bit (0x10), or zero while a screen transition is rebuilding
+// what is on display. Both mode setters below compose it into their $d011
+// write, so a mem_init_mccm() in the middle of a transition leaves the screen
+// blanked instead of switching it back on over half-built graphics.
+// screen_blank() clears it; screen_unblank() and gfx_init_raster_irqs() put it
+// back. The raster split's own $d011 writes are constants with DEN set and
+// deliberately do not consult this - see screen.h.
+//
+// volatile, and that is not decoration. Without it this is an ordinary global
+// that the optimizer may schedule freely against the $d011 writes it feeds:
+// oscar64 was seen hoisting screen_unblank()'s store of it to before the
+// mem_set_mccm_mode() that is supposed to read the blanked value, which would
+// switch the display back on over a half-built page. volatile puts it in the
+// same ordering class as the VIC registers it is composed into. It is read
+// once per mode write and never in a loop, so it costs nothing measurable.
+extern volatile uint8_t mem_den;
+
 // Sets the VIC-II control registers for Multicolor Character Mode (MCCM),
 // without touching the background/multi-color registers. Used by screens
 // that want MCCM text but not the simulation's terrain colors (menu, help).

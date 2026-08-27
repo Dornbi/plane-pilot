@@ -326,6 +326,13 @@ void map_enter() {
   // bytes are several frames long, and with DEN clear they show the black
   // border instead of the old character RAM reinterpreted as a bitmap --
   // and run faster, since a blanked screen has no badlines to steal cycles.
+  //
+  // This is screen_blank()'s trick, written out rather than called: the exit
+  // from it is the `vic.ctrl1 = 0x3b` at the end of this function, which is
+  // the map's own mode rather than mem_den's, so going through screen.cc
+  // would mean handing mem_den back here as well. The one thing it gives up
+  // is that function's wait for the lower border, and so a frame in which the
+  // bottom of the old screen is idle-state graphics rather than border.
   vic.ctrl1 = 0x2b; // bitmap mode, screen off
   vic.ctrl2 = 0xd8; // multicolor
   vic_memptr = kVicMemMap;
@@ -408,6 +415,14 @@ void map_exit() {
   // gfx_init_chars() restores characters 0 and 32..255; the two caches below
   // own the gradient slots and the panel bitmap, and would otherwise report
   // memory they no longer hold as still valid.
+  //
+  // Blank first, and before gfx_init_chars() rather than inside
+  // screen_restore_simulation(): the map's bitmap is still on display, and
+  // $e000 is where that bitmap reads its pixels from, so expanding the
+  // character set over it is precisely the mush this avoids. map_enter()
+  // blanks for the same reason at the other end.
+  screen_blank();
+
   gfx_init_chars();
   box_invalidate();
   view_invalidate_bitmap();

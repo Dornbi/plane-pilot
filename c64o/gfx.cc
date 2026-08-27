@@ -204,6 +204,12 @@ RIRQCode _rirq_panel_top, _rirq_panel_bottom, _rirq_terrain;
 #pragma optimize(push, outline)
 
 void gfx_init_raster_irqs(void) {
+  // The split owns $d011 from here on and its writes are constants with DEN
+  // set, so starting it is also the unblank for whatever transition led here
+  // (screen.h). Putting mem_den back keeps the main line's mode setters
+  // agreeing with what the hardware is about to be told.
+  mem_den = 0x10;
+
   rirq_init(/*kernalIRQ=*/false);
 
   // Sprite DMA off, kSpritesOffLead lines above the split. This one is a bare
