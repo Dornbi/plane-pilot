@@ -426,6 +426,21 @@ static void test_orientation(void) {
   // give back for a mark that was never there.
   assert(spr_color(kSpriteIdxOrient) == kColorInstrument);
 
+  printf("  the side views do not carry it\n");
+  // A mark fixed to the middle of the screen is a reference for where the nose
+  // is pointing, and out of a side window it is not pointing there.
+  static const view_state_t kSideViews[2] = {VIEW_LEFT, VIEW_RIGHT};
+  for (uint8_t i = 0; i < 2; ++i) {
+    view_state = kSideViews[i];
+    sprites_stack_reset();
+    sprites_set_orientation();
+    sprites_stack_commit();
+    show_terrain();
+    assert(!enabled(kSpriteIdxOrient));
+    assert(spr_enable() == 0x00);
+  }
+  view_state = VIEW_CENTER;
+
   printf("  the panel band takes sprite 7 back for the needle\n");
   sprites_set_vspeed(0);
   sprites_stack_reset();

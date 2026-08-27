@@ -390,7 +390,19 @@ static const uint8_t kSpriteOrientVY =
 // kMsgHeightPixels tall at the top of the viewport and the bar sits 56 pixels
 // below its top, so the two cannot meet. No cull either, and no position - the
 // mark is the one thing on screen that does not move.
-void sprites_set_orientation(void) { _sprites_orient_on = true; }
+//
+// The front view only. Looking left or right the camera is 90 degrees off the
+// nose, so a mark fixed to the middle of the screen would be a reference for an
+// attitude nobody is flying: the horizon out of the side window rises and falls
+// with *roll*, and reading pitch off it is exactly backwards. The panel says
+// the same thing - the side views draw one instrument and leave the roll and
+// pitch dials off (sprites_show_panel_bottom_sprites()).
+//
+// The test is here rather than at the call site so that no caller can put the
+// mark in a side view by forgetting it.
+void sprites_set_orientation(void) {
+  _sprites_orient_on = view_state == VIEW_CENTER;
+}
 
 void sprites_stack_commit(void) {
   // Main line, so a pointer is fine here - the restriction above is on the
