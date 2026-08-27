@@ -155,13 +155,55 @@ def assert_pivots_consistent(label, metas):
         )
 
 
+# --- The orientation indicator ----------------------------------------------
+#
+# The fixed reference mark in the middle of the viewport (c64o/sprites.h). It
+# takes the first block of the blob, bitmap 80, which is the slot the cloud size
+# ladder's rung 0 used to hold and which no cloud can reach: clouds.cc draws a
+# distant group as one blob a rung *larger* than its own, so the smallest row it
+# can index is rung 1's (docs/clouds.md §3.5). There is no other slot to take -
+# the blob's 48 blocks are full from the cloud base to the last needle - so
+# claiming the dead one is the only way this mark gets drawn at all.
+#
+# Two wings and a gap on the pivot row, which is what the horizon is read
+# against: level flight puts the horizon along the bar and through the gap.
+KSPRITE_ORIENT_WING = 8
+KSPRITE_ORIENT_ROW = 10
+
+
+def generate_orient_sprite(bitmap_offset):
+    """The orientation indicator: xxxxxxxx--------xxxxxxxx on the pivot row."""
+    grid = [[0 for _ in range(KSPRITE_COLS)] for _ in range(KSPRITE_ROWS)]
+    for x in range(KSPRITE_ORIENT_WING):
+        grid[KSPRITE_ORIENT_ROW][x] = 1
+        grid[KSPRITE_ORIENT_ROW][KSPRITE_COLS - 1 - x] = 1
+
+    # The gap is what is left over, and it has to stay a gap: a wing wide enough
+    # to close it would leave a solid bar with nothing to centre by.
+    gap = KSPRITE_COLS - 2 * KSPRITE_ORIENT_WING
+    assert gap > 0, "the orientation indicator's wings meet in the middle"
+
+    meta = {
+        "pivot_x": 12,
+        "pivot_y": KSPRITE_ORIENT_ROW,
+        "bitmap_idx": bitmap_offset,
+        "label": "Orientation indicator",
+    }
+    return _grid_to_sprite_bytes(grid), meta, grid
+
+
 def generate_cloud_sprites(cloud_base_offset):
     png_path = os.path.join(REPO_ROOT, "gfx", "ppilot_clouds_concept.png")
     img, w, h = _read_concept_png(png_path)
 
-    # 1-sprite cloud configurations from upper set in concept PNG
+    # 1-sprite cloud configurations from upper set in concept PNG.
+    #
+    # The ladder starts at 5x9, not at the 3x5 the concept art also carries.
+    # That rung is unreachable - a collapsed group draws one rung larger than
+    # its own, so rung 0 is never indexed (docs/clouds.md §3.5) - and its block
+    # is the orientation indicator's. kSpriteDefCloudRung keeps a dead row 0
+    # anyway, so a rung number is still a row number in clouds.cc.
     one_sprite_defs = [
-        ("3x5", (24, 29), (66, 70), 3, 5),
         ("5x9", (46, 55), (64, 72), 5, 9),
         ("7x13", (68, 81), (62, 74), 7, 13),
         ("9x17", (90, 107), (60, 76), 9, 17),
@@ -215,7 +257,7 @@ def generate_cloud_sprites(cloud_base_offset):
     cloud2_meta = []
     cloud2_bits = []
 
-    cloud2_base_offset = cloud_base_offset + len(one_sprite_defs)  # 80 + 5 = 85
+    cloud2_base_offset = cloud_base_offset + len(one_sprite_defs)  # 81 + 4 = 85
 
     for i, (name, (minx, maxx), (miny, maxy), w_world, h_lines) in enumerate(
         two_sprite_defs
@@ -395,7 +437,8 @@ def main():
         "--cloud_base_offset",
         type=int,
         default=80,
-        help="Base offset for cloud bitmaps (default: 80)",
+        help="Base offset for the blob: the orientation indicator, then the "
+             "clouds (default: 80)",
     )
     parser.add_argument(
         "--base_offset",
@@ -409,7 +452,11 @@ def main():
     cloud_base = args.cloud_base_offset
     base_offset = args.base_offset
 
-    # 1. Generate Clouds (15 bitmaps: pointers 80-94)
+    # 1. Generate the orientation indicator (pointer 80) and the clouds
+    # (14 bitmaps: pointers 81-94). Fifteen blocks between them, which is what
+    # docs/clouds.md §6.1 and mem_init()'s expansion to $D400 assume; the mark
+    # holds the block the cloud ladder's unreachable rung 0 used to.
+    data_orient, meta_orient, bits_orient = generate_orient_sprite(cloud_base)
     (
         cloud1_data,
         cloud1_meta,
@@ -417,7 +464,7 @@ def main():
         cloud2_data,
         cloud2_meta,
         cloud2_bits,
-    ) = generate_cloud_sprites(cloud_base)
+    ) = generate_cloud_sprites(cloud_base + 1)
 
     # 2. Generate Sun (pointer 95)
     data_sun, meta_sun, bits_sun = generate_sun_sprite(base_offset - 1)
@@ -430,7 +477,9 @@ def main():
         10, base_offset + angles_tot // 2, angles_tot
     )
 
-    all_data = cloud1_data + cloud2_data + [data_sun] + data14 + data10
+    all_data = (
+        [data_orient] + cloud1_data + cloud2_data + [data_sun] + data14 + data10
+    )
     total_bitmaps = len(all_data)
 
     # 1. Output BIN
@@ -489,8 +538,13 @@ def main():
         # branch into two fields of the other and drops a third assignment
         # entirely. See docs/clouds.md §3.4. A flat table has no branch to get
         # wrong.
+        # One row per rung *including* rung 0, which clouds.cc can never
+        # select and whose bitmap slot the orientation indicator now holds. The
+        # row is kept so that a rung number is still a row number - the whole
+        # point of a flat table - and it names the smallest real cloud, so even
+        # a rung 0 that somehow got indexed would draw a cloud and not a mark.
         f.write(f"static const uint8_t kSpriteDefCloudRungCount = "
-                f"{len(cloud1_meta) + len(cloud2_meta)};\n\n")
+                f"{1 + len(cloud1_meta) + len(cloud2_meta)};\n\n")
         f.write("struct sprite_cloud_rung_t {\n")
         f.write("    uint8_t bitmap;\n")
         f.write("    uint8_t bitmap2;   // 0xFF when the rung is one sprite\n")
@@ -511,7 +565,8 @@ def main():
         f.write(
             "extern const sprite_meta_t kSpriteDefMetaShortArm[kSpriteDefMetaCount];\n"
         )
-        f.write("extern const sprite_meta_t kSpriteDefSun;\n\n")
+        f.write("extern const sprite_meta_t kSpriteDefSun;\n")
+        f.write("extern const sprite_meta_t kSpriteDefOrient;\n\n")
         f.write('#pragma compile("spritedef.cc")\n\n')
         f.write("#endif\n")
     print(f"Generated {h_path}")
@@ -537,6 +592,11 @@ def main():
         f.write("};\n\n")
         f.write(
             "const sprite_cloud_rung_t kSpriteDefCloudRung[kSpriteDefCloudRungCount] = {\n"
+        )
+        f.write(
+            f"    {{ {cloud1_meta[0]['bitmap_idx']}, 0xFF, "
+            f"{cloud1_meta[0]['pivot_x']}, {cloud1_meta[0]['pivot_y']} }}, "
+            f"// rung 0: never selected; its block is the orientation indicator\n"
         )
         for m in cloud1_meta:
             f.write(
@@ -566,13 +626,17 @@ def main():
         f.write(
             f"const sprite_meta_t kSpriteDefSun = {{ {meta_sun['pivot_x']}, {meta_sun['pivot_y']}, {meta_sun['bitmap_idx']} }};\n"
         )
+        f.write(
+            f"const sprite_meta_t kSpriteDefOrient = {{ {meta_orient['pivot_x']}, {meta_orient['pivot_y']}, {meta_orient['bitmap_idx']} }};\n"
+        )
     print(f"Generated {cc_path}")
 
     # 3. Output Python
     lib_path = os.path.join(REPO_ROOT, "lib", "spritedef.py")
     with open(lib_path, "w") as f:
         f.write(
-            "# Generated Sprite Definitions (Clouds, Sun, Long Arm 14, Short Arm 10)\n\n"
+            "# Generated Sprite Definitions (Orientation indicator, Clouds, "
+            "Sun, Long Arm 14, Short Arm 10)\n\n"
         )
         f.write(f"NUM_BITMAPS_TOTAL = {total_bitmaps}\n")
         f.write(f"NUM_ANGLES = {angles_tot}\n\n")
@@ -593,6 +657,10 @@ def main():
 
         f.write(
             f"META_SUN = {{'pivot_x': {meta_sun['pivot_x']}, 'pivot_y': {meta_sun['pivot_y']}, 'bitmap_idx': {meta_sun['bitmap_idx']}, 'label': '{meta_sun['label']}'}}\n\n"
+        )
+
+        f.write(
+            f"META_ORIENT = {{'pivot_x': {meta_orient['pivot_x']}, 'pivot_y': {meta_orient['pivot_y']}, 'bitmap_idx': {meta_orient['bitmap_idx']}, 'label': '{meta_orient['label']}'}}\n\n"
         )
 
         f.write("META_LONG_ARM = [\n")
@@ -637,6 +705,12 @@ def main():
 
         f.write("PATTERN_SUN = [\n")
         for row in bits_sun:
+            row_str = "".join(["#" if b else "." for b in row])
+            f.write(f'    "{row_str}",\n')
+        f.write("]\n\n")
+
+        f.write("PATTERN_ORIENT = [\n")
+        for row in bits_orient:
             row_str = "".join(["#" if b else "." for b in row])
             f.write(f'    "{row_str}",\n')
         f.write("]\n\n")

@@ -364,6 +364,90 @@ static void test_dither_lattice(void) {
   assert(spr_x(0) == (uint8_t)(161 - 12 + 24)); // odd, and left alone
 }
 
+static void test_orientation(void) {
+  printf("  the orientation indicator owns sprite 7\n");
+  // Its art is the block the cloud ladder's rung 0 used to hold - the one
+  // bitmap in spritedef.bin no cloud can reach, because a collapsed group draws
+  // one rung *larger* than its own (docs/clouds.md §3.5). The position below is
+  // worked out from a pivot spelled out in sprites.cc rather than read from the
+  // meta, so a regenerated blob that moved the pivot has to be noticed here.
+  assert(kSpriteDefOrient.pivot_x == (int8_t)kSpriteOrientPivotX);
+  assert(kSpriteDefOrient.pivot_y == (int8_t)kSpriteOrientPivotY);
+  // And it is not one of the cloud ladder's rungs any more.
+  for (uint8_t i = 0; i < kSpriteDefCloudRungCount; ++i) {
+    assert(kSpriteDefCloudRung[i].bitmap != kSpriteDefOrient.bitmap_idx);
+    assert(kSpriteDefCloudRung[i].bitmap2 != kSpriteDefOrient.bitmap_idx);
+  }
+
+  sprites_stack_reset();
+  sprites_set_orientation();
+  sprites_stack_commit();
+  show_terrain();
+  assert(enabled(kSpriteIdxOrient));
+  assert(spr_ptr(kSpriteIdxOrient) == kSpriteDefOrient.bitmap_idx);
+  assert(spr_color(kSpriteIdxOrient) == kColorOrientation);
+  // Not expanded, unlike the clouds: the bar is its own 24 pixels wide.
+  assert(spr_expand() == 0x00);
+  assert(spr_enable() == kSpriteOrientBit);
+  // Dead centre of the viewport: x = 160 - 12 + 24, y = 56 - 10 + 50. Both fit
+  // a byte, so there is no ninth X bit.
+  assert(spr_x(kSpriteIdxOrient) == 172);
+  assert(spr_y(kSpriteIdxOrient) == 96);
+  assert(spr_msbx() == 0x00);
+
+  printf("  and it does not move\n");
+  // The whole point of the mark: the horizon moves against it. Commit it again
+  // after a frame full of objects and it is in the same place.
+  const uint8_t x = spr_x(kSpriteIdxOrient), y = spr_y(kSpriteIdxOrient);
+  sprites_stack_reset();
+  for (int i = 0; i < 7; ++i) {
+    sprites_stack_add((int16_t)(100 + i), (int16_t)(20 + 40 * i), 30,
+                      kSunPivotX, kSunPivotY, (uint8_t)(i + 1), NB, 1, 0);
+  }
+  sprites_set_orientation();
+  sprites_stack_commit();
+  show_terrain();
+  assert(spr_x(kSpriteIdxOrient) == x && spr_y(kSpriteIdxOrient) == y);
+  // Seven objects and the mark fill all eight indices, and the mark is still on
+  // the one the stack cannot hand out.
+  assert(spr_enable() == 0xFF);
+  for (int i = 0; i < kSpriteTerrainSlots; ++i) {
+    assert(spr_ptr(i) == (uint8_t)(i + 1));
+  }
+  assert(spr_ptr(kSpriteIdxOrient) == kSpriteDefOrient.bitmap_idx);
+
+  printf("  a frame that sets no mark leaves sprite 7 alone\n");
+  sprites_stack_reset();
+  sprites_stack_commit();
+  show_terrain();
+  assert(!enabled(kSpriteIdxOrient));
+  assert(spr_x(kSpriteIdxOrient) == 0 && spr_y(kSpriteIdxOrient) == 0);
+  // Including the needle's colour, which the panel band would otherwise have to
+  // give back for a mark that was never there.
+  assert(spr_color(kSpriteIdxOrient) == kColorInstrument);
+
+  printf("  the panel band takes sprite 7 back for the needle\n");
+  sprites_set_vspeed(0);
+  sprites_stack_reset();
+  sprites_set_orientation();
+  sprites_stack_commit();
+  show_terrain();
+  // Read before the panel band runs: kSpriteIdxOrient and kSpriteIdxVSpeed are
+  // the same index, which is the whole subject of this case.
+  const uint8_t mark_y = spr_y(kSpriteIdxOrient);
+  sprites_show_panel_top_sprites();
+  assert(spr_color(kSpriteIdxVSpeed) == kColorInstrument);
+  assert(spr_expand() == 0x00);
+  assert(spr_x(kSpriteIdxVSpeed) == _sprites_instrument_xy[kSpriteIdxVSpeed].x);
+  assert(spr_y(kSpriteIdxVSpeed) == _sprites_instrument_xy[kSpriteIdxVSpeed].y);
+  assert(spr_ptr(kSpriteIdxVSpeed) == _sprites_instrument_idx[kSpriteIdxVSpeed]);
+  // Sharing the index is safe because the VIC has finished fetching the mark
+  // before the needle's line comes round: a viewport sprite may not begin below
+  // 139, and this one begins at 96 and is done 21 lines later (clouds.md §1.9).
+  assert(mark_y < 139);
+  assert(mark_y + kSpriteHeightPixels < spr_y(kSpriteIdxVSpeed));
+}
+
 static void test_double_buffer(void) {
   printf("  the frame is published by the flip, not written in place\n");
   sprites_stack_reset();
@@ -503,6 +587,7 @@ int main() {
   test_no_index_used_twice();
   test_culls();
   test_dither_lattice();
+  test_orientation();
   test_double_buffer();
   test_panel_bands();
   printf("sprites_test PASSED\n");

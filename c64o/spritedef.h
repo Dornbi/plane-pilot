@@ -5,7 +5,7 @@
 
 static const uint16_t kSpriteDefMetaCount = 32;
 static const uint16_t kSpriteDefBitmapCount = 48;
-static const uint8_t kSpriteDefCloud1Count = 5;
+static const uint8_t kSpriteDefCloud1Count = 4;
 static const uint8_t kSpriteDefCloud2Count = 5;
 
 struct sprite_meta_t {
@@ -46,6 +46,7 @@ extern const sprite_cloud2_meta_t kSpriteDefCloud2Sprite[kSpriteDefCloud2Count];
 extern const sprite_meta_t kSpriteDefMetaLongArm[kSpriteDefMetaCount];
 extern const sprite_meta_t kSpriteDefMetaShortArm[kSpriteDefMetaCount];
 extern const sprite_meta_t kSpriteDefSun;
+extern const sprite_meta_t kSpriteDefOrient;
 
 #pragma compile("spritedef.cc")
 

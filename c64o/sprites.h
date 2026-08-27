@@ -61,10 +61,10 @@ void sprites_set_fuel(uint32_t fuel);
 
 static const uint8_t kSpriteStackSize = 8;
 
-// How many hardware sprites the terrain band may actually use. One short of
-// the eight, because sprite 7 is the vertical-speed needle, and the eighth
-// slot is spoken for by the horizon indicator in TODO.md rather than by
-// clouds.
+// How many hardware sprites the terrain band's *stack* may hand out. One short
+// of the eight, because sprite 7 is the vertical-speed needle below the split
+// and the orientation indicator above it - see sprites_set_orientation() below
+// - so clouds and the sun share the other seven.
 //
 // It is *not* short because the needle would be corrupted otherwise, which is
 // what this comment used to say and what docs/clouds.md §1.9 was written to
@@ -113,6 +113,26 @@ bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
 // terrain raster handler. Anything that did not fit is dropped; unused indices
 // are left disabled.
 void sprites_stack_commit(void);
+
+// --- The orientation indicator ---------------------------------------------
+//
+// A fixed mark in the middle of the viewport: a bar with a gap in it,
+// xxxxxxxx--------xxxxxxxx, drawn on one row. It never moves. What moves is the
+// horizon, and the mark is what gives it something to be read against - level
+// flight lays the horizon along the bar and through the gap, pitch slides it
+// off, roll tilts it across.
+//
+// It owns hardware sprite 7 for the length of the viewport band, which is the
+// index the stack above never hands out. The panel band takes the same sprite
+// back for the vertical-speed needle at the split, and may, because a viewport
+// sprite's DMA is over by raster 160 and the needle's Y is never above 171 -
+// docs/clouds.md §1.9, which reserved this slot for exactly this.
+//
+// Per frame, like the stack: sprites_stack_reset() clears the mark, this sets
+// it, sprites_stack_commit() publishes it. A frame that never calls this leaves
+// sprite 7 disabled, which is what keeps the mark out of the frames the debug
+// view and the band handlers program for themselves.
+void sprites_set_orientation(void);
 
 void sprites_show_terrain_sprites();
 void sprites_show_no_sprites();

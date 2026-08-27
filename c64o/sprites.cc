@@ -111,6 +111,10 @@ struct sprite_frame_t {
 static sprite_cand_t _sprites_cand[kSpriteStackSize];
 static uint8_t _sprites_cand_count;
 
+// Whether this frame carries the orientation indicator. One flag and no
+// position: the marker does not move - see sprites_set_orientation().
+static bool _sprites_orient_on;
+
 // Double buffered, and that is not optional. _gfx_switch_to_terrain() reads the
 // frame from an interrupt at raster 250 while sprites_stack_commit() writes it
 // from the main line at an unrelated point. A torn read of a single object -
@@ -257,7 +261,10 @@ static bool _sprites_hidden_by_msg(int16_t x, int16_t y, uint8_t width,
   return x < x1 && x + (int16_t)width > x0;
 }
 
-void sprites_stack_reset(void) { _sprites_cand_count = 0; }
+void sprites_stack_reset(void) {
+  _sprites_cand_count = 0;
+  _sprites_orient_on = false;
+}
 
 bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
                        int8_t pivot_y, uint8_t bitmap, uint8_t bitmap2,
@@ -347,6 +354,44 @@ bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
   return true;
 }
 
+// --- The orientation indicator ---------------------------------------------
+
+// Hardware sprite 7, and the bit that is its own in $D015.
+static const uint8_t kSpriteIdxOrient = 7;
+static const uint8_t kSpriteOrientBit = 1 << kSpriteIdxOrient;
+
+// The mark is a bar with a gap in the middle - xxxxxxxx--------xxxxxxxx on one
+// row - drawn by tools/generate_sprites.py into the first block of the sprite
+// blob. That block is the one the cloud size ladder's rung 0 used to hold and
+// which no cloud can reach: clouds.cc draws a distant group as a single blob a
+// rung *larger* than its own, so the smallest row it can index is rung 1's
+// (docs/clouds.md §3.5). The blob's 48 blocks are otherwise full, so this dead
+// one is the only place the mark could have come from.
+//
+// The pivot is spelled out rather than read from kSpriteDefOrient because the
+// position below is worked out at build time and a `const` struct member is not
+// a constant expression. sprites_test.cc fails if the two ever disagree.
+static const uint8_t kSpriteOrientPivotX = 12;
+static const uint8_t kSpriteOrientPivotY = 10;
+
+// Dead centre of the viewport, in VIC coordinates: the pivot and then the
+// VIC's own origin, the same two steps sprites_stack_add() takes per object -
+// done once here, since this object never moves.
+//
+// Not X-expanded, unlike the clouds, so pivot_x does not double and the bar is
+// its own 24 pixels wide. Both coordinates fit a byte, so there is no ninth X
+// bit to carry and $D010 is left alone.
+static const uint8_t kSpriteOrientVX =
+    kScreenWidthPixels / 2 - kSpriteOrientPivotX + kSpriteOffsetX;
+static const uint8_t kSpriteOrientVY =
+    kViewportEndYPixels / 2 - kSpriteOrientPivotY + kSpriteOffsetY;
+
+// No message test, unlike every other viewport sprite: the message strip is
+// kMsgHeightPixels tall at the top of the viewport and the bar sits 56 pixels
+// below its top, so the two cannot meet. No cull either, and no position - the
+// mark is the one thing on screen that does not move.
+void sprites_set_orientation(void) { _sprites_orient_on = true; }
+
 void sprites_stack_commit(void) {
   // Main line, so a pointer is fine here - the restriction above is on the
   // interrupt side only.
@@ -400,6 +445,19 @@ void sprites_stack_commit(void) {
     f->color[idx] = kColorInstrument;
     ++idx;
   }
+  // Sprite 7, after the fill above rather than inside the loop: it is the one
+  // index the stack never hands out, so the orientation indicator takes it
+  // whether the stack overflowed or was empty. A frame that set no marker
+  // leaves it as the fill wrote it - parked, disabled, and the needle's colour
+  // untouched.
+  if (_sprites_orient_on) {
+    f->pos[kSpriteIdxOrient << 1] = kSpriteOrientVX;
+    f->pos[(kSpriteIdxOrient << 1) + 1] = kSpriteOrientVY;
+    f->ptr[kSpriteIdxOrient] = kSpriteDefOrient.bitmap_idx;
+    f->color[kSpriteIdxOrient] = kColorOrientation;
+    enable |= kSpriteOrientBit;
+  }
+
   f->msbx = msbx;
   f->expand = expand;
   f->enable = enable;

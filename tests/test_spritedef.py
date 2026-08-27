@@ -50,6 +50,10 @@ class TestDitherPhase(unittest.TestCase):
     """Every cloud pixel sits on one global checkerboard (§4.2)."""
 
     def test_single_sprite_rungs(self):
+        # Four, not five: the ladder's smallest rung is unreachable and its
+        # block is the orientation indicator's, which is not a cloud and is not
+        # on the lattice. TestGeneratorReproducesCheckedInData covers its shape.
+        self.assertEqual(len(spritedef.PATTERNS_CLOUD1), 4)
         for i, grid in enumerate(spritedef.PATTERNS_CLOUD1):
             label = spritedef.META_CLOUD1[i]["label"]
             for c, r in lit(grid):
@@ -103,7 +107,7 @@ class TestOverlap(unittest.TestCase):
         # blob by an odd (dx + dy) puts every one of its pixels on the odd
         # sublattice - the holes. The two lit sets are then disjoint, which is
         # precisely "the rear sprite fills the front one's holes".
-        blob = lit(spritedef.PATTERNS_CLOUD1[4])  # the largest single-sprite rung
+        blob = lit(spritedef.PATTERNS_CLOUD1[-1])  # the largest single-sprite rung
         checked = 0
         for dx in range(-24, 25):
             for dy in range(-ROWS, ROWS + 1):
@@ -122,7 +126,7 @@ class TestOverlap(unittest.TestCase):
         # The converse: an even offset keeps both copies on the same sublattice,
         # so wherever the shapes overlap the pixels do too, and the overlap
         # stays a half-tone instead of filling in.
-        blob = lit(spritedef.PATTERNS_CLOUD1[4])
+        blob = lit(spritedef.PATTERNS_CLOUD1[-1])
         for dx, dy in ((2, 0), (4, 0), (0, 2), (3, 1), (-3, 1), (2, 2)):
             shifted = {(c + dx, r + dy) for c, r in blob}
             self.assertTrue(
@@ -135,7 +139,7 @@ class TestOverlap(unittest.TestCase):
         # The number docs/clouds.md §4.1 quotes. Bounds are loose - the point is
         # the gap between the two, not the exact figures - but if the art is
         # ever redrawn at a different density this is what notices.
-        blob = lit(spritedef.PATTERNS_CLOUD1[4])
+        blob = lit(spritedef.PATTERNS_CLOUD1[-1])
 
         def coverage(dx, dy):
             shifted = {(c + dx, r + dy) for c, r in blob}
@@ -195,8 +199,9 @@ class TestGeneratorReproducesCheckedInData(unittest.TestCase):
         cloud_base = 80
         base_offset = 96
 
+        orient_data, _, _ = generate_sprites.generate_orient_sprite(cloud_base)
         c1_data, _, _, c2_data, _, _ = generate_sprites.generate_cloud_sprites(
-            cloud_base
+            cloud_base + 1
         )
         sun_data, _, _ = generate_sprites.generate_sun_sprite(base_offset - 1)
         arm14, _, _ = generate_sprites.generate_arm_set(
@@ -207,7 +212,9 @@ class TestGeneratorReproducesCheckedInData(unittest.TestCase):
         )
 
         produced = b"".join(
-            bytes(b) for b in c1_data + c2_data + [sun_data] + arm14 + arm10
+            bytes(b)
+            for b in [orient_data] + c1_data + c2_data + [sun_data] + arm14
+            + arm10
         )
         with open(os.path.join(REPO_ROOT, "c64o", "spritedef.bin"), "rb") as f:
             checked_in = f.read()
@@ -226,8 +233,8 @@ class TestGeneratorReproducesCheckedInData(unittest.TestCase):
         # those reach the C64 through spritedef.cc and the Python preview
         # through lib/spritedef.py. Without this, a changed pivot regenerates
         # cleanly and silently disagrees with what is committed.
-        c1_meta = generate_sprites.generate_cloud_sprites(80)[1]
-        c2_meta = generate_sprites.generate_cloud_sprites(80)[4]
+        c1_meta = generate_sprites.generate_cloud_sprites(81)[1]
+        c2_meta = generate_sprites.generate_cloud_sprites(81)[4]
 
         self.assertEqual(len(c1_meta), len(spritedef.META_CLOUD1))
         for produced, committed in zip(c1_meta, spritedef.META_CLOUD1):
@@ -272,7 +279,19 @@ class TestGeneratorReproducesCheckedInData(unittest.TestCase):
             rows.append([int(v.strip(), 0)
                          for v in line.strip("{},").split(",")])
 
+        # Row 0 is the rung clouds.cc can never select - a collapsed group
+        # draws one rung *larger* than its own, so the smallest row it can index
+        # is 1 (docs/clouds.md §3.5). The row is kept so that a rung number is
+        # still a row number, and it names the smallest real cloud rather than
+        # the orientation indicator that took its bitmap slot, so that even a
+        # rung 0 that somehow got indexed would draw a cloud.
         expected = [
+            [
+                spritedef.META_CLOUD1[0]["bitmap_idx"], 0xFF,
+                spritedef.META_CLOUD1[0]["pivot_x"],
+                spritedef.META_CLOUD1[0]["pivot_y"],
+            ]
+        ] + [
             [m["bitmap_idx"], 0xFF, m["pivot_x"], m["pivot_y"]]
             for m in spritedef.META_CLOUD1
         ] + [
@@ -287,8 +306,16 @@ class TestGeneratorReproducesCheckedInData(unittest.TestCase):
         # as "this entry is one hardware sprite, not two".
         for i, row in enumerate(rows):
             self.assertEqual(
-                row[1] == 0xFF, i < len(spritedef.META_CLOUD1),
+                row[1] == 0xFF, i < 1 + len(spritedef.META_CLOUD1),
                 "rung %d disagrees with the ladder about being one sprite" % i,
+            )
+        # And no row of the ladder names the orientation indicator's block: it
+        # is a mark, not weather, and a retuned kCloudRungCollapsed must not be
+        # able to put it in the sky.
+        for i, row in enumerate(rows):
+            self.assertNotIn(
+                spritedef.META_ORIENT["bitmap_idx"], row[:2],
+                "rung %d names the orientation indicator's bitmap" % i,
             )
 
     def test_the_phase_survives_art_with_no_checkerboard_in_it(self):
@@ -339,16 +366,44 @@ class TestGeneratorReproducesCheckedInData(unittest.TestCase):
         # each block's pixels, which is the dither doing the work.
         self.assertGreater(total, 1000)
 
-    def test_the_cloud_blocks_are_the_first_fifteen(self):
+    def test_the_mark_and_the_clouds_are_the_first_fifteen(self):
         # The sprite pointers 80..94 in docs/clouds.md §6.1 are only right if
-        # the cloud bitmaps come first in the file, which mem_init() expands to
-        # $D400 in order.
+        # these bitmaps come first in the file, which mem_init() expands to
+        # $D400 in order. Fifteen blocks still, but the first is no longer a
+        # cloud: it is the orientation indicator, in the block the ladder's
+        # unreachable rung 0 used to hold.
+        orient_data, orient_meta, _ = generate_sprites.generate_orient_sprite(80)
         c1_data, c1_meta, _, c2_data, c2_meta, _ = (
-            generate_sprites.generate_cloud_sprites(80)
+            generate_sprites.generate_cloud_sprites(81)
         )
-        self.assertEqual(len(c1_data) + len(c2_data), 15)
-        self.assertEqual(c1_meta[0]["bitmap_idx"], 80)
+        self.assertEqual(1 + len(c1_data) + len(c2_data), 15)
+        self.assertEqual(orient_meta["bitmap_idx"], 80)
+        self.assertEqual(c1_meta[0]["bitmap_idx"], 81)
         self.assertEqual(c2_meta[-1]["bot_bitmap_idx"], 94)
+        self.assertEqual(len(orient_data), 64)
+
+    def test_the_mark_is_two_wings_and_a_gap(self):
+        # xxxxxxxx--------xxxxxxxx on the pivot row, and nothing anywhere else:
+        # a bar the horizon can be read against, with a gap to centre by. The
+        # dither lattice does not apply - it is not a cloud - which is exactly
+        # why it needs a shape test of its own.
+        _, meta, grid = generate_sprites.generate_orient_sprite(80)
+        wing = generate_sprites.KSPRITE_ORIENT_WING
+        cols = generate_sprites.KSPRITE_COLS
+        for r, row in enumerate(grid):
+            for c, bit in enumerate(row):
+                on_the_bar = r == meta["pivot_y"] and (
+                    c < wing or c >= cols - wing
+                )
+                self.assertEqual(
+                    bool(bit), on_the_bar,
+                    "pixel (%d, %d) should be %s"
+                    % (c, r, "set" if on_the_bar else "clear"),
+                )
+        # Symmetric about the pivot column, or the mark does not sit where
+        # sprites.cc puts it.
+        self.assertEqual(2 * wing + (cols - 2 * wing), cols)
+        self.assertEqual(meta["pivot_x"], cols // 2)
 
 
 class TestTheGuardItself(unittest.TestCase):

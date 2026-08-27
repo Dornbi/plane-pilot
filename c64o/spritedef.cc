@@ -1,7 +1,6 @@
 #include "spritedef.h"
 
 const sprite_cloud1_meta_t kSpriteDefCloud1Sprite[kSpriteDefCloud1Count] = {
-    { 3, 5, 80, 12, 10 }, // Cloud 1-Sprite 3x5
     { 5, 9, 81, 12, 10 }, // Cloud 1-Sprite 5x9
     { 7, 13, 82, 12, 10 }, // Cloud 1-Sprite 7x13
     { 9, 17, 83, 12, 10 }, // Cloud 1-Sprite 9x17
@@ -17,7 +16,7 @@ const sprite_cloud2_meta_t kSpriteDefCloud2Sprite[kSpriteDefCloud2Count] = {
 };
 
 const sprite_cloud_rung_t kSpriteDefCloudRung[kSpriteDefCloudRungCount] = {
-    { 80, 0xFF, 12, 10 }, // Cloud 1-Sprite 3x5
+    { 81, 0xFF, 12, 10 }, // rung 0: never selected; its block is the orientation indicator
     { 81, 0xFF, 12, 10 }, // Cloud 1-Sprite 5x9
     { 82, 0xFF, 12, 10 }, // Cloud 1-Sprite 7x13
     { 83, 0xFF, 12, 10 }, // Cloud 1-Sprite 9x17
@@ -100,3 +99,4 @@ const sprite_meta_t kSpriteDefMetaShortArm[kSpriteDefMetaCount] = {
 };
 
 const sprite_meta_t kSpriteDefSun = { 12, 10, 95 };
+const sprite_meta_t kSpriteDefOrient = { 12, 10, 80 };

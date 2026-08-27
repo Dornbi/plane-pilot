@@ -303,6 +303,11 @@ void world_update_objects() {
                       kSpriteDefSun.pivot_y, kSpriteDefSun.bitmap_idx,
                       kSpriteNoBitmap, kColorSun, 0);
   }
+  // The orientation indicator, on the sprite the stack never hands out
+  // (sprites.h). Fixed in the middle of the viewport, so this offers no
+  // position and takes no slot: it is the mark the moving horizon is read
+  // against, not another object in the world.
+  sprites_set_orientation();
   sprites_stack_commit();
   bm_end(670, "UPD:");
 }

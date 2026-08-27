@@ -31,6 +31,11 @@ static const uint8_t kColorSun = kColorYellow;
 // Clouds are a white-and-transparent checkerboard, one colour per sprite
 // (sprite_objects.md §4). The dither is what makes them read as a half-tone.
 static const uint8_t kColorCloud = kColorWhite;
+// The orientation indicator (sprites.h). Light red for the same reason the
+// panel's indicator lamps are: it is the one hue in the palette that reads as a
+// marker against both halves of the viewport, and it cannot be mistaken for a
+// cloud or for the sun.
+static const uint8_t kColorOrientation = kColorWhite;
 static const uint8_t kColorWater = kColorBlue;
 
 #endif /* COLOR_H */

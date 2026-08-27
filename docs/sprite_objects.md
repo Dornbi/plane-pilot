@@ -225,7 +225,7 @@ softer than solid white, and it lets the sky through so the cloud does not read
 as a cut-out. Hires only, so the checkerboard stays a checkerboard (§4).
 
 **Ladder.** One sprite (1 × 1) for distant to mid-range clouds, two stacked (1 × 2) when near, all using X-expansion. Extracted from `gfx/ppilot_clouds_concept.png` (upper set) into 10 sizes across 15 sprite blocks:
-- **1 sprite** (5 sizes, pointers 80–84): 3×5, 5×9, 7×13, 9×17, 11×21 (world width × raster lines).
+- **1 sprite** (4 sizes, pointers 81–84): 5×9, 7×13, 9×17, 11×21 (world width × raster lines). A 3×5 at pointer 80 was dropped: [clouds.md](clouds.md) §3.5 shows the size ladder can never select it, and §1.9's orientation indicator has the block now.
 - **2 sprites stacked** (5 sizes, 10 bitmaps, pointers 85–94 as `[top, bot]` pairs): 13×25, 15×29, 17×33, 19×37, 21×41.
 
 **They occlude the horizon line.** A cloud is drawn in front of the terrain

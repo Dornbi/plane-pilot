@@ -291,6 +291,18 @@ def draw_rung(rung):
     return rung + 1 if rung < clouddef.RUNG_COLLAPSED else rung
 
 
+def cloud1_row(rung):
+    """The META_CLOUD1 / PATTERNS_CLOUD1 index for a single-sprite ladder rung.
+
+    One less than the rung. The flat table clouds.cc indexes keeps a dead row 0
+    - the rung a collapsed group can never ask for - so that a rung number is a
+    row number there, but the block that row used to own is the orientation
+    indicator's now and META_CLOUD1 holds only the four real single-sprite
+    rungs. This is the whole of the difference.
+    """
+    return rung - 1
+
+
 def rung_meta(rung):
     """(pivot_x, pivot_y, [bitmap, ...]) for a rung, either half of the ladder.
 
@@ -299,8 +311,9 @@ def rung_meta(rung):
     phase was built with that same 21 in it (§4.4).
     """
     if rung < clouddef.RUNG_STACKED:
-        m = spritedef.META_CLOUD1[rung]
-        return m["pivot_x"], m["pivot_y"], [spritedef.PATTERNS_CLOUD1[rung]]
+        i = cloud1_row(rung)
+        m = spritedef.META_CLOUD1[i]
+        return m["pivot_x"], m["pivot_y"], [spritedef.PATTERNS_CLOUD1[i]]
     m = spritedef.META_CLOUD2[rung - clouddef.RUNG_STACKED]
     j = 2 * (rung - clouddef.RUNG_STACKED)
     return m["pivot_x"], m["pivot_y"], [spritedef.PATTERNS_CLOUD2[j],
@@ -401,7 +414,8 @@ def render_groups(out_path, rungs=None, headings=None, zoom=4):
         depth = (far + near) // 2
         top = label_h + pad + ri * (ch + pad + label_h)
         dr = draw_rung(rung)
-        sm = (spritedef.META_CLOUD1[dr] if dr < clouddef.RUNG_STACKED
+        sm = (spritedef.META_CLOUD1[cloud1_row(dr)]
+              if dr < clouddef.RUNG_STACKED
               else spritedef.META_CLOUD2[dr - clouddef.RUNG_STACKED])
         d.text((pad * z, top * z),
                "rung %d  -  depth %d units (%d m), sprite %d x %d, %d slot%s%s"

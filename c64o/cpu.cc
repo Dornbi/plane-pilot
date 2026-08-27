@@ -69,6 +69,15 @@ void cpu_probe(void) {
 #endif
 
   // Timer A counts down, so the elapsed time is the drop.
-  cpu_probe_us = t0 - t1;
-  cpu_step_shift = cpu_shift_for_us(cpu_probe_us);
+  //
+  // Through a local, and not through cpu_probe_us. This runs before
+  // mem_init() banks the ROM out, so a global that the linker happens to place
+  // in $A000-$BFFF or $E000-$FFFF is written to the RAM underneath and read
+  // back out of ROM - and cpu_probe_us landed at $AC75 the moment an unrelated
+  // change grew the binary. The same trap as the one in ppilot.cc's comment,
+  // one call earlier. tools/check_rom_window.py is what caught it; keeping the
+  // value in a register is what makes the placement stop mattering.
+  const uint16_t us = t0 - t1;
+  cpu_probe_us = us;
+  cpu_step_shift = cpu_shift_for_us(us);
 }
