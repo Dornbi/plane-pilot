@@ -75,6 +75,66 @@ static bool _map_poll_exit(void) {
 
 #pragma optimize(pop)
 
+// The edge-triggered keys, in the bit order of the kToggleKey* masks below.
+static const uint8_t kToggleKeys[] = {
+    KSCAN_P,
+#ifdef __ENABLE_DEBUG__
+    KSCAN_D,
+#endif
+    KSCAN_N, KSCAN_F, KSCAN_G,
+#ifdef __ENABLE_SOUND__
+    KSCAN_V,
+#endif
+};
+static const uint8_t kToggleKeyCount = sizeof(kToggleKeys);
+
+// One bit per entry of kToggleKeys, in the same order. Keys that toggle state
+// only act on their rising edge, otherwise holding the key would flip the
+// state on every loop iteration. The shifts are written out per build rather
+// than as an enum so that the masks cannot drift from the table above when a
+// key is compiled out.
+#ifdef __ENABLE_DEBUG__
+static const uint8_t kToggleKeyP = 0x01;
+static const uint8_t kToggleKeyD = 0x02;
+static const uint8_t kToggleKeyN = 0x04;
+static const uint8_t kToggleKeyF = 0x08;
+static const uint8_t kToggleKeyG = 0x10;
+#else
+static const uint8_t kToggleKeyP = 0x01;
+static const uint8_t kToggleKeyN = 0x02;
+static const uint8_t kToggleKeyF = 0x04;
+static const uint8_t kToggleKeyG = 0x08;
+#endif
+#ifdef __ENABLE_SOUND__
+static const uint8_t kToggleKeyV = 0x10;
+#endif
+static_assert(sizeof(kToggleKeys) <= 8, "toggle mask is one byte");
+
+// The held-down flight keys. A table plus one loop rather than a dozen
+// `if (key_pressed(K)) flight_input(I);` pairs: each pair costs a JSR, a
+// branch and two constant loads, and this runs at ~10 Hz where a loop's
+// index arithmetic is free.
+struct held_key_t {
+  uint8_t scan;
+  uint8_t input;
+};
+static const held_key_t kHeldKeys[] = {
+    {KSCAN_J, FLIGHT_INPUT_ROLL_LEFT},
+    {KSCAN_L, FLIGHT_INPUT_ROLL_RIGHT},
+    {KSCAN_I, FLIGHT_INPUT_PITCH_DOWN},
+    {KSCAN_K, FLIGHT_INPUT_PITCH_UP},
+    {KSCAN_A, FLIGHT_INPUT_YAW_LEFT},
+    {KSCAN_S, FLIGHT_INPUT_YAW_RIGHT},
+    {KSCAN_PLUS, FLIGHT_INPUT_THROTTLE_UP},
+    {KSCAN_MINUS, FLIGHT_INPUT_THROTTLE_DOWN},
+    {KSCAN_B, FLIGHT_INPUT_BRAKE},
+#ifdef __ENABLE_DEBUG__
+    {KSCAN_Z, FLIGHT_INPUT_MOVE_FORWARD},
+    {KSCAN_X, FLIGHT_INPUT_MOVE_BACKWARD},
+#endif
+};
+static const uint8_t kHeldKeyCount = sizeof(kHeldKeys) / sizeof(kHeldKeys[0]);
+
 // The frame count the last model step was taken at. A difference against
 // gfx_frame_count, so the byte wrapping is harmless.
 static uint8_t model_last_frame;
@@ -82,18 +142,6 @@ static uint8_t model_last_frame;
 void sim_run(uint8_t selected_mission) {
   _enter_simulation(selected_mission);
 
-  // Keys that toggle state only act on their rising edge, otherwise
-  // holding the key would flip the state on every loop iteration.
-  static const uint8_t kToggleKeyP = 0x01;
-#ifdef __ENABLE_DEBUG__
-  static const uint8_t kToggleKeyD = 0x02;
-#endif
-  static const uint8_t kToggleKeyN = 0x04;
-  static const uint8_t kToggleKeyF = 0x08;
-  static const uint8_t kToggleKeyG = 0x10;
-#ifdef __ENABLE_SOUND__
-  static const uint8_t kToggleKeyV = 0x20;
-#endif
   uint8_t prev_toggles = 0;
 
   while (1) {
@@ -101,28 +149,15 @@ void sim_run(uint8_t selected_mission) {
 
     // Simulation loop
     uint8_t toggles = 0;
-    if (key_pressed(KSCAN_P)) {
-      toggles |= kToggleKeyP;
+    {
+      uint8_t bit = 1;
+      for (uint8_t i = 0; i < kToggleKeyCount; ++i) {
+        if (key_pressed(kToggleKeys[i])) {
+          toggles |= bit;
+        }
+        bit <<= 1;
+      }
     }
-#ifdef __ENABLE_DEBUG__
-    if (key_pressed(KSCAN_D)) {
-      toggles |= kToggleKeyD;
-    }
-#endif
-    if (key_pressed(KSCAN_N)) {
-      toggles |= kToggleKeyN;
-    }
-    if (key_pressed(KSCAN_F)) {
-      toggles |= kToggleKeyF;
-    }
-    if (key_pressed(KSCAN_G)) {
-      toggles |= kToggleKeyG;
-    }
-#ifdef __ENABLE_SOUND__
-    if (key_pressed(KSCAN_V)) {
-      toggles |= kToggleKeyV;
-    }
-#endif
     const uint8_t toggle_edges = keys_edges(toggles, &prev_toggles);
 
     // The map is a modal page, like the help screen: the simulation is
@@ -180,23 +215,10 @@ void sim_run(uint8_t selected_mission) {
       view_update_view(VIEW_CENTER);
       mem_switch_debug(false);
     }
-    if (key_pressed(KSCAN_J)) {
-      flight_input(FLIGHT_INPUT_ROLL_LEFT);
-    }
-    if (key_pressed(KSCAN_L)) {
-      flight_input(FLIGHT_INPUT_ROLL_RIGHT);
-    }
-    if (key_pressed(KSCAN_I)) {
-      flight_input(FLIGHT_INPUT_PITCH_DOWN);
-    }
-    if (key_pressed(KSCAN_K)) {
-      flight_input(FLIGHT_INPUT_PITCH_UP);
-    }
-    if (key_pressed(KSCAN_A)) {
-      flight_input(FLIGHT_INPUT_YAW_LEFT);
-    }
-    if (key_pressed(KSCAN_S)) {
-      flight_input(FLIGHT_INPUT_YAW_RIGHT);
+    for (uint8_t i = 0; i < kHeldKeyCount; ++i) {
+      if (key_pressed(kHeldKeys[i].scan)) {
+        flight_input(kHeldKeys[i].input);
+      }
     }
     if (toggle_edges & kToggleKeyF) {
       flight_input(FLIGHT_INPUT_TOGGLE_FLAP);
@@ -204,25 +226,8 @@ void sim_run(uint8_t selected_mission) {
     if (toggle_edges & kToggleKeyG) {
       flight_input(FLIGHT_INPUT_TOGGLE_GEAR);
     }
-#ifdef __ENABLE_DEBUG__
-    if (key_pressed(KSCAN_Z)) {
-      flight_input(FLIGHT_INPUT_MOVE_FORWARD);
-    }
-    if (key_pressed(KSCAN_X)) {
-      flight_input(FLIGHT_INPUT_MOVE_BACKWARD);
-    }
-#endif
-    if (key_pressed(KSCAN_PLUS)) {
-      flight_input(FLIGHT_INPUT_THROTTLE_UP);
-    }
-    if (key_pressed(KSCAN_MINUS)) {
-      flight_input(FLIGHT_INPUT_THROTTLE_DOWN);
-    }
     if (toggle_edges & kToggleKeyN) {
       flight_input(FLIGHT_INPUT_TOGGLE_NAV);
-    }
-    if (key_pressed(KSCAN_B)) {
-      flight_input(FLIGHT_INPUT_BRAKE);
     }
     if (key_pressed(KSCAN_1)) {
       view_update_view(VIEW_LEFT);

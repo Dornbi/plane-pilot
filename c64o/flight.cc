@@ -874,6 +874,15 @@ void flight_advance() {
   model_substep = (model_substep + 1) & kFlightSubstepMask;
 }
 
+// The airborne attitude steps, indexed by input - FLIGHT_INPUT_ROLL_LEFT.
+static mat3_t *const kFlightRotations[] = {
+    &kVecRollLeft, &kVecRollRight, &kVecPitchUp,
+    &kVecPitchDown, &kVecYawLeft, &kVecYawRight,
+};
+static_assert(FLIGHT_INPUT_YAW_RIGHT - FLIGHT_INPUT_ROLL_LEFT + 1 ==
+                  sizeof(kFlightRotations) / sizeof(kFlightRotations[0]),
+              "kFlightRotations must cover the contiguous rotation inputs");
+
 void flight_input(enum flight_input_t input) {
   if (input == FLIGHT_INPUT_TOGGLE_NAV) {
     if (flight_num_nav_points > 0) {
@@ -912,6 +921,38 @@ void flight_input(enum flight_input_t input) {
 
   if (flight_crashed()) {
     return;
+  }
+
+  // Actions that mean the same thing on the ground and in the air. They used
+  // to be a copy each in the two switches below, and the copies were the bulk
+  // of what those switches had in common.
+  switch (input) {
+  case FLIGHT_INPUT_THROTTLE_UP:
+    if (flight_throttle < kMaxThrottle) {
+      flight_throttle += 1;
+    }
+    return;
+  case FLIGHT_INPUT_THROTTLE_DOWN:
+    if (flight_throttle > kFlightMinThrottle) {
+      flight_throttle -= 1;
+    }
+    return;
+  case FLIGHT_INPUT_TOGGLE_FLAP:
+    flight_flap = 1 - flight_flap;
+    model_pending_events |= FLIGHT_EV_FLAP;
+    return;
+  case FLIGHT_INPUT_MOVE_BACKWARD:
+  case FLIGHT_INPUT_MOVE_FORWARD:
+    if (flight_paused) {
+      int16_t speed = input == FLIGHT_INPUT_MOVE_FORWARD
+                          ? kFlightMoveForwardBackwardSpeed
+                          : -kFlightMoveForwardBackwardSpeed;
+      int16_t vspeed = vec_fastmul8p8(flight_cam.front.z, speed);
+      _flight_move_forward(speed, vspeed);
+    }
+    return;
+  default:
+    break;
   }
 
   if (model_on_ground) {
@@ -957,34 +998,10 @@ void flight_input(enum flight_input_t input) {
       }
       break;
     }
-    case FLIGHT_INPUT_THROTTLE_UP:
-      if (flight_throttle < kMaxThrottle) {
-        flight_throttle += 1;
-      }
-      break;
-    case FLIGHT_INPUT_THROTTLE_DOWN:
-      if (flight_throttle > kFlightMinThrottle) {
-        flight_throttle -= 1;
-      }
-      break;
-    case FLIGHT_INPUT_TOGGLE_FLAP:
-      flight_flap = 1 - flight_flap;
-      model_pending_events |= FLIGHT_EV_FLAP;
-      break;
     case FLIGHT_INPUT_TOGGLE_GEAR:
       if (!flight_gear) {
         flight_gear = 1;
         model_pending_events |= FLIGHT_EV_GEAR;
-      }
-      break;
-    case FLIGHT_INPUT_MOVE_BACKWARD:
-    case FLIGHT_INPUT_MOVE_FORWARD:
-      if (flight_paused) {
-        int16_t speed = input == FLIGHT_INPUT_MOVE_FORWARD
-                            ? kFlightMoveForwardBackwardSpeed
-                            : -kFlightMoveForwardBackwardSpeed;
-        int16_t vspeed = vec_fastmul8p8(flight_cam.front.z, speed);
-        _flight_move_forward(speed, vspeed);
       }
       break;
     case FLIGHT_INPUT_BRAKE:
@@ -1000,60 +1017,17 @@ void flight_input(enum flight_input_t input) {
     return;
   }
 
-  switch (input) {
-  case FLIGHT_INPUT_ROLL_LEFT:
-    vec_transform3(&kVecRollLeft, &flight_cam);
+  // Airborne, every axis is the same action with a different matrix, so the
+  // six switch arms are one indexed call. kFlightRotations is in the enum's
+  // order and the static_assert below is what keeps it that way.
+  if (input >= FLIGHT_INPUT_ROLL_LEFT && input <= FLIGHT_INPUT_YAW_RIGHT) {
+    vec_transform3(kFlightRotations[input - FLIGHT_INPUT_ROLL_LEFT],
+                   &flight_cam);
     model_need_normalize = true;
-    break;
-  case FLIGHT_INPUT_ROLL_RIGHT:
-    vec_transform3(&kVecRollRight, &flight_cam);
-    model_need_normalize = true;
-    break;
-  case FLIGHT_INPUT_PITCH_UP:
-    vec_transform3(&kVecPitchUp, &flight_cam);
-    model_need_normalize = true;
-    break;
-  case FLIGHT_INPUT_PITCH_DOWN:
-    vec_transform3(&kVecPitchDown, &flight_cam);
-    model_need_normalize = true;
-    break;
-  case FLIGHT_INPUT_YAW_LEFT:
-    vec_transform3(&kVecYawLeft, &flight_cam);
-    model_need_normalize = true;
-    break;
-  case FLIGHT_INPUT_YAW_RIGHT:
-    vec_transform3(&kVecYawRight, &flight_cam);
-    model_need_normalize = true;
-    break;
-  case FLIGHT_INPUT_THROTTLE_UP:
-    if (flight_throttle < kMaxThrottle) {
-      flight_throttle += 1;
-    }
-    break;
-  case FLIGHT_INPUT_THROTTLE_DOWN:
-    if (flight_throttle > kFlightMinThrottle) {
-      flight_throttle -= 1;
-    }
-    break;
-  case FLIGHT_INPUT_TOGGLE_FLAP:
-    flight_flap = 1 - flight_flap;
-    model_pending_events |= FLIGHT_EV_FLAP;
-    break;
-  case FLIGHT_INPUT_TOGGLE_GEAR:
+    return;
+  }
+  if (input == FLIGHT_INPUT_TOGGLE_GEAR) {
     flight_gear = 1 - flight_gear;
     model_pending_events |= FLIGHT_EV_GEAR;
-    break;
-  case FLIGHT_INPUT_MOVE_BACKWARD:
-  case FLIGHT_INPUT_MOVE_FORWARD:
-    if (flight_paused) {
-      int16_t speed = input == FLIGHT_INPUT_MOVE_FORWARD
-                          ? kFlightMoveForwardBackwardSpeed
-                          : -kFlightMoveForwardBackwardSpeed;
-      int16_t vspeed = vec_fastmul8p8(flight_cam.front.z, speed);
-      _flight_move_forward(speed, vspeed);
-    }
-    break;
-  default:
-    break;
   }
 }
