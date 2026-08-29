@@ -400,10 +400,7 @@ pixels, and `A, B, A` revisits accounted for about 0.5% of appends.
 
 The trail cannot collapse because the aircraft cannot hover — it always moves
 forward at up to 15 m per step, so it can only dither across a boundary during
-the brief window where it turns through the tangent. The one input that does
-reverse position exactly, `Z`/`X` while paused, moves by a fixed amount each
-way and returns to the same pixel, which the existing one-entry comparison
-already drops.
+the brief window where it turns through the tangent.
 
 At cruise a vertical pixel takes ~1.7 s, so 128 samples covers roughly 3.5
 minutes of flight — about one full traverse of the map. Cleared by

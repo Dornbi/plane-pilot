@@ -137,10 +137,6 @@ static const held_key_t kHeldKeys[] = {
     {KSCAN_PLUS, FLIGHT_INPUT_THROTTLE_UP},
     {KSCAN_MINUS, FLIGHT_INPUT_THROTTLE_DOWN},
     {KSCAN_B, FLIGHT_INPUT_BRAKE},
-#ifdef __ENABLE_DEBUG__
-    {KSCAN_Z, FLIGHT_INPUT_MOVE_FORWARD},
-    {KSCAN_X, FLIGHT_INPUT_MOVE_BACKWARD},
-#endif
 };
 static const uint8_t kHeldKeyCount = sizeof(kHeldKeys) / sizeof(kHeldKeys[0]);
 

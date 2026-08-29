@@ -2412,6 +2412,9 @@ static void _assert_pause_blocks_here(void) {
   const uint8_t flap0 = flight_flap;
   const uint8_t gear0 = flight_gear;
   const int16_t speed0 = flight_speed;
+  const int32_t eye_x0 = flight_eye_x;
+  const int32_t eye_y0 = flight_eye_y;
+  const int32_t eye_z0 = flight_eye_z;
 
   for (size_t i = 0; i < sizeof(kPauseBlocked) / sizeof(kPauseBlocked[0]);
        ++i) {
@@ -2426,16 +2429,11 @@ static void _assert_pause_blocks_here(void) {
   assert(flight_gear == gear0);
   assert(flight_speed == speed0);
 
-  // Z and X still move the aircraft. They are the exception the rule is
-  // written around, so a guard that blocked them too would pass every
-  // assertion above and still be wrong.
-  const int32_t x0 = flight_eye_x, y0 = flight_eye_y;
-  flight_input(FLIGHT_INPUT_MOVE_FORWARD);
-  assert(flight_eye_x != x0 || flight_eye_y != y0);
-
-  const int32_t x1 = flight_eye_x, y1 = flight_eye_y;
-  flight_input(FLIGHT_INPUT_MOVE_BACKWARD);
-  assert(flight_eye_x != x1 || flight_eye_y != y1);
+  // Nothing moved the aircraft either: with the pause held, position is frozen
+  // along with the attitude and the instruments.
+  assert(flight_eye_x == eye_x0);
+  assert(flight_eye_y == eye_y0);
+  assert(flight_eye_z == eye_z0);
 }
 
 static void test_paused_blocks_controls() {

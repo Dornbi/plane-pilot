@@ -211,7 +211,6 @@ static const uint16_t kFlightStallSpeedWithFlaps = 0x0340;
 static const int16_t kFlightTrimLift = 0x1000;
 static const uint8_t kFlightMinThrottle = 0x00;
 // kMaxThrottle lives in flight.h: sound.cc sizes its engine pitch table by it.
-static const int16_t kFlightMoveForwardBackwardSpeed = 0x4000;
 
 // Nose attitude above which the stall pitch down has to be done as a rotation
 // instead of by lowering front.z directly. sin(61 deg) * 256; past this the
@@ -905,18 +904,13 @@ void flight_input(enum flight_input_t input) {
   // the gear and change the throttle with the physics not running - and then
   // resume already set up. The instruments moved while the world did not.
   //
-  // Z and X are the exception, and the only one. They exist precisely to
-  // reposition the aircraft while frozen, and each already tests
-  // flight_paused for itself before doing anything.
-  //
   // N is not listed here because it never reaches this point: the navpoint
   // toggle returns above, ahead of even the crash guard. It selects which
   // waypoint the compass points at, which is map-reading rather than flying.
   //
   // The rule lives here rather than in sim.cc's key handling so that it cannot
   // be bypassed by a future call site, and so flight_test can assert it.
-  if (flight_paused && input != FLIGHT_INPUT_MOVE_FORWARD &&
-      input != FLIGHT_INPUT_MOVE_BACKWARD) {
+  if (flight_paused) {
     return;
   }
 
@@ -941,16 +935,6 @@ void flight_input(enum flight_input_t input) {
   case FLIGHT_INPUT_TOGGLE_FLAP:
     flight_flap = 1 - flight_flap;
     model_pending_events |= FLIGHT_EV_FLAP;
-    return;
-  case FLIGHT_INPUT_MOVE_BACKWARD:
-  case FLIGHT_INPUT_MOVE_FORWARD:
-    if (flight_paused) {
-      int16_t speed = input == FLIGHT_INPUT_MOVE_FORWARD
-                          ? kFlightMoveForwardBackwardSpeed
-                          : -kFlightMoveForwardBackwardSpeed;
-      int16_t vspeed = vec_fastmul8p8(flight_cam.front.z, speed);
-      _flight_move_forward(speed, vspeed);
-    }
     return;
   default:
     break;

@@ -41,7 +41,6 @@ static const char kHelpText[] =
 #ifdef __ENABLE_DEBUG__
     "\n"
     "D        TOGGLE DEBUG VIEW\n"
-    "Z X      MOVE FWD/BACK WHEN PAUSED\n"
 #endif
     "\n"
     "H        SHOW THIS HELP SCREEN";

@@ -115,7 +115,6 @@ To fly the plane you can use the following keys:
 | `P`             | Pause / Resume flight                   |
 | `V`             | Volume: full / low / off (any screen)   |
 | `D`             | Toggle debug view                       |
-| `X` `Z`         | Move forward and backward (when paused) |
 | `H`             | Show the help screen                    |
 | `Q`             | Quit to the main menu                   |
 
