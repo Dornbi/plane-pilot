@@ -195,6 +195,10 @@ void mem_switch_buffer(void) {
   // it is a single byte, so the store is atomic on its own. That is what the
   // sei/cli pair around this used to be for. The three below are main-line
   // state that no handler touches, and they can take as long as they like.
+  // After the wait, which is idle time and has no business in a counter, but
+  // before the toggle, which is not.
+  bm_view_start();
+
   mem_using_alt_buffer = !mem_using_alt_buffer;
 
   if (mem_using_alt_buffer) {
@@ -209,9 +213,8 @@ void mem_switch_buffer(void) {
     mem_box_char_start = 0x01;
   }
 
-  bm_view_start();
   _copy_color_ram();
-  bm_view_end(950, "COL:");
+  bm_view_end(910, "COL:");
 }
 
 // Startup and mode-switch helpers; none of these run per frame.
