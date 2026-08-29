@@ -54,16 +54,17 @@ void panel_maybe_print_debug() {
     print_labeled_bcd(930, "CPU:", cpu_probe_us, 5);
     print_labeled_bcd(970, "CSHIFT: ", cpu_step_shift, 1);
 
-    // A breakdown of two of the stage counters in the right-hand column, not
-    // three more terms beside them: PLY is the polygon part of GRD, CLD and
-    // SPR are the cloud scan and the sprite stack inside UPD. On their own row
-    // for that reason. See benchmark.h.
-    // Six digits for PLY and five for the other two, which is what leaves a
-    // space between the three fields on a 40 column row. PLY earns the extra
-    // digit: one runway polygon filling the viewport is 44,132 cycles
-    // (docs/framerate.md), and a counter that wrapped silently would be worse
-    // than no counter. The cloud scan has never been seen above 30,000 and the
-    // sprite stack runs in hundreds.
+    // A breakdown of two of the stage counters, not three more terms beside
+    // them: PLY is the polygon part of GRD and sits directly under it in the
+    // right hand column, CLD and SPR are the cloud scan and the sprite stack
+    // inside UPD and sit under that in the second column. Neither is added
+    // into TOT - see benchmark.h.
+    //
+    // Five digits each, which is what leaves a space between the columns.
+    // PLY is the one with headroom to lose: a runway polygon filling the
+    // viewport has been measured at 43,064 cycles (docs/framerate.md), so a
+    // frame with two of those would wrap silently. The cloud scan has never
+    // been seen above 30,000 and the sprite stack runs in hundreds.
     bm_sub_show(BM_SUB_CLOUDS, 819, "CLD: ", 5);
     bm_sub_show(BM_SUB_SPRITES, 859, "SPR: ", 5);
     bm_sub_show(BM_SUB_POLY, 870, "PLY: ", 5);

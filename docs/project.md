@@ -134,22 +134,37 @@ RAM has to be rewritten every frame — it cannot be double buffered, since
 
 ```
 keyb_poll() → edge-detect toggles → dispatch controls
-model_advance()                        MDL
+flight_advance(), msg_update()         MDL
 view_update_cam()
 world_update_roll_state()
-world_update_sun_pos()                 UPD
+world_update_objects()                 UPD
+  clouds_add_candidates()                └ CLD
+  sprites_stack_commit()                 └ SPR
 render_snap_center_chars()             SNP
 render_fill_sky_ground()               BGR
-box_prepare()                          CHR, PRP
+box_prepare()                          CHR
 box_draw()                             DRW
 world_render_grid()                    GRD
-model_update_instruments()
+  poly_draw_3d(), per object             └ PLY
+msg_render()
+panel_update_instruments()
+panel_maybe_print_debug()
+sound_update()
                                        TOT
 mem_switch_buffer()                    COL
 ```
 
 The right-hand labels are the cycle counters shown in the debug view (`D`);
 `benchmark.cc` reads the chained CIA2 timers around each phase.
+[development.md](development.md) has the full table and two calibration
+readings. Three things to keep in mind reading them. The indented labels are a
+breakdown of the stage above, not extra terms, and are deliberately left out of
+`TOT`. `TOT` is the sum of the eight unindented stages and nothing else, so the
+key scan, the instruments, `sound_update()` and the wait inside
+`mem_switch_buffer()` are in no counter and `TOT` is short of the frame period.
+And the debug view is not free of observer effect: with it up the panel
+instruments are skipped and the raster handler runs no sprites, so the frame it
+measures is cheaper than the one you fly.
 
 The instrument update sits *after* the drawing calls on purpose. Everything
 above it writes the viewport, so it has to be finished before

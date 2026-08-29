@@ -115,9 +115,8 @@ static uint16_t _unused_get_dist(int8_t px, int8_t py) {
 }
 
 void render_snap_center_chars() {
-  uint16_t min_dist = 0x7fff;
-
   bm_view_start();
+  uint16_t min_dist = 0x7fff;
   _pull_to_center();
 
   if (roll_period == 1) {

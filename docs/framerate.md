@@ -11,7 +11,7 @@ have to be guessed at again.
 > scan, alongside `SPR` for the sprite stack the "stage counters are calls, not
 > consequences" note below calls out. So the poses no longer have to be rebuilt
 > to ask this question - press `D` and read it. The figures agree with the ones
-> below: 43,128 against 44,132 for the runway polygon, 11,760 against 13,824
+> below: 43,064 against 44,132 for the runway polygon, 11,761 against 13,824
 > for clouds at the same pose, the difference being that the debug view turns
 > the sprites off and the frozen pose is not bit-identical.
 

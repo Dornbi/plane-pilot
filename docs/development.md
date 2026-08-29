@@ -76,45 +76,65 @@ The left hand side show the state of the plane:
 | `UX` `UY` `UZ` | Up vector    |
 | `EX` `EY` `EZ` | Eye position |
 
-The right hand side shows the cycles spent in various stages of rendering.
+The cycle counters run down the right hand side, in the order the frame
+executes them, with `UPD` and its two sub-counters in a second column:
 
 | Label | Value                                        |
 | ----- | -------------------------------------------- |
+| `MDL` | Model the plane state (motion etc.)          |
 | `SNP` | "Snap" the view vector to screen coordinates |
 | `BGR` | Draw the background without the sky gradient |
 | `CHR` | Copy the relevant characters to char RAM     |
-| `PRP` | Prepare tiles for rendering                  |
 | `DRW` | Draw the tiles                               |
-| `COL` | Copy to the color RAM                        |
-| `MDL` | Model the plane state (motion etc.)          |
 | `GRD` | Draw the grid dots on the ground             |
+| `COL` | Copy to the color RAM                        |
 | `UPD` | Camera, roll state, cloud scan, sprite stack |
-| `TOT` | The sum of the stages above                  |
+| `TOT` | The sum of the eight stages above            |
 
-`TOT` is the sum of those stages and nothing else: the key scan, the panel
-instruments, `sound_update()` and the wait for the flip window are outside all
-of them, so `TOT` is less than the frame period.
+`TOT` is the sum of those eight and nothing else. The key scan, the panel
+instruments, `sound_update()` and the wait for the flip window are outside
+every counter, so `TOT` is less than the frame period rather than equal to it.
 
-Three more counters, on their own row, are a **breakdown** of two of the stages
-above rather than extra terms beside them - do not add them to `TOT`.
+One wrinkle when checking that sum by hand: `bm_total()` prints and clears the
+accumulator *before* `mem_switch_buffer()` runs, so the `COL` inside `TOT` is
+the previous frame's, not the one displayed beside it. They are usually the
+same value and the column adds up exactly; when `COL` moves between frames the
+sum reads a few dozen cycles out, and that is why.
 
-| Label | Value                                                     |
-| ----- | --------------------------------------------------------- |
-| `PLY` | `poly_draw_3d()` over the whole frame - part of `GRD`     |
-| `CLD` | `clouds_add_candidates()` - part of `UPD`                 |
-| `SPR` | `sprites_stack_commit()` - part of `UPD`                  |
+Three more counters are a **breakdown** of two of the stages above rather than
+extra terms beside them, so they are never added into `TOT`. Each sits directly
+under its parent: `PLY` below `GRD` in the right hand column, `CLD` and `SPR`
+below `UPD` in the second one.
 
-`PLY` accumulates, since the grid walk calls it once per object on screen. Two
-readings to calibrate against, both in `x64sc` with the aircraft frozen:
+| Label | Value                                                 |
+| ----- | ----------------------------------------------------- |
+| `PLY` | `poly_draw_3d()` over the whole frame - part of `GRD` |
+| `CLD` | `clouds_add_candidates()` - part of `UPD`             |
+| `SPR` | `sprites_stack_commit()` - part of `UPD`              |
 
-| pose | `GRD` | `PLY` | `UPD` | `CLD` | `SPR` | `TOT` |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| mission 01, on the runway | 81,297 | **43,128** | 17,659 | 11,760 | 471 | 130,387 |
-| mission 02, on final | 51,663 | 15,778 | 19,557 | 13,285 | 783 | 102,875 |
+`PLY` accumulates, since the grid walk calls it once per object on screen. The
+other two are single calls. All three print five digits, so a stage that ever
+passed 99,999 cycles in one frame would wrap silently - `PLY` is the only one
+near that, and the largest yet seen is 43,064.
 
-On the runway the single runway polygon is 53% of the grid walk and a third of
+Two readings to calibrate against, both in `x64sc` with the aircraft frozen and
+the debug view up:
+
+| pose | `MDL` | `SNP` | `BGR` | `CHR` | `DRW` | `GRD` | `PLY` | `COL` | `UPD` | `CLD` | `SPR` | `TOT` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| mission 01, on the runway | 2,721 | 1,067 | 6,755 | 405 | 13,826 | 81,236 | **43,064** | 7,899 | 17,653 | 11,761 | 725 | 131,562 |
+| mission 02, on final | 3,841 | 924 | 5,304 | 475 | 12,922 | 52,522 | 15,597 | 7,511 | 19,559 | 13,430 | 989 | 103,095 |
+
+The runway row reconciles to the cycle; the other is 37 out, which is the `COL`
+lag above. `PLY` is inside `GRD` and `CLD` + `SPR` inside `UPD` in both. On the
+runway the single runway polygon is 53% of the grid walk and a third of
 everything measured, which is the finding [framerate.md](framerate.md) arrived
 at by hand and this now reports live.
+
+`CHR` is small in both because a frozen pose keeps the same box definition
+every frame and `box_prepare()` takes its early return - 405 cycles of
+`boxdef_set_main()` copying a `boxdef_t`, and nothing more. Rolling, where the
+definition changes every frame, it runs 10,000 to 15,000.
 
 ![Debug info](../screens/debug_crt.png)
 

@@ -152,7 +152,9 @@ fixed one drew the same picture.
 ## The debug panel
 
 When you can press keys, `D` switches the instrument panel to the built-in
-counters (`SNP`, `BGR`, `DRW`, `MDL`, `GRD` — see
+counters (`MDL`, `SNP`, `BGR`, `CHR`, `DRW`, `GRD`, `COL`, `UPD` and `TOT`,
+plus `PLY`, `CLD` and `SPR` breaking out the polygons, the cloud scan and the
+sprite stack — see
 [development.md](development.md)), which is faster than any of the above. It
 is in `ppilot.prg` itself but needs a human to press the key. Headless, force
 `mem_debug_enabled = true` in `mem_init()`, or use the timer recipe, which does

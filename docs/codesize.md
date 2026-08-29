@@ -39,10 +39,12 @@ Baseline, at `8676c11`:
 
 > **2026-08-29.** That baseline predates the merge of `ppilotd.prg` back into
 > `ppilot.prg`, which put the debug view and the benchmark counters into the
-> shipping binary for 1,792 bytes. Free, allocatable is **3,546 B** now, in a
-> largest run of 3,208 B at `$C278` - so the headroom this survey was written
-> against is roughly half of what it says. The findings below are unaffected;
-> the urgency of acting on them is not.
+> shipping binary, and the `PLY` / `CLD` / `SPR` sub-counters that followed.
+> Free, allocatable is **3,330 B** now, in a largest run of 2,976 B at `$C360`,
+> against a `ppilot.prg` of 47,607 B - so the headroom this survey was written
+> against is about half of what it says. The findings below are unaffected; the
+> urgency of acting on them is not. [memory_map.md](memory_map.md) is
+> regenerated and current.
 
 ---
 
