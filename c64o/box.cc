@@ -59,9 +59,6 @@ void box_prepare(void) {
     // this buffer, flashing against the other buffer's values.
     bm_view_start();
     bm_view_end(790, "CHR:");
-    bm_view_start();
-    bm_view_end(830, "PRP:");
-
     return;
   }
   _slot_def[slot] = src_def;
@@ -85,7 +82,6 @@ void box_prepare(void) {
       break;
     }
   }
-  bm_view_end(790, "CHR:");
 
   // Populate box_chars and box_colors mapping
   bm_view_start();
@@ -119,7 +115,7 @@ void box_prepare(void) {
       }
     }
   }
-  bm_view_end(830, "PRP:");
+  bm_view_end(790, "CHR:");
 }
 
 static void _draw_one_box(int8_t cx, int8_t cy) {
