@@ -40,6 +40,11 @@ void box_invalidate(void) {
 }
 
 void box_prepare(void) {
+  // The whole function, both exits. Started here rather than after the
+  // definition lookup because boxdef_set_main()/_alt() copy a boxdef_t on
+  // every frame including the early return below, and cycles nothing counts
+  // are cycles TOT is short by.
+  bm_view_start();
   const boxdef_t *src_def;
   if (render_alt_box) {
     src_def = boxdef_set_alt();
@@ -55,9 +60,8 @@ void box_prepare(void) {
     // This slot already holds this definition (typical when flying
     // straight); the char RAM and the buffers below are still valid.
 
-    // The skipped phases would otherwise leave stale CHR:/PRP: values in
-    // this buffer, flashing against the other buffer's values.
-    bm_view_start();
+    // Still printed, so this buffer does not keep a stale CHR: from the last
+    // frame that did the work and flash against the other buffer's value.
     bm_view_end(750, "CHR:");
     return;
   }
@@ -66,7 +70,6 @@ void box_prepare(void) {
   // Copy unique characters to kCharRam.
   // The definition stores one byte per character, relative to its own
   // char_offset, so the sum wraps around the end of chardefs at most once.
-  bm_view_start();
   uint8_t *dst_ram = kCharRam + ((uint16_t)mem_box_char_start << 3);
   const uint8_t *src_idx = boxdef.char_idx;
   const uint16_t char_offset = boxdef.char_offset;
@@ -83,8 +86,12 @@ void box_prepare(void) {
     }
   }
 
-  // Populate box_chars and box_colors mapping
-  bm_view_start();
+  // Populate box_chars and box_colors mapping. No bm_view_start() here, and
+  // that is the point: there used to be one, left behind when CHR and PRP were
+  // collapsed into a single counter - deleting CHR's end and PRP's start took
+  // only the first of the two. It restarted the timer at this line, so the
+  // char RAM copy above was in no counter at all, TOT included, and CHR
+  // reported the tail of the function as though it were the whole of it.
   _char_lut[0] = kCharSolidGround;
   _color_lut[0] = kColorGrad1 | 0x08;
   _char_lut[1] = kCharSolidSky;
