@@ -197,8 +197,12 @@ void _world_render_object(WorldMapType object_type) {
     vec_add(&poly_verts[i], &_world_dx4[kWorldObjX[obj_idx][i]]);
     vec_add(&poly_verts[i], &_world_dy4[kWorldObjY[obj_idx][i]]);
   }
+  // Just the draw, not the vertex build above it, so this stays comparable
+  // with the by-hand figure in docs/framerate.md.
+  bm_sub_start();
   poly_draw_3d(poly_verts, num_verts, kWorldObjChars[obj_idx],
                kWorldObjColors[obj_idx]);
+  bm_sub_end(BM_SUB_POLY);
 }
 
 __noinline void world_render_grid() {
@@ -245,11 +249,11 @@ __noinline void world_render_grid() {
     }
   }
 
-  bm_model_end(870, "GRD:");
+  bm_model_end(830, "GRD:");
 
 #ifdef __ENABLE_DEBUG__
   if (mem_debug_enabled) {
-    print_labeled_bcd(772, "GRD:", _world_grid_radius, 3);
+    print_labeled_bcd(772, "GRD:", _world_grid_radius, 2);
   }
 #endif
 }
@@ -294,7 +298,9 @@ static const vec3_t kSunDirWorld = {0, 256, 64};
 void world_update_objects() {
   sprites_stack_reset();
 #ifdef __ENABLE_CLOUDS__
+  bm_sub_start();
   clouds_add_candidates();
+  bm_sub_end(BM_SUB_CLOUDS);
 #endif
   vec_transform_inv(&world_cam, &kSunDirWorld, &vec_v);
   if (vec_project()) {
@@ -308,7 +314,9 @@ void world_update_objects() {
   // position and takes no slot: it is the mark the moving horizon is read
   // against, not another object in the world.
   sprites_set_orientation();
+  bm_sub_start();
   sprites_stack_commit();
-  bm_end(670, "UPD:");
+  bm_sub_end(BM_SUB_SPRITES);
+  bm_end(779, "UPD:");
 }
 #pragma optimize(pop)

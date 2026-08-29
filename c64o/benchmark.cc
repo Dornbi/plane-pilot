@@ -57,6 +57,37 @@ void bm_total(uint16_t pos, const char *label) {
   _benchmark_total_cycles = 0;
 }
 
+#ifdef __ENABLE_DEBUG__
+
+static uint32_t _bm_sub_start;
+static uint32_t _bm_sub_total[BM_SUB_COUNT];
+
+void bm_sub_start(void) {
+  if (!mem_debug_enabled)
+    return;
+  const uint16_t timer_a = cia2.ta;
+  const uint16_t timer_b = cia2.tb;
+  _bm_sub_start = (((uint32_t)timer_b << 16) | timer_a);
+}
+
+void bm_sub_end(uint8_t slot) {
+  if (!mem_debug_enabled)
+    return;
+  const uint16_t timer_a = cia2.ta;
+  const uint16_t timer_b = cia2.tb;
+  _bm_sub_total[slot] += _bm_sub_start - (((uint32_t)timer_b << 16) | timer_a);
+}
+
+void bm_sub_show(uint8_t slot, uint16_t pos, const char *label,
+                 uint8_t num_digits) {
+  if (!mem_debug_enabled)
+    return;
+  print_labeled_bcd(pos, label, _bm_sub_total[slot], num_digits);
+  _bm_sub_total[slot] = 0;
+}
+
+#endif
+
 void bm_view_start(void) { bm_start(); }
 void bm_view_end(uint16_t pos, const char *label) { bm_end(pos, label); }
 

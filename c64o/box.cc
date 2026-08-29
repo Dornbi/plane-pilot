@@ -58,7 +58,7 @@ void box_prepare(void) {
     // The skipped phases would otherwise leave stale CHR:/PRP: values in
     // this buffer, flashing against the other buffer's values.
     bm_view_start();
-    bm_view_end(790, "CHR:");
+    bm_view_end(750, "CHR:");
     return;
   }
   _slot_def[slot] = src_def;
@@ -115,7 +115,7 @@ void box_prepare(void) {
       }
     }
   }
-  bm_view_end(790, "CHR:");
+  bm_view_end(750, "CHR:");
 }
 
 static void _draw_one_box(int8_t cx, int8_t cy) {
@@ -233,6 +233,6 @@ void box_draw(void) {
     }
   }
 
-  bm_view_end(830, "DRW:");
+  bm_view_end(790, "DRW:");
 }
 #pragma optimize(pop)

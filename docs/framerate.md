@@ -6,6 +6,15 @@ with oscar64 `v1.32.272-117-ga7305f9`). It answers one question — what do the
 polygons and the clouds cost — and it is written down so the answer does not
 have to be guessed at again.
 
+> **2026-08-29.** The two numbers this document went looking for are now
+> counters in the debug view: `PLY` is the polygon total and `CLD` the cloud
+> scan, alongside `SPR` for the sprite stack the "stage counters are calls, not
+> consequences" note below calls out. So the poses no longer have to be rebuilt
+> to ask this question - press `D` and read it. The figures agree with the ones
+> below: 43,128 against 44,132 for the runway polygon, 11,760 against 13,824
+> for clouds at the same pose, the difference being that the debug view turns
+> the sprites off and the frozen pose is not bit-identical.
+
 **This is a snapshot, not a regression suite.** Nothing re-runs it, nothing
 fails if the numbers move, and there is no reason to repeat it after an ordinary
 change. Re-measure when the shape of the render changes — a new per-frame stage,

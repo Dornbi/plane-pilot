@@ -140,7 +140,7 @@ void render_snap_center_chars() {
           (int8_t)((render_py_pixels - render_alt_shift_y + 4) >> 3);
       render_alt_box = true;
     }
-    bm_view_end(710, "SNP:");
+    bm_view_end(670, "SNP:");
     return;
   }
 
@@ -157,7 +157,7 @@ void render_snap_center_chars() {
     px += roll_dx;
     py += roll_dy;
   }
-  bm_view_end(710, "SNP:");
+  bm_view_end(670, "SNP:");
 }
 
 static void _fill_line(uint8_t *dst, uint8_t val) {
@@ -394,6 +394,6 @@ void render_fill_sky_ground() {
     _fill_sky_ground_no_skip();
   }
 
-  bm_view_end(750, "BGR:");
+  bm_view_end(710, "BGR:");
 }
 #pragma optimize(pop)

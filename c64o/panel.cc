@@ -1,5 +1,6 @@
 #include "panel.h"
 
+#include "benchmark.h"
 #include "cpu.h"
 #include "flight.h"
 #include "gfx.h"
@@ -45,13 +46,27 @@ void panel_maybe_print_debug() {
     print_labeled_hex(800, "EY:", flight_eye_y, 8);
     print_labeled_hex(840, "EZ:", flight_eye_z, 8);
 
-    print_labeled_bcd(812, "ROL:", roll_angle, 3);
-    print_labeled_bcd(852, "HDG:", flight_true_heading, 3);
+    print_labeled_bcd(812, "ROL:", roll_angle, 2);
+    print_labeled_bcd(852, "HDG:", flight_true_heading, 2);
 
     // What the boot-time probe made of this machine (cpu.h). us on the left,
     // the step shift it implies on the right.
     print_labeled_bcd(930, "CPU:", cpu_probe_us, 5);
     print_labeled_bcd(970, "CSHIFT: ", cpu_step_shift, 1);
+
+    // A breakdown of two of the stage counters in the right-hand column, not
+    // three more terms beside them: PLY is the polygon part of GRD, CLD and
+    // SPR are the cloud scan and the sprite stack inside UPD. On their own row
+    // for that reason. See benchmark.h.
+    // Six digits for PLY and five for the other two, which is what leaves a
+    // space between the three fields on a 40 column row. PLY earns the extra
+    // digit: one runway polygon filling the viewport is 44,132 cycles
+    // (docs/framerate.md), and a counter that wrapped silently would be worse
+    // than no counter. The cloud scan has never been seen above 30,000 and the
+    // sprite stack runs in hundreds.
+    bm_sub_show(BM_SUB_CLOUDS, 819, "CLD: ", 5);
+    bm_sub_show(BM_SUB_SPRITES, 859, "SPR: ", 5);
+    bm_sub_show(BM_SUB_POLY, 870, "PLY: ", 5);
 
     print_labeled_signed_bcd(920, "SPD:", flight_speed, 4);
     print_labeled_signed_bcd(960, "VSP:", flight_vspeed, 4);

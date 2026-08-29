@@ -88,6 +88,33 @@ The right hand side shows the cycles spent in various stages of rendering.
 | `COL` | Copy to the color RAM                        |
 | `MDL` | Model the plane state (motion etc.)          |
 | `GRD` | Draw the grid dots on the ground             |
+| `UPD` | Camera, roll state, cloud scan, sprite stack |
+| `TOT` | The sum of the stages above                  |
+
+`TOT` is the sum of those stages and nothing else: the key scan, the panel
+instruments, `sound_update()` and the wait for the flip window are outside all
+of them, so `TOT` is less than the frame period.
+
+Three more counters, on their own row, are a **breakdown** of two of the stages
+above rather than extra terms beside them - do not add them to `TOT`.
+
+| Label | Value                                                     |
+| ----- | --------------------------------------------------------- |
+| `PLY` | `poly_draw_3d()` over the whole frame - part of `GRD`     |
+| `CLD` | `clouds_add_candidates()` - part of `UPD`                 |
+| `SPR` | `sprites_stack_commit()` - part of `UPD`                  |
+
+`PLY` accumulates, since the grid walk calls it once per object on screen. Two
+readings to calibrate against, both in `x64sc` with the aircraft frozen:
+
+| pose | `GRD` | `PLY` | `UPD` | `CLD` | `SPR` | `TOT` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| mission 01, on the runway | 81,297 | **43,128** | 17,659 | 11,760 | 471 | 130,387 |
+| mission 02, on final | 51,663 | 15,778 | 19,557 | 13,285 | 783 | 102,875 |
+
+On the runway the single runway polygon is 53% of the grid walk and a third of
+everything measured, which is the finding [framerate.md](framerate.md) arrived
+at by hand and this now reports live.
 
 ![Debug info](../screens/debug_crt.png)
 
