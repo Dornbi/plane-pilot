@@ -50,6 +50,8 @@ FIXED = [
      'oscar64 runtime zero page (reserved; headroom checked by check_zeropage.py)'),
     (0x0100, 0x0200, None, '6502 hardware stack'),
     (0x0800, 0x0801, None, 'BASIC link byte'),
+    (0xCF00, 0xD000, 'Menu & Missions',
+     'title screen aircraft, 4 sprite blocks (mem.h kTitleSpriteData)'),
     (0xD000, 0xD400, 'Menu & Missions',
      'map view screen RAM, under I/O (map.cc kMapScreenRam)'),
     (0xD400, 0xE000, 'Instrument Panel',
@@ -128,14 +130,16 @@ DESCRIPTIONS = {
                 '`$F000-$F17F`), and both screens\' sprite pointers',
     },
     'Menu & Missions': {
-        'Code': 'menu loop, mission cursor, help screen, map view '
-                '(`menu.cc`, `mission.cc`, `help.cc`, `map.cc`)',
+        'Code': 'menu loop, mission cursor, help screen, map view, title '
+                'screen flyby (`menu.cc`, `mission.cc`, `help.cc`, `map.cc`, '
+                '`title.cc`)',
         'Data': 'menu and mission text, mission definitions, help text, '
-                'map tiles',
-        'BSS': '',
-        'ZP': '',
-        'VRAM': 'map view screen RAM at `$D000-$D3FF`, RAM under I/O, live '
-                'only while the map is open',
+                'map tiles, the compressed title aircraft bitmaps',
+        'BSS': 'the flyby timer',
+        'ZP': 'flyby position and state',
+        'VRAM': 'title aircraft sprite blocks at `$CF00-$CFFF`, and map view '
+                'screen RAM at `$D000-$D3FF`, RAM under I/O, live only while '
+                'the map is open',
     },
     'Message System': {
         'Code': 'status message timer, line formatter, clear and restore '
@@ -215,7 +219,7 @@ def get_category(name):
         return 'Sound Effects'
 
     # Menu & Missions
-    if any(n.startswith(p) for p in ['menu_', '_menu_', 'kmenu', 'help_', '_help_', 'khelp', 'mission_', 'map_', '_map_', 'kmap', '_render_menu_items', '_enter_menu', '_draw_mission_cursor', '_tile_index', '_draw_object_layer', '_draw_path', '_draw_stencil', '_draw_navpoints', '_draw_compass', '_draw_screen_layer', '_map_poll_exit']) or any(k in n for k in ['menu', 'help', 'mission', 'map']):
+    if any(n.startswith(p) for p in ['menu_', '_menu_', 'kmenu', 'help_', '_help_', 'khelp', 'mission_', 'map_', '_map_', 'kmap', 'title_', '_title_', 'ktitle', '_render_menu_items', '_enter_menu', '_draw_mission_cursor', '_tile_index', '_draw_object_layer', '_draw_path', '_draw_stencil', '_draw_navpoints', '_draw_compass', '_draw_screen_layer', '_map_poll_exit']) or any(k in n for k in ['menu', 'help', 'mission', 'map', 'title']):
         if 'world_map' in n or 'mapdefs' in n:
             pass # handle elsewhere
         else:
@@ -393,9 +397,9 @@ def parse_map(map_path):
     # one from mem.h. Pointed at vecdemo or vectest - built without it, and
     # without a VIC to speak of - every address above $D000 below would be
     # invented. Say so rather than printing a confident wrong number.
-    if not any(start == 0x0860 and end == 0xD000 for start, end, _n in regions):
+    if not any(start == 0x0860 and end == 0xCF00 for start, end, _n in regions):
         print(f"warning: {map_path} is not a __MAX_RAM__ build "
-              f"(no $0860-$D000 main region); the fixed allocations below "
+              f"(no $0860-$CF00 main region); the fixed allocations below "
               f"describe ppilot and do not apply.\n", file=sys.stderr)
 
 

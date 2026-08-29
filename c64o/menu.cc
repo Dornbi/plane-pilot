@@ -11,6 +11,7 @@
 #include "print.h"
 #include "screen.h"
 #include "sound.h"
+#include "title.h"
 
 // The routines below only run on screen transitions (menu, help, map) or at
 // startup, never inside the per-frame simulation loop, so the outliner's
@@ -73,6 +74,13 @@ static void _menu_enter(uint8_t scroll_offset) {
   print_str(23, 11, STRL("PRESS H FOR HELP"));
   // No volume readout in the initial paint. It is a notice now, not a status
   // line: it appears when V is pressed and clears itself three seconds later.
+
+  // Last, and after the page is painted rather than before: the first thing
+  // screen_begin_text_page() above does is clear $D015, so anything armed
+  // ahead of it would be switched off again. This is also what re-arms the
+  // flyby on the way back from the help screen, which paints over the same
+  // page and disables the sprites doing it.
+  title_arm();
 }
 
 static void _menu_draw_mission_cursor(uint8_t selected_mission,
@@ -104,6 +112,12 @@ uint8_t menu_run() {
   uint8_t prev_menu_toggles = 0;
 
   while (1) {
+    // First in the iteration, so that it runs while the raster is still in the
+    // top border - the sprite registers are written straight from the main
+    // line here and there is no raster interrupt to hide the writes behind.
+    // See title.h.
+    title_tick();
+
     keyb_poll();
 
     uint8_t menu_toggles = 0;

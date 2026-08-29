@@ -9,7 +9,10 @@ and §3 — see [planes.md](planes.md).
 ## 0. Two absolute rules
 
 Everything below is subject to these, and they are not trade-offs to be
-revisited per object type:
+revisited per object type. They are rules about **world objects in the flight
+viewport** — the title screen's aeroplane is four multicolour sprites and
+breaks the first of them on purpose, for reasons neither rule's argument
+covers (`docs/project.md` §7, `c64o/title.cc`):
 
 - **Hires only. Never multicolour.** One colour per sprite, full horizontal
   resolution. `$D01C` stays zero.

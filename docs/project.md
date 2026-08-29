@@ -50,9 +50,11 @@ program (`__MAX_RAM__`).
 | `$0060–$00FF` | zero page (oscar64 `zeropage` region)                      |
 | `$0200–$0280` | CPU stack (`#pragma stacksize(0x80)`)                      |
 | `$0280–$0800` | `bss2`, a second BSS region — full to the byte             |
-| `$0860–$CFFF` | code, data, bss, heap                                      |
+| `$0860–$CEFF` | code, data, bss, heap                                      |
+| `$CF00–$CFFF` | title screen aircraft, expanded from `titledef.bin`        |
 | `$D000–$DFFF` | I/O (`MMAP_NO_ROM`)                                        |
-| `$D7C0`       | sprite bitmaps, expanded from `spritedef.bin` at startup   |
+| `$D000–$D3FF` | map view screen RAM, live only while the map is open       |
+| `$D400`       | sprite bitmaps, expanded from `spritedef.bin` at startup   |
 | `$D800`       | color RAM                                                  |
 | `$DA30`       | panel color rows (= `$D800 + 14*40`)                       |
 | `$E000–$E7FF` | character RAM                                              |
@@ -417,6 +419,7 @@ screen buffers at offset 1016.
 | Module      | Screen                                                                             |
 | ----------- | ---------------------------------------------------------------------------------- |
 | `menu.cc`   | main menu — mission list, `I`/`K` to move, `SPACE`/`RETURN` to start, `H` for help |
+| `title.cc`  | the aircraft that crosses the menu page every ten seconds or so                     |
 | `help.cc`   | static key reference, one text blob printed by `print_lines()`                     |
 | `map.cc`    | single-color character mode rendering of the 32 × 16 world map                     |
 | `screen.cc` | shared mode transitions: enter static MCCM, begin text page, restore simulation    |
@@ -426,12 +429,48 @@ screen buffers at offset 1016.
 rising-edge detection on toggle keys, and `keys_wait_release()` for momentary
 ones.
 
-The outliner (`-Oo`) runs over the whole program, trading speed for size by
-extracting repeated instruction sequences into subroutines. The files on the
-per-frame path — `render.cc`, `box.cc`, `poly.cc`, `world.cc`, `vec.cc`,
-`vec_asm.cc`, `fmath.cc`, `roll_asm.cc` — and the raster IRQ handlers in
-`gfx.cc` opt back out with `#pragma optimize(nooutline)`, since a JSR/RTS per
-extracted sequence costs more there than the bytes are worth.
+### `title.cc` — the menu flyby
+
+Four **multicolour** sprites in a 2 × 2 block — 48 × 42 screen pixels of one
+aeroplane — cross the page every six seconds or so, taking one and a half to
+two and a half seconds about it.
+
+Every flyby is the same aeroplane at the same angle at the same speed: two
+pixels left and two lines down per frame, always. The art is a fixed
+silhouette, so the direction of travel has to match the direction it is
+pointing or it reads as a skid, and a second speed would want a second
+silhouette to be honest about it. **What varies between flybys is only where
+the aeroplane comes in.**
+
+Because the angle never changes, every path is one of a family of parallel
+lines, and a 45° line down and to the left is the set of points where X + Y is
+constant. So one number picks a flyby out of that family — the code calls it
+the *lane*, to keep it apart from the 45° itself, which is not a choice anyone
+makes. Everything else follows from it: where the aircraft crosses the top
+edge, where it crosses the right edge, where it leaves, and how long it is on
+screen.
+
+Flybys **alternate** between two bands of lanes. The first comes in over the
+right half of the top edge, the second over the top half of the right edge, and
+so on; the count restarts when the page is painted. Alternating rather than
+drawing the side at random is what makes the variety visible — those bands are
+160 lanes and 99, so a single sweep across both would come in over the top
+nearly twice as often as over the side, and a run of four the same way would
+not be unusual. An LFSR stepped every menu frame then picks the lane within the
+band, scaled to fit it by two shifts and an add (`(r >> a) + (r >> b)` is
+`r × (2⁻ᵃ + 2⁻ᵇ)`); a remainder would use each band exactly and cost the
+139-byte divmod routine that `tools/check_mul_div.py` fails the build over.
+
+The lower lanes leave through the **left** edge rather than the bottom, and
+that is the one case the VIC will not clip for you: hiding a 24-pixel sprite
+column behind a left border that ends at X = 24 wants X = −24, and one step
+below zero wraps the sprite round to the right of the same raster line. Parking
+a column at X = 0 is the exact answer rather than an approximation — a sprite
+there spans 0–23 and the picture starts at 24, so it is completely hidden, and
+every negative position is equally hidden. `_title_program()` clamps the two
+columns independently, so the column still partly on screen keeps its true
+position and clips a pixel at a time while the other sits behind the border.
+The aeroplane goes off the left edge column by column with nothing snapping.
 
 ### `mission.cc`
 

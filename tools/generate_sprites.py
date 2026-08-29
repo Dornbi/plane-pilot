@@ -423,6 +423,138 @@ def generate_sun_sprite(bitmap_offset):
     return sprite_bytes, meta, grid
 
 
+# --- The title screen aircraft ----------------------------------------------
+#
+# The one sprite set in this program that is multicolour, and the only one that
+# never appears during flight. docs/sprite_objects.md §0 rules multicolour out
+# for world objects, and for good reasons - a cloud's checkerboard dither
+# collapses into 2-pixel blocks, and an aircraft silhouette at that scale is
+# three straight lines that need the full horizontal resolution. Neither
+# argument reaches the title screen: there is one aircraft, it is 48 x 42
+# screen pixels rather than a few, and it is standing art rather than something
+# drawn per frame. Three colours over four blocks buys a readable aeroplane
+# where hires would buy a grey cross.
+#
+# The crop is the second aircraft in gfx/ppilot_sprites_concept.png, the one
+# flying towards the bottom left, and it was drawn to land on exactly 2 x 2
+# sprites: 48 screen pixels wide is two multicolour sprites (12 double-wide
+# pixels each) and 42 rows is two sprites tall.
+KTITLE_PNG = "ppilot_sprites_concept.png"
+KTITLE_CROP_X = 88
+KTITLE_CROP_Y = 16
+KTITLE_COLS = 2
+KTITLE_ROWS = 2
+
+# A multicolour sprite is still 24 screen pixels wide; the pixels are just
+# twice as wide and half as many.
+KSPRITE_MC_COLS = KSPRITE_COLS // 2
+
+# The art's palette indices, and where each one has to come from on the VIC.
+# Only one of the four is per sprite, so the choice is which colour the four
+# blocks are free to disagree on - and since they are four quarters of one
+# aeroplane, they never do. The mapping is therefore arbitrary and only has to
+# be written down once; it is the main body tone that gets the per-sprite slot.
+#
+#   00  transparent          - black in the art
+#   01  $D025, shared        - the dark shading
+#   10  $D027+n, per sprite  - the main body tone
+#   11  $D026, shared        - the light highlight
+KTITLE_COLOR_MC0 = 2  # red
+KTITLE_COLOR_MAIN = 10  # light red
+KTITLE_COLOR_MC1 = 15  # light grey
+KTITLE_BITPAIR = {
+    0: 0,
+    KTITLE_COLOR_MC0: 1,
+    KTITLE_COLOR_MAIN: 2,
+    KTITLE_COLOR_MC1: 3,
+}
+
+
+def _title_pair_color(img, x, y):
+    """The colour of one multicolour pixel, from the two art pixels under it.
+
+    The art is drawn on the multicolour grid, so the pair is almost always two
+    of the same. The exception is a single stray transparent pixel inside a
+    solid run at (126, 27), which is a one-pixel hole in the drawing rather
+    than a misalignment: resolving a mixed pair in favour of the colour fills
+    it. Two *different* colours in one pair would mean the crop had slipped by
+    one, and that is a build failure rather than something to round off.
+    """
+    a, b = img[y][x], img[y][x + 1]
+    if a == b:
+        return a
+    if a == 0:
+        return b
+    if b == 0:
+        return a
+    raise SystemExit(
+        "generate_sprites: the title aircraft has two different colours in one "
+        "multicolour pixel at (%d, %d): %d and %d.\n"
+        "  The crop is off the multicolour grid - check KTITLE_CROP_X, which "
+        "must stay even." % (x, y, a, b)
+    )
+
+
+def _mc_grid_to_sprite_bytes(grid):
+    """21 rows of 12 bit pairs into the VIC's 64-byte block."""
+    sprite_bytes = bytearray(64)
+    for y in range(KSPRITE_ROWS):
+        row = grid[y]
+        for b in range(3):
+            v = 0
+            for k in range(4):
+                v |= row[b * 4 + k] << (6 - 2 * k)
+            sprite_bytes[y * 3 + b] = v
+    return sprite_bytes
+
+
+def generate_title_sprites(bitmap_offset):
+    """The four blocks of the title aircraft, in reading order.
+
+    Block order is top-left, top-right, bottom-left, bottom-right, which is
+    also the order title.cc hands them to hardware sprites 0..3, so a block
+    index is a sprite index plus the base and neither side needs a table.
+    """
+    png_path = os.path.join(REPO_ROOT, "gfx", KTITLE_PNG)
+    img, _w, _h = _read_concept_png(png_path)
+
+    assert KTITLE_CROP_X % 2 == 0, "the crop must start on a multicolour pixel"
+
+    data = []
+    meta = []
+    grids = []
+    for row in range(KTITLE_ROWS):
+        for col in range(KTITLE_COLS):
+            grid = [
+                [0 for _ in range(KSPRITE_MC_COLS)] for _ in range(KSPRITE_ROWS)
+            ]
+            for sy in range(KSPRITE_ROWS):
+                iy = KTITLE_CROP_Y + row * KSPRITE_ROWS + sy
+                for sx in range(KSPRITE_MC_COLS):
+                    ix = KTITLE_CROP_X + col * KSPRITE_COLS + sx * 2
+                    c = _title_pair_color(img, ix, iy)
+                    if c not in KTITLE_BITPAIR:
+                        raise SystemExit(
+                            "generate_sprites: the title aircraft uses palette "
+                            "index %d at (%d, %d), which has no bit pair.\n"
+                            "  A multicolour sprite has room for three colours "
+                            "and transparent; see KTITLE_BITPAIR." % (c, ix, iy)
+                        )
+                    grid[sy][sx] = KTITLE_BITPAIR[c]
+
+            data.append(_mc_grid_to_sprite_bytes(grid))
+            grids.append(grid)
+            meta.append(
+                {
+                    "bitmap_idx": bitmap_offset + row * KTITLE_COLS + col,
+                    "label": "Title aircraft %s %s"
+                    % ("top" if row == 0 else "bottom",
+                       "left" if col == 0 else "right"),
+                }
+            )
+    return data, meta, grids
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate sprite data for C64 instrument needles and clouds."
@@ -446,11 +578,20 @@ def main():
         default=96,
         help="Base offset for bitmap indicators (default: 96)",
     )
+    parser.add_argument(
+        "--title_base_offset",
+        type=int,
+        default=60,
+        help="First VIC sprite block of the title aircraft, which lives in "
+             "its own 256 bytes at $CF00 rather than in the blob at $D400 "
+             "(default: 60)",
+    )
     args = parser.parse_args()
 
     angles_tot = args.angles_tot
     cloud_base = args.cloud_base_offset
     base_offset = args.base_offset
+    title_base = args.title_base_offset
 
     # 1. Generate the orientation indicator (pointer 80) and the clouds
     # (14 bitmaps: pointers 81-94). Fifteen blocks between them, which is what
@@ -739,6 +880,85 @@ def main():
             f.write("    ],\n")
         f.write("]\n")
     print(f"Generated {lib_path}")
+
+    # --- The title aircraft, which is its own blob -------------------------
+    #
+    # Separate from spritedef.bin because it is expanded somewhere else: the
+    # blob above goes to $D400 as one contiguous 3072 bytes, and there is no
+    # room in front of it for four more blocks - $D000..$D3FF is the map view's
+    # screen RAM. These four live at $CF00, just below I/O, and are expanded by
+    # title.cc when the menu opens. See c64o/mem.h.
+    title_data, title_meta, title_bits = generate_title_sprites(title_base)
+
+    title_bin_path = os.path.join(REPO_ROOT, "c64o", "titledef.bin")
+    with open(title_bin_path, "wb") as f:
+        for data in title_data:
+            f.write(data)
+    print(f"Generated {title_bin_path} ({len(title_data) * 64} bytes)")
+
+    title_h_path = os.path.join(REPO_ROOT, "c64o", "titledef.h")
+    with open(title_h_path, "w") as f:
+        f.write("// Generated by tools/generate_sprites.py from\n")
+        f.write(f"// gfx/{KTITLE_PNG}. Do not edit; run `make sprites`.\n\n")
+        f.write("#ifndef TITLEDEF_H\n")
+        f.write("#define TITLEDEF_H\n\n")
+        f.write("#include <stdint.h>\n\n")
+        f.write("// The title screen aircraft: one drawing across a 2 x 2 "
+                "block of\n")
+        f.write("// multicolour sprites, in reading order - top left, top "
+                "right, bottom\n")
+        f.write("// left, bottom right. 48 x 42 screen pixels.\n")
+        f.write(f"static const uint8_t kTitleDefCols = {KTITLE_COLS};\n")
+        f.write(f"static const uint8_t kTitleDefRows = {KTITLE_ROWS};\n")
+        f.write("static const uint8_t kTitleDefBitmapCount = "
+                f"{len(title_data)};\n")
+        f.write("// First VIC sprite block; the four are consecutive. "
+                "c64o/mem.h places\n")
+        f.write("// the bitmaps and asserts that its address agrees with "
+                "this.\n")
+        f.write("static const uint8_t kTitleDefBitmapBase = "
+                f"{title_base};\n\n")
+        f.write("// Bit pair 01 and 11 are the two screen-wide sprite "
+                "multicolour\n")
+        f.write("// registers; bit pair 10 is each sprite's own colour, and "
+                "all four\n")
+        f.write("// blocks are given the same one.\n")
+        f.write("static const uint8_t kTitleDefColorMc0 = "
+                f"{KTITLE_COLOR_MC0};\n")
+        f.write("static const uint8_t kTitleDefColorMain = "
+                f"{KTITLE_COLOR_MAIN};\n")
+        f.write("static const uint8_t kTitleDefColorMc1 = "
+                f"{KTITLE_COLOR_MC1};\n\n")
+        f.write("#endif\n")
+    print(f"Generated {title_h_path}")
+
+    title_lib_path = os.path.join(REPO_ROOT, "lib", "titledef.py")
+    with open(title_lib_path, "w") as f:
+        f.write("# Generated Title Screen Aircraft Sprite Definitions\n\n")
+        f.write(f"NUM_BITMAPS = {len(title_data)}\n")
+        f.write(f"COLS = {KTITLE_COLS}\n")
+        f.write(f"ROWS = {KTITLE_ROWS}\n")
+        f.write(f"BITMAP_BASE = {title_base}\n")
+        f.write(f"COLOR_MC0 = {KTITLE_COLOR_MC0}\n")
+        f.write(f"COLOR_MAIN = {KTITLE_COLOR_MAIN}\n")
+        f.write(f"COLOR_MC1 = {KTITLE_COLOR_MC1}\n\n")
+        f.write("META = [\n")
+        for m in title_meta:
+            f.write(f"    {{'bitmap_idx': {m['bitmap_idx']}, "
+                    f"'label': '{m['label']}'}},\n")
+        f.write("]\n\n")
+        # One character per multicolour pixel: '.' transparent, then the bit
+        # pair as a digit, so a pattern can be read back as art or as data.
+        f.write("PATTERNS = [\n")
+        for i, grid in enumerate(title_bits):
+            f.write(f"    # {title_meta[i]['label']}\n")
+            f.write("    [\n")
+            for row in grid:
+                row_str = "".join("." if v == 0 else str(v) for v in row)
+                f.write(f'        "{row_str}",\n')
+            f.write("    ],\n")
+        f.write("]\n")
+    print(f"Generated {title_lib_path}")
 
 
 if __name__ == "__main__":

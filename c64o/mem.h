@@ -26,7 +26,12 @@
 // range as RAM. In theory we could use everything until kSpriteData
 // but it overlaps with VIC control registers so we would have to
 // switch back and forth.
-#pragma region( main, 0x0860, 0xD000, , , {code, data, data_box, data_compr, bss, heap} )
+//
+// The end is 0xCF00 rather than 0xD000 because the last page below I/O is
+// kTitleSpriteData - see below. The linker never sees that page, so it has to
+// be taken off the region by hand, exactly the way the ranges above 0xD000
+// are.
+#pragma region( main, 0x0860, 0xCF00, , , {code, data, data_box, data_compr, bss, heap} )
 #endif
 // Zero page. Wider than oscar64's 0x80..0xFF default, in both directions.
 //
@@ -71,6 +76,21 @@ static const uint16_t kViewportStartYPixels = kViewportStartY * 8;
 static const uint16_t kViewportEndYPixels = kViewportEndY * 8;
 
 static uint8_t *const kCharRam = (uint8_t *)0xE000;
+
+// The title screen aircraft's four sprite blocks, expanded here by title.cc
+// when the menu opens (c64o/title.cc). One page, and the only spare one in
+// the VIC bank: the blob at $D400 runs to $DFFF exactly, and the 1 KB in
+// front of it is the map view's screen RAM, which the VIC can only read from
+// a 1 KB boundary and so cannot be nudged aside to make room.
+//
+// Below I/O rather than under it, which is what makes this page cheaper to
+// use than the ones above it: no banking, no masked interrupts, just a store.
+// It costs 256 bytes off the top of the main region above.
+static uint8_t *const kTitleSpriteData = (uint8_t *)0xCF00;
+// The same address as a VIC sprite block number - bank 3 starts at $C000 and
+// a block is 64 bytes. title.cc checks this against the generated
+// kTitleDefBitmapBase, which is what the sprite pointers are written from.
+static const uint8_t kTitleSpriteBlock = (0xCF00 - 0xC000) / 64;
 static const uint8_t kRasterScreenYStart = 50;
 
 // Sprites are switched off this many raster lines above the panel split, so

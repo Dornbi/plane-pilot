@@ -74,6 +74,10 @@ PPILOT_SRC = \
 		spritedef.bin \
 		sprites.h \
 		sprites.cc \
+		title.h \
+		title.cc \
+		titledef.h \
+		titledef.bin \
 		vec.h \
 		vec.cc \
 		vec_asm.cc \
