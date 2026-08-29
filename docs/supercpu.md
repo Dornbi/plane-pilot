@@ -135,6 +135,17 @@ the same four seconds of wall clock, from mission 02's start:
 `ppilot.prg` measures its own machine at boot and picks the shift, so there is
 one binary and no SuperCPU build to remember to use.
 
+> **2026-08-29.** Half of this was reverted. The step *size* still scales with
+> `cpu_step_shift` exactly as described, but the raster timebase is gone and
+> `sim.cc` is back to one `flight_advance()` per rendered frame - because the
+> catch-up loop made the worst frame worse, owing the model a second step on
+> precisely the frames that had already overrun. [flight.md](flight.md) §8 has
+> the measurements on both sides. The consequence here is that the two halves
+> of the shift no longer cancel: at 50.1 fps against a stock 7.0, a quarter-size
+> step leaves the aircraft about 1.8x fast on a SuperCPU rather than 1.04x.
+> Better than the 4.67x above and not as good as the row below it. Re-measuring
+> that on real `xscpu64` is open.
+
 ## Detecting the machine
 
 `cpu.cc` times a fixed RAM-only loop against CIA2 timer A, which stays on the

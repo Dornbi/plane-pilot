@@ -821,10 +821,11 @@ void flight_advance() {
     if (!model_on_ground) {
       int8_t rot = _flight_step_s(flight_cam.left.z) >> 5;
       if (rot != 0) {
-        static mat3_t mat3_rot = {{256, 0, 0}, {0, 256, 0}, {0, 0, 256}};
-        mat3_rot.front.y = rot;
-        mat3_rot.left.x = -rot;
-        vec_transform3_inv(&mat3_rot, &flight_cam);
+        // Was a general 3x3 against an identity carrying only front.y = rot
+        // and left.x = -rot; vec_turn3_xy() is that matrix written out, bit
+        // for bit the same answer for a fifth of the multiplies. |rot| <= 8,
+        // since left.z is a unit-vector component and the shift is by five.
+        vec_turn3_xy(rot, &flight_cam);
         model_need_normalize = true;
       }
     }

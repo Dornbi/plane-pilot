@@ -211,7 +211,7 @@ void mem_switch_buffer(void) {
 
   bm_view_start();
   _copy_color_ram();
-  bm_view_end(910, "COL:");
+  bm_view_end(950, "COL:");
 }
 
 // Startup and mode-switch helpers; none of these run per frame.

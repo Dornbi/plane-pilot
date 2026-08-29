@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "../vec.h"
 
@@ -96,6 +97,46 @@ int host_vec_selfcheck() {
                    got_m, (int)want_m);
           }
           ++mismatches;
+        }
+      }
+    }
+  }
+
+  // vec_turn3_xy() against the general routine it replaces. The claim is bit
+  // for bit identity, not closeness, so this compares whole matrices over the
+  // range flight.cc actually produces: |s| <= 8 from left.z >> 5, and basis
+  // components that vec_normalize()/_limit_vec() hold inside +/-256. The
+  // corners and a few off-axis attitudes are enough - the two routines differ
+  // only in which multiplies they skip, so a disagreement would be systematic
+  // rather than rare.
+  static const int16_t kComp[] = {-256, -255, -181, -128, -37, -1, 0,
+                                  1,    37,   128,  181,  255, 256};
+  static const int kCompCount = (int)(sizeof(kComp) / sizeof(kComp[0]));
+  for (int16_t s = -8; s <= 8; ++s) {
+    if (s == 0) {
+      continue; // flight.cc does not call it with a zero rotation.
+    }
+    mat3_t rot = {{256, 0, 0}, {0, 256, 0}, {0, 0, 256}};
+    rot.front.y = s;
+    rot.left.x = -s;
+    for (int i = 0; i < kCompCount; ++i) {
+      for (int j = 0; j < kCompCount; ++j) {
+        for (int k = 0; k < kCompCount; ++k) {
+          mat3_t want = {{kComp[i], kComp[j], kComp[k]},
+                         {kComp[j], kComp[k], kComp[i]},
+                         {kComp[k], kComp[i], kComp[j]}};
+          mat3_t got = want;
+          vec_transform3_inv(&rot, &want);
+          vec_turn3_xy(s, &got);
+          if (memcmp(&want, &got, sizeof(mat3_t)) != 0) {
+            if (mismatches < 5) {
+              printf("  vec_turn3_xy(%d) on (%d,%d,%d): got front (%d,%d,%d), "
+                     "expected (%d,%d,%d)\n",
+                     s, kComp[i], kComp[j], kComp[k], got.front.x, got.front.y,
+                     got.front.z, want.front.x, want.front.y, want.front.z);
+            }
+            ++mismatches;
+          }
         }
       }
     }

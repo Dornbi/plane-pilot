@@ -164,6 +164,26 @@ void vec_transform3(const mat3_t *t, mat3_t *m);
 // (Inverted) transforms m by t.
 void vec_transform3_inv(const mat3_t *t, mat3_t *m);
 
+// The roll-induced turn: rotates all three vectors of m by the small angle
+// s/256 in the x-y plane, leaving z alone. In place.
+//
+// Exactly vec_transform3_inv() with the matrix flight.cc used to build for it -
+// the identity with front.y = s and left.x = -s - and bit for bit the same
+// answer, which test/host_vec.cc sweeps rather than assumes. Written out
+// because seven of that matrix's nine entries are zero or 256 and the general
+// routine paid a vec_fastmul8p8 for every one of them: 27 multiplies and an
+// 18-byte transposed copy per call, against 6 multiplies and two temporaries
+// here.
+//
+// Three identities make the specialization exact rather than merely close.
+// vec_fastmul8p8(256, v) == v, because the product is a multiple of 256 and
+// the shift loses nothing. vec_fastmul8p8(0, v) == 0. And
+// vec_fastmul8p8(-s, v) == -vec_fastmul8p8(s, v), because the routine forms
+// the product from the magnitudes and applies the sign last (vec_asm.cc) -
+// with an arithmetic shift instead it would floor, and the two would differ by
+// one on half of all products.
+void vec_turn3_xy(int16_t s, mat3_t *m);
+
 #pragma compile("vec.cc")
 #pragma compile("vec_asm.cc")
 #pragma compile("vec_lut.cc")

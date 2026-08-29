@@ -144,10 +144,6 @@ static const held_key_t kHeldKeys[] = {
 };
 static const uint8_t kHeldKeyCount = sizeof(kHeldKeys) / sizeof(kHeldKeys[0]);
 
-// The frame count the last model step was taken at. A difference against
-// gfx_frame_count, so the byte wrapping is harmless.
-static uint8_t model_last_frame;
-
 void sim_run(uint8_t selected_mission) {
   _enter_simulation(selected_mission);
 
@@ -261,15 +257,15 @@ void sim_run(uint8_t selected_mission) {
     }
 
     bm_model_start();
-    // One step per kFlightFramesPerStep raster frames, not one per render. The
-    // loop rather than an if is the catch-up: if a heavy scene overruns the
-    // budget the model owes a step, and paying it late is the only way the
-    // aircraft's speed can stay a property of the aircraft.
-    while ((uint8_t)(gfx_frame_count - model_last_frame) >=
-           kFlightFramesPerStep) {
-      model_last_frame += kFlightFramesPerStep;
-      flight_advance();
-    }
+    // Exactly one step per rendered frame, and never two. The model carries no
+    // elapsed time, so the aircraft covers the same ground per frame however
+    // long the frame took and airspeed through the world moves with what is on
+    // screen - about 13% between the runway and cruise on a stock C64
+    // (docs/framerate.md). That unevenness is accepted deliberately; what it
+    // buys is a model cost that is bounded by construction, so a heavy scene
+    // cannot also be the frame that owes the model two steps. docs/flight.md
+    // section 8 has the reasoning and the measurements on both sides of it.
+    flight_advance();
     if (flight_crashed()) {
       // A crash is the end of the flight, so its message stays up until R or
       // Q. Completing a mission is not: flight.cc announces it for a few

@@ -370,17 +370,82 @@ total over a whole old step is what it always was. At shift 0 the mask is zero,
 every one of them fires on every step, and the arithmetic is bit for bit the
 model this document describes.
 
-**The timebase is the raster, not the render.** `gfx_frame_count` is bumped by
-the handler at raster 250 — the one thing in the program that runs exactly once
-per frame — and `sim.cc` takes a step per `kFlightFramesPerStep` of them, in a
-loop rather than an `if` so that a heavy scene pays its step late instead of
-skipping it.
+**One model step per rendered frame.** `sim.cc` calls `flight_advance()` exactly
+once per iteration of the simulation loop. The model carries no elapsed time, so
+the aircraft covers the same ground per frame however long the frame took, and
+airspeed through the world moves with what is on screen.
 
-That fixed a bug that predates any of this. The model used to advance once per
-*render*, so the aircraft covered the same ground per frame however long the
-frame took, and airspeed through the world moved with what was on screen: 13%
-between the runway and cruise on a stock C64 (docs/framerate.md), and **4.67x**
-on a SuperCPU, where the render is twenty times faster.
+That is a deliberate choice and it was not always this one. Between
+`bfc81c2` (18 August 2026) and `9b31591` the timebase was the raster:
+`gfx_frame_count`, bumped by the handler at line 250, with a step taken per
+`kFlightFramesPerStep` of them in a catch-up loop. That version held airspeed
+constant across scenes and machines, and the measurements it was built on are
+kept below because they are the honest statement of what the render timebase
+costs. It was reverted because the cost landed in the wrong place:
+
+| | per model step, holding roll | worst frame |
+| --- | ---: | ---: |
+| raster timebase | 22,339 | **44,678** (two steps owed) |
+| one step per render | 20,922 | 20,922 |
+| and with `vec_turn3_xy()` (below) | **16,769** | **16,769** |
+
+Mission 02 on final, holding roll left, stock C64 in `x64sc`, read off `MDL:`
+in the debug view. A frame that overran its budget was also the frame that owed
+the model a second step, so the catch-up loop made the worst frame worse - which
+is the opposite of what a frame-rate budget wants. One step per render bounds
+the model's cost by construction, and the debt that modal screens used to
+accumulate cannot exist at all.
+
+**What it costs.** Airspeed through the world now varies with the scene: about
+13% between the runway and cruise on a stock C64, and across the three poses in
+[framerate.md](framerate.md) whose frame rates run 6.27 to 8.35 fps, up to a
+third. The aircraft flies slowest where the view is busiest, which is on final
+with the runway filling the viewport. On an accelerated machine the step *size*
+still scales with `cpu_step_shift` but the step *rate* no longer does, so the
+two halves of that knob no longer cancel: at the 50.1 fps `xscpu64` reaches in
+[supercpu.md](supercpu.md) against a stock 7.0, a quarter-size step at shift 2
+leaves the aircraft roughly 1.8x fast. That is arithmetic from those two frame
+rates, not a measurement - it is the open item on this section. Keeping the
+shift is still much better than dropping it, which is the 4.67x the same
+document records.
+
+**Where the step actually goes.** Measured by ablation, same pose and harness,
+cycles per `flight_advance()`:
+
+| | per step |
+| --- | ---: |
+| model arithmetic, attitude not changing | 4,934 |
+| + the roll-induced turn, as a general 3x3 | +7,089 |
+| + `vec_orthonormalize()` | +9,705 |
+| **banked and turning** | **22,339** |
+
+Straight and level with no control input the same step is 5,031. That is the
+whole spread: `MDL` is bimodal on *whether the attitude is changing*, not on
+anything about the timebase.
+
+**The turn is now `vec_turn3_xy()`** and the step is 16,769. The matrix it
+replaced was the identity carrying `front.y = rot` and `left.x = -rot`, and the
+general routine paid a `vec_fastmul8p8` for all nine entries plus an 18-byte
+transposed copy - 27 multiplies where 6 do the work. The replacement is bit for
+bit identical, not merely close, and `test/host_vec.cc` sweeps 16 rotations
+against 2,197 attitudes to keep it that way; vec.h records the three
+`vec_fastmul8p8` identities that make the exactness hold rather than
+approximately hold.
+
+**What is left.** `vec_orthonormalize()` is now 58% of the step, and about
+4,000 of its cycles are six `vec_div8p8` calls at 554-729 each (`vectest`).
+Those three divisions inside each `vec_normalize()` share a divisor, so the
+divisor-side work could be hoisted and stay bit-exact, but it is worth only a
+few hundred cycles; anything bigger means a reciprocal-multiply, which changes
+the rounding - and the truncation behaviour of this routine is load bearing,
+since it is what the wing-levelling and nose-wheel comments above are guarding
+against. Building without the orthonormalize at all crashes the aircraft within
+seconds, so the numerical margin here is not large.
+
+The same "identity plus one antisymmetric pair" shape describes all six
+`kVec*` control matrices, so `vec_transform3()` on the input path has the
+identical 27-for-6 win available. Measured at **6,191 cycles a frame** while a
+control key is held, against a frame of about 146,000. Not done.
 
 **How the scaled model is checked.** Not by `flight_test`: that suite counts
 steps — "roll for six frames, then assert the bank" — so a quarter-size step
