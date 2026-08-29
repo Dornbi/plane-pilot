@@ -97,23 +97,25 @@ static const uint8_t kToggleKeyCount = sizeof(kToggleKeys);
 
 // One bit per entry of kToggleKeys, in the same order. Keys that toggle state
 // only act on their rising edge, otherwise holding the key would flip the
-// state on every loop iteration. The shifts are written out per build rather
-// than as an enum so that the masks cannot drift from the table above when a
-// key is compiled out.
+// state on every loop iteration.
+//
+// Each mask is the bit of the entry before it, shifted up if and only if that
+// entry is compiled in. Written this way rather than as a per-build list of
+// literals: the literals drifted from the table the moment both features were
+// on in the same binary - D pushed G to 0x10 and V was still spelled 0x10 -
+// and G and V then fired together. Derived from the same conditionals the
+// table is built from, that cannot happen again.
+static const uint8_t kToggleKeyP = 0x01;
 #ifdef __ENABLE_DEBUG__
-static const uint8_t kToggleKeyP = 0x01;
-static const uint8_t kToggleKeyD = 0x02;
-static const uint8_t kToggleKeyN = 0x04;
-static const uint8_t kToggleKeyF = 0x08;
-static const uint8_t kToggleKeyG = 0x10;
+static const uint8_t kToggleKeyD = kToggleKeyP << 1;
+static const uint8_t kToggleKeyN = kToggleKeyD << 1;
 #else
-static const uint8_t kToggleKeyP = 0x01;
-static const uint8_t kToggleKeyN = 0x02;
-static const uint8_t kToggleKeyF = 0x04;
-static const uint8_t kToggleKeyG = 0x08;
+static const uint8_t kToggleKeyN = kToggleKeyP << 1;
 #endif
+static const uint8_t kToggleKeyF = kToggleKeyN << 1;
+static const uint8_t kToggleKeyG = kToggleKeyF << 1;
 #ifdef __ENABLE_SOUND__
-static const uint8_t kToggleKeyV = 0x10;
+static const uint8_t kToggleKeyV = kToggleKeyG << 1;
 #endif
 static_assert(sizeof(kToggleKeys) <= 8, "toggle mask is one byte");
 

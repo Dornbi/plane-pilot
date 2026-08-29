@@ -4,12 +4,12 @@
 #ifdef __ENABLE_CLOUDS__
 #include "clouds.h"
 #endif
+#include "color.h"
 #include "flight.h"
 #include "fmath.h"
 #include "gfx.h"
 #include "mem.h"
 #include "poly.h"
-#include "color.h"
 #include "render.h"
 #include "roll.h"
 #include "spritedef.h"
@@ -245,11 +245,11 @@ __noinline void world_render_grid() {
     }
   }
 
-  bm_model_end(910, "GRD:");
+  bm_model_end(870, "GRD:");
 
 #ifdef __ENABLE_DEBUG__
   if (mem_debug_enabled) {
-    print_labeled_bcd(940, "GRD:", _world_grid_radius, 3);
+    print_labeled_bcd(772, "GRD:", _world_grid_radius, 3);
   }
 #endif
 }

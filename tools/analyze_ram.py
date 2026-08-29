@@ -168,11 +168,12 @@ DESCRIPTIONS = {
         'VRAM': '',
     },
     'Debug Messages & Overlay': {
-        'Code': 'compiled out of `ppilot.prg`; present only in `ppilotd.prg`',
+        'Code': 'the `D` view: camera basis, eye position, CPU probe and '
+                'flight readouts (`panel.cc`, `print.cc`)',
         'Data': '', 'BSS': '', 'ZP': '', 'VRAM': '',
     },
     'Benchmarks & Timing': {
-        'Code': 'compiled out of `ppilot.prg`; present only in `ppilotd.prg`',
+        'Code': 'CIA2 stage counters behind the `D` view (`benchmark.cc`)',
         'Data': '', 'BSS': '', 'ZP': '', 'VRAM': '',
     },
     'Core System & Drivers': {
@@ -393,7 +394,7 @@ def walk_address_space(objects, regions, stack_free):
 def parse_map(map_path):
     objects, regions, stack_free = read_map(map_path)
 
-    # FIXED describes the ppilot / ppilotd layout, which is the -D__MAX_RAM__
+    # FIXED describes the ppilot layout, which is the -D__MAX_RAM__
     # one from mem.h. Pointed at vecdemo or vectest - built without it, and
     # without a VIC to speak of - every address above $D000 below would be
     # invented. Say so rather than printing a confident wrong number.

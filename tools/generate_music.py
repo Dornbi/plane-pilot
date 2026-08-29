@@ -101,9 +101,10 @@ def generate_c64_headers():
         # was declared returning `unsigned char` and defined returning `bool`.
         # That built on Linux/gcc and failed on macOS/clang.
         f.write("#include <stdint.h>\n\n")
-        f.write("// The tune ships in ppilot.prg only. ppilotd.prg is the debug\n")
-        f.write("// build and stays silent, so none of the tables in musicdef.cc\n")
-        f.write("// should reach it. See ../docs/music.md section 4.\n")
+        f.write("// The tune is behind __ENABLE_SOUND__, which ppilot.prg\n")
+        f.write("// defines and polydemo does not - none of the tables in\n")
+        f.write("// musicdef.cc should reach a build without it. See\n")
+        f.write("// ../docs/music.md section 4.\n")
         f.write("#ifdef __ENABLE_SOUND__\n\n")
         f.write(f"static const uint8_t kMusicSpeed = {t1['speed']};\n")
         f.write(f"static const uint8_t kMusicRowsPerBar = {t1['rows_per_bar']};\n")

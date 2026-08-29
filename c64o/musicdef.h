@@ -3,9 +3,10 @@
 
 #include <stdint.h>
 
-// The tune ships in ppilot.prg only. ppilotd.prg is the debug
-// build and stays silent, so none of the tables in musicdef.cc
-// should reach it. See ../docs/music.md section 4.
+// The tune is behind __ENABLE_SOUND__, which ppilot.prg
+// defines and polydemo does not - none of the tables in
+// musicdef.cc should reach a build without it. See
+// ../docs/music.md section 4.
 #ifdef __ENABLE_SOUND__
 
 static const uint8_t kMusicSpeed = 6;

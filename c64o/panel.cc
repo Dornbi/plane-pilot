@@ -41,20 +41,20 @@ void panel_maybe_print_debug() {
     print_labeled_signed_bcd(690, "UY: ", flight_cam.up.y, 4);
     print_labeled_signed_bcd(700, "UZ: ", flight_cam.up.z, 4);
 
-    print_labeled_hex(778, "EX:", flight_eye_x, 8);
-    print_labeled_hex(818, "EY:", flight_eye_y, 8);
-    print_labeled_hex(858, "EZ:", flight_eye_z, 8);
+    print_labeled_hex(760, "EX:", flight_eye_x, 8);
+    print_labeled_hex(800, "EY:", flight_eye_y, 8);
+    print_labeled_hex(840, "EZ:", flight_eye_z, 8);
+
+    print_labeled_bcd(812, "ROL:", roll_angle, 3);
+    print_labeled_bcd(852, "HDG:", flight_true_heading, 3);
 
     // What the boot-time probe made of this machine (cpu.h). us on the left,
     // the step shift it implies on the right.
-    print_labeled_bcd(730, "CPU:", cpu_probe_us, 5);
-    print_labeled_bcd(745, "SH:", cpu_step_shift, 1);
+    print_labeled_bcd(930, "CPU:", cpu_probe_us, 5);
+    print_labeled_bcd(970, "CSHIFT: ", cpu_step_shift, 1);
 
     print_labeled_signed_bcd(920, "SPD:", flight_speed, 4);
     print_labeled_signed_bcd(960, "VSP:", flight_vspeed, 4);
-
-    print_labeled_bcd(930, "HDG:", flight_true_heading, 3);
-    print_labeled_bcd(970, "NAV:", flight_nav_heading);
   }
 #endif
 }

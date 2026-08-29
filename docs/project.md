@@ -540,13 +540,14 @@ are kept last in the enum so that predicate stays a single comparison.
 
 | Target         | Purpose                                                       |
 | -------------- | ------------------------------------------------------------- |
-| `ppilot.prg`   | standard game release (`-D__ENABLE_SOUND__ -D__MAX_RAM__`)   |
-| `ppilotd.prg`  | debug build (`-D__ENABLE_DEBUG__ -D__MAX_RAM__`)             |
+| `ppilot.prg`   | the game (`-D__ENABLE_SOUND__ -D__ENABLE_DEBUG__ -D__MAX_RAM__`) |
 | `polydemo.prg` | polygon rasterizer test bed (`-D__DEBUG_POLY__`)              |
 | `vecdemo.prg`  | character-mode ground-dot prototype                           |
 | `vectest.prg`  | correctness and cycle counts for the vector routines          |
 
-`ppilot.prg` is around 36 KB as currently built. `OSCAR64_INCLUDE` at the top
+`ppilot.prg` is around 47 KB as currently built - one binary carrying sound,
+music and the debug view; `SOUND=`, `DEBUG=` and `CLOUDS=` each build it
+without one of those, which is how their cost gets measured. `OSCAR64_INCLUDE` at the top
 of the Makefile points at the oscar64 include directory and may need adjusting.
 
 ---

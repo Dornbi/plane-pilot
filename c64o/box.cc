@@ -233,6 +233,6 @@ void box_draw(void) {
     }
   }
 
-  bm_view_end(870, "DRW:");
+  bm_view_end(830, "DRW:");
 }
 #pragma optimize(pop)

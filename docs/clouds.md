@@ -1231,7 +1231,7 @@ state it would need.
 | `c64o/sprites.h` / `.cc` | **+** stack API, `sprite_frame_t`, double buffer, all-8 terrain programming; **−** `sprites_set_sun_position`, `kSpriteIdxSun` and its two `==` special cases; **+** register init (§1.5) |
 | `c64o/clouds.h` / `.cc` | **new** — hash tables, cell scan, offset basis, rung ladder, `clouds_add_candidates()` |
 | `c64o/world.cc` | `world_update_sun_pos()` → `world_update_objects()`: stack reset, `clouds_add_candidates()`, sun add, commit — both the call and the `clouds.h` include sit behind `__ENABLE_CLOUDS__` |
-| `c64o/Makefile` (again) | `CLOUDS ?= -D__ENABLE_CLOUDS__`, passed to `ppilot` and `ppilotd`. `make CLOUDS=` builds without them |
+| `c64o/Makefile` (again) | `CLOUDS ?= -D__ENABLE_CLOUDS__`, passed to `ppilot`. `make CLOUDS=` builds without them |
 | `c64o/sim.cc` | one line: the renamed call |
 | `c64o/gfx.cc` | nothing — the handler bodies stay, the `sprites_show_*` functions they call change |
 | `tools/check_irq_zp.py` | **new** — fails the link if a raster handler touches oscar64's runtime zero page (§1.4) |

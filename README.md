@@ -22,10 +22,9 @@ Click the web icon and paste the URL:
 https://github.com/Dornbi/plane-pilot/raw/refs/heads/main/bin/ppilot.prg
 ```
 
-Alternatively, download the binaries and upload them to any of the online or offline emulators:
+Alternatively, download the binary and upload it to any of the online or offline emulators:
 
-- [ppilot.prg](bin/ppilot.prg) — standard game release (sound effects enabled, debug info disabled)
-- [ppilotd.prg](bin/ppilotd.prg) — debug build (debug info enabled, sound effects disabled)
+- [ppilot.prg](bin/ppilot.prg) — the whole game: sound effects, music, and the debug view behind `D`
 
 Emulators:
 - https://c64online.com/ (online)
@@ -33,6 +32,10 @@ Emulators:
 - [VICE](https://vice-emu.sourceforge.io/) (offline)
 
 ## Updates
+
+### 2026-08-29
+
+- **One Binary Again**: `ppilot.prg` is the only release again. Sound effects and the debug view (`D`, `Z`, `X`) ship together, so there is no longer a build you have to swap to in order to read the cycle counters, and none that trades the counters for sound. `ppilotd.prg` is gone.
 
 ### 2026-08-09
 
@@ -73,10 +76,10 @@ What you can do in Plane Pilot:
 - Interactive main menu and mission selection
 - Take off, navigate, flare, land, and taxi on runways
 - Dynamic flight model: speed, altitude, pitch/roll/yaw, stall recovery, flap lift/drag, gear drag, and fuel consumption
-- SID sound effects: engine roar, stall alarm, touchdown squeal, flap/gear clicks, crash sound effects (in `ppilot.prg`)
+- SID sound effects: engine roar, stall alarm, touchdown squeal, flap/gear clicks, crash sound effects
 - Full-screen 128x128 map view (`M`) displaying world terrain, numbered mission waypoints, aircraft location marker, and real-time flight path tracking trail
 - Dashboard instrument panel with working indicator lamps (flaps, gear, stall warning, nav points)
-- Look forward, left, right, and toggle HUD debug info (`D` in `ppilotd.prg`)
+- Look forward, left, right, and toggle the HUD debug view with per-stage cycle counters (`D`)
 - On-screen HUD notifications, approach warnings, and crash diagnostics
 - Wheel braking (`B`) and ground nose-wheel steering
 - Maintain ~10 frames per second on standard C64 hardware
@@ -94,24 +97,24 @@ Instrument panel:
 
 To fly the plane you can use the following keys:
 
-| Keys            | Action                                 | Availability |
-| --------------- | -------------------------------------- | ------------ |
-| `I` `J` `K` `L` | Roll and pitch                         | All          |
-| `A` `S`         | Yaw                                    | All          |
-| `+` `-`         | Throttle up and down                   | All          |
-| `F`             | Toggle flaps                           | All          |
-| `G`             | Toggle landing gear                    | All          |
-| `B`             | Wheel brakes (on ground)               | All          |
-| `1` `2` `3`     | Look left, forward, right              | All          |
-| `N`             | Toggle Nav point 1 / 2 (runways)       | All          |
-| `M`             | Toggle map view                        | All          |
-| `R`             | Reset to starting state                | All          |
-| `P`             | Pause / Resume flight                  | All          |
-| `V`             | Volume: full / low / off (any screen)  | `ppilot.prg` |
-| `D`             | Toggle debug info                      | `ppilotd.prg`|
-| `X` `Z`         | Move forward and backward (when paused)| `ppilotd.prg`|
-| `H`             | Show the help screen                   | All          |
-| `Q`             | Quit to the main menu                  | All          |
+| Keys            | Action                                  |
+| --------------- | --------------------------------------- |
+| `I` `J` `K` `L` | Roll and pitch                          |
+| `A` `S`         | Yaw                                     |
+| `+` `-`         | Throttle up and down                    |
+| `F`             | Toggle flaps                            |
+| `G`             | Toggle landing gear                     |
+| `B`             | Wheel brakes (on ground)                |
+| `1` `2` `3`     | Look left, forward, right               |
+| `N`             | Toggle Nav point 1 / 2 (runways)        |
+| `M`             | Toggle map view                         |
+| `R`             | Reset to starting state                 |
+| `P`             | Pause / Resume flight                   |
+| `V`             | Volume: full / low / off (any screen)   |
+| `D`             | Toggle debug view                       |
+| `X` `Z`         | Move forward and backward (when paused) |
+| `H`             | Show the help screen                    |
+| `Q`             | Quit to the main menu                   |
 
 The help screen (`H`) is also available from the main menu.
 

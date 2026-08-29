@@ -108,9 +108,9 @@ uint8_t music_master_volume(uint8_t bar_volume, uint8_t setting);
 
 #else
 
-// Compiled out entirely in ppilotd. The call sites stay unconditional and the
-// linker sees nothing - including the 1.1 KB in musicdef.cc, whose body is
-// guarded by the same flag.
+// Compiled out entirely without __ENABLE_SOUND__. The call sites stay
+// unconditional and the linker sees nothing - including the 1.1 KB in
+// musicdef.cc, whose body is guarded by the same flag.
 inline void music_start(void) {}
 inline void music_stop(void) {}
 inline void music_tick(void) {}

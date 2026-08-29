@@ -154,6 +154,6 @@ fixed one drew the same picture.
 When you can press keys, `D` switches the instrument panel to the built-in
 counters (`SNP`, `BGR`, `DRW`, `MDL`, `GRD` — see
 [development.md](development.md)), which is faster than any of the above. It
-needs `ppilotd.prg` and a human. Headless, force `mem_debug_enabled = true` in
-`mem_init()`, or use the timer recipe, which does not depend on the debug build
-at all.
+is in `ppilot.prg` itself but needs a human to press the key. Headless, force
+`mem_debug_enabled = true` in `mem_init()`, or use the timer recipe, which does
+not depend on the counters at all.

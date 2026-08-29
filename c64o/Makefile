@@ -1,7 +1,6 @@
 OSCAR64_INCLUDE=../../../oscar64-main/include
 
 PPILOT_PROGRAM = ppilot
-PPILOTD_PROGRAM = ppilotd
 PPILOT_SRC = \
 		bcd.cc \
 		bcd.h \
@@ -89,8 +88,6 @@ PPILOT_SRC = \
 		world.cc \
 		world_map.cc
 
-PPILOTD_SRC = $(PPILOT_SRC)
-
 POLYDEMO_PROGRAM = polydemo
 POLYDEMO_SRC = \
 		bcd.cc \
@@ -168,6 +165,15 @@ OPTFLAGS = -O2 -Op -Oa -Oi -Oz -Oo
 # and for bisecting anything that only misbehaves with sprites on screen.
 CLOUDS ?= -D__ENABLE_CLOUDS__
 
+# Sound and the debug view. Both on by default: ppilot.prg is one binary again,
+# so the V key and the D/Z/X keys are all in it. They were two binaries for a
+# while - the debug build was the one with the room for the benchmark counters -
+# and the flags stayed because the merged build still has to fit. Build with
+# SOUND= or DEBUG= to leave one out and measure what it costs, the same dial
+# CLOUDS= is.
+SOUND ?= -D__ENABLE_SOUND__
+DEBUG ?= -D__ENABLE_DEBUG__
+
 
 # mem.h widens the zeropage region below oscar64's default, into space the
 # compiler's own spilled temporaries grow into. Nothing in oscar64 checks that,
@@ -207,34 +213,24 @@ define prg_size
 		"$(1)" "$$bytes" "$$image" "$$start" "$$end"
 endef
 
-all: $(PPILOT_PROGRAM).prg $(PPILOTD_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg test
+all: $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg test
 	@echo ""
 	$(call prg_size,$(PPILOT_PROGRAM).prg)
-	$(call prg_size,$(PPILOTD_PROGRAM).prg)
 
 # Standalone, so the size can be checked without provoking a build. Reports
 # whatever is on disk now; run `make` first if that might be stale.
 size:
 	$(call prg_size,$(PPILOT_PROGRAM).prg)
-	$(call prg_size,$(PPILOTD_PROGRAM).prg)
 
 ram:
 	$(RAMANALYSIS) $(PPILOT_PROGRAM).map
-	$(RAMANALYSIS) $(PPILOTD_PROGRAM).map
 
 $(PPILOT_PROGRAM).prg: $(PPILOT_SRC)
-	$(CC) $(CFLAGS) $(OPTFLAGS) -D__ENABLE_SOUND__ $(CLOUDS) -D__MAX_RAM__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
+	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(DEBUG) $(CLOUDS) -D__MAX_RAM__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(PPILOT_PROGRAM).asm
 	@$(IRQCHECK) $(PPILOT_PROGRAM).asm
 	@$(MATHCHECK) $(PPILOT_PROGRAM).asm
 	@$(ROMCHECK) $(PPILOT_PROGRAM).asm
-
-$(PPILOTD_PROGRAM).prg: $(PPILOTD_SRC)
-	$(CC) $(CFLAGS) $(OPTFLAGS) -D__ENABLE_DEBUG__ $(CLOUDS) -D__MAX_RAM__ -o=$(PPILOTD_PROGRAM).prg ppilot.cc
-	@$(ZPCHECK) $(PPILOTD_PROGRAM).asm
-	@$(IRQCHECK) $(PPILOTD_PROGRAM).asm
-	@$(MATHCHECK) $(PPILOTD_PROGRAM).asm
-	@$(ROMCHECK) $(PPILOTD_PROGRAM).asm
 
 $(POLYDEMO_PROGRAM).prg: $(POLYDEMO_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ -D__DEBUG_POLY__ -D__MAX_RAM__ polydemo.cc
@@ -254,22 +250,22 @@ $(VECTEST_PROGRAM).prg: $(VECTEST_SRC)
 
 # Re-run the checks on whatever is already built, without provoking a build.
 zpcheck:
-	$(ZPCHECK) $(PPILOT_PROGRAM).asm $(PPILOTD_PROGRAM).asm $(POLYDEMO_PROGRAM).asm \
+	$(ZPCHECK) $(PPILOT_PROGRAM).asm $(POLYDEMO_PROGRAM).asm \
 		$(VECDEMO_PROGRAM).asm $(VECTEST_PROGRAM).asm
-	$(IRQCHECK) $(PPILOT_PROGRAM).asm $(PPILOTD_PROGRAM).asm $(POLYDEMO_PROGRAM).asm
+	$(IRQCHECK) $(PPILOT_PROGRAM).asm $(POLYDEMO_PROGRAM).asm
 
 mathcheck:
-	$(MATHCHECK) $(PPILOT_PROGRAM).asm $(PPILOTD_PROGRAM).asm $(POLYDEMO_PROGRAM).asm \
+	$(MATHCHECK) $(PPILOT_PROGRAM).asm $(POLYDEMO_PROGRAM).asm \
 		$(VECDEMO_PROGRAM).asm
 
 romcheck:
-	$(ROMCHECK) $(PPILOT_PROGRAM).asm $(PPILOTD_PROGRAM).asm $(POLYDEMO_PROGRAM).asm
+	$(ROMCHECK) $(PPILOT_PROGRAM).asm $(POLYDEMO_PROGRAM).asm
 
 test flight_test msg_test:
 	$(MAKE) -C test $@
 
 clean:
-	rm -rf $(PPILOT_PROGRAM).prg $(PPILOTD_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg *.asm *.dbj *.int *.lbl *.map
+	rm -rf $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg *.asm *.dbj *.int *.lbl *.map
 	$(MAKE) -C test clean
 
 .PHONY: all size ram zpcheck mathcheck romcheck test flight_test msg_test clean

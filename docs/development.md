@@ -23,11 +23,21 @@ make prg
 
 If everything goes well it builds these executables into `c64o/`:
 
-- `ppilot.prg`: The main executable (sound enabled, no debug info).
-- `ppilotd.prg`: Debug executable (debug view/info enabled, no sound).
+- `ppilot.prg`: The game. Sound, music and the debug view behind `D`.
 - `polydemo.prg`: Polygon rendering prototype.
 - `vecdemo.prg`: Simple character mode prototype of the dots on the ground.
 - `vectest.prg`: Correctness test and cycle count for 3D vector operations.
+
+`ppilot.prg` is one binary: sound effects, the title tune and the `D` debug
+view with its per-stage cycle counters all ship in it. Three make variables
+each take a feature back out, which is how what a feature costs gets measured
+rather than guessed:
+
+```bash
+make -C c64o SOUND=      # no sound effects, no music
+make -C c64o DEBUG=      # no debug view, no benchmark counters
+make -C c64o CLOUDS=     # no clouds
+```
 
 ## Running a build in an emulator
 

@@ -2,8 +2,8 @@
 
 The menu is silent. This document plans the title tune: a 24-bar atmospheric
 theme in D minor, three voices, looping every 46.1 seconds, playing on the
-mission-select screen and under the help screen it opens. It ships in
-`ppilot.prg` only — `ppilotd.prg`, the debug build, stays silent (§4).
+mission-select screen and under the help screen it opens. It sits behind
+`__ENABLE_SOUND__`, which `ppilot.prg` defines and the demo builds do not (§4).
 
 [`sid-intro-theme.html`](sid-intro-theme.html) is the reference recording — open
 it in a browser and press Play. It is not a mock-up: it runs the player this
@@ -44,7 +44,7 @@ them. See [project.md](project.md) for the surrounding architecture.
 | In                                              | Out (for now)                             |
 | ----------------------------------------------- | ----------------------------------------- |
 | A 24-bar loop, three voices, 46.1 s             | Music during flight, or help from flight  |
-| `ppilot.prg` only, behind `__ENABLE_SOUND__`    | Anything in `ppilotd.prg`, the debug build |
+| `ppilot.prg` only, behind `__ENABLE_SOUND__`    | Anything in the `polydemo` / `vec*` builds |
 | Playing under the menu and help opened from it  | Tick-perfect audio across screen repaints |
 | Drums stealing voice 3 from the arpeggio        | Music under the map (§3)                  |
 | A per-bar fade-in on `$D418` (§3)               | Per-voice volume — the chip has none      |
@@ -798,6 +798,14 @@ because either is due.
 music guard is the flag that already exists: `music.cc` and the body of
 `musicdef.cc` sit inside `#ifdef __ENABLE_SOUND__`, and `menu_run()`'s calls
 compile to nothing in the debug build.
+
+> **2026-08-29.** The two binaries are one again: `ppilot.prg` is built with
+> `__ENABLE_SOUND__` *and* `__ENABLE_DEBUG__`, and there is no `ppilotd.prg` to
+> keep the tables out of. The guard itself is unchanged and still earns its
+> keep — `c64o/Makefile` exposes `SOUND=` beside `CLOUDS=`, and `polydemo`
+> compiles `sound.cc` without the flag — so everything below stands except the
+> `ppilotd.map` check, which now has no map to read. Substitute a `make SOUND=`
+> build for it.
 
 Wrapping `musicdef.cc` as well as the player is belt-and-braces rather than
 strictly needed — oscar64's linker drops unreferenced symbols, as sound.md §10
