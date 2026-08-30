@@ -1,0 +1,6 @@
+.DS_Store
+TODO.md
+__pycache__
+all_frames/
+all_frames_debug/
+out/
