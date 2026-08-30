@@ -368,7 +368,30 @@ static void _sound_poke(uint8_t idx, uint8_t val) {
 // Writes the chip directly, bypassing the shadow. Only for the two callers
 // below, both of which run when sound_blit() either has not started yet or is
 // about to be masked - so nothing else is going to push the shadow out.
+//
+// The unroll is not an optimization; the loop is miscompiled without it.
+// oscar64 turns the rolled form of exactly this loop into
+//
+//     LDA sound_shadow,y
+//     STA $D400          ; index dropped - absolute, not $D400,y
+//     INY
+//
+// so all 25 bytes land on voice 1's frequency low byte and every other
+// register keeps whatever it held. That silenced nothing: the gates at $D404,
+// $D40B and $D412 and the master volume at $D418 all survived
+// sound_silence(), and since its callers go on to mask the raster IRQs, the
+// engine drone was left running for as long as the map or the help screen was
+// up. Fully unrolled the compiler emits 25 absolute stores and the bug has
+// nowhere to occur, which is why sound_blit() - the same loop, one pragma
+// heavier - was always correct and this one was not.
+//
+// The host build compiles the rolled loop correctly, so sound_test.cc cannot
+// see any of this; it is a target-only defect and the .asm is the only place
+// it shows. Worth re-reading $13xx in ppilot.asm after an oscar64 upgrade.
 static void _sound_write_through(void) {
+#ifdef __OSCAR64__
+#pragma unroll(full)
+#endif
   for (uint8_t i = 0; i < kSoundRegCount; ++i) {
     SID_REGS[i] = sound_shadow[i];
   }
