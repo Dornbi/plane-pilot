@@ -46,11 +46,11 @@ OSCAR64_INCLUDE="${OSCAR64_INCLUDE:-$REPO/../../oscar64-main/include}"
 SCENES='
 menu   1   18000000  screen04_crt.png
 help   2   10000000  screen03_crt.png
-final  3   14000000  screen01_crt.png
-turn   4   17000000  screen02_crt.png
+final  3   12000000  screen01_crt.png
+bank   4   12000000  screen02_crt.png
 map    5  110000000  screen05_crt.png
-debug  6   16000000  debug_crt.png
-side   7   14000000  screen06_crt.png
+debug  6   18000000  debug_crt.png
+lake   7   12000000  screen06_crt.png
 '
 
 # Cropping the border and building the tube - scanlines, bleed, bloom - is

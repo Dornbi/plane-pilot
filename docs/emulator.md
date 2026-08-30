@@ -159,14 +159,35 @@ tools/make_shots.sh              # all of them
 tools/make_shots.sh help map     # two scenes
 ```
 
-It is the repeatable scene above, generalised. Instead of patching a pose into
-`flight.cc` it copies `c64o/` to a scratch directory, drops `tools/shot.cc` in
-beside it, and points the keyboard poll of the three screen loops - the menu,
-the help screen and the flight loop - at a scripted one that clears the matrix
-bits of whatever key the scene says is held. That is the only way in: the game
-scans the matrix directly, so `-keybuf` cannot reach it. The scenes are in
-`tools/shot.cc` and the table at the top of `make_shots.sh` says when each
-frame is grabbed and which file it lands in.
+It is the repeatable scene above, generalised, and it drives the game two
+different ways. The scenes are in `tools/shot.cc`; the table at the top of
+`make_shots.sh` says when each frame is grabbed and which file it lands in.
+
+**Keys, for the screens.** `make_shots.sh` copies `c64o/` to a scratch
+directory, drops `tools/shot.cc` in beside it, and points the keyboard poll of
+the three screen loops - the menu, the help screen and the flight loop - at a
+scripted one that clears the matrix bits of whatever key the scene says is
+held. That is the only way in: the game scans the matrix directly, so
+`-keybuf` cannot reach it. The menu, the help screen and the map are captured
+this way, and the map has to be: its breadcrumb trail is the point of the
+picture and the only way to get one is to fly for a minute and a half.
+
+**A hardcoded pose, for the world.** Everything photographed *out of the
+window* skips the simulation instead: `SHOT_POSE` writes a position, an
+attitude and a panel state straight into the model and freezes it. Flying
+there does not work. Every mission starts from a fixed place pointing north,
+the controls are the only steering there is, and holding a key for a scripted
+number of polls leaves the camera wherever the aerodynamics felt like by the
+time the script ran out - which, at cruise, is reliably an empty green plain.
+A pose points the aeroplane at a chosen thing on the map and holds it there.
+
+Aiming one needs the coordinate convention, which is not obvious from
+`world_map.cc`: x is north and y is west, the table is 16 rows of x by 32
+columns of y at eight units to a cell, and `world.cc` *rounds* rather than
+truncates when it indexes it - so the cell in row r, column c is centred on
+(8r, 8c) and reaches four units either side. Runway 1 in row 4, column 8 is
+centred on (32, 64), and the runway 1 waypoint at (32, 63.5) sits in the
+middle of it. The map also wraps, every 16 cells of x and 32 of y.
 
 Three things that are load bearing, each of which cost an hour once:
 
@@ -192,11 +213,11 @@ which the scanlines just read as a dark grid.
 Five of the seven scenes come back byte-identical run after run; the menu and
 the debug view do not. Emulation is deterministic, but the moment VICE's
 autostart injects the program is not, and a few frames of offset move the title
-flyby along its path and change the numbers in the cycle counters. That is
-exactly what the freeze buys the other five: everything after it is the same
-frame however the run started. Neither of the two can be frozen - a still
-flyby is not a flyby, and a frozen model reports a model cost of nothing - so
-they are checked by looking, and `cmp` is not the tool for them.
+flyby along its path and jitter the last digits of the cycle counters. That is
+what the freeze buys the other five: everything after it is the same frame
+however the run started. The flyby cannot be frozen and still be a flyby, and
+the debug view's counters are what it is a picture of, so those two are checked
+by looking and `cmp` is not the tool for them.
 
 One more thing worth knowing: VICE's autostart occasionally does not take, and
 what lands in `screens/` then is a perfectly valid PNG of the BASIC prompt.
