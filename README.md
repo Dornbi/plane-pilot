@@ -33,6 +33,15 @@ Emulators:
 
 ## Updates
 
+### 2026-08-30
+
+- **Waypoints Match on Every Copy of the World**: The map is 16 rows of 8 world units, so the terrain repeats every 128 units in x - and the map view draws it that way. The waypoint test did not: it compared positions modulo 256, so past the seam you could park on runway 2, at the pixel the map draws the runway at, and be told you were 128 units short. Waypoint distances are now measured the short way round each axis' own period, x every 128 and y every 256.
+- **No More Phantom Waypoints Half a Map Away**: The same test took its absolute value by negating an `int8_t`, and -128 negates to itself - so a waypoint exactly 128 units off in y passed a ±16 check. Mission 06's first lake could be claimed from open ground 32 km away. The arithmetic is unsigned now.
+- **The Crop Duster Has Room to Fly**: `WP_MAX_125FT` becomes `WP_MAX_250FT`. The old ceiling left 62 ft between the limit and the ground - two ticks of the altimeter's fine needle, which moves one per 31 ft - with an instant crash at the bottom.
+- **`NOT ON RUNWAY` Is a Crash, Not a Warning**: The approach advisory fires on any descent below 125 ft anywhere in the world, so it warned about the runway on every low pass, including the ones the missions ask for - mission 09 spent its whole run being told off for the altitude the briefing demanded. Being first in the fault order it also hid the warnings worth having: a gear-up approach away from the field reported the runway, not the gear. Landing off a runway is still a crash and still says so.
+- **The Airshow Pass Has to Be Low**: `WP_UPSIDE_DOWN` only checked `up.z < 0`, so the "low pass upside down" could be flown as a lazy roll at 3,400 ft. It now wants 250 ft or below, and `up.z < -128` - 120 degrees of roll - so a steep bank no longer reads as inverted.
+- **Mission 10 Can Afford an Approach**: The 49.6 world units to runway 2 cost about 78% of the old tank at the cheapest cruise the model has, which left nothing for the circuit. Flown by an autopilot, a tight pattern landed with 3.7% left, a wider one arrived dead-stick, and a wider one still came down short. The tank goes from 0x04 to 0x05: still a fuel challenge, now with room for one normal approach.
+
 ### 2026-08-29
 
 - **One Binary Again**: `ppilot.prg` is the only release again. Sound effects and the debug view (`D`, `Z`, `X`) ship together, so there is no longer a build you have to swap to in order to read the cycle counters, and none that trades the counters for sound. `ppilotd.prg` is gone.
@@ -46,7 +55,7 @@ Emulators:
 
 ### 2026-08-07
 
-- **Missions & Objectives System**: Added 10 playable missions (Takeoff, Landing, Solo Flight, Find Runway, Ferry Flight, Area Patrol, Airshow, Aerial Recon, Crop Duster, Fuel Challenge) with waypoint navigation and altitude/attitude constraint checking.
+- **Missions & Objectives System**: Added 10 playable missions (Airborne, Getting Down, Solo Flight, Find the Runway, Ferry Flight, Lake Patrol, Airshow, Aerial Recon, Crop Duster, Fuel Challenge) with waypoint navigation and altitude/attitude constraint checking.
 - **Main Menu**: Interactive mission selection menu with scrolling support and in-game help screen (`H`).
 - **Sound Engine**: Integrated SID sound effects including throttle-based engine sound, stall warning alarm, touchdown squeal, mechanical flap/gear clicks, crash sounds, and volume control (`V`).
 - **Complete Flight & Ground Physics**:
@@ -57,7 +66,7 @@ Emulators:
   - Nose-wheel steering remapped on ground.
   - Safety lockout preventing landing gear retraction while on the ground.
 - **Map View & Flight Path Tracking**: Full-screen map view (`M`) rendering terrain features, mission waypoints, current aircraft position marker, and flight path breadcrumb trail.
-- **HUD & Warning Messages**: On-screen messages for approach warnings (`GEAR RETRACTED`, `NOT ON RUNWAY`), mission status/waypoint alerts, fuel depletion notices, crash reasons, and pause indicator (`PAUSED`).
+- **HUD & Warning Messages**: On-screen messages for approach warnings (`GEAR RETRACTED`, `SINK RATE`, `BANK ANGLE`), mission status/waypoint alerts, fuel depletion notices, crash reasons, and pause indicator (`PAUSED`).
 - **Testing**: Added a comprehensive 56-test host verification suite.
 
 ### 2026-07-05
@@ -126,8 +135,9 @@ Much of the code was written with Antigravity and Gemini. Prototyping and
 data generation was done in Python, and the C64 code is in C with some assembly.
 To compile the code, you need the [oscar64](https://github.com/drmortalwombat/oscar64/blob/main/README.md) cross-compiler.
 
-See [docs/development.md](docs/development.md) for more details, and
-[docs/project.md](docs/project.md) for the architecture.
+See [docs/development.md](docs/development.md) for more details,
+[docs/project.md](docs/project.md) for the architecture, and
+[docs/missions.md](docs/missions.md) for what each mission asks for.
 
 ## Inspirations
 

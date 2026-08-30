@@ -2041,11 +2041,17 @@ static void test_mission_07_airshow_completion() {
   assert(flight_status == FLIGHT_ONGOING);
   assert(!mission_completed[6]);
 
-  // Waypoint 0: Fly upside down above Runway 2 (0x600000, 0x608000)
+  // Waypoint 0: a low pass, upside down, above Runway 2 (0x600000, 0x608000).
+  // 0x006000 is inside the 250 ft ceiling the constraint now carries; the
+  // same roll at 0x010000 is a roll in the cruise, not a pass, and is checked
+  // below.
   flight_cam.up.z = -256;
   flight_eye_x = 0x600000;
   flight_eye_y = 0xC00000;
   flight_eye_z = 0x010000;
+  flight_advance();
+  assert(flight_current_wp == 0); // inverted, but too high to be a pass
+  flight_eye_z = 0x006000;
   flight_advance();
   assert(flight_current_wp == 1);
   assert(flight_status == FLIGHT_ONGOING);
@@ -2549,6 +2555,10 @@ static void test_low_altitude_approach_warnings() {
   flight_advance();
   assert_msg_rendered("WARNING: GEAR RETRACTED");
 
+  // Off a runway and descending through 125 ft with nothing else wrong: no
+  // advisory at all. The check fires everywhere in the world, so warning here
+  // meant warning on every low pass, the ones the missions ask for included.
+  // Landing off a runway is still a crash and still names itself.
   flight_init();
   flight_current_wp = 5;
   flight_gear = true;
@@ -2558,7 +2568,20 @@ static void test_low_altitude_approach_warnings() {
   flight_eye_z = 0x003000;
   msg_clear();
   flight_advance();
-  assert_msg_rendered("WARNING: NOT ON RUNWAY");
+  assert_msg_rendered("");
+
+  // ... and a fault that is not the runway still reports itself out there,
+  // which the runway check used to mask by being first in the fault order.
+  flight_init();
+  flight_current_wp = 5;
+  flight_gear = false;
+  flight_cam.front.z = -10;
+  flight_eye_x = 0x000000; // Off runway, gear up
+  flight_eye_y = 0x000000;
+  flight_eye_z = 0x003000;
+  msg_clear();
+  flight_advance();
+  assert_msg_rendered("WARNING: GEAR RETRACTED");
 
   // Mission 7: Min 3000ft constraint warning over City 1 (wx=0x10, wy=0x68)
   flight_init_from_mission(7); // Waypoint 0 constraint is WP_MIN_3000FT at City 1
@@ -2577,16 +2600,16 @@ static void test_low_altitude_approach_warnings() {
   flight_cam.up.z = 256;       // Upright (not inverted)
   msg_clear();
   flight_advance();
-  assert_msg_rendered("FLY INVERTED FOR MISSION");
+  assert_msg_rendered("FLY LOW INVERTED FOR MISSION");
 
-  // Mission 8: Max 125ft constraint warning
-  flight_init_from_mission(8); // Waypoint 0 (Field 1) constraint is WP_MAX_125FT
+  // Mission 9: Max 250ft constraint warning
+  flight_init_from_mission(8); // Waypoint 0 (Field 1) constraint is WP_MAX_250FT
   flight_eye_x = 0x300000;
   flight_eye_y = 0x888000;
-  flight_eye_z = 0x010000;     // Above 125ft (0x004000)
+  flight_eye_z = 0x010000;     // Above 250ft (0x008000)
   msg_clear();
   flight_advance();
-  assert_msg_rendered("GO BELOW 125FT FOR MISSION");
+  assert_msg_rendered("GO BELOW 250FT FOR MISSION");
 
   printf("  PASS\n\n");
 }
@@ -2614,11 +2637,120 @@ static void test_ground_gear_retraction_blocked() {
   printf("  PASS\n\n");
 }
 
+// The world repeats, and the waypoint test has to repeat with it: x every 128
+// world units (kWorldMapHeight rows of 8, which is also the period the map
+// view draws and _flight_on_runway matches on), y every 256. Two things used
+// to go wrong here, and this covers both.
+static void test_waypoint_matching_across_world_periods() {
+  printf("Running test_waypoint_matching_across_world_periods...\n");
+
+  // Mission 05 lands on runway 2, waypoint (0x60, 0xBF).
+  // Any x that is the same place modulo 128 is the same runway - same terrain,
+  // same map pixel - so it completes the mission from any of them.
+  for (int copy = 0; copy < 3; ++copy) {
+    mission_completed[4] = false;
+    flight_init_from_mission(4);
+    flight_gear = true;
+    flight_eye_x = (int32_t)((0x60 + 128 * copy) & 0xFF) << 16;
+    flight_eye_y = 0xC00000;
+    flight_eye_z = kGroundZ;
+    flight_throttle = 0;
+    flight_speed = kTrimSpeed;
+    flight_advance();
+    flight_speed = 0;
+    flight_advance();
+    assert(!flight_crashed());
+    assert(flight_status == FLIGHT_MISSION_COMPLETED);
+    assert(mission_completed[4]);
+  }
+
+  // The whole width of runway 2 works on the far copy, not just its centre.
+  // Only the exact +128 offset used to pass, and only because negating an
+  // int8_t -128 leaves it negative.
+  for (int x = 0x5C; x <= 0x63; ++x) {
+    mission_completed[4] = false;
+    flight_init_from_mission(4);
+    flight_gear = true;
+    flight_eye_x = (int32_t)((x + 128) & 0xFF) << 16;
+    flight_eye_y = 0xC00000;
+    flight_eye_z = kGroundZ;
+    flight_throttle = 0;
+    flight_speed = kTrimSpeed;
+    flight_advance();
+    flight_speed = 0;
+    flight_advance();
+    assert(mission_completed[4]);
+  }
+
+  // y does not repeat until 256, so a point 128 units away in y is half the
+  // map away and must not count. Mission 06 waypoint 0 is Lake 1 at
+  // (0x10, 0xD0); (0x10, 0x50) is open ground.
+  mission_completed[5] = false;
+  flight_init_from_mission(5);
+  flight_eye_x = 0x100000;
+  flight_eye_y = 0x508000; // 0xD0 - 128
+  flight_eye_z = 0x030000;
+  flight_advance();
+  assert(flight_current_wp == 0);
+
+  // The real one still counts.
+  flight_eye_y = 0xD08000;
+  flight_advance();
+  assert(flight_current_wp == 1);
+
+  // And the edges of the tolerance are unchanged: +/-16 in x, +/-16 in y for
+  // a plain waypoint.
+  flight_init_from_mission(5);
+  flight_eye_x = 0x100000;
+  flight_eye_y = 0xE08000; // 0xD0 + 16, just inside
+  flight_eye_z = 0x030000;
+  flight_advance();
+  assert(flight_current_wp == 1);
+
+  flight_init_from_mission(5);
+  flight_eye_x = 0x100000;
+  flight_eye_y = 0xE18000; // 0xD0 + 17, just outside
+  flight_eye_z = 0x030000;
+  flight_advance();
+  assert(flight_current_wp == 0);
+
+  printf("  PASS\n\n");
+}
+
+// The inverted pass needs the aeroplane on its back AND low. up.z is
+// 256 * cos(roll), so -128 is 120 degrees: a steep bank no longer counts.
+static void test_upside_down_waypoint_needs_roll_and_altitude() {
+  printf("Running test_upside_down_waypoint_needs_roll_and_altitude...\n");
+
+  const int32_t kLow = 0x006000;  // inside the 250 ft ceiling
+  const int32_t kHigh = 0x010000; // outside it
+  struct { int16_t up_z; int32_t z; bool expect; } cases[] = {
+      {-256, kLow, true},   // fully inverted, low: the pass
+      {-256, kHigh, false}, // inverted but high: a roll in the cruise
+      {-129, kLow, true},   // just past 120 degrees
+      {-128, kLow, false},  // exactly 120 degrees is not enough
+      {-64, kLow, false},   // steeply banked, not inverted
+      {256, kLow, false},   // upright
+  };
+  for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+    mission_completed[6] = false;
+    flight_init_from_mission(6);
+    flight_eye_x = 0x600000;
+    flight_eye_y = 0xC00000;
+    flight_eye_z = cases[i].z;
+    flight_cam.up.z = cases[i].up_z;
+    flight_advance();
+    assert((flight_current_wp == 1) == cases[i].expect);
+  }
+
+  printf("  PASS\n\n");
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   mem_screen_row_ptrs[0] = test_screen_row;
-  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (57 TESTS) ===\n\n");
+  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (63 TESTS) ===\n\n");
   test_host_multiply_matches_c64();
   test_level_cruise_equilibrium();
   test_trim_speed_boundary();
@@ -2674,6 +2806,8 @@ int main(int argc, char **argv) {
   test_runway_1_bounds_alignment();
   test_landing_off_runway_crash();
   test_low_altitude_approach_warnings();
+  test_waypoint_matching_across_world_periods();
+  test_upside_down_waypoint_needs_roll_and_altitude();
   test_crash_event_fires_once();
   test_paused_blocks_controls();
   test_flight_path_pixel_cell_agreement();

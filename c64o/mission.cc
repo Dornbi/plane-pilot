@@ -63,9 +63,9 @@ const MissionWaypointConstraint kMissionWpConstraint[kMissionWpCount] = {
     WP_MIN_3000FT,  // 09 (City 2)
     WP_MIN_3000FT,  // 10 (City 3)
     WP_LANDED,      // 11 (Runway 2)
-    WP_MAX_125FT,   // 12 (Field 1)
-    WP_MAX_125FT,   // 13 (Field 2)
-    WP_MAX_125FT,   // 14 (Field 3)
+    WP_MAX_250FT,   // 12 (Field 1)
+    WP_MAX_250FT,   // 13 (Field 2)
+    WP_MAX_250FT,   // 14 (Field 3)
     WP_LANDED,      // 15 (Runway 2)
 };
 
@@ -125,7 +125,7 @@ const char *const kMissionDesc[kMissionCount] = {
     "FLY AT LEAST 3000FT OVER ALL\n"       // 08
     "CITIES ON THE MAP",                   //
     "TOUCH ALL FIELDS ON THE MAP.\n"       // 09
-    "MAKE SURE TO STAY BELOW 125FT.",      //
+    "MAKE SURE TO STAY BELOW 250FT.",      //
     "YOU ARE ALMOST OUT OF FUEL.\n"        // 10
     "GET TO THE NEAREST FIELD AND LAND.",  //
 };
@@ -195,6 +195,9 @@ const uint8_t kMissionStartThrottle[kMissionCount] = {
     0x10, // 10
 };
 
+// flight_fuel = start_fuel << 12 - 1, so one step of this dial is 4096 - a
+// quarter of what mission 10 flies on. 0x22 is a full tank; every mission but
+// the last one has fuel to spare and the number is not what makes them hard.
 const uint8_t kMissionStartFuel[kMissionCount] = {
     0x22, // 01
     0x22, // 02
@@ -205,7 +208,14 @@ const uint8_t kMissionStartFuel[kMissionCount] = {
     0x22, // 07
     0x22, // 08
     0x22, // 09
-    0x04, // 10
+    // 10. The 49.6 world units from the start to runway 2 cost about 12,700
+    // at the cheapest cruise the model has (throttle 16 holds trim speed), so
+    // 0x04 - 16,383 - was 78% of the tank spent flying straight there. That
+    // left nothing for the circuit: an autopilot flown on a tight pattern
+    // landed with 3.7% in hand, a wider one arrived dead-stick, and a wider
+    // one still came down short of the field. 0x05 keeps it a fuel challenge
+    // and pays for one normal approach.
+    0x05,
 };
 
 const uint8_t kMissionWindX[kMissionCount] = {

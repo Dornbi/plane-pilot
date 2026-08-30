@@ -205,6 +205,12 @@ static const mat3_t _m_init = {
 };
 
 static const uint32_t kFlightMinEyeZ = 0x2000;
+// Ceiling for the two "stay low" waypoint constraints, on the altitude scale
+// where 1000 ft is 0x020000 and the ground is kFlightMinEyeZ - so 250 ft, of
+// which the lowest 62 ft is the ground itself. It was 125 ft, which left the
+// crop duster a 62 ft band to hold between the limit and the dirt: two ticks
+// of the altimeter's fine needle, which moves one per 31 ft.
+static const uint32_t kFlightWpMaxAlt = 0x008000;
 static const uint16_t kFlightStallSpeedWithoutFlaps = 0x0400;
 static const uint16_t kFlightStallSpeedWithFlaps = 0x0340;
 // kMaxSpeed lives in flight.h: sound.cc sizes its wind table by it.
@@ -463,8 +469,8 @@ static const char *const kFlightWaypointFault[] = {
     "",                   // 1 WP_LANDED
     "CLIMB ABOVE 1000FT", // 2 WP_MIN_1000FT
     "CLIMB ABOVE 3000FT", // 3 WP_MIN_3000FT
-    "GO BELOW 125FT",     // 4 WP_MAX_125FT
-    "FLY INVERTED"        // 5 WP_UPSIDE_DOWN
+    "GO BELOW 250FT",     // 4 WP_MAX_250FT
+    "FLY LOW INVERTED"    // 5 WP_UPSIDE_DOWN
     ,
 };
 
@@ -521,16 +527,32 @@ static void _flight_check_mission_waypoints() {
 
   bool pos_ok = true;
   if (wx != 0 || wy != 0) {
-    int8_t dx = (int8_t)(eye_x_high - wx);
-    int8_t dy = (int8_t)(eye_y_high - wy);
-    if (dx < 0) {
-      dx = -dx;
+    // Distance to the waypoint the short way round each of the world's two
+    // rings, rather than a signed difference.
+    //
+    // The world repeats, and the two axes do not repeat with the same period.
+    // kWorldMap is kWorldMapHeight rows of 8 world units, so x comes back
+    // round every 128 - which is also the period _flight_on_runway() matches
+    // on and the one the map view draws (_flight_path_sample above). y is
+    // kWorldMapWidth columns of 8, a whole 256. Folding each difference to
+    // the shorter way round is what lets a waypoint match on whichever copy
+    // of the world the aircraft happens to be flying over: without it the
+    // aeroplane could sit on runway 2, at the map pixel the runway is drawn
+    // at, and be told it was 128 units away.
+    //
+    // Unsigned all through. The signed form this replaces took its absolute
+    // value by negating an int8_t, and -128 negates to itself, so a waypoint
+    // exactly 128 units off in y - half the map - passed a +/-16 test.
+    uint8_t adx = (uint8_t)(eye_x_high - wx) & 0x7F;
+    if (adx > 64) {
+      adx = 128 - adx;
     }
-    if (dy < 0) {
-      dy = -dy;
+    uint8_t ady = (uint8_t)(eye_y_high - wy);
+    if (ady > 128) {
+      ady = (uint8_t)(0 - ady);
     }
     uint8_t max_dy = (constraint == WP_LANDED) ? 0x04 : 0x10;
-    pos_ok = (dx <= 0x10 && dy <= max_dy);
+    pos_ok = (adx <= 0x10 && ady <= max_dy);
   }
 
   // Altitude limits live in a table so the MIN_*FT cases share one
@@ -541,17 +563,22 @@ static void _flight_check_mission_waypoints() {
       0, // 1 WP_LANDED       (handled below)
       2, // 2 WP_MIN_1000FT   (0x020000 >> 16)
       6, // 3 WP_MIN_3000FT
-      0, // 4 WP_MAX_125FT    (handled below)
+      0, // 4 WP_MAX_250FT    (handled below)
       0, // 5 WP_UPSIDE_DOWN  (handled below)
   };
   bool met = pos_ok;
   if (met) {
     switch (constraint) {
-    case WP_MAX_125FT:
-      met = flight_eye_z <= 0x004000;
+    case WP_MAX_250FT:
+      met = flight_eye_z <= kFlightWpMaxAlt;
       break;
     case WP_UPSIDE_DOWN:
-      met = flight_cam.up.z < 0;
+      // A low pass, which is what the briefing asks for and what the crowd
+      // came to see - so the altitude counts as much as the attitude. up.z is
+      // 256 * cos(roll), so the bound is 120 degrees of roll: enough that the
+      // aeroplane is unambiguously on its back rather than steeply banked,
+      // which anything merely below zero would have allowed.
+      met = flight_cam.up.z < -128 && flight_eye_z <= kFlightWpMaxAlt;
       break;
     case WP_LANDED:
       met = model_on_ground && (flight_speed <= 0x0010);
@@ -756,8 +783,19 @@ void flight_advance() {
     _flight_move_forward(flight_speed << 1, flight_vspeed);
 
     if (!model_on_ground && flight_vspeed < 0 && flight_eye_z <= 0x4000) {
+      // The advisory does not test the runway, which is why check_runway is
+      // false here while the touchdown verdict below still passes true.
+      //
+      // This block runs on any descent below 125 ft anywhere in the world, so
+      // "NOT ON RUNWAY" fired on every low pass rather than on approaches
+      // that had drifted off the strip - including the low passes the
+      // missions themselves ask for, where it warned the pilot against the
+      // altitude the briefing had just demanded. Being first in the fault
+      // order it also masked the warnings that were worth having: a gear-up
+      // approach away from the field reported the runway, not the gear.
+      // Landing off a runway is still a crash, and still says so.
       enum FlightStatus fault =
-          _flight_landing_fault(kFlightMaxLandingSpeed, true);
+          _flight_landing_fault(kFlightMaxLandingSpeed, false);
       if (fault) {
         msg_show(flight_status_text(fault, false));
       }

@@ -10,8 +10,10 @@ enum MissionWaypointConstraint {
   WP_LANDED = 1,
   WP_MIN_1000FT = 2,
   WP_MIN_3000FT = 3,
-  // 0x004000, which is 125ft on the altitude scale where 1000ft is 0x020000.
-  WP_MAX_125FT = 4,
+  // 0x008000, which is 250ft on the altitude scale where 1000ft is 0x020000.
+  WP_MAX_250FT = 4,
+  // Inverted, and low enough for it to be a pass rather than a distant roll:
+  // both halves are in flight.cc, next to the altitude they share.
   WP_UPSIDE_DOWN = 5,
 };
 

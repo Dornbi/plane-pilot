@@ -510,7 +510,8 @@ waypoints — the runway-2 landing appears in four of them. `kWaypointDefault`
 is the fallback nav target for a mission whose slice yields no usable point.
 
 A constraint (`MissionWaypointConstraint`) says what has to be true at the
-waypoint: nothing, landed, a minimum altitude, below 125 ft, or inverted.
+waypoint: nothing, landed, a minimum altitude, below 250 ft, or inverted
+and low.
 
 `flight_init_from_mission()` applies the start state and unpacks the slice
 into `flight_nav_point_x/y[6]` — hence at most six navpoints, which is what
