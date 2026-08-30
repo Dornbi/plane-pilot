@@ -1,9 +1,15 @@
-# Music — Implementation Plan
+# Music (`music.md`)
 
-The menu is silent. This document plans the title tune: a 24-bar atmospheric
-theme in D minor, three voices, looping every 46.1 seconds, playing on the
-mission-select screen and under the help screen it opens. It sits behind
+**Status: shipped**, all eight phases of §8. The title tune is a 24-bar
+atmospheric theme in D minor, three voices, looping every 46.1 seconds, playing
+on the mission-select screen and under the help screen it opens. The player is
+[`c64o/music.cc`](../c64o/music.cc) and the data
+[`c64o/musicdef.cc`](../c64o/musicdef.cc), generated from
+[`lib/music.py`](../lib/music.py) by `make music`. It sits behind
 `__ENABLE_SOUND__`, which `ppilot.prg` defines and the demo builds do not (§4).
+
+This is the plan it was built from, kept for the decisions and the measurements
+rather than as a to-do list.
 
 [`sid-intro-theme.html`](sid-intro-theme.html) is the reference recording — open
 it in a browser and press Play. It is not a mock-up: it runs the player this
@@ -32,7 +38,7 @@ Only `TUNES[0]` reaches the C64 — see §5 for how to change which.
 
 It is a reference, not the source of truth; §5 says what is.
 
-[sound.md](sound.md) plans the *flight* audio and is the document this one sits
+[sound.md](sound.md) covers the *flight* audio and is the document this one sits
 next to. It is assumed rather than repeated: §8 there already reserved room for
 a menu tune and made two decisions, and this plan starts by reversing one of
 them. See [project.md](project.md) for the surrounding architecture.

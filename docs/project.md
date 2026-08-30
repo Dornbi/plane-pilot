@@ -13,8 +13,9 @@ The repository holds two related codebases:
   hardware, explores the horizon-rendering scheme, and _generates_ the character
   set, tile definitions and sprite data that the C64 code compiles in.
 
-Data flows one way: Python generates `chardefs`, `boxdefs`, `spritedef` and
-`gfx_chars.bin`; the C64 code consumes them.
+Data flows one way: Python generates `chardefs`, `boxdefs`, `spritedef`,
+`clouddef`, `mapdefs`, `musicdef`, `gfx_chars.bin` and `panel.koa`; the C64 code
+consumes them. `make data` runs the lot.
 
 ---
 
@@ -329,11 +330,12 @@ horizontal resolution, matching the 4×4 sub-cell granularity of the quad
 character groups. Two fillers exist: `_scan_lines` is smaller and better for
 small polygons, `_scan_lines2` costs ~250 bytes more and wins on large ones.
 
-### `model.cc` — flight model
+### `flight.cc` — flight model
 
-State: orientation matrix `model_cam`, position (`world_eye_x/y/z` as 24.8
+State: orientation matrix `flight_cam`, position (`flight_eye_x/y/z` as 24.8
 meters), speed, vertical speed, throttle, fuel, and the flap / gear / nav
-toggles.
+toggles. [flight.md](flight.md) is the specification, [missions.md](missions.md)
+what each mission asks of it.
 
 Per step: air resistance proportional to speed², extra drag from gear and
 flaps, a gravity term from pitch, throttle thrust, then lift computed from
@@ -348,10 +350,17 @@ Two distinct regimes:
   input is remapped to yaw. Pitching up above stall speed is what takes off.
 
 Touching down checks roll, pitch, vertical speed, forward speed and gear; fail
-any of them and `_model_crashed` latches, freezing the model and all input.
+any of them and `flight_status` latches a crash, freezing the model and all
+input.
 
 `vec_orthonormalize()` runs after any rotation that needs it, to stop the
-matrix from drifting.
+matrix from drifting. It is the dominant cost of a step — 58% of it — which is
+why `model_need_normalize` is set as sparingly as it is.
+
+The model has no elapsed time in it: `sim.cc` takes exactly one step per
+rendered frame, and the step *size* scales with what `cpu_probe()` measured the
+machine to be at boot. [flight.md](flight.md) §8 has the reasoning, the
+measurements, and what the raster timebase that preceded it cost.
 
 ---
 
@@ -411,7 +420,7 @@ itself.
 
 ### `view.cc` — the three views
 
-`view_update_cam()` derives the camera from `model_cam`: forward, or ±90°
+`view_update_cam()` derives the camera from `flight_cam`: forward, or ±90°
 using the `left` vector. Switching to a side view rebuilds the panel bitmap,
 sliding the retained 8 columns (`kCopyWidthChars`) to one side and filling the
 rest with a gradient pattern. Returning to center re-expands the compressed
@@ -420,12 +429,51 @@ center→side switch skips the re-expansion.
 
 ### `sprites.cc` / `spritedef.cc`
 
-Eight sprites, reused twice per frame by the raster split: the sun over the
-terrain, and the instrument needles over the panel. Needle bitmaps are
+Eight sprites, reused twice per frame by the raster split: world objects over
+the terrain, and the instrument needles over the panel. Needle bitmaps are
 pre-rotated into 32 directions with per-direction pivot offsets
 (`kSpriteDefMetaLongArm`, `kSpriteDefMetaShortArm`), so setting an instrument
 is a table lookup plus two subtractions. Sprite pointers are written into both
 screen buffers at offset 1016.
+
+**The sprite stack** is how the terrain band's sprites are handed out. VIC
+sprite-to-sprite priority is fixed by index — sprite 0 draws in front of sprite
+1 — so "draw the closest object first" is implemented as "give the closest
+object the lowest index": reset, add candidates in any order, commit, and the
+commit sorts by depth and assigns indices in that order. Correct mutual
+occlusion falls out with nothing written to `$D01B`, and the overflow rule
+comes free, since the entries that lose a slot are the farthest ones. The
+committed frame is double buffered, because the terrain raster handler programs
+it. The sun is an ordinary client at `INT16_MAX` depth; clouds are the other
+one; [planes.md](planes.md) is meant to be the third.
+
+Seven slots, not eight: index 7 is the vertical-speed needle below the split
+and the **orientation indicator** above it — a fixed bar with a gap in it at
+the centre of the viewport, in the front view only, which is what gives the
+moving horizon something to be read against. Designed in
+[clouds.md](clouds.md) §1 and §1.9; the host suite is `test/sprites_test.cc`.
+
+### `clouds.cc` / `clouddef.cc`
+
+Clouds have no storage anywhere and no bound on how many the world contains.
+`clouds_add_candidates()` walks a 5 × 5 grid of cloud cells around the
+aircraft; a hash over the cell coordinate decides whether that cell carries a
+group, jitters it inside the cell, and picks one of four three-blob layouts.
+Distance then selects a rung of a ten-step size ladder — rungs 0–4 are one
+X-expanded sprite, 5–9 a 1 × 2 stack — and far groups collapse to a single
+blob, since three sprites on something 13 pixels wide is most of the cost for
+none of the picture.
+
+The bitmaps are white-and-transparent checkerboards, which at one bit per pixel
+read as a half-tone against the sky. Two overlapping clouds have to share one
+dither lattice or they fill each other in, so the stack snaps a cloud-flagged
+entry to X even and `(X >> 1) + Y` even.
+
+`clouddef.cc` is generated by `tools/generate_clouds.py` from four numbers —
+cell size, gate mask, blob diameter, deck altitude — which also emits
+`lib/clouddef.py` so `make cloud-preview` can render the layout without an
+emulator. All of it is behind `__ENABLE_CLOUDS__`. The whole design, including
+the parts that were tried and rejected, is [clouds.md](clouds.md).
 
 ---
 
@@ -434,9 +482,10 @@ screen buffers at offset 1016.
 | Module      | Screen                                                                             |
 | ----------- | ---------------------------------------------------------------------------------- |
 | `menu.cc`   | main menu — mission list, `I`/`K` to move, `SPACE`/`RETURN` to start, `H` for help |
-| `title.cc`  | the aircraft that crosses the menu page every ten seconds or so                     |
+| `title.cc`  | the aircraft that crosses the menu page every six seconds or so                     |
 | `help.cc`   | static key reference, one text blob printed by `print_lines()`                     |
-| `map.cc`    | single-color character mode rendering of the 32 × 16 world map                     |
+| `music.cc`  | the title tune, ticked from the menu's and the help screen's own vsync loops       |
+| `map.cc`    | multicolor bitmap rendering of the 32 × 16 world map, with navpoints, the flight path and the aircraft |
 | `screen.cc` | shared mode transitions: enter static MCCM, begin text page, restore simulation    |
 | `sim.cc`    | the flight screen and its input dispatch                                           |
 
@@ -486,6 +535,23 @@ every negative position is equally hidden. `_title_program()` clamps the two
 columns independently, so the column still partly on screen keeps its true
 position and clips a pixel at a time while the other sits behind the border.
 The aeroplane goes off the left edge column by column with nothing snapping.
+
+### `map.cc` — the map view
+
+`M` swaps the whole screen for a 128 × 128 multicolor bitmap of the world: one
+4 × 8 pixel tile per map cell drawn from `mapdefs.cc`, then an overlay layer
+carrying the navpoint digits, the flight path and a compass, then two hardware
+sprites crossed into an aircraft marker. Screen RAM for it goes at `$D000`,
+under I/O, which is dead space in every other mode; the bitmap borrows
+`$E000–$FF3F` — character RAM, both screen buffers and the panel — and
+`screen_restore_simulation()` rebuilds all of it on the way out.
+
+The tile art is `gfx/ppilot_map_tiles.png`, which is the source of truth:
+`make map-tiles` compiles it and `make map-preview` composites the result over
+`kWorldMap` so the whole map can be judged in a PNG. The flight path is a
+256-byte ring of screen pixels living in the scratch space behind the expanded
+sprite blob (`sprites.h`), cleared when a mission starts. [map.md](map.md) has
+the format, the colour budget and the coordinate conventions.
 
 ### `mission.cc`
 
@@ -539,8 +605,14 @@ are kept last in the enum so that predicate stays a single comparison.
   `_get_roll_angle` (60 steps).
 - **`sound.cc`** — flight audio. Split by rate: `sound_update()` computes a
   25-byte shadow on the main line, `sound_blit()` copies it to `$D400` from
-  `_switch_to_terrain`. See [sound.md](sound.md). A menu tune is planned as a
-  separate module with its own owner — see [music.md](music.md).
+  `_switch_to_terrain`. See [sound.md](sound.md).
+- **`music.cc` / `musicdef.cc`** — the title tune, a separate owner of the SID
+  under the same rule: only one of the two drivers may hold the chip, so
+  `music_playing` makes `sound_silence()` return without touching the
+  registers. Ticked at 50 Hz from the menu's and the help screen's own
+  `gfx_wait_vsync()` loops rather than from an interrupt, since those screens
+  run with the raster split stopped. Data is generated from `lib/music.py`.
+  See [music.md](music.md).
 - **`print.cc`** — screen text, plus a double-dabble BCD converter in assembly
   for the debug readouts.
 - **`benchmark.cc`** — CIA2 timer A/B chained to a 32-bit cycle counter; all
@@ -561,10 +633,20 @@ are kept last in the enum so that predicate stays a single comparison.
 | `vecdemo.prg`  | character-mode ground-dot prototype                           |
 | `vectest.prg`  | correctness and cycle counts for the vector routines          |
 
-`ppilot.prg` is around 47 KB as currently built - one binary carrying sound,
-music and the debug view; `SOUND=`, `DEBUG=` and `CLOUDS=` each build it
-without one of those, which is how their cost gets measured. `OSCAR64_INCLUDE` at the top
-of the Makefile points at the oscar64 include directory and may need adjusting.
+`ppilot.prg` is 47,607 bytes as currently built - one binary carrying sound,
+music, clouds and the debug view; `make -C c64o SOUND=`, `DEBUG=` or `CLOUDS=`
+each build it without one of those, which is how their cost gets measured.
+About 3.3 KB of allocatable RAM is left ([memory_map.md](memory_map.md), and
+[codesize.md](codesize.md) for where it would come from).
+`OSCAR64_INCLUDE` at the top of the Makefile points at the oscar64 include
+directory and may need adjusting.
+
+Every link runs four checks, and each fails the build rather than warning:
+`check_zeropage.py` (oscar64's spilled temporaries must not reach the zeropage
+region), `check_rom_window.py` (nothing before `mem_init()` may read a global
+out of the ROM windows), `check_irq_zp.py` (a raster handler must not touch the
+runtime zero page) and `check_mul_div.py` (no `divmod` routine may be linked
+in).
 
 ---
 
@@ -611,15 +693,31 @@ and generates the tables the C64 code compiles in.
 | `flight_demo.py`        | `make demo`       | interactive roll/pitch demo                                              |
 | `generate_sprites.py`   | `make sprites`    | `spritedef.bin` and `spritedef.py`                                       |
 | `generate_gfx_chars.py` | `make gfx-chars`  | `c64o/gfx_chars.bin` — the font plus the quad and point character groups |
+| `generate_clouds.py`    | `make clouds`     | `c64o/clouddef.{h,cc}` and `lib/clouddef.py` — cloud placement constants |
+| `generate_map_tiles.py` | `make map-tiles`  | `c64o/mapdefs.{h,cc}` from `gfx/ppilot_map_tiles.png`                    |
+| `generate_music.py`     | `make music`      | `c64o/musicdef.{h,cc}` and `docs/sid-intro-theme.html`                   |
 | `png2koa.py`            | `make panel`      | a `.koa` image from a 320×200 PNG — `c64o/panel.koa` from the panel art  |
+| `render_map_preview.py` | `make map-preview`| `out/map_preview.png` — the tiles composited over `kWorldMap`            |
+| `render_cloud_preview.py` | `make cloud-preview` | `out/cloud_preview.png` plus the density and slot-demand tables     |
+| `analyze_ram.py`        | `make ram`        | the RAM breakdown in [memory_map.md](memory_map.md)                     |
 
-`make data` runs the three generator targets together. The canonical flags for
-each tool live in the root `Makefile`; the scripts resolve their own paths from
-the repo root, so they can be run from any directory. Rendered frames and other
-disposable output go to `out/`, which is gitignored — `chardefs`, `boxdefs`,
-`spritedef` and `reference_frames/` are checked in and written in place.
+`make data` runs the six generator targets together; `make panel` is separate,
+because the panel art changes rarely and its optimizer takes a while. The
+canonical flags for each tool live in the root `Makefile`; the scripts resolve
+their own paths from the repo root, so they can be run from any directory.
+Rendered frames and other disposable output go to `out/`, which is gitignored —
+`chardefs`, `boxdefs`, `spritedef`, `clouddef` and `reference_frames/` are
+checked in and written in place.
 
-Tests live in `tests/` and run with `make test`.
+`lib/music.py` and `lib/planes.py` are not part of that pipeline in the same
+way: the first is the tune's source of truth and the second is a Python mirror
+of a renderer that does not exist on the C64 yet ([planes.md](planes.md)).
+
+Tests live in `tests/` and run with `make test`. The C64 code has its own host
+suites under `c64o/test/` — `flight_test`, `poly_test`, `sound_test`,
+`music_test`, `sprites_test`, `map_test`, `msg_test`, `mul_test` and
+`cpu_test` — which compile the real `.cc` files with `g++` and run them off the
+C64; `make -C c64o test` runs those.
 
 ---
 
@@ -627,14 +725,17 @@ Tests live in `tests/` and run with `make test`.
 
 - **Wind is unimplemented.** `kMissionWindX` / `kMissionWindY` are defined and
   zero for every mission; nothing reads them.
-- **Map view is a placeholder.** Every non-ground cell renders as `.`; polygon
-  objects, the plane's position, the nav points and the flight path are not
-  shown. See [map.md](map.md) for the plan to replace it, which also lists
-  three gaps in `screen_restore_simulation()` that the current char-mode map
-  happens not to expose.
+- **Clouds pop off the left edge.** A sprite whose register X would go negative
+  is dropped rather than wrapped round the VIC's 504-position horizontal
+  counter. [clouds.md](clouds.md) §1.6 designs the wrap; it is the one phase of
+  that document not built.
 - **Prototype and C64 viewports differ.** `renderer_engine.py` uses a 32 × 15
   character viewport; the C64 uses 40 × 14. The Python renderer is a design
   tool, not a mirror of the shipped renderer.
-- **The menu is silent.** Flight audio ships (`sound.cc`, [sound.md](sound.md));
-  the title tune is planned but not built — see [music.md](music.md).
+- **There is no traffic.** [planes.md](planes.md) specifies aircraft sprites in
+  full and nothing of it is written. Its §5 memory plan also predates the title
+  screen taking `$CF00–$CFFF`.
+- **A single polygon can cost more than the rest of the frame.** On the runway
+  it is 43,064 cycles, a third of everything measured. See
+  [framerate.md](framerate.md).
 - No joystick, no takeoff/landing interaction with objects.

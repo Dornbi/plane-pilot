@@ -16,7 +16,7 @@ This document specifies the flight dynamics model requirements for the C64 fligh
   - A PAL C64 frame at 50 Hz is **19,705 cycles**. `flight_advance()` is one item in a frame that also has to render the 3D view, so its share has to stay small.
   - The cost splits in two. The scalar path — drag, thrust, lift deficit, the envelope checks — is on the order of **~1,000 cycles**. Re-orthonormalization (`vec_orthonormalize`: 3 × `vec_normalize` + 2 × `vec_cross`) is the dominant term at roughly **~4,500 cycles**, and it runs on any frame where `model_need_normalize` was set — which is most airborne frames, since any control input, any bank, and every ground frame set it.
   - Working budget: **< 6,000 cycles** for a frame that re-orthonormalizes, **< 1,500** for one that does not. That is ~30% of the frame in the common case, so `model_need_normalize` is worth being stingy with.
-  - **These figures are estimates from operation counts, not measurements.** `benchmark.h` already provides the harness (`__DEBUG_CYCLES__`), and `flight_advance()` should be wrapped in it and measured on target before the budget above is treated as authoritative.
+  - **Measured since, and the estimates were low.** `flight_advance()` is the `MDL` counter in the debug view (`D`). Straight and level with no control input it is about 5,000 cycles, which matches; banked and turning it was 22,339, and is 16,769 now that the roll-induced turn is `vec_turn3_xy()` rather than a general 3x3 multiply. `vec_orthonormalize()` is 58% of the step. §8 has the ablation table and what is left to win.
 
 ---
 

@@ -1,5 +1,12 @@
 # Other Aircraft — Traffic Sprites
 
+**Status: designed, not built.** None of §12's phases has landed; there is no
+traffic in `ppilot.prg`. The layer underneath it did ship, though — the sprite
+stack of [sprite_objects.md](sprite_objects.md) §2 exists in `c64o/sprites.cc`
+and serves the sun and the clouds, so §5's "hardware sprite indices" is a
+matter of calling `sprites_stack_add()` rather than of writing an allocator.
+Two of §5's numbers have gone stale since; the notes there say which.
+
 This document specifies how other aircraft are drawn in the viewport. Scope is
 **graphics only**: the rendering pipeline, sprite and RAM allocation, the
 rasteriser and the caching scheme. Traffic behaviour (canned kinematic paths),
@@ -33,6 +40,16 @@ projectiles — into the eight hardware sprites, covering the raster band split,
 index sharing with the instrument panel, distance sorting and the candidate
 scan. **That document owns the sprite engine; this one owns what goes in an
 aircraft's bitmap.** Everything here is built on its §1 and §2.
+
+That engine is now real: `sprites_stack_reset()` / `_add()` / `_commit()` in
+`c64o/sprites.cc`, designed in detail in [clouds.md](clouds.md) §1 and covered
+by `c64o/test/sprites_test.cc`. An aircraft becomes a third client of it — one
+`sprites_stack_add()` per plane, with the depth doing the priority work §5
+below spells out by hand. Two consequences for §5: the stack hands out seven
+indices rather than eight ([clouds.md](clouds.md) §1.9 keeps index 7 for the
+panel band and the orientation mark), and it does not yet wrap a sprite round
+the left edge (§1.6 there), so a plane leaving the left of the viewport will
+pop the way a cloud does.
 
 Three places where this document supersedes or corrects it:
 
@@ -439,8 +456,12 @@ only worth spending when 45 px turns out to be too small on a real screen.
 
 ### Sprite buffers must not live under I/O
 
-The obvious home is the free `$D400–$D7BF` (15 blocks, pointers 80–94). **Do
-not use it for dynamic buffers.** It is RAM under the SID, so every write needs
+The obvious home was the then-free `$D400–$D7BF` (15 blocks, pointers 80–94).
+**Do not use it for dynamic buffers**, and it is no longer free in any case:
+the cloud art took 81–94 and the orientation mark took 80, so all 48 blocks of
+`$D400–$DFFF` are allocated.
+
+The reason not to, which still stands whatever is in it: It is RAM under the SID, so every write needs
 `$01` switched to `MMAP_RAM`, which means interrupts off. Blocking the raster
 IRQ for the ~600 cycles of a 63-byte block would delay the panel split by ten
 raster lines and glitch the screen edge every frame. That region is fine for
@@ -456,12 +477,22 @@ RAM inside VIC bank 3 and needs no banking at all:
 #pragma region( main,   0x0860, 0xCE00, , , {code, data, data_compr, bss, heap} )
 ```
 
-`$CE00–$CFFF` is 8 blocks, sprite pointers **56–63**, and costs 512 B of the
-17.9 KB currently free.
+`$CE00–$CFFF` is 8 blocks, sprite pointers **56–63**, and cost 512 B of the
+17.9 KB free when this was written.
 
-The **dot bitmap is the exception** and belongs in `$D400` (pointer 80): it is
-written once at startup, so the banking restriction costs nothing, and traffic
-in the dot tier needs no dynamic block at all. Same division of labour as the
+> **Stale, twice over.** The title screen's aeroplane now lives at
+> `$CF00–$CFFF` (`mem.h` `kTitleSpriteData`, pointers 60–63), so only
+> `$CE00–$CEFF` — 4 blocks, pointers 56–59 — is available: enough for one plane
+> double buffered, not two. And free allocatable RAM is 3,308 B in a largest run
+> of 2,976 B ([memory_map.md](memory_map.md)), not 17.9 KB, so §5's ~1.5 KB
+> budget is now half the headroom rather than a tenth of it. Either the title
+> aeroplane moves or the block assignment below shrinks to one plane.
+
+The **dot bitmap is the exception** and belongs under I/O with the other static
+art: it is written once at startup, so the banking restriction costs nothing,
+and traffic in the dot tier needs no dynamic block at all. Pointer 80, which
+this section named for it, went to the orientation mark; the block would have to
+come from somewhere in `$D400–$DFFF` or from the four in `$CE00`. Same division of labour as the
 cloud bitmaps in [sprite_objects.md](sprite_objects.md) §6.1 — static art under
 I/O, dynamic buffers in plain RAM.
 
@@ -495,8 +526,14 @@ two planes:
 Planes therefore always outrank the sun and occlude it correctly, and when two
 planes overlap the near one wins, with no per-frame priority logic.
 
-Programmed in the top-of-viewport raster handler alongside the existing
-`sprites_show_terrain_sprites()`. Two things the panel handlers must do:
+**As built, none of this is a table.** Indices are not assigned by role at all:
+each plane is one `sprites_stack_add()` call carrying its camera-space depth,
+and `sprites_stack_commit()` sorts and hands out 0 upward. The sun passes
+`INT16_MAX` and lands last by construction, and a plane nearer than a cloud
+takes the lower index without anyone deciding it should. The one fixed index is
+7, which the stack never hands out. The two panel-handler requirements below
+are also done, in `sprites_show_panel_top_sprites()` and
+`sprites_show_panel_bottom_sprites()`:
 
 - **`_switch_to_panel_top` must clear `$D01D`** (X-expansion) as well as
   parking sprites at `x = 0`. Parking works because the VIC compares X per

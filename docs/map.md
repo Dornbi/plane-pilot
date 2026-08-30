@@ -1,9 +1,15 @@
-# Map View — Implementation Plan
+# Map View (`map.md`)
 
-The `M` key currently opens a placeholder: single-colour character mode, every
-non-ground cell drawn as `.`. This document plans the real map view — a
-multicolor bitmap rendering of the 32 × 16 world, with navpoint numbers, a
-recent flight path, and (later) the aircraft as a sprite.
+**Status: shipped.** The `M` key opens a multicolor bitmap rendering of the
+32 × 16 world with navpoint numbers, the recent flight path and the aircraft as
+a sprite — all six phases of §10 landed. The code is
+[`c64o/map.cc`](../c64o/map.cc), the tile art is
+`gfx/ppilot_map_tiles.png` compiled by `tools/generate_map_tiles.py` into
+`c64o/mapdefs.*`. This document is the plan it was built from and is kept for
+the decisions and the format, not as a to-do list.
+
+It replaced a placeholder: single-colour character mode with every non-ground
+cell drawn as `.`.
 
 See [project.md](project.md) for the surrounding architecture.
 
@@ -11,17 +17,17 @@ See [project.md](project.md) for the surrounding architecture.
 
 ## 1. Scope
 
-| In | Out (for now) |
+| In | Out |
 | --- | --- |
 | MCBM rendering of `kWorldMap` | Live update while flying — the map is a pause screen |
 | Pre-rendered 4 × 8 art per cell type | Scrolling or zooming |
 | Navpoint numbers `1`–`6` | Map access from the main menu |
 | Recent flight path, red, per pixel | Heading / track vector on the map |
-| | Aircraft marker (sprite — phase 6) |
+| Aircraft marker, two crossed sprite arms | |
 
-`sim.cc:175` already skips `flight_advance()` while `map_mode` is set, so the
-simulation is frozen for the duration. Nothing on the map moves, and a
-multi-frame rebuild on exit is invisible.
+`sim.cc` skips `flight_advance()` while `map_mode` is set, so the simulation is
+frozen for the duration. Nothing on the map moves, and a multi-frame rebuild on
+exit is invisible.
 
 ---
 
@@ -425,10 +431,10 @@ Walking `kMissionWpBegin/End` against the `(0, 0)` skip rule:
 | 07 | 2 |
 | 06, 08, 09 | 4 |
 
-Four is the cap, and it becomes the declared limit rather than an observation.
-`flight.cc` currently sizes `flight_nav_point_x[6]`, `flight_nav_point_y[6]`
-and `flight_waypoint_nav[6]`; all three drop to `kMaxNavPoints = 4`, saving 10
-bytes.
+Four is the cap, and it became the declared limit rather than an observation.
+`flight.cc` used to size `flight_nav_point_x[6]`, `flight_nav_point_y[6]` and
+`flight_waypoint_nav[6]`; all three are `kMaxNavPoints = 4` now, 10 bytes
+saved.
 
 Both index spaces stay in bounds: `flight_waypoint_nav` is indexed by
 waypoint-within-mission and `flight_nav_point_*` by navpoint, and the largest
@@ -585,9 +591,9 @@ lookups, no new data at all.
 - **Y coordinate.** Rows 4–19 → sprite y 82–210. Fits in 8 bits.
 - **Set once.** The simulation is frozen in map mode, so both sprites are
   positioned in `map_enter()` and never updated.
-- **Enable two.** `map_enter()` currently clears `spr_enable`; set it to the two
-  sprites in use. `sprites_init()` from `screen_restore_simulation()` restores
-  the instrument setup on exit.
+- **Enable two.** `map_enter()` sets `spr_enable` to the two sprites in use
+  rather than clearing it. `sprites_init()` from `screen_restore_simulation()`
+  restores the instrument setup on exit.
 - **Scale.** Body and wingspan are both 14 px ≈ 2 cells. Not to scale with
   anything, and the marker is roughly square — check at actual size.
 

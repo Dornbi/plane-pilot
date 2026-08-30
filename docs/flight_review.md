@@ -513,7 +513,7 @@ Neither affects behaviour and neither is worth a commit on its own.
 | C4 | §5.1 corrected to J/L |
 | D1 | `kMaxSpeed` clamp documented in §6.1, distinct from the drag/gravity terminal velocity |
 | D5 | Measured: optimum is `front.z = -50` (~ -11°) at ~4.96 : 1, so §6.2's "~ -10°" was close. Numbers tightened. `test_optimal_glide_angle` |
-| D6 | §1 rewritten: PAL frame context, split scalar (~1,000) vs re-orthonormalizing (~5,500) budgets, flagged as estimates pending `__DEBUG_CYCLES__` measurement |
+| D6 | §1 rewritten: PAL frame context, split scalar (~1,000) vs re-orthonormalizing (~5,500) budgets. Since measured on target — see the Open list below |
 | D7 | Bank-percentage convention (percent of 90°) defined in §3.1 |
 | E1 | Three vacuous tests replaced |
 | E2 | `test_takeoff_stall_speed_gate` rewritten around a `_put_on_ground()` helper, so it exercises the ground branch; also covers the flap-lowered gate |
@@ -610,15 +610,14 @@ unreachable, it now asserts a slow nose-down arrival trips it with all five othe
 verified clear, and sweeps above-stall arrivals to assert both that the limit is reachable at
 all and that no flared arrival ever reaches it.
 
-Suite is at **37 tests, all passing**. Also fixed on the way through: the host test build was
+Suite was at **37 tests, all passing** when this pass finished; it is 63 now. Also fixed on the way through: the host test build was
 broken at HEAD — the "Populate navpoints from the mission" commit added `kMissionWaypoints`
 / `kWaypointDefault` references to `flight.cc` without adding `mission.cc` to
 `FLIGHT_TEST_SRC`. Added.
 
-The C64 build is still **not** verified here — `oscar64` is a macOS arm64 binary and this
-host is Linux, so only `make test` was run. The `flight.cc` changes are a shift-add, a
-ternary over two existing rotation matrices and one extra comparison in the envelope check,
-but run `make` before trusting them on target.
+The C64 build was **not** verified in the session that wrote this — `oscar64` is a macOS
+arm64 binary and that host was Linux, so only `make test` ran. It has been built and flown
+many times since; the note is kept because it is why the two items above stayed open.
 
 **Open**
 
@@ -647,9 +646,10 @@ but run `make` before trusting them on target.
    in §5.3 as intended behaviour. `test_takeoff_roll_speed_margin`.
 4. ~~Trigger 2 is now fully dormant~~ — **FIXED**: `kMaxLandingVSpeed` tightened from
    `-0x0180` to `-0x00E0`. See below.
-5. **D6 measurement** — wrap `flight_advance()` in `benchmark.h` and replace the estimated
-   budget in §1 with real numbers. The only remaining item that cannot be settled from the
-   host build.
+5. ~~**D6 measurement**~~ — **DONE.** `flight_advance()` is the `MDL` stage counter in the
+   debug view, and `flight.md` §1 and §8 now carry measured numbers: ~5,000 cycles straight
+   and level, 16,769 banked and turning, of which `vec_orthonormalize()` is 58%. The
+   estimate it replaced was low on the turning case by roughly 3x.
 6. ~~**E5**~~ — **FIXED**. `test_turn_rate_depends_on_bank_not_speed` (level = no turn,
    steeper bank = faster turn, and bit-identical heading change at 1200 / 1800 / 2400,
    which pins B4), `test_banked_turn_loses_altitude` (0 / -13724 / -48532 at level / 45° /

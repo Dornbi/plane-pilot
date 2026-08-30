@@ -157,7 +157,31 @@ are in [tools/](../tools). The most important ones:
 - [flight_demo.py](../tools/flight_demo.py): A more interactive demo to test roll and pitch usiing
   the chardefs and boxdefs.
 
-- [generate_sprites.py](../tools/generate_sprites.py): Generates sprite data for the C64 code.
+- [generate_sprites.py](../tools/generate_sprites.py): Generates sprite data for the C64 code —
+  the instrument needles, the sun, the orientation mark, the title aircraft and the
+  cloud bitmaps.
+
+- [generate_clouds.py](../tools/generate_clouds.py): Emits the cloud placement
+  constants — hash tables, size ladder, group patterns — into `c64o/clouddef.{h,cc}`
+  and `lib/clouddef.py`, all derived from four numbers at the top of the script.
+  See [clouds.md](clouds.md) §7.
+
+- [render_cloud_preview.py](../tools/render_cloud_preview.py): Renders the cloud
+  layout to `out/cloud_preview.png` and prints the density and sprite-slot demand.
+  Retune the density here rather than in the emulator; it answers in a second.
+
+- [generate_music.py](../tools/generate_music.py): Turns [lib/music.py](../lib/music.py)
+  into `c64o/musicdef.{cc,h}` and the browser reference page
+  [sid-intro-theme.html](sid-intro-theme.html). See [music.md](music.md).
+
+- [png2koa.py](../tools/png2koa.py): Converts the instrument panel art
+  `gfx/ppilot_panel_40.png` into `c64o/panel.koa`, with a lossless slot optimizer.
+  The `--pin-color-ram` flags in the root Makefile are load bearing — see the
+  comment on the `panel` target.
+
+- [analyze_ram.py](../tools/analyze_ram.py): Reads `c64o/ppilot.map` and reports
+  RAM by feature area and a walk of the whole address space. `--markdown`
+  regenerates the tables in [memory_map.md](memory_map.md).
 
 - [generate_map_tiles.py](../tools/generate_map_tiles.py): Turns the map view's
   tile sheet, [gfx/ppilot_map_tiles.png](../gfx/ppilot_map_tiles.png), into
@@ -177,12 +201,14 @@ The tools take their canonical flags from the [Makefile](../Makefile) in the rep
 root, so prefer the make targets over calling the scripts by hand:
 
 ```bash
-make data        # regenerate chardefs, boxdefs, gfx chars, sprites, map tiles
-make map-tiles   # just the map tiles, after editing the tile sheet
-make map-preview # render out/map_preview.png from the current tiles
-make render      # render all roll angles to out/
-make prg         # build the C64 binaries via c64o/Makefile
-make help        # list everything
+make data          # chardefs, boxdefs, gfx chars, sprites, clouds, map tiles, music
+make map-tiles     # just the map tiles, after editing the tile sheet
+make map-preview   # render out/map_preview.png from the current tiles
+make cloud-preview # render out/cloud_preview.png and report the cloud density
+make render        # render all roll angles to out/
+make prg           # build the C64 binaries via c64o/Makefile
+make ram           # RAM breakdown by feature from c64o/ppilot.map
+make help          # list everything
 ```
 
 ### Python dependencies
@@ -202,17 +228,28 @@ pip install pillow pytest pygame
 Generated images and frames are written to `out/`, which is gitignored. The
 scripts anchor their own paths to the repo root, so they work from any directory.
 
-There are some unit tests in the [tests](../tests) directory. You can run them with:
+There are unit tests for the Python side in the [tests](../tests) directory:
 
 ```bash
 make test
+```
+
+The C64 code has host test suites of its own in [c64o/test](../c64o/test) —
+`flight_test`, `poly_test`, `sound_test`, `music_test`, `sprites_test`,
+`map_test`, `msg_test`, `mul_test` and `cpu_test`. They compile the real `.cc`
+files with `g++` and run them off the C64, which works because `vic.h`, `sid.h`
+and `mem.h` point their hardware addresses at plain arrays when `__OSCAR64__` is
+not defined. `make prg` runs them as part of the build; on their own:
+
+```bash
+make -C c64o test
 ```
 
 This is an example reference frame from [generate_frame.py](../tools/generate_frame.py) for roll `r16u1`:
 
 ![Reference frame](../screens/flight_frame_c160_96_01_r16u1.png)
 
-## Design conisderations
+## Design considerations
 
 Rendering the horizon gradient at a reasonable frame rate has been an important consideration
 from the start. To speed things up, it uses multicolor charater mode (MCCM), with pre-rendered
@@ -246,5 +283,8 @@ region of the character RAM, with 32 characters each.
 The instrument panel is rendered in multicolor bitmap model (MCBM).
 The switch between the two modes is done at a raster interrupt.
 
-The executable is 27 kilobytes. At runtime there is about 22 kilobyte ram still free,
-so the only bottleneck to turn this into a real game is the token limit at human time.
+`ppilot.prg` is 47,607 bytes as currently built, and about 3.3 KB of
+allocatable RAM is left below `$D000`. [memory_map.md](memory_map.md) has the
+breakdown by feature and the walk of the whole address space;
+[codesize.md](codesize.md) is a measured survey of where the code size is and
+what is worth trimming.

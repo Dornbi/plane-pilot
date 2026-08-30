@@ -1,9 +1,15 @@
-# Sound — Implementation Plan
+# Sound (`sound.md`)
 
-Plane Pilot is silent. This document plans flight audio: a propeller engine
-that tracks throttle, wind that tracks speed, a stall warning, and one-shot
-effects for touchdown, gear and flaps. Sound plays only while actually flying
-— not in the menu, not on the map, not while paused.
+**Status: shipped**, all nine phases of §9. Flight audio is
+[`c64o/sound.cc`](../c64o/sound.cc): a propeller engine that tracks throttle,
+wind that tracks speed, a stall warning, and one-shot effects for touchdown,
+gear and flaps. Sound plays only while actually flying — not in the menu, not on
+the map, not while paused. It is behind `__ENABLE_SOUND__`, which `ppilot.prg`
+defines and `make -C c64o SOUND=` takes back out.
+
+This is the plan it was built from, kept for the decisions and the measurements
+rather than as a to-do list; §10 records what is still open, all of it tuning by
+ear. [music.md](music.md) covers the menu tune, which §8 here reserved room for.
 
 See [project.md](project.md) for the surrounding architecture.
 
@@ -995,7 +1001,7 @@ reading the build or by ear:
 
 ## 8. Reserving room for a menu tune
 
-> **Superseded in part by [music.md](music.md)**, which plans the tune itself.
+> **Superseded in part by [music.md](music.md)**, which covers the tune itself.
 > The ownership argument below is what that plan builds on and is unchanged;
 > the load-address paragraph no longer applies, because the tune is compiled in
 > rather than ripped. Read this section for the reasoning and music.md for what
@@ -1343,7 +1349,9 @@ The lever that does work is voice 3's pitch: put it where the engine's
 harmonic stack is thin.
 
 **What is worth optimising?** §4 has the measurements. In descending order of
-value, and none of it urgent — the heap still has ~9.7 KB free:
+value. Not urgent when this was written, when the heap had ~9.7 KB free; free
+allocatable RAM is 3,330 B now ([memory_map.md](memory_map.md),
+[codesize.md](codesize.md)), so the first item below is worth more than it was:
 
 1. **Move nine bytes out of zero page.** `_pwm_phase`, `_rng`, `_v3_effect`,
    `_v3_frames`, `_stall_phase`, `_flight_gen_seen`, `flight_events`,

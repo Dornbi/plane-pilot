@@ -1,6 +1,13 @@
 # Sprite Objects — Design Notes (`sprite_objects.md`)
 
-**Status: partially implemented.** Cloud sprite definitions (15 bitmaps, pointers 80–94) are generated and stored in `spritedef.bin`/`mem.cc`. World placement, projection, and viewport multiplexing remain to be implemented — planned in full in [clouds.md](clouds.md), which supersedes §6.1 the way [planes.md](planes.md) supersedes §6.2, and which turns §2's restructure into a concrete sprite-stack API. This describes the scheme for drawing world objects — clouds, other aircraft, possibly projectiles — with the eight hardware sprites in the viewport band, generalising what `sprites.cc` currently does for the sun alone.
+**Status: built for clouds and the sun; still a plan for aircraft.** This
+describes the scheme for drawing world objects — clouds, other aircraft,
+possibly projectiles — with the eight hardware sprites in the viewport band.
+§2's restructure shipped as the sprite stack in
+[`c64o/sprites.cc`](../c64o/sprites.cc), designed in detail in
+[clouds.md](clouds.md) §1, which also supersedes §6.1 the way
+[planes.md](planes.md) supersedes §6.2. Clouds and the sun go through it;
+traffic is meant to be its third client and does not exist yet.
 
 For how sprites are used today see [project.md](project.md); for the raster
 band split see `gfx.cc`. For the aircraft case in full — which supersedes §6.2
@@ -30,15 +37,18 @@ eight sprites for the band below it:
 
 | Handler | Raster line | Sprites used |
 | :--- | :--- | :--- |
-| `_switch_to_terrain` | `50 + 200` (latches for the next frame's viewport) | 1 — the sun, index 4 |
+| `_switch_to_terrain` | `50 + 200` (latches for the next frame's viewport) | 8 — the committed stack frame: sun and clouds in 0–6, the orientation mark in 7 |
 | `_switch_to_panel_top` | `50 + 112 - 1` | 1 — vertical speed, index 7 |
 | `_switch_to_panel_bottom` | `50 + 112 + 24` | 7 instrument needles, indices 0–6 |
 
-**Seven of the eight sprites are idle for the entire viewport.** So up to eight
-simultaneous objects need no new multiplexing at all: no sorting by Y, no
+When this was written the terrain band used exactly one sprite, the sun at
+index 4, and **seven of the eight were idle for the entire viewport.** So up to
+eight simultaneous objects need no new multiplexing at all: no sorting by Y, no
 mid-band re-latching, no raster splits inside the viewport. That is the
 expensive part of a general sprite engine and this design gets to skip it
-outright, at the price of a hard cap of eight.
+outright, at the price of a hard cap of eight. In the shipped stack it is a cap
+of seven: [clouds.md](clouds.md) §1.9 keeps index 7 for the panel band, and
+spends it on the orientation mark.
 
 Two further properties fall out of the existing code for free:
 
@@ -53,9 +63,12 @@ the left border ends at 24, so parked at 0 it pokes 24 pixels into the picture.
 Any band that parks sprites this way must also clear `$D01D` — see
 [clouds.md](clouds.md) §1.4 and [planes.md](planes.md) §5.)
 
-The sun's current `y >= kRasterScreenYStart + kViewportEndYPixels` cull is
-therefore stricter than it needs to be — it hides an object that could legally
-be shown partially.
+The sun's old `y >= kRasterScreenYStart + kViewportEndYPixels` cull was
+therefore stricter than it needed to be — it hid an object that could legally be
+shown partially. The stack's cull is a box intersection against the viewport
+band instead, so an object straddling the bottom edge is clipped rather than
+dropped; where exactly, and why sprite DMA has to be off before the panel
+switch, is [clouds.md](clouds.md) §1.8.
 
 ### 1.2. Sprite-to-sprite priority is free depth sorting
 
@@ -71,13 +84,16 @@ relief to occlude it.
 
 ## 2. The structural change: index sharing
 
+**Built.** `sprites.cc` carries the split below, and the `kIdxThrottle ==
+kIdxSun` / `kIdxFuel == kIdxSun` special cases are gone with it.
+
 Every viewport sprite index collides with an instrument index, because the
-panel uses all of 0–7. Today this is handled by one-off special cases
+panel uses all of 0–7. This used to be handled by one-off special cases
 (`kIdxSun == kIdxAlt1`, plus `if (kIdxThrottle == kIdxSun)` in
 `sprites_show_panel_bottom_sprites`). That does not generalise to eight shared
 slots.
 
-**Proposed split.** In the panel-top band sprites 0–6 are parked at `x = 0` and
+**The split.** In the panel-top band sprites 0–6 are parked at `x = 0` and
 their colour is irrelevant; only index 7 must be correct. So:
 
 - `_switch_to_panel_top` — cycle-counted and NOP-padded, leave it alone. Set
@@ -89,9 +105,9 @@ Then the terrain handler is free to write all eight `spr_color` entries without
 any handshake with the panel code.
 
 **Fold the sun into the object list.** Rather than keeping `kIdxSun` special,
-make the sun an ordinary entry with a fixed "infinite" distance so it always
-sorts last (highest index, drawn behind everything). One code path, one cull
-test, one set of position registers.
+the sun is an ordinary entry with a fixed "infinite" distance (`INT16_MAX`) so
+it always sorts last — highest index, drawn behind everything. One code path,
+one cull test, one set of position registers.
 
 ---
 
@@ -174,6 +190,13 @@ multicolour the checkerboard would collapse into flat 2-pixel blocks.
 
 ## 5. Per-frame cost, which is the actual constraint
 
+**Measured since.** The whole cloud scan — the 25 hash gates, every group it
+finds and every blob it projects — is 13,824 to 28,283 cycles depending on the
+pose, and `sprites_stack_commit()` is about 250; [clouds.md](clouds.md) §5 has
+the per-step breakdown and [framerate.md](framerate.md) the poses. The debug
+view reports both live as `CLD` and `SPR`. The per-object estimate below was
+close enough that none of the mitigations under it were needed.
+
 Each visible object needs `vec_transform_inv` followed by `vec_project`, and
 `vec_project` carries a 16-bit divide. Estimating around **1,000 cycles per
 object**, eight objects is ~8,000 cycles.
@@ -202,9 +225,12 @@ Design the mitigations in from the start rather than bolting them on:
 3. **Budget four or five concurrent objects, not eight.** Eight is the hardware
    ceiling, not the performance target.
 4. **Measure before committing.** `benchmark.h` provides the harness
-   (`__DEBUG_CYCLES__`) and there is currently exactly one `bm_end` call site,
-   in `world_update_sun_pos`. Wrap the projection loop and get a real number
-   before fixing the object count.
+   (`__DEBUG_CYCLES__`); when this was written there was exactly one `bm_end`
+   call site, in `world_update_sun_pos`. Done — the cloud scan and the stack
+   commit are the `CLD` and `SPR` counters in the debug view, and the object
+   count was fixed at seven with those numbers in hand. Of the four items here
+   this is the only one that happened; 1 is in `clouds.cc` as the Manhattan
+   reject and the wedge test, and 2 and 3 were not needed.
 
 Do **not** try to save cycles by projecting distant objects on alternate
 frames. Camera rotation moves them across the screen even when they are
@@ -285,24 +311,27 @@ leaves all eight sprites for objects that need a silhouette.
 
 ## 7. Known rough edge: the message strip
 
-`_hidden_by_msg` is currently one box-overlap test against the message span,
-run for the sun. With eight objects it becomes eight tests per frame, in a
-budget that is already tight (§5).
+**Resolved by keeping the overlap test.** `_sprites_hidden_by_msg()` runs the
+box test once per candidate inside `sprites_stack_add()`, and at the measured
+cost of the scan (§5) the extra comparisons are not worth trading picture for.
 
-The cheap resolution is to drop the overlap test and simply cull any object
-sprite whose top lands in the message band while a message is up. It hides
-slightly more than necessary, but messages are transient and the test is a
-single comparison. Moving messages to the bottom of the viewport would remove
-the conflict entirely and is worth considering separately.
+The concern was that `_hidden_by_msg` was one box-overlap test against the
+message span, run for the sun alone, and that with eight objects it becomes
+eight tests per frame. The cheap alternative — cull any object sprite whose top
+lands in the message band while a message is up — hides more than necessary and
+was not needed. Moving messages to the bottom of the viewport would remove the
+conflict entirely and is still worth considering separately.
 
 ---
 
 ## 8. Open questions
 
-- Does the projection loop actually cost ~1,000 cycles per object? §5 is an
-  estimate from operation counts, exactly like the flight-model budget in
-  [flight.md](flight.md) §1, and should be measured before the object count is
-  treated as settled.
+- ~~Does the projection loop actually cost ~1,000 cycles per object?~~
+  **Answered — measured, and close enough.** The cloud scan runs 13,824 to
+  28,283 cycles across the three poses in [framerate.md](framerate.md), 11% to
+  19% of the render, and `CLD` in the debug view reports it live. The object
+  count is settled at seven ([clouds.md](clouds.md) §1.9) and none of §5's
+  mitigations were needed.
 - ~~Is the 4:1 vertical granularity mismatch (§3) visible enough to matter?~~
   **Answered — the premise was wrong.** It is 2:1, not 4:1, and only on the
   vertical axis; §3 has been corrected. Not visible enough to matter, and moot
@@ -311,9 +340,12 @@ the conflict entirely and is worth considering separately.
 - ~~Should clouds occlude the horizon line, or is drawing them only above it
   sufficient and cheaper?~~ **Answered** — they occlude it (§6.1). A cloud
   clipped at the horizon reads as a hole in the world.
-- ~~How many cloud radii, and at what sizes?~~ **Answered** — 10 sizes across
-  15 sprite blocks: 5 single-sprite (3×5 to 11×21) and 5 two-sprite stacks
-  (13×25 to 21×41) (§6.1).
+- ~~How many cloud radii, and at what sizes?~~ **Answered** — a ten-rung
+  ladder over 9 bitmap sets in 14 sprite blocks: 4 single-sprite (5×9 to 11×21,
+  pointers 81–84) and 5 two-sprite stacks (13×25 to 21×41, pointers 85–94)
+  (§6.1). The fifteenth block went to the orientation mark once
+  [clouds.md](clouds.md) §3.5 showed the ladder could never select the smallest
+  rung's own bitmap.
 - ~~Do aircraft need per-object colour at all, or is a single traffic colour
   enough to free the colour writes in the terrain handler?~~ **Answered** —
   [planes.md](planes.md) §8: colour switches on whether the aircraft is above
