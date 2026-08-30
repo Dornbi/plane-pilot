@@ -149,6 +149,60 @@ real code. Beware of forcing the *result* instead: setting `rung = 7` outright
 made the compiler fold the branch under test, and the broken build and the
 fixed one drew the same picture.
 
+## The screenshots in screens/
+
+`tools/make_shots.sh` regenerates every picture in `screens/` from the current
+sources in about half a minute:
+
+```bash
+tools/make_shots.sh              # all of them
+tools/make_shots.sh help map     # two scenes
+```
+
+It is the repeatable scene above, generalised. Instead of patching a pose into
+`flight.cc` it copies `c64o/` to a scratch directory, drops `tools/shot.cc` in
+beside it, and points the keyboard poll of the three screen loops - the menu,
+the help screen and the flight loop - at a scripted one that clears the matrix
+bits of whatever key the scene says is held. That is the only way in: the game
+scans the matrix directly, so `-keybuf` cannot reach it. The scenes are in
+`tools/shot.cc` and the table at the top of `make_shots.sh` says when each
+frame is grabbed and which file it lands in.
+
+Three things that are load bearing, each of which cost an hour once:
+
+- **`keys_wait_release()` keeps the plain `keyb_poll()`.** A scripted press is
+  one poll long and releases itself. Scripted through the wait loops as well,
+  `M` opens the map and the key still being down closes it on the next pass.
+- **The freeze is not the P key.** A pseudo-key sets `flight_paused` directly,
+  so the frame holds still for the capture with no PAUSED banner across the
+  viewport, and the capture point stops being delicate.
+- **oscar64 dies with a bare SIGABRT when the path to the sources is long.** It
+  builds an absolute path in a fixed stack buffer while parsing
+  `#pragma compile()` and smashes it; the crash report says `__stack_chk_fail`
+  inside `CompilationUnits::AddUnit()`. The scratch directory is
+  `/tmp/ppilot-shots` for that reason rather than for taste.
+
+The CRT look is `tools/shot_crt.py`, not VICE. `-VICIIfilter` changes what is
+on the emulator window and nothing at all in the file - screenshots are written
+from the native frame buffer, before the video chain runs. So the tube gets
+built afterwards, on a 5x upscale of the cropped frame: horizontal bleed in
+source pixels for the PAL colour bandwidth, scanlines, and a bloom pass without
+which the scanlines just read as a dark grid.
+
+Five of the seven scenes come back byte-identical run after run; the menu and
+the debug view do not. Emulation is deterministic, but the moment VICE's
+autostart injects the program is not, and a few frames of offset move the title
+flyby along its path and change the numbers in the cycle counters. That is
+exactly what the freeze buys the other five: everything after it is the same
+frame however the run started. Neither of the two can be frozen - a still
+flyby is not a flyby, and a frozen model reports a model cost of nothing - so
+they are checked by looking, and `cmp` is not the tool for them.
+
+One more thing worth knowing: VICE's autostart occasionally does not take, and
+what lands in `screens/` then is a perfectly valid PNG of the BASIC prompt.
+`make_shots.sh` checks the corner pixel for it - every screen in the game draws
+a black border and BASIC draws a light blue one - and retries.
+
 ## The debug panel
 
 When you can press keys, `D` switches the instrument panel to the built-in
