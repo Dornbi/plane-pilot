@@ -245,6 +245,49 @@ not defined. `make prg` runs them as part of the build; on their own:
 make -C c64o test
 ```
 
+### The 16-bit problem, and the two things that answer it
+
+**oscar64's `int` is 16 bits and the host's is 32.** C promotes every operand
+narrower than `int` before it does any arithmetic, so an intermediate that wraps
+on the 6510 does not wrap under `g++`, and a host test can pass against
+arithmetic the target never performed. Measured, by compiling one file both ways
+and reading the C64's globals back with `vice_dump.sh`:
+
+| expression | host | C64 |
+| --- | ---: | ---: |
+| `(sx + 2) >> 2`, `sx = 32767` | 8192 | **−8192** |
+| `a * b`, `a = b = 300` | 24464 | 24464 |
+| `(int16_t)(-cy) << 8 >> 8`, `cy = −128` | 128 | **−128** |
+
+The middle row is the trap: it agrees, because the value is narrowed at the
+assignment. Only *intermediates* diverge — which is why the rows either side of
+it were both real bugs, the first in `poly.cc` ([project.md](project.md) §5) and
+the third in the horizon term (`mul_test.cc`).
+
+Two things address it, and neither is a substitute for the other.
+
+[`c64o/test/int16.h`](../c64o/test/int16.h) gives a host test `i16()` / `u16()`
+to model the target's width by hand, applied at each step the 6510 would have
+truncated at rather than once at the end. `make -C c64o/test narrowing` ratchets
+on how many implicit narrowings the host build performs, against the reviewed
+counts in `narrowing.baseline`, so a new one has to be looked at deliberately.
+Read the head of that baseline before trusting it: the check both over-reports
+and, more importantly, is blind to the first row of the table above, whose
+*result* fits an `int16_t` on both machines.
+
+[`c64o/test/target_test.cc`](../c64o/test/target_test.cc) is the exact answer.
+It is built by oscar64 and run in VICE, so the arithmetic happens on a real
+6510 at the real width; its expected values are literals, and it reports by
+writing a failure count into a global that `tools/run_target_test.sh` reads back
+with `vice_dump.sh`. `make -C c64o test` runs it and skips with a line when
+oscar64 or `x64sc` is missing, so the other nine suites still work without them.
+
+```bash
+make -C c64o/test target-test         # just the on-target cases
+make -C c64o/test narrowing-update    # after reviewing a new narrowing
+make -C c64o/test TARGET_TEST=  test  # skip the emulator run
+```
+
 This is an example reference frame from [generate_frame.py](../tools/generate_frame.py) for roll `r16u1`:
 
 ![Reference frame](../screens/flight_frame_c160_96_01_r16u1.png)

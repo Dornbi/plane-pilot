@@ -21,6 +21,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "int16.h"
 #include "vec.h"
 
 // Mirrors _mul() in render.cc.
@@ -31,7 +32,8 @@ static inline int16_t _mul(int16_t a, int8_t b) {
 // oscar64's int is 16 bits, so the products the C64 computed were 16-bit and
 // wrapped. Reproduce that on the host, where int is wider, with an explicit
 // truncation - otherwise this compares against arithmetic the target never did.
-static inline int16_t mul16_ref(int a, int b) { return (int16_t)(a * b); }
+// i16() is that truncation; int16.h has the measurements behind it.
+static inline int16_t mul16_ref(int a, int b) { return i16(a * b); }
 
 static int failures = 0;
 static int reported = 0;
@@ -90,7 +92,7 @@ static long test_fill_sky_ground() {
     const int x = kRollTab[t][0], y = kRollTab[t][1];
     const int16_t a = (y == 0) ? 0 : (int16_t)(x * 16 / y);
     for (int cy = -128; cy <= 127; ++cy) {
-      expect((int16_t)(-_mul(a, (int8_t)cy)), mul16_ref(a, 0 - cy),
+      expect(i16(-_mul(a, (int8_t)cy)), mul16_ref(a, 0 - cy),
              "fill_sky_ground", a, cy);
       ++n;
     }
@@ -119,8 +121,8 @@ static long test_sound_jitter() {
   long n = 0;
   for (int amp = 0; amp <= 2047; ++amp) {
     for (int nn = -16; nn <= 15; ++nn) {
-      expect((int16_t)(vec_fastmul8p8((int16_t)amp, (int16_t)(nn << 8)) >> 4),
-             (int16_t)(mul16_ref(amp, nn) >> 4), "sound_jitter", amp, nn);
+      expect(i16(vec_fastmul8p8((int16_t)amp, i16(nn << 8)) >> 4),
+             i16(mul16_ref(amp, nn) >> 4), "sound_jitter", amp, nn);
       ++n;
     }
   }

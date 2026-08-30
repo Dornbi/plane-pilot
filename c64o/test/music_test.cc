@@ -16,6 +16,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "int16.h"
+
 #include "../music.h"
 #include "../sound.h"
 
@@ -290,8 +292,8 @@ static void test_lead_is_audible(void) {
       ++gate_frames;
     }
     const uint16_t freq =
-        (uint16_t)sid_regs[kSoundRegV1 + kSoundVoiceFreqLo] |
-        ((uint16_t)sid_regs[kSoundRegV1 + kSoundVoiceFreqHi] << 8);
+        u16((uint16_t)sid_regs[kSoundRegV1 + kSoundVoiceFreqLo] |
+            ((uint16_t)sid_regs[kSoundRegV1 + kSoundVoiceFreqHi] << 8));
     if (freq != last_freq) {
       ++distinct_freqs;
       last_freq = freq;
@@ -358,8 +360,8 @@ static void test_arpeggio(void) {
     if ((ctrl & SID_CTRL_GATE) && (ctrl & SID_CTRL_SAW)) {
       ++arp_frames;
       const uint16_t v =
-          (uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqLo] |
-          ((uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqHi] << 8);
+          u16((uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqLo] |
+              ((uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqHi] << 8));
       if (v != last) {
         ++freq_changes;
         last = v;
@@ -401,8 +403,8 @@ static void test_drum_steal(void) {
       }
       const music_instrument_t *d = &kMusicDrumIns[code - 1];
       const uint16_t f =
-          (uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqLo] |
-          ((uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqHi] << 8);
+          u16((uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqLo] |
+              ((uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqHi] << 8));
       if (rf == 0) {
         ++hits[code];
         if (!(sid_regs[kSoundRegV3 + kSoundVoiceCtrl] & SID_CTRL_NOISE)) {
@@ -538,8 +540,8 @@ static void test_arpeggio_carries_the_opening(void) {
       }
     }
     const uint16_t v =
-        (uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqLo] |
-        ((uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqHi] << 8);
+        u16((uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqLo] |
+            ((uint16_t)sid_regs[kSoundRegV3 + kSoundVoiceFreqHi] << 8));
     if (v != last) {
       ++distinct;
       last = v;
@@ -632,8 +634,8 @@ static void test_bass(void) {
         ever_silent = true;
       }
       const uint16_t f =
-          (uint16_t)sid_regs[kSoundRegV2 + kSoundVoiceFreqLo] |
-          ((uint16_t)sid_regs[kSoundRegV2 + kSoundVoiceFreqHi] << 8);
+          u16((uint16_t)sid_regs[kSoundRegV2 + kSoundVoiceFreqLo] |
+              ((uint16_t)sid_regs[kSoundRegV2 + kSoundVoiceFreqHi] << 8));
       if (f != last_freq) {
         ++note_starts;
         last_freq = f;
@@ -674,8 +676,8 @@ static void test_pedal_opening(void) {
     for (uint8_t rf = 0; rf < kMusicSpeed; ++rf) {
       music_tick();
       const uint16_t f =
-          (uint16_t)sid_regs[kSoundRegV2 + kSoundVoiceFreqLo] |
-          ((uint16_t)sid_regs[kSoundRegV2 + kSoundVoiceFreqHi] << 8);
+          u16((uint16_t)sid_regs[kSoundRegV2 + kSoundVoiceFreqLo] |
+              ((uint16_t)sid_regs[kSoundRegV2 + kSoundVoiceFreqHi] << 8));
       if (f != last && f != 0) {
         ++retriggers_per_bar[row / kMusicRowsPerBar];
         bar_freq[row / kMusicRowsPerBar] = f;

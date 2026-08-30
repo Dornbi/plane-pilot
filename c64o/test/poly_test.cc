@@ -28,6 +28,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "int16.h"
+
 #include "../mem.h"
 #include "../vec.h"
 
@@ -236,10 +238,14 @@ static void _split_vec(vec3_t v, vec3_t d9[9]) {
     ((int16_t *)&d9[2])[i] = -val;
     ((int16_t *)&d9[5])[i] = hlf;
     ((int16_t *)&d9[3])[i] = -hlf;
-    ((int16_t *)&d9[1])[i] = -val - hlf;
-    ((int16_t *)&d9[7])[i] = val + hlf;
-    ((int16_t *)&d9[8])[i] = (int16_t)(val << 1);
-    ((int16_t *)&d9[0])[i] = -(int16_t)(val << 1);
+    // i16() on the four that can leave 16 bits: on the 6510 these wrap, and a
+    // fixture that wraps differently is not the same fixture. Note that the
+    // narrowing warning flags the first of these and not the second, though
+    // the hazard is identical - see narrowing.baseline.
+    ((int16_t *)&d9[1])[i] = i16(-val - hlf);
+    ((int16_t *)&d9[7])[i] = i16(val + hlf);
+    ((int16_t *)&d9[8])[i] = i16(val << 1);
+    ((int16_t *)&d9[0])[i] = i16(-i16(val << 1));
   }
 }
 

@@ -4,6 +4,47 @@
 HOST_CC = g++
 HOST_CFLAGS = -O2 -std=c++17 -Wall -Wno-unknown-pragmas -I..
 
+# --- The 16-bit narrowing check -------------------------------------------
+#
+# oscar64's int is 16 bits and the host's is 32, so an intermediate that wraps
+# on the 6510 does not wrap here and a host test can pass against arithmetic the
+# target never did. int16.h has the measurements; check_narrowing.py counts the
+# places the divergence could hide and fails when the count moves.
+#
+# Negation on its own is excluded. -x of an int16_t gives the same answer at
+# both widths - including at -32768, where it is its own negative - so the 50-odd
+# sites clang reports for it are noise. It is the shift or add *after* a negation
+# that overflows, and that is reported on its own.
+#
+# clang-only flags, so they are probed rather than assumed: on a compiler that
+# does not take them the check prints a line and passes, because the alternative
+# is a test suite that will not build on Linux.
+NARROW_FLAGS = -Wimplicit-int-conversion -Wno-implicit-int-conversion-on-negation
+NARROW_BASELINE = narrowing.baseline
+NARROW_CHECK = python3 ../../tools/check_narrowing.py
+# -Werror is load bearing: clang only *warns* on an unknown -W option, so
+# without it the probe passes on a compiler that ignores the flags and the scan
+# then reports zero narrowings - which the ratchet reads as every site having
+# been fixed. gcc errors on its own, but the probe has to hold for both.
+NARROW_SUPPORTED = $(HOST_CC) $(NARROW_FLAGS) -Werror -fsyntax-only -x c++ /dev/null
+
+# --- The on-target suite ---------------------------------------------------
+#
+# target_test.cc is built by oscar64 and run in VICE, because the cases in it
+# have no host equivalent: they are the ones where the 6510's 16-bit int is the
+# thing under test. See its header, and int16.h for why the host cannot stand in.
+#
+# Both tools are optional. Without oscar64 or x64sc the target rules print a
+# line and pass, so the other nine suites still run on a machine that has
+# neither. TARGET_TEST= turns it off outright.
+TARGET_TEST ?= target-test
+OSCAR64 ?= oscar64
+# Mirrors OSCAR64_INCLUDE in c64o/Makefile, one directory deeper.
+OSCAR64_INCLUDE ?= ../../../../oscar64-main/include
+# -Oz matches the game build; the rest is what c64o/Makefile passes, minus the
+# flags that only make sense for a program with a display.
+TARGET_CFLAGS = -ii=$(OSCAR64_INCLUDE) -D__OSCAR64__ -g -O2 -Oz
+
 FLIGHT_TEST_SRC = flight_test.cc host_vec.cc ../flight.cc ../mission.cc ../world_map.cc ../vec.cc \
 		../vec_lut.cc ../fmath.cc ../msg.cc
 FLIGHT_TEST_HDRS = ../flight.h ../mission.h ../vec.h ../fmath.h ../msg.h
@@ -84,10 +125,53 @@ cpu_test: $(CPU_TEST_SRC) $(CPU_TEST_HDRS)
 poly_test: $(POLY_TEST_SRC) $(POLY_TEST_HDRS)
 	$(HOST_CC) $(HOST_CFLAGS) -Wno-unused-function -o poly_test $(POLY_TEST_SRC)
 
-test: flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test
+# Every suite's sources, for the syntax-only narrowing pass. Kept as one list
+# rather than reusing the per-suite variables because the pass does not link and
+# does not care which binary a file belongs to - only that it is compiled once
+# with the same flags the real build uses.
+NARROW_TUS = "$(FLIGHT_TEST_SRC)" "$(SOUND_TEST_SRC)" "$(MUSIC_TEST_SRC)" \
+		"$(MUL_TEST_SRC)" "$(SPRITES_TEST_SRC)" "$(CPU_TEST_SRC)" \
+		"$(POLY_TEST_SRC)" "$(MSG_TEST_SRC)" "$(MAP_TEST_SRC)"
+
+# Collect the warnings from every translation unit into one stream. -Wno-error
+# is implicit: this pass never fails the compile, only the count comparison.
+define narrow_scan
+	for tu in $(NARROW_TUS); do \
+		$(HOST_CC) $(HOST_CFLAGS) -Wno-unused-function $(NARROW_FLAGS) \
+			-D__ENABLE_SOUND__ -fsyntax-only $$tu 2>&1 || true; \
+	done
+endef
+
+target_test.prg: target_test.cc int16.h ../vec.h ../vec.cc ../vec_lut.cc
+	$(OSCAR64) $(TARGET_CFLAGS) -o=target_test.prg target_test.cc
+
+target-test:
+	@if ! command -v $(OSCAR64) >/dev/null 2>&1; then \
+		echo "target_test: $(OSCAR64) not found - skipped (the 16-bit cases were not run)"; \
+	else \
+		$(MAKE) --no-print-directory target_test.prg && \
+		../../tools/run_target_test.sh target_test.prg; \
+	fi
+
+narrowing:
+	@if ! $(NARROW_SUPPORTED) >/dev/null 2>&1; then \
+		echo "narrowing: $(HOST_CC) does not take $(NARROW_FLAGS) - skipped"; \
+	else \
+		{ $(narrow_scan) ; } | $(NARROW_CHECK) $(NARROW_BASELINE); \
+	fi
+
+narrowing-update:
+	@if ! $(NARROW_SUPPORTED) >/dev/null 2>&1; then \
+		echo "narrowing: $(HOST_CC) does not take $(NARROW_FLAGS) - cannot update"; \
+		exit 1; \
+	fi
+	@{ $(narrow_scan) ; } | $(NARROW_CHECK) --update $(NARROW_BASELINE)
+
+test: flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test narrowing $(TARGET_TEST)
 	@./flight_test > output.txt && ./msg_test >> output.txt && ./map_test >> output.txt && ./sound_test >> output.txt && ./music_test >> output.txt && ./mul_test >> output.txt && ./sprites_test >> output.txt && ./cpu_test >> output.txt && ./poly_test >> output.txt && echo "ALL TESTS PASSED (flight_test, msg_test, map_test, sound_test, music_test, mul_test, sprites_test, cpu_test, poly_test) -> test/output.txt"
 
 clean:
 	rm -rf flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test output.txt *.dSYM
+	rm -f target_test.prg target_test.asm target_test.lbl target_test.map target_test.int target_test.dbj
 
-.PHONY: all test flight_test msg_test map_test sound_test music_test mul_test sprites_test poly_test clean
+.PHONY: all test narrowing narrowing-update target-test flight_test msg_test map_test sound_test music_test mul_test sprites_test poly_test clean

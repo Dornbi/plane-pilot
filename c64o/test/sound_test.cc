@@ -17,6 +17,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "int16.h"
+
 #include "../sound.h"
 
 #include "../flight.h"
@@ -146,13 +148,13 @@ static void quiet_frame(void) {
 }
 
 static uint16_t voice_freq(uint8_t base) {
-  return (uint16_t)sound_shadow[base + kSoundVoiceFreqLo] |
-         ((uint16_t)sound_shadow[base + kSoundVoiceFreqHi] << 8);
+  return u16((uint16_t)sound_shadow[base + kSoundVoiceFreqLo] |
+             ((uint16_t)sound_shadow[base + kSoundVoiceFreqHi] << 8));
 }
 
 static uint16_t voice_pw(uint8_t base) {
-  return (uint16_t)sound_shadow[base + kSoundVoicePwLo] |
-         ((uint16_t)sound_shadow[base + kSoundVoicePwHi] << 8);
+  return u16((uint16_t)sound_shadow[base + kSoundVoicePwLo] |
+             ((uint16_t)sound_shadow[base + kSoundVoicePwHi] << 8));
 }
 
 // Silence is a property of the register set, not a particular byte pattern.
