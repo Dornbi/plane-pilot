@@ -272,6 +272,65 @@ Untested, because the build never got that far: the 16 bytes of new data
 relocated the BSS block into the BASIC ROM window and `check_rom_window.py`
 failed the link. See below.
 
+### 4.6. A descriptor loop for the four clip stages in `_project_vertices()` — **costs 13 B, and cycles**
+
+The shape §6 asks for below. The four screen-edge stages in
+[poly.cc](../c64o/poly.cc) repeat the same `if (n < 3) return 0; src = dst;
+dst = ...` ping-pong and differ only in axis, limit and which side is kept, so a
+four-element `{axis, limit, keep_greater}` table and one loop should collapse
+about thirty lines of the 1,341-byte function.
+
+Built at `b26d8d7`, it **grows the program by 13 B**:
+
+| object | |
+| --- | ---: |
+| `_project_vertices` | −37 |
+| `_clip_2d@proxy` | −31 |
+| `_clip_2d` | **+65** |
+| `kClipStages` (data) | +16 |
+| net | code −3, data +16, **free RAM −13** |
+
+Both savings are real and are exactly what the shape predicts — the ping-pong
+does collapse, and the proxy that staged four sets of constant arguments goes
+away with it. What pays for them is the callee. With `axis`, `limit` and
+`keep_greater` arriving from a table instead of as literals at four call sites,
+oscar64 can no longer fold them into `_clip_2d`, and the one general version
+costs 65 B more than the four specialised ones saved. This is §4.2's lesson from
+the other end: the proxies were never the waste, they were the price of the
+constant propagation that made the callee small.
+
+**The cycles matter more than the bytes here.** `_clip_2d` is on the polygon
+path, and [framerate.md](framerate.md) puts a single runway polygon at 44,132
+cycles — more than everything else in the frame together. Giving up constant
+propagation in that callee to buy 16 bytes of table is the wrong direction even
+at break-even, and this is not break-even.
+
+A second trap, and not the one in §5 — this variant passed
+`check_rom_window.py`. It moved oscar64's spilled-temporary high water mark from
+`$5A` to `$5E`, one byte below the `$60` region start:
+
+```
+ppilot    ok: runtime tops out at $5E, region starts at $60 (1 bytes headroom)
+          WARNING: less than 4 bytes spare.
+```
+
+It links and `check_zeropage.py` passes, but on a warning rather than clean. The
+spill area grows with the call graph, so anything added on top of this variant
+would have had a fair chance of failing the link for a reason nowhere near the
+change — the same shape of nuisance §5 describes, in the other checker.
+
+> **Also measured at `b26d8d7`, and worth recording:** free allocatable RAM is
+> **3,308 B, largest run 2,976 B at `$C360`** — about half the 6,418 B in §0,
+> which is the `8676c11` baseline and is now well out of date. Two further
+> variants tested in the same session (a dispatch table for the voice 3 effects
+> in [sound.cc](../c64o/sound.cc), +13 B; the `sim.cc` key-loop shape applied to
+> `menu.cc`, +18 B) do work, and are still not worth taking: neither grows the
+> largest contiguous run, which stays 2,976 B in all three builds. The bytes
+> come back as 10- and 13-byte fragments at `$C1F6` and `$C2F3`. **At this point
+> in the program's life, code-size work of this size buys scraps, not room.**
+
+---
+
 ---
 
 ## 5. The layout trap any of this can spring
@@ -306,7 +365,9 @@ Named so the next pass can skip or resume them, not because they are dead:
   best remaining ratio of size to risk. Nothing here looked at it closely.
 - **`_project_vertices()` (1,341 B)** repeats the same
   `if (n < 3) return 0; src = dst; dst = ...` ping-pong for each of the four
-  clip edges. A four-element descriptor loop is the obvious shape, but
-  `57ac560` reworked this code for precision recently and the clipper is where
-  visual artifacts come from, so it wants its own session and its own
-  before/after frames rather than a byte count.
+  clip edges. The four-element descriptor loop that is the obvious shape has
+  since been built and measured: it costs 13 B and constant propagation in the
+  hot clipper, see §4.6. Anything else here still wants its own session and its
+  own before/after frames rather than a byte count — `57ac560` reworked this
+  code for precision recently and the clipper is where visual artifacts come
+  from.
