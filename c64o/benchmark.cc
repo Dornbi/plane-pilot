@@ -31,6 +31,10 @@ void bm_init(void) {
   cia2.cra = 0x11;
 }
 
+// Note: Timer B counts Timer A underflows. If Timer A rolls over between
+// reading ta and tb, the combined 32-bit sample can glitch by 65,536 cycles.
+// An atomic latch/retry loop is omitted deliberately to avoid code size
+// overhead; an occasional underflow glitch during benchmarking is harmless.
 void bm_start(void) {
   if (!mem_debug_enabled)
     return;

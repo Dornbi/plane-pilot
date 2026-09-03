@@ -21,7 +21,7 @@ enum MissionWaypointConstraint {
 static const uint8_t kMissionWpCount = 16;
 extern const uint8_t kMissionWpX[kMissionWpCount]; // flight_eye_x = x << 16;
 extern const uint8_t
-    kMissionWpY[kMissionWpCount]; // flight_eye_y = y << 16 + 0x8000;
+    kMissionWpY[kMissionWpCount]; // flight_eye_y = (y << 16) + 0x8000;
 extern const MissionWaypointConstraint kMissionWpConstraint[kMissionWpCount];
 extern const uint8_t kWaypointDefault;
 
@@ -32,7 +32,7 @@ extern const char *const kMissionDesc[kMissionCount];
 // Missions.
 // flight_eye_x = start_x << 16
 extern const uint8_t kMissionStartX[kMissionCount];
-// flight_eye_y = start_y << 16 + 0x8000;
+// flight_eye_y = (start_y << 16) + 0x8000;
 extern const uint8_t kMissionStartY[kMissionCount];
 // flight_eye_z = start_z << 16
 extern const uint8_t kMissionStartZ[kMissionCount];
@@ -40,7 +40,7 @@ extern const uint8_t kMissionStartZ[kMissionCount];
 extern const uint8_t kMissionStartSpeed[kMissionCount];
 // flight_throttle = start_throttle;
 extern const uint8_t kMissionStartThrottle[kMissionCount];
-// flight_fuel = start_fuel << 12 - 1
+// flight_fuel = (start_fuel << 12) - 1;
 extern const uint8_t kMissionStartFuel[kMissionCount];
 extern const uint8_t kMissionWindX[kMissionCount];
 extern const uint8_t kMissionWindY[kMissionCount];

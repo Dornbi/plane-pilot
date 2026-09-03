@@ -570,7 +570,7 @@ arrays indexed by mission, which keeps each table a flat run of bytes the
 
 **Waypoints** live in a second set of arrays, `kMissionWpX/Y` and
 `kMissionWpConstraint`, pooled across all missions
-(`kMissionWpCount` = 17). Each mission owns a half-open slice of that pool
+(`kMissionWpCount` = 16). Each mission owns a half-open slice of that pool
 given by `kMissionWpBegin[]` and `kMissionWpEnd[]`, so missions can share
 waypoints — the runway-2 landing appears in four of them. `kWaypointDefault`
 is the fallback nav target for a mission whose slice yields no usable point.

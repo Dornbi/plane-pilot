@@ -30,6 +30,7 @@ enum KeyScanCode {
   KSCAN_R,
   KSCAN_S,
   KSCAN_T,
+  KSCAN_V,
   KSCAN_PLUS,
   KSCAN_MINUS,
   KSCAN_RETURN,
