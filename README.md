@@ -25,6 +25,7 @@ https://github.com/Dornbi/plane-pilot/raw/refs/heads/main/bin/ppilot.prg
 Alternatively, download the binary and upload it to any of the online or offline emulators:
 
 - [ppilot.prg](bin/ppilot.prg) — the whole game: sound effects, music, and the debug view behind `D`
+- [flighta.prg](bin/flighta.prg) — the same game with the angle-of-attack flight model (see the 2026-09-05 note below)
 
 Emulators:
 
@@ -92,6 +93,39 @@ See [docs/development.md](docs/development.md) for more details,
 [docs/missions.md](docs/missions.md) for what each mission asks for.
 
 ## Updates
+
+### 2026-09-05
+
+The flight model can have an angle of attack, as a build option.
+
+The aircraft now has two directions instead of one: where the nose points, and
+where it is actually going. The angle between them drives lift, and everything
+else follows from that — the stall is an angle rather than a speed, so the
+stall speeds are *derived* (1024 clean, 836 with flaps, against the 1024 and 832
+the old model had to be told); turn rate depends on airspeed; induced drag is
+one term instead of three stand-ins; and the takeoff needs no rotation fudge,
+because rotating makes lift.
+
+What a pilot will notice:
+
+- Level flight needs a little nose-up at every speed, less of it the faster you
+  go. Zero pitch is a gentle descent.
+- Pulling hard can stall the wing at any speed, not just a slow one.
+- A flare with speed in hand lands; holding it off until the wing stops flying
+  is a stall onto the runway.
+- Inverted flight needs a visibly nose-high attitude and flies nearer the
+  stall.
+- The glide is longer (7.3 : 1, was 6.1 : 1) and the climb is slower.
+
+It costs +768 bytes, so it ships as **its own binary** rather than replacing
+anything: `ppilot.prg` is the arcade model that has always shipped, at 47,607
+bytes, and `flighta.prg` is this one at 48,375. `make` builds both from the same
+sources. Both are covered by the test suite (`make -C c64o/test test-both`).
+Per model step it costs roughly nothing — re-orthonormalizing dominates a step
+and is untouched.
+
+`docs/flight.md` specifies both and `docs/flight_aoa.md` is the prototype and
+the measurements either side.
 
 ### 2026-08-30
 

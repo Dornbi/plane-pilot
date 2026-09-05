@@ -1,0 +1,17 @@
+# Build output, the same way test/ does it: sources and the Makefile are the
+# checked-in part, everything either compiler emits is not.
+aoa_proto
+*.dSYM
+size_probe.prg
+size_probe.asm
+size_probe.map
+size_probe.lbl
+size_probe.int
+size_probe.dbj
+cycles_probe.prg
+cycles_probe.asm
+cycles_probe.map
+cycles_probe.lbl
+cycles_probe.int
+cycles_probe.dbj
+cycles_probe.dump.bin

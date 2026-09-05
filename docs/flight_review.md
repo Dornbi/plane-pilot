@@ -12,7 +12,15 @@ that the model never produced. Section F holds the findings from the most recent
 
 ---
 
-## A. Structural mismatch: the model has no angle of attack — **FIXED**
+## A. Structural mismatch: the model has no angle of attack — **FIXED IN THE CODE**
+
+> **Resolved properly, in the end.** The first pass resolved it in the spec - the AoA
+> model was the thing that did not exist, so `flight.md` was rewritten to describe the
+> arcade model honestly. The AoA model has since been prototyped (`docs/flight_aoa.md`,
+> `c64o/proto/`) and landed: `flight.cc` now carries a flight path of its own, lift is
+> $f(C_L(\alpha), V^2, \text{up.z})$, and the stall speeds this section argued about are
+> derived rather than declared. +768 bytes. The paragraph below is the original report and
+> the paragraph after it the first, spec-only resolution.
 
 > Resolved in the spec, not the code: the AoA model was the thing that did not exist, and
 > the arcade model is the one that ships. `flight.md` §2.1 is rewritten to state plainly
@@ -621,9 +629,23 @@ many times since; the note is kept because it is why the two items above stayed 
 
 **Open**
 
-1. **Decide the direction for §A** — either add an AoA term to lift, or rewrite §2.1/§2.3
-   and the summary matrix to describe the speed-and-bank lift model that actually exists.
-   §2.4 carries a "not yet reconciled" note pointing at this.
+1. ~~**Decide the direction for §A**~~ — **DONE, and the answer was to add the term.**
+   `flight.cc` carries the angle-of-attack model; `docs/flight.md` is its specification and
+   `docs/flight_aoa.md` records the prototype, the measurements either side, and the three
+   bugs the port surfaced. It closed §B4 (turn rate independent of airspeed) and
+   `kFlightRotatePitchZ` along with it. The original note follows.
+
+   **The spec half is done and the AoA half now exists to be measured.** `flight.md`
+   §2.1 states plainly that there is no angle of attack; `docs/flight_aoa.md` and
+   `c64o/proto/` are the other option built far enough to fly, with both models driven
+   through the same sweeps side by side. Headline: the stall speeds `flight.cc` is told
+   (0x0400 clean, 0x0340 flapped) come out of the AoA model as consequences it was never
+   given, `kFlightRotatePitchZ` deletes itself, the turn rate grows a 1/V, and the
+   accelerated stall — 40 steps of full back stick that `flight.cc` cannot see at all —
+   fires at 2.2x the 1 g stall speed. Cost: ~600-800 bytes, an unmeasured cycle estimate
+   of +20% on the straight-and-level case, a level-flight floor that moves 45% -> 58%,
+   and a landing envelope that would need re-deriving. The two measurements that should
+   settle it are named at the end of that document.
 
    **Partly papered over, not resolved.** The missing pitch term showed at the takeoff end
    as a liftoff speed of 1608 against a 1024 stall speed — the aircraft was legal to rotate
@@ -650,7 +672,10 @@ many times since; the note is kept because it is why the two items above stayed 
    debug view, and `flight.md` §1 and §8 now carry measured numbers: ~5,000 cycles straight
    and level, 16,769 banked and turning, of which `vec_orthonormalize()` is 58%. The
    estimate it replaced was low on the turning case by roughly 3x.
-6. ~~**E5**~~ — **FIXED**. `test_turn_rate_depends_on_bank_not_speed` (level = no turn,
+6. ~~**E5**~~ — **FIXED**. (`test_turn_rate_depends_on_bank_not_speed` has since been
+   replaced by `test_turn_rate_scales_with_lift_over_speed`: the turn is the horizontal
+   half of lift now, so the rate does depend on airspeed and B4 is closed rather than
+   pinned.) The original: (level = no turn,
    steeper bank = faster turn, and bit-identical heading change at 1200 / 1800 / 2400,
    which pins B4), `test_banked_turn_loses_altitude` (0 / -13724 / -48532 at level / 45° /
    70° bank, full throttle, no pitch compensation), `test_ground_steering` (roll steers,

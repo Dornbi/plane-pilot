@@ -2,7 +2,21 @@
 # that the inline vec_fastmul8p8 in vec.h matches the 6502 routine it stands
 # in for; without that the results below say nothing about the real target.
 HOST_CC = g++
-HOST_CFLAGS = -O2 -std=c++17 -Wall -Wno-unknown-pragmas -I..
+
+# The flight model is a build-time choice (docs/flight.md 1). FLIGHT_AOA=1
+# selects the angle-of-attack model, anything else the arcade one, and the
+# suite has to pass either way - flight_test.cc carries both sets of
+# expectations because for several cases they are opposites.
+#
+#   make test               the arcade model, which is what ships
+#   make test FLIGHT_AOA=1  the angle-of-attack model
+#   make test-both          one after the other
+FLIGHT_AOA ?= 0
+ifeq ($(FLIGHT_AOA),1)
+FLIGHT_MODEL = -D__FLIGHT_AOA__
+endif
+
+HOST_CFLAGS = -O2 -std=c++17 -Wall -Wno-unknown-pragmas -I.. $(FLIGHT_MODEL)
 
 # --- The 16-bit narrowing check -------------------------------------------
 #
@@ -20,7 +34,14 @@ HOST_CFLAGS = -O2 -std=c++17 -Wall -Wno-unknown-pragmas -I..
 # does not take them the check prints a line and passes, because the alternative
 # is a test suite that will not build on Linux.
 NARROW_FLAGS = -Wimplicit-int-conversion -Wno-implicit-int-conversion-on-negation
+# One baseline per flight model: the two code paths have different narrowing
+# sites, and a single ratchet cannot tell "the other model was built" from "a
+# new narrowing appeared", which is the only thing it exists to catch.
+ifeq ($(FLIGHT_AOA),1)
+NARROW_BASELINE = narrowing-aoa.baseline
+else
 NARROW_BASELINE = narrowing.baseline
+endif
 NARROW_CHECK = python3 ../../tools/check_narrowing.py
 # -Werror is load bearing: clang only *warns* on an unknown -W option, so
 # without it the probe passes on a compiler that ignores the flags and the scan
@@ -43,7 +64,7 @@ OSCAR64 ?= oscar64
 OSCAR64_INCLUDE ?= ../../../../oscar64-main/include
 # -Oz matches the game build; the rest is what c64o/Makefile passes, minus the
 # flags that only make sense for a program with a display.
-TARGET_CFLAGS = -ii=$(OSCAR64_INCLUDE) -D__OSCAR64__ -g -O2 -Oz
+TARGET_CFLAGS = -ii=$(OSCAR64_INCLUDE) -D__OSCAR64__ -g -O2 -Oz $(FLIGHT_MODEL)
 
 FLIGHT_TEST_SRC = flight_test.cc host_vec.cc ../flight.cc ../mission.cc ../world_map.cc ../vec.cc \
 		../vec_lut.cc ../fmath.cc ../msg.cc
@@ -170,8 +191,13 @@ narrowing-update:
 test: flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test narrowing $(TARGET_TEST)
 	@./flight_test > output.txt && ./msg_test >> output.txt && ./map_test >> output.txt && ./sound_test >> output.txt && ./music_test >> output.txt && ./mul_test >> output.txt && ./sprites_test >> output.txt && ./cpu_test >> output.txt && ./poly_test >> output.txt && echo "ALL TESTS PASSED (flight_test, msg_test, map_test, sound_test, music_test, mul_test, sprites_test, cpu_test, poly_test) -> test/output.txt"
 
+# Both models, from clean, because the object files are not model-tagged.
+test-both:
+	$(MAKE) clean && $(MAKE) test FLIGHT_AOA=0
+	$(MAKE) clean && $(MAKE) test FLIGHT_AOA=1
+
 clean:
 	rm -rf flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test output.txt *.dSYM
 	rm -f target_test.prg target_test.asm target_test.lbl target_test.map target_test.int target_test.dbj
 
-.PHONY: all test narrowing narrowing-update target-test flight_test msg_test map_test sound_test music_test mul_test sprites_test poly_test clean
+.PHONY: all test test-both narrowing narrowing-update target-test flight_test msg_test map_test sound_test music_test mul_test sprites_test poly_test clean

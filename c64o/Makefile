@@ -1,6 +1,30 @@
 OSCAR64_INCLUDE=../../../oscar64-main/include
 
+# Which flight model to build (docs/flight.md 1). The angle-of-attack model is
+# the better aeroplane and costs bytes; the arcade model is what has always
+# shipped. Both are in flight.cc behind __FLIGHT_AOA__ and both are covered by
+# the host suite - `make -C c64o/test test-both`.
+#
+#   make prg               the arcade model
+#   make prg FLIGHT_AOA=1  the angle-of-attack model
+FLIGHT_AOA ?= 0
+ifeq ($(FLIGHT_AOA),1)
+FLIGHT_MODEL = -D__FLIGHT_AOA__
+endif
+
+# A stamp holding the model the last build used, so that switching the flag
+# rebuilds. Without it make sees the same sources and hands back the binary it
+# already had - which is a silent wrong answer, and the worst kind for a flag
+# whose whole purpose is comparing the two.
+FLIGHT_STAMP = .flight_model
+$(shell [ "$$(cat $(FLIGHT_STAMP) 2>/dev/null)" = "$(FLIGHT_AOA)" ] || \
+	echo "$(FLIGHT_AOA)" > $(FLIGHT_STAMP))
+
 PPILOT_PROGRAM = ppilot
+# The same game with the angle-of-attack flight model (docs/flight.md 1). Same
+# sources, one define, and its own name so both can exist at once and be flown
+# against each other.
+PPILOTA_PROGRAM = ppilota
 PPILOT_SRC = \
 		bcd.cc \
 		bcd.h \
@@ -213,24 +237,37 @@ define prg_size
 		"$(1)" "$$bytes" "$$image" "$$start" "$$end"
 endef
 
-all: $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg test
+all: $(PPILOT_PROGRAM).prg $(PPILOTA_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg test
 	@echo ""
 	$(call prg_size,$(PPILOT_PROGRAM).prg)
+	$(call prg_size,$(PPILOTA_PROGRAM).prg)
 
 # Standalone, so the size can be checked without provoking a build. Reports
 # whatever is on disk now; run `make` first if that might be stale.
 size:
 	$(call prg_size,$(PPILOT_PROGRAM).prg)
+	$(call prg_size,$(PPILOTA_PROGRAM).prg)
 
 ram:
 	$(RAMANALYSIS) $(PPILOT_PROGRAM).map
 
-$(PPILOT_PROGRAM).prg: $(PPILOT_SRC)
-	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(DEBUG) $(CLOUDS) -D__MAX_RAM__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
+$(PPILOT_PROGRAM).prg: $(PPILOT_SRC) $(FLIGHT_STAMP)
+	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(DEBUG) $(CLOUDS) $(FLIGHT_MODEL) -D__MAX_RAM__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(PPILOT_PROGRAM).asm
 	@$(IRQCHECK) $(PPILOT_PROGRAM).asm
 	@$(MATHCHECK) $(PPILOT_PROGRAM).asm
 	@$(ROMCHECK) $(PPILOT_PROGRAM).asm
+
+# Built from the same ppilot.cc, so it stays in step with the game by
+# construction. It does not depend on FLIGHT_STAMP: its model is fixed by its
+# own name, and the stamp exists for the case where FLIGHT_AOA moves ppilot.prg
+# from one model to the other under a name that does not change.
+$(PPILOTA_PROGRAM).prg: $(PPILOT_SRC)
+	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(DEBUG) $(CLOUDS) -D__FLIGHT_AOA__ -D__MAX_RAM__ -o=$(PPILOTA_PROGRAM).prg ppilot.cc
+	@$(ZPCHECK) $(PPILOTA_PROGRAM).asm
+	@$(IRQCHECK) $(PPILOTA_PROGRAM).asm
+	@$(MATHCHECK) $(PPILOTA_PROGRAM).asm
+	@$(ROMCHECK) $(PPILOTA_PROGRAM).asm
 
 $(POLYDEMO_PROGRAM).prg: $(POLYDEMO_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ -D__DEBUG_POLY__ -D__MAX_RAM__ polydemo.cc
@@ -250,22 +287,24 @@ $(VECTEST_PROGRAM).prg: $(VECTEST_SRC)
 
 # Re-run the checks on whatever is already built, without provoking a build.
 zpcheck:
-	$(ZPCHECK) $(PPILOT_PROGRAM).asm $(POLYDEMO_PROGRAM).asm \
-		$(VECDEMO_PROGRAM).asm $(VECTEST_PROGRAM).asm
-	$(IRQCHECK) $(PPILOT_PROGRAM).asm $(POLYDEMO_PROGRAM).asm
+	$(ZPCHECK) $(PPILOT_PROGRAM).asm $(PPILOTA_PROGRAM).asm \
+		$(POLYDEMO_PROGRAM).asm $(VECDEMO_PROGRAM).asm $(VECTEST_PROGRAM).asm
+	$(IRQCHECK) $(PPILOT_PROGRAM).asm $(PPILOTA_PROGRAM).asm \
+		$(POLYDEMO_PROGRAM).asm
 
 mathcheck:
-	$(MATHCHECK) $(PPILOT_PROGRAM).asm $(POLYDEMO_PROGRAM).asm \
-		$(VECDEMO_PROGRAM).asm
+	$(MATHCHECK) $(PPILOT_PROGRAM).asm $(PPILOTA_PROGRAM).asm \
+		$(POLYDEMO_PROGRAM).asm $(VECDEMO_PROGRAM).asm
 
 romcheck:
-	$(ROMCHECK) $(PPILOT_PROGRAM).asm $(POLYDEMO_PROGRAM).asm
+	$(ROMCHECK) $(PPILOT_PROGRAM).asm $(PPILOTA_PROGRAM).asm \
+		$(POLYDEMO_PROGRAM).asm
 
 test flight_test msg_test:
 	$(MAKE) -C test $@
 
 clean:
-	rm -rf $(PPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg *.asm *.dbj *.int *.lbl *.map
+	rm -rf $(PPILOT_PROGRAM).prg $(PPILOTA_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg *.asm *.dbj *.int *.lbl *.map $(FLIGHT_STAMP)
 	$(MAKE) -C test clean
 
 .PHONY: all size ram zpcheck mathcheck romcheck test flight_test msg_test clean

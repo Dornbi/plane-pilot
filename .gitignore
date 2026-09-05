@@ -4,3 +4,5 @@ __pycache__
 all_frames/
 all_frames_debug/
 out/
+# Which flight model the last c64o build used; see c64o/Makefile.
+c64o/.flight_model

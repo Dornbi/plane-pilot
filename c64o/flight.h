@@ -67,6 +67,33 @@ static const uint16_t kMaxSpeed = 0x0F00;
 extern int16_t flight_speed;
 extern int16_t flight_vspeed;
 
+#ifdef __FLIGHT_AOA__
+// sin(flight path angle), at 4096 = 1.0 rather than the 256 the direction
+// cosines use. Where the aircraft is actually *going*, as against `flight_cam.
+// front`, which is where it is pointing; the angle between them is the angle
+// of attack, and having the two be different things is the whole of the model
+// (docs/flight.md 2).
+//
+// The extra four bits over a direction cosine are load bearing, not decorative.
+// The flight path is integrated from a force, so a lift imbalance too small to
+// move one unit of it is an imbalance the aircraft never feels; at the 256
+// scale that dead band is 6% of the weight, and the flight path could not
+// settle, only hunt across it. At 4096 the smallest step is under 0.4%, and
+// the steady states really are steady.
+extern int16_t flight_gamma;
+inline int16_t flight_gamma_z(void) { return flight_gamma >> 4; }
+
+// Angle of attack, at sixteen units to one of `front.z` - the same scale as
+// flight_gamma, because it is a difference of two things carried at that scale.
+// Positive is nose above the flight path.
+//
+// Also the lift coefficient: the lift slope is one unit of C_L per unit of
+// this, which is why the model has no lift-curve table (see _flight_cl16).
+extern int16_t flight_alpha16;
+// The same angle in the units front.z uses, for display.
+inline int16_t flight_alpha(void) { return flight_alpha16 >> 4; }
+#endif // __FLIGHT_AOA__
+
 // Throttle runs 0 .. kMaxThrottle inclusive, so 25 discrete steps. Exported
 // rather than kept private to flight.cc because sound.cc sizes its engine
 // pitch table by it - a table one entry short of the throttle range would

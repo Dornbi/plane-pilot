@@ -18,7 +18,7 @@ PANEL_FLAGS = --bg-color 0 --optimize-slots \
 
 # The programs c64o/Makefile builds. `make release` publishes these from
 # c64o/ (build output, gitignored) to bin/ (checked in, what README links to).
-PROGRAMS = ppilot polydemo vecdemo vectest
+PROGRAMS = ppilot ppilota polydemo vecdemo vectest
 
 .PHONY: help data chardefs gfx-chars sprites clouds map-tiles map-tiles-draft panel music map-preview cloud-preview render demo prg ram release test clean
 
@@ -40,7 +40,7 @@ help:
 	@echo "  make render      - render all roll angles to out/rendered_frames"
 	@echo "  make demo        - interactive roll/pitch demo (needs pygame)"
 	@echo "  make prg         - build the C64 binaries via c64o/Makefile (needs oscar64),"
-	@echo "                     then report the ppilot.prg size and load range"
+	@echo "                     then report the ppilot.prg and ppilota.prg sizes"
 	@echo "  make ram         - report RAM usage breakdown by feature from c64o/ppilot.map"
 	@echo "  make release     - build, then publish the .prg files to bin/"
 	@echo ""

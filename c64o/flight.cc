@@ -98,8 +98,33 @@ int32_t flight_eye_x;
 int32_t flight_eye_y;
 int32_t flight_eye_z;
 
+#ifdef __FLIGHT_AOA__
+int16_t flight_gamma;
+int16_t flight_alpha16;
+#endif
+
 static bool model_on_ground = false;
 static bool model_need_normalize;
+
+// The part of a step's speed change that was finer than one unit, carried to
+// the next step. Every longitudinal force is summed at eight times
+// flight_speed's resolution and divided once at the end, so a drag worth two
+// thirds of a unit a step really does cost two units every three steps instead
+// of being truncated to nothing.
+//
+// The old model truncated each of its five terms separately and kept no
+// remainder, which it could afford because none of its terms was ever small.
+// The induced term at high speed is, and so is every term once
+// flight_step_shift divides them - which is also why the flat `-= 2` of ground
+// friction no longer needs its own model_substep gate: it is a force like the
+// others now, and the remainder makes a quarter of it exact.
+#ifdef __FLIGHT_AOA__
+static int16_t model_dv_rem;
+// The same, for the turn. Without it a gentle bank does not turn at all: the
+// rate at 15 degrees and cruise works out under one unit a step, and one unit
+// is the smallest turn vec_turn3_xy can be asked for.
+static int16_t model_turn_rem;
+#endif
 
 // Where we are inside one of the model's old, larger steps (vec.h). Terms too
 // small to divide - a flat subtraction, or one with a floor of 1 under it -
@@ -211,12 +236,136 @@ static const uint32_t kFlightMinEyeZ = 0x2000;
 // crop duster a 62 ft band to hold between the limit and the dirt: two ticks
 // of the altimeter's fine needle, which moves one per 31 ft.
 static const uint32_t kFlightWpMaxAlt = 0x008000;
-static const uint16_t kFlightStallSpeedWithoutFlaps = 0x0400;
-static const uint16_t kFlightStallSpeedWithFlaps = 0x0340;
 // kMaxSpeed lives in flight.h: sound.cc sizes its wind table by it.
+//
+// Weight. The lift the wing has to make to hold altitude, and the number every
+// other constant here is measured against.
 static const int16_t kFlightTrimLift = 0x1000;
 static const uint8_t kFlightMinThrottle = 0x00;
 // kMaxThrottle lives in flight.h: sound.cc sizes its engine pitch table by it.
+
+#ifdef __FLIGHT_AOA__
+
+// --- The wing -------------------------------------------------------------
+//
+// There is no stall *speed* in this model and no lift curve table either. Both
+// used to be here, and what replaced them is one identity: the lift slope is
+// chosen so that C_L in 8.8 and flight_alpha16 are the same number.
+//
+//   C_L = alpha16 = (front.z << 4) - flight_gamma      (below the stall)
+//
+// So the stall is an angle, the speeds fall out of it, and the two constants
+// this replaced - 0x0400 clean and 0x0340 with flaps - are now consequences
+// rather than assertions. They come out at 1024 and 836.
+
+// The angle at which C_L peaks, in front.z's units: 56/256, about 12.6
+// degrees. This is the stall.
+static const int16_t kFlightAlphaStall = 56;
+// Peak C_L, which is that angle in alpha16's units and is not free of it.
+// Raise the stall angle and the peak rises with it and the stall speed falls,
+// which is the relationship a real wing has and the one two independent
+// constants could not hold.
+static const int16_t kFlightClPeak = kFlightAlphaStall << 4;
+
+// Camber: C_L at zero alpha. A wing is not symmetric, and this is what makes
+// inverted flight expensive - the whole of flight.md 3.2, in one addition and
+// with no `up.z < 0` case anywhere. Upright it adds to the C_L the attitude
+// needs; inverted the attitude needs a negative C_L and it fights that.
+//
+// It is paired with the stall angle deliberately. Upright C_L max is
+// peak + camber, so holding that sum at 1024 holds the clean stall speed at
+// exactly the 0x0400 the airspeed dial's green arc and the whole of flight.md
+// 5.3 were built on, and the camber then comes entirely out of the inverted
+// side: 56 + 128 gives 1024 upright and 1182 inverted.
+static const int16_t kFlightCamberCl = 128;
+
+// Flaps, by the same mechanism: a camber shift, added rather than multiplied.
+// +512 against a 1024 upright C_L max is what a single slotted flap is worth,
+// and it puts the flapped stall speed at 836 against the 0x0340 = 832 the old
+// model was told. Inverted it stacks with the camber the wrong way, which is
+// the adverse camber penalty, and the inverted flapped stall goes to 2048.
+static const int16_t kFlightFlapDeltaCl = 512;
+
+// Where the post-stall droop is called flat: alpha 128, about 30 degrees.
+static const int16_t kFlightMaxAlpha16 = 2048;
+
+// Saturation on the lift product, before the two bits are shifted back on.
+// 4096 << 2 is four times kFlightTrimLift, so the wing tops out at 4 g.
+//
+// A range guard first and a load limit second. oscar64's int is 16 bits
+// (test/int16.h) and C_L * V^2 does not fit it at the top of the speed range -
+// at kMaxSpeed with the flaps out the honest product is 57,600, which wraps.
+// Saturating is both the cheap fix and the physical one.
+static const int16_t kFlightLiftSat = 4096;
+
+// Induced drag: (C_L^2 * V^2) >> this. One term, replacing three separate
+// stand-ins the old model needed - the lift deficit's `deficit >> 10`, the
+// bank term `left.z^2 >> 5`, and the implicit inverted penalty - because all
+// three were the same thing, the wing being asked for lift it has to work for.
+//
+// It sets where the drag curve bottoms out, and with it the throttle needed to
+// hold level flight, the best glide ratio and the climb rate. Measured against
+// the model this replaced, whose figures are in brackets:
+//
+//   shift 4:  floor 58%,  cruise 2340,  glide 3.84:1,  best climb +354
+//   shift 5:  floor 33%,  cruise 2429,  glide 7.33:1,  best climb +526
+//   (old model: floor 45%, cruise 2509, glide 6.13:1, best climb +663)
+//
+// 5 is the one that flies like the aeroplane the missions were built around,
+// and it is a better aeroplane on the two counts that were open: the glide is
+// longer and the climb is slower, which is what TODO.md asks for.
+//
+// 4 was chosen first, on prototype numbers that turned out to be measuring the
+// harness - a glide read off a run that had never settled, in half density air
+// a long way above the ceiling knee. See docs/flight_aoa.md 4.
+static const uint8_t kFlightInducedShift = 5;
+
+// 65536 / V, indexed by V >> 8. The 1/V in "flight path curvature is force
+// over momentum", and the same 1/V in "turn rate is horizontal lift over
+// momentum". A table because flight.md 1 forbids runtime division, and sixteen
+// entries because that is the whole speed range at a resolution the aircraft
+// cannot feel.
+//
+// Entry 0 is a clamp rather than a value: 65536/128 is 512, which would
+// overflow the products it feeds, and under V = 256 the aircraft is falling
+// rather than flying so the exact rate is not something a pilot can see.
+static const int16_t kFlightRecipV[16] = {
+    256, 170, 102, 73, 56, 46, 39, 34, 30, 26, 24, 22, 20, 18, 17, 16,
+};
+
+// Nose attitude above which the stall break has to be done as a rotation
+// instead of by lowering front.z directly. sin(61 deg) * 256; past this the
+// horizontal part of front is small enough that renormalization undoes most
+// of a direct change.
+static const int16_t kFlightMaxStallPitchZ = 224;
+
+// How far the pilot can rotate on the runway before the tail hits. A limit,
+// not a target.
+//
+// kFlightRotatePitchZ used to live here - the constant that drove the nose to
+// a fixed 10.6 degrees the moment the aircraft passed a stall speed, and whose
+// own comment said "if lift ever grows a pitch term this constant should be
+// deleted rather than retuned". Lift has grown one, so it is deleted. Rotating
+// now makes lift, the aircraft unsticks when the wing carries it, and the
+// liftoff speed follows from the attitude the pilot chose instead of from a
+// number written down here.
+// 48 is sin(10.8 deg), and it is bounded from both sides. Above, by
+// kFlightMaxLandingPitch = 64: the envelope check runs on *every* frame at
+// ground level (flight.md 5.3), so a rotation limit at or near 64 crashes the
+// takeoff roll on trigger 7 - at exactly 64 it did, because
+// vec_orthonormalize puts back a unit and 65 > 64. Below, by the stall angle:
+// rotating fully has to leave the wing short of the break, and 48 against
+// kFlightAlphaStall = 56 does. The liftoff that falls out is airspeed 1094
+// against a 1024 stall speed, which is the margin a real rotation has.
+static const int16_t kFlightMaxGroundPitch = 48;
+
+#else // !__FLIGHT_AOA__
+
+// The arcade model's wing: no angle of attack, so the two stall speeds are
+// constants it is told rather than consequences it derives. kFlightTrimLift,
+// kFlightMinThrottle and kMaxSpeed are shared and are declared above.
+static const uint16_t kFlightStallSpeedWithoutFlaps = 0x0400;
+static const uint16_t kFlightStallSpeedWithFlaps = 0x0340;
 
 // Nose attitude above which the stall pitch down has to be done as a rotation
 // instead of by lowering front.z directly. sin(61 deg) * 256; past this the
@@ -247,6 +396,8 @@ static const int16_t kFlightRotatePitchZ = 47;
 // SuperCPU to different attitudes and give them different liftoff speeds. At
 // kCpuMaxStepShift the step is 16 >> 2 = 4, so twelve is the most it can need.
 static const uint8_t kFlightMaxRotateSteps = 16;
+
+#endif // __FLIGHT_AOA__
 
 // Landing thresholds
 static const int16_t kFlightMaxLandingRoll = 32;
@@ -290,6 +441,12 @@ void flight_init() {
   flight_eye_z = 0x010000;
   flight_speed = 0x860;
   flight_throttle = 0x14;
+#ifdef __FLIGHT_AOA__
+  flight_gamma = 0;
+  flight_alpha16 = 0;
+  model_dv_rem = 0;
+  model_turn_rem = 0;
+#endif
   model_need_normalize = false;
   flight_flap = false;
   flight_gear = false;
@@ -334,6 +491,12 @@ void flight_init_from_mission(uint8_t mission_idx) {
   flight_fuel = kMissionStartFuel[mission_idx]
                     ? (((uint32_t)kMissionStartFuel[mission_idx] << 12) - 1)
                     : 0;
+#ifdef __FLIGHT_AOA__
+  flight_gamma = 0;
+  flight_alpha16 = 0;
+  model_dv_rem = 0;
+  model_turn_rem = 0;
+#endif
   model_need_normalize = false;
   flight_flap = false;
   flight_gear = model_on_ground;
@@ -386,6 +549,65 @@ void flight_init_from_mission(uint8_t mission_idx) {
   _flight_path_sample();
 }
 
+#ifdef __FLIGHT_AOA__
+
+// The lift curve. Below the stall it is not a curve at all but the identity:
+// C_L in 8.8 and alpha16 are the same number, because the lift slope was
+// chosen to make them so. No table, no index arithmetic, no interpolation, and
+// no quantization step between one attainable C_L and the next beyond the one
+// alpha16 already has.
+//
+// Past the peak the wing droops rather than holding: pull harder there and you
+// get *less* lift, so the flight path falls away faster than the nose does and
+// alpha runs away. That is what makes a stall a stall rather than a ceiling,
+// and the break in flight_advance() is the pitching moment that ends it. Five
+// eighths is the droop either side of a real break.
+static int16_t _flight_cl16(int16_t alpha16) {
+  int16_t a = alpha16 < 0 ? -alpha16 : alpha16;
+  int16_t cl;
+  if (a <= kFlightClPeak) {
+    cl = a;
+  } else {
+    if (a > kFlightMaxAlpha16) {
+      a = kFlightMaxAlpha16;
+    }
+    cl = (int16_t)(kFlightClPeak - (((a - kFlightClPeak) * 5) >> 3));
+  }
+  return alpha16 < 0 ? -cl : cl;
+}
+
+static int16_t _flight_recip_v(int16_t speed) {
+  uint8_t i = (uint8_t)((uint16_t)speed >> 8);
+  if (i > 15) {
+    i = 15;
+  }
+  return kFlightRecipV[i];
+}
+
+#endif // __FLIGHT_AOA__
+
+#ifdef __FLIGHT_AOA__
+
+// Returns true if the step ran into the ground plane, which is the only thing
+// that can tell the contact check below the difference between an aircraft
+// sitting *at* ground level - which is where one that has just unstuck sits
+// while its flight path builds - and one that arrived there from underneath or
+// through it. The clamp erases that difference, so it has to be reported.
+static bool _flight_move_forward(int16_t fspeed, int16_t vspeed) {
+  // The shift is after the multiply, not on fspeed: the product carries the
+  // bits a quarter-sized step needs and fspeed on its own does not.
+  flight_eye_x += _flight_step_s(vec_fastmul8p8(flight_cam.front.x, fspeed));
+  flight_eye_y += _flight_step_s(vec_fastmul8p8(flight_cam.front.y, fspeed));
+  flight_eye_z += _flight_step_s(vspeed);
+  if (flight_eye_z < kFlightMinEyeZ) {
+    flight_eye_z = kFlightMinEyeZ;
+    return true;
+  }
+  return false;
+}
+
+#else // !__FLIGHT_AOA__
+
 static void _flight_move_forward(int16_t fspeed, int16_t vspeed) {
   // The shift is after the multiply, not on fspeed: the product carries the
   // bits a quarter-sized step needs and fspeed on its own does not.
@@ -396,6 +618,8 @@ static void _flight_move_forward(int16_t fspeed, int16_t vspeed) {
     flight_eye_z = kFlightMinEyeZ;
   }
 }
+
+#endif // __FLIGHT_AOA__
 
 // True when the aircraft is over a runway tile.
 static bool _flight_on_runway() {
@@ -643,6 +867,232 @@ void flight_advance() {
     }
     uint16_t density = 256 - alt_penalty;
 
+#ifdef __FLIGHT_AOA__
+
+    uint16_t speed_sqr = vec_fastsqr8p8(flight_speed);
+
+    // --- The wing --------------------------------------------------------
+    //
+    // Angle of attack: the angle between where the nose points and where the
+    // aircraft is going. front.z is sin(pitch), flight_gamma_z() is sin(flight
+    // path), and their difference is sin(alpha) to first order. On the ground
+    // the flight path is the runway, so alpha is simply the nose attitude -
+    // which is why rotating is what gets the aircraft off it.
+    //
+    // Both sides are taken at flight_gamma's scale rather than front.z's, so
+    // the difference has sixteen times the resolution of a direction cosine.
+    // That is not a refinement: at the coarse scale one step of alpha is a
+    // sixteenth of a g of lift, and a flight path integrated from a force that
+    // quantized cannot settle, only hunt.
+    //
+    // The sign flip is not a fudge either. Angle of attack is a *body* angle -
+    // which side of the wing the air arrives from - and rolling inverted swaps
+    // those sides. Upside down, a nose held above the flight path in world
+    // terms is air arriving on the canopy side, which is negative alpha and
+    // negative lift. Everything flight.md 3.2 says about inverted flight is
+    // this line.
+    int16_t alpha_d = (int16_t)(flight_cam.front.z << 4) - flight_gamma;
+    flight_alpha16 = flight_cam.up.z >= 0 ? alpha_d : -alpha_d;
+
+    int16_t cl = _flight_cl16(flight_alpha16) + kFlightCamberCl;
+    if (flight_flap) {
+      cl += kFlightFlapDeltaCl;
+    }
+
+    int16_t lift_t = vec_fastmul8p8((int16_t)(speed_sqr >> 4), cl);
+    if (lift_t > kFlightLiftSat) {
+      lift_t = kFlightLiftSat;
+    } else if (lift_t < -kFlightLiftSat) {
+      lift_t = -kFlightLiftSat;
+    }
+    int16_t lift = vec_fastmul8p8((int16_t)(lift_t << 2), density);
+    int16_t lift_z = vec_fastmul8p8(lift, flight_cam.up.z);
+
+    // Liftoff, and this is the whole of it: the wing carries the aeroplane, so
+    // it flies. No speed gate, no rotation target - the pilot holds an
+    // attitude and the aircraft leaves the ground at whatever speed that
+    // attitude needs.
+    //
+    // It has to happen here, ahead of the flight path integration below, and
+    // that is not a tidiness point. Decided after it, the first airborne step
+    // would be one with a flight path still pinned flat by the ground branch:
+    // no climb, no rise in altitude, and the ground contact check at the
+    // bottom would put the wheels straight back down. That is exactly the
+    // once-a-frame touchdown cycle kFlightRotatePitchZ existed to paper over,
+    // and an AoA model does not have to live with it.
+    if (model_on_ground && lift_z > kFlightTrimLift) {
+      model_on_ground = false;
+    }
+
+    // --- Drag, thrust and gravity ----------------------------------------
+    //
+    // Summed at eight times flight_speed's resolution and divided once, with
+    // the remainder carried (model_dv_rem). Parasite, gear and flap keep the
+    // coefficients they always had.
+    int16_t dv8 = 0;
+    dv8 -= (int16_t)(speed_sqr >> 7);
+    if (flight_gear) {
+      dv8 -= (int16_t)(speed_sqr >> 9);
+    }
+    if (flight_flap) {
+      dv8 -= (int16_t)(speed_sqr >> 9);
+    }
+    if (!model_on_ground) {
+      // C_L past the peak is capped for the drag term. Induced drag goes as
+      // the square of the lift actually made, and past the stall the wing is
+      // not making more of it - what rises there is separation drag, which
+      // this stands in for rather than pretends to model. It also keeps the
+      // product inside sixteen bits, which the honest one does not at the top
+      // of the speed range.
+      int16_t cl_d = cl;
+      if (cl_d > kFlightClPeak) {
+        cl_d = kFlightClPeak;
+      } else if (cl_d < -kFlightClPeak) {
+        cl_d = -kFlightClPeak;
+      }
+      int16_t cl_sqr = vec_fastmul8p8(cl_d, cl_d);
+      dv8 -= vec_fastmul8p8((int16_t)(speed_sqr >> 5), cl_sqr) >>
+             kFlightInducedShift;
+    } else if (flight_throttle == 0 && flight_speed > 0) {
+      // Wheel friction: the old flat 2 units a step, at eight times the
+      // resolution. A force like the others now, so flight_step_shift divides
+      // it along with them and it no longer needs a model_substep gate.
+      dv8 -= 16;
+    }
+    if (flight_fuel > 0) {
+      dv8 += vec_fastmul8p8((int16_t)(flight_throttle << 3), density);
+    }
+
+    // Gravity along the *flight path*, not along the nose. The old model used
+    // front.z because it had nothing else, and the difference is exactly the
+    // aeroplane that is pointing up while sinking - the attitude every
+    // approach and every stall entry is flown at.
+    dv8 -= flight_gamma_z();
+
+    dv8 = _flight_step_s(dv8);
+    dv8 += model_dv_rem;
+    int16_t dv = dv8 >> 3;
+    model_dv_rem = (int16_t)(dv8 - (int16_t)(dv << 3));
+    flight_speed += dv;
+
+    if (flight_speed < 0) {
+      flight_speed = 0;
+    } else if (flight_speed > (int16_t)kMaxSpeed) {
+      flight_speed = (int16_t)kMaxSpeed;
+    }
+
+    if (!model_on_ground) {
+      // --- The flight path ------------------------------------------------
+      //
+      // Net vertical force over momentum. This one line is the whole of the
+      // model's vertical behaviour: the sink at low speed, the climb, the
+      // altitude a banked turn loses and the balloon when the flaps come out
+      // are all this seeing a different `net`.
+      //
+      // Unlike the lift deficit it replaced, it is two-sided. Lift above the
+      // weight pushes the flight path up, where the old model discarded it.
+      int16_t net = lift_z - kFlightTrimLift;
+      flight_gamma +=
+          _flight_step_s(vec_fastmul8p8(net, _flight_recip_v(flight_speed))) >>
+          3;
+      if (flight_gamma > 4096) {
+        flight_gamma = 4096;
+      } else if (flight_gamma < -4096) {
+        flight_gamma = -4096;
+      }
+    }
+
+    // --- The stall -------------------------------------------------------
+    //
+    // An angle, not a speed. It therefore also fires in the two cases a speed
+    // gate cannot see at all: the accelerated stall - pulling hard well above
+    // the 1 g stall speed - and the inverted stall.
+    flight_stall = 0;
+    if (!model_on_ground) {
+      int16_t excess =
+          (int16_t)((flight_alpha16 < 0 ? -flight_alpha16 : flight_alpha16) -
+                    kFlightClPeak);
+      if (excess > 0) {
+        flight_stall = 1;
+        uint8_t brk = (uint8_t)(_flight_step_u((uint16_t)excess) >> 5);
+        if (brk == 0) {
+          brk = whole_step ? 1 : 0;
+        }
+        // The break drives the nose back toward the flight path, which is what
+        // a stalled wing's pitching moment does. It needs no "toward the
+        // ground" special case: at low speed the flight path is already
+        // steeply down, so chasing it *is* the nose drop, at any attitude and
+        // either way up.
+        //
+        // Which way front.z has to move is the sign of alpha_d, not of alpha -
+        // the two differ when inverted. Which body rotation to use in the dead
+        // spot is the sign of alpha and does not: a pitch-down step moves
+        // front.z by -up.z/16, so the up.z in it cancels the up.z in alpha_d.
+        const bool nose_down = alpha_d > 0;
+        if (nose_down ? flight_cam.front.z > kFlightMaxStallPitchZ
+                      : flight_cam.front.z < -kFlightMaxStallPitchZ) {
+          // Dead spot. front is a unit vector, so with the nose this high its
+          // horizontal part is almost nothing and vec_orthonormalize scales
+          // the whole vector back to length 256 at the end of the frame,
+          // putting back nearly all of a direct change to front.z. A body axis
+          // rotation is well defined at any attitude, and one step is enough
+          // to tip the nose off the vertical.
+          vec_transform3(flight_alpha16 > 0 ? &kVecPitchDown : &kVecPitchUp,
+                         &flight_cam);
+        } else if (nose_down) {
+          flight_cam.front.z -= brk;
+        } else {
+          flight_cam.front.z += brk;
+        }
+        if (flight_cam.front.z > 256) {
+          flight_cam.front.z = 256;
+        } else if (flight_cam.front.z < -256) {
+          flight_cam.front.z = -256;
+        }
+        model_need_normalize = true;
+      }
+    } else {
+      // Ground mode: cannot pitch forward (front.z >= 0)
+      if (flight_cam.front.z < 0) {
+        flight_cam.front.z = 0;
+        model_need_normalize = true;
+      }
+
+      // Ground mode: level wings (roll = 0).
+      //
+      // Only rebuild when the wings are actually off level. Doing it every
+      // frame slowly turned the aircraft back to whichever axis it was
+      // nearest: rebuilding left/up from front costs a little length in the
+      // 8.8 cross product, vec_orthonormalize then scales front back up, and
+      // that scaling truncates - so the larger component gains a unit before
+      // the smaller one does and the heading ratchets toward it. Held on the
+      // runway it walked a 29 degree heading back to 0 in ~300 frames.
+      // Skipping the no-op case also saves a full orthonormalize on every
+      // frame of taxi and takeoff roll.
+      if (flight_cam.left.z != 0) {
+        flight_cam.left.x = -flight_cam.front.y;
+        flight_cam.left.y = flight_cam.front.x;
+        flight_cam.left.z = 0;
+        vec_cross(&flight_cam.front, &flight_cam.left, &flight_cam.up);
+        model_need_normalize = true;
+      }
+    }
+
+    if (model_on_ground) {
+      // The wheels are on the runway, so altitude is locked to the ground
+      // plane whatever the nose is doing. Without this the flare pitch a
+      // landing arrives with (front.z is not reset on touchdown, and ground
+      // mode only clamps it to >= 0) keeps feeding a positive vertical speed
+      // and the aircraft balloons back off the runway while still in ground
+      // mode.
+      flight_gamma = 0;
+      flight_vspeed = 0;
+    } else {
+      flight_vspeed = vec_fastmul8p8(flight_gamma_z(), flight_speed);
+    }
+
+#else // !__FLIGHT_AOA__
+
     // Speed: Air resistance, gravity, throttle
     uint16_t speed_sqr = vec_fastsqr8p8(flight_speed);
     flight_speed -= _flight_step_u(speed_sqr) >> 10;
@@ -779,8 +1229,15 @@ void flight_advance() {
           vec_fastmul8p8(flight_cam.front.z, flight_speed) - sink_penalty;
     }
 
+#endif // __FLIGHT_AOA__
+
     // Motion
+#ifdef __FLIGHT_AOA__
+    const bool hit_floor =
+        _flight_move_forward(flight_speed << 1, flight_vspeed);
+#else
     _flight_move_forward(flight_speed << 1, flight_vspeed);
+#endif
 
     if (!model_on_ground && flight_vspeed < 0 && flight_eye_z <= 0x4000) {
       // The advisory does not test the runway, which is why check_runway is
@@ -801,7 +1258,26 @@ void flight_advance() {
       }
     }
 
+#ifdef __FLIGHT_AOA__
+    // Already rolling, descending, or stopped by the floor.
+    //
+    // A position-only test called every step of an unstick a touchdown: the
+    // aircraft sits at exactly ground level for as long as its flight path
+    // takes to build, and _flight_move_forward clamps it there. That is one
+    // step on a stock C64 and four on a SuperCPU where every rate is
+    // quartered, so exempting only the step the wheels left on worked at
+    // flight_step_shift 0 and bounced the aeroplane down the runway at shift
+    // 2 - fourteen touchdowns in forty frames.
+    //
+    // hit_floor is the third arm because the clamp hides the case it covers:
+    // an aircraft that was below the plane and climbing gets moved back to it
+    // and is descending by neither test, and without this would fly along
+    // inside the ground for ever.
+    if (flight_eye_z <= kFlightMinEyeZ &&
+        (model_on_ground || flight_vspeed < 0 || hit_floor)) {
+#else
     if (flight_eye_z <= kFlightMinEyeZ) {
+#endif
       // model_on_ground still holds last frame's value here, so it says
       // whether this is a touchdown or another frame of an existing ground
       // roll.
@@ -825,8 +1301,13 @@ void flight_advance() {
 
       model_on_ground = true;
       // Touched down: the descent is over. Zeroed after the envelope check
-      // above, which needs the sink rate the aircraft arrived with.
+      // above, which needs the sink rate the aircraft arrived with, and the
+      // flight path with it - on the ground the runway *is* the flight path,
+      // which is what makes alpha the nose attitude there.
       flight_vspeed = 0;
+#ifdef __FLIGHT_AOA__
+      flight_gamma = 0;
+#endif
 
       if (!was_on_ground && !flight_crashed() && flight_cam.front.z != 0) {
         // Nose wheel comes down. Done once, on the touchdown transition,
@@ -854,6 +1335,53 @@ void flight_advance() {
       flight_throttle = 0;
     }
 
+#ifdef __FLIGHT_AOA__
+
+    // Rotation (only when airborne)
+    //
+    // The horizontal component of lift over momentum: the same equation as the
+    // flight path above, with the same 1/V, applied to the other component of
+    // the same force. Pull harder and the turn tightens; fly the same bank
+    // slower and it tightens too.
+    //
+    // The scale is not free. A level turn's rate is g tan(bank) / V, and
+    // matching that fixes the shift at seven: one unit of `rot` is 1/256 of a
+    // radian a step, the weight is kFlightTrimLift, and gravity is 32 speed
+    // units a step per radian, so rot = 2 * L_horizontal / V.
+    //
+    // What this replaces was `rot = left.z >> 5` - about 1.6 times this at
+    // cruise, and flat in airspeed, which is flight_review.md B4. It also
+    // replaces the bank drag term that used to sit in the speed equation:
+    // induced drag is C_L^2 and a banked turn needs more C_L, so the turn
+    // pays for itself now.
+    if (!model_on_ground) {
+      int16_t h = vec_fastmul8p8(lift, flight_cam.left.z);
+      model_turn_rem +=
+          _flight_step_s(vec_fastmul8p8(h, _flight_recip_v(flight_speed)));
+      int16_t rot = model_turn_rem >> 7;
+      // A guard on the small angle step, not a flight limit. The old turn
+      // could not exceed 8 by construction; this one is a real rate and a slow
+      // steep turn genuinely exceeds it, so clamping there would cap exactly
+      // the case worth getting right. 24 is 5.4 degrees a step, where
+      // vec_turn3_xy's linearization is still worth 0.4%.
+      if (rot > 24) {
+        rot = 24;
+      } else if (rot < -24) {
+        rot = -24;
+      }
+      model_turn_rem -= (int16_t)(rot << 7);
+      if (rot != 0) {
+        // Was a general 3x3 against an identity carrying only front.y = rot
+        // and left.x = -rot; vec_turn3_xy() is that matrix written out, bit
+        // for bit the same answer for a fifth of the multiplies.
+        vec_turn3_xy(rot, &flight_cam);
+        model_need_normalize = true;
+      }
+    } else {
+      model_turn_rem = 0;
+    }
+#else // !__FLIGHT_AOA__
+
     // Rotation (only when airborne)
     if (!model_on_ground) {
       int8_t rot = _flight_step_s(flight_cam.left.z) >> 5;
@@ -866,6 +1394,8 @@ void flight_advance() {
         model_need_normalize = true;
       }
     }
+#endif // __FLIGHT_AOA__
+
   } else {
     // Paused: the physics is frozen, so recompute the vertical speed
     // instrument from the attitude rather than leaving it at whatever the last
@@ -877,7 +1407,11 @@ void flight_advance() {
     // so in practice this now recomputes the same value every frame. It stays
     // as the one place vspeed is derived: it costs a multiply and it means the
     // instrument cannot disagree with the state it is displaying.
+#ifdef __FLIGHT_AOA__
+    flight_vspeed = vec_fastmul8p8(flight_gamma_z(), flight_speed);
+#else
     flight_vspeed = vec_fastmul8p8(flight_cam.front.z, flight_speed);
+#endif
   }
 
   if (model_need_normalize) {
@@ -1005,6 +1539,24 @@ void flight_input(enum flight_input_t input) {
         model_need_normalize = true;
       }
       break;
+#ifdef __FLIGHT_AOA__
+    case FLIGHT_INPUT_PITCH_UP:
+      // One step of rotation, up to the tail strike limit. What used to be
+      // here was a gate - "above the stall speed, jump the nose to
+      // kFlightRotatePitchZ and declare the aircraft airborne" - and it is
+      // gone along with the constant. Rotating below flying speed now simply
+      // holds the nose up until the wing catches up, which is what it does on
+      // a real runway, and flight_advance() decides the liftoff by asking
+      // whether the wing carries the aeroplane.
+      if (flight_cam.front.z < kFlightMaxGroundPitch) {
+        vec_transform3(&kVecPitchUp, &flight_cam);
+        if (flight_cam.front.z > kFlightMaxGroundPitch) {
+          flight_cam.front.z = kFlightMaxGroundPitch;
+        }
+        model_need_normalize = true;
+      }
+      break;
+#else // !__FLIGHT_AOA__
     case FLIGHT_INPUT_PITCH_UP: {
       uint16_t stall_speed = flight_flap ? kFlightStallSpeedWithFlaps
                                          : kFlightStallSpeedWithoutFlaps;
@@ -1021,6 +1573,8 @@ void flight_input(enum flight_input_t input) {
       }
       break;
     }
+
+#endif // __FLIGHT_AOA__
     case FLIGHT_INPUT_TOGGLE_GEAR:
       if (!flight_gear) {
         flight_gear = 1;
@@ -1039,6 +1593,32 @@ void flight_input(enum flight_input_t input) {
     }
     return;
   }
+
+#ifdef __FLIGHT_AOA__
+  // The elevator will not drive the wing deeper into a stall.
+  //
+  // This is a control law and not physics, and it is here because the pilot
+  // has no stick force to feel. One keypress is 3.6 degrees of pitch; the
+  // stall break pushing back is a quarter of that at the angles just past the
+  // break, so a held key wins and keeps winning, and the aircraft ends up in a
+  // deep stall the pilot never felt themselves entering. Holding the stick
+  // back through a rotation - the most ordinary thing a player does - stalled
+  // the aeroplane at nought feet and crashed it.
+  //
+  // Note what it does *not* do. The input that carries the wing from just
+  // under the break to just past it is allowed, so the stall is still
+  // reachable and the accelerated stall of flight.md 2.2 still fires: what is
+  // refused is only the next one after that. And nothing here stops the flight
+  // path from stalling the wing on its own, which is how a stall arrives in a
+  // banked turn or a pull-up. The pilot cannot bury it; the aeroplane can.
+  if (input == FLIGHT_INPUT_PITCH_UP && flight_stall && flight_alpha16 > 0) {
+    return;
+  }
+  if (input == FLIGHT_INPUT_PITCH_DOWN && flight_stall && flight_alpha16 < 0) {
+    return;
+  }
+
+#endif // __FLIGHT_AOA__
 
   // Airborne, every axis is the same action with a different matrix, so the
   // six switch arms are one indexed call. kFlightRotations is in the enum's

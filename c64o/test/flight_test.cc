@@ -36,6 +36,19 @@ static void assert_msg_rendered(const char *expected) {
 // Mirrors of the constants inside flight.cc. They are static there, so the
 // tests restate them; if one of these drifts the tests below are wrong rather
 // than merely failing, so keep them in step.
+#ifdef __FLIGHT_AOA__
+// The stall angle, and the camber that pairs with it. These are the wing.
+static const int16_t kAlphaStall = 56;
+static const int16_t kCamberCl = 128;
+#else
+// The attitude the arcade model's rotation drives to, mirroring flight.cc.
+static const int16_t kRotatePitchZ = 47;
+#endif
+// The speeds that angle works out at, clean and with flaps. They are no longer
+// constants in the model - nothing in flight.cc is told either number - but
+// the tests still read against them, and that they come out at the values the
+// old model had to be given is the headline result. Upright C_L max is the
+// peak plus the camber, and 56 + 128 is what holds this at 0x0400 exactly.
 static const uint16_t kStallSpeedWithoutFlaps = 0x0400;
 static const uint16_t kStallSpeedWithFlaps = 0x0340;
 // Airspeed at which lift reaches kTrimLift upright at sea level, i.e. where the
@@ -55,8 +68,19 @@ static const uint16_t kMaxGroundSpeed = 0x0D00;
 // and returns with flight_speed / flight_vspeed at the steady state. Used by
 // the equilibrium tests below, which are about the trim the model settles into
 // rather than about any single frame.
+// Mean vertical speed over the tail of the last _settle, times 256, and
+// whether it finished stalled.
+//
+// The mean, rather than the last frame, is what "is it holding altitude"
+// has to ask now. One unit of the flight path is eight units of vertical
+// speed at cruise, so an aircraft that is exactly level still reads as
+// descending on some frames and climbing on others; a single-frame test picks
+// up that quantization and calls it a trend.
+static int32_t _settle_vmean256;
+static bool _settle_stalled;
+
 static void _settle(uint8_t throttle, int16_t pitch, int16_t up_z, int frames,
-                    uint8_t flap = 0) {
+                    uint8_t flap = 0, int16_t start_speed = 0) {
   flight_init();
   flight_eye_z = 0x040000; // Well clear of both the ground and the ceiling
   flight_throttle = throttle;
@@ -67,16 +91,90 @@ static void _settle(uint8_t throttle, int16_t pitch, int16_t up_z, int frames,
   flight_cam.up = make_vector(0, 0, up_z);
   flight_cam.front.z = pitch;
   vec_orthonormalize(&flight_cam);
+  if (start_speed > 0) {
+    flight_speed = start_speed;
+  }
   int16_t held_pitch = flight_cam.front.z;
   int16_t held_up_z = flight_cam.up.z;
+  int32_t vsum = 0;
+  const int watch = frames < 200 ? frames : 200;
   for (int i = 0; i < frames; ++i) {
     // The pilot holds the attitude; only the scalar state is under test.
     flight_cam.front.z = held_pitch;
     flight_cam.up.z = held_up_z;
+    // And the altitude is held too, which is new and is the difference
+    // between a steady state and a crash site. A settle that descends is now
+    // ordinary - level flight needs a positive angle of attack, so any run
+    // that holds the wrong pitch sinks - and at the rates the model reaches, a
+    // few hundred frames is enough to arrive at the ground with the gear up.
+    // The runs that did were reporting flight_status and a vertical speed of
+    // zero, which reads as "settled, level" and is neither.
+    //
+    // Pinning it also pins the air density, which is what the comment above
+    // has always meant by holding everything but the scalar state.
+    flight_eye_z = 0x040000;
     flight_advance();
     flight_throttle = throttle;
+    if (i >= frames - watch) {
+      vsum += flight_vspeed;
+    }
+  }
+  _settle_vmean256 = vsum * 256 / watch;
+  _settle_stalled = flight_stall != 0;
+}
+
+#ifdef __FLIGHT_AOA__
+
+// Both of these are asked only by the angle-of-attack tests, and the reason is
+// the model rather than the plumbing: the arcade aeroplane trims level at
+// front.z = 0 above its trim speed, so "sweep the attitudes and find the
+// lowest one that holds altitude" is not a question its tests have to ask.
+// Compiled into that build they are dead code, and -Wall says so.
+
+// Two passes, the second seeded from the first's airspeed.
+//
+// The model has two attractors at some held attitudes: the aeroplane flying,
+// and the aeroplane mushing down stalled, with the post-stall droop and the
+// induced drag balancing gravity. Both are real - the stalled one is what a
+// stall *is* - but which one a bench run lands in depends on the swing it
+// takes getting there, and a run that pins the attitude has taken away the
+// pitching break that would end the stalled one in flight.
+//
+// Seeding a second pass at the airspeed the first found starts it near the
+// fixed point instead of hundreds of units above it, so the swing is small
+// enough to stay on the flying branch where there is one. Where there is not,
+// both passes stall and _settle_stalled says so.
+static void _settle2(uint8_t throttle, int16_t pitch, int16_t up_z, int frames,
+                     uint8_t flap = 0) {
+  _settle(throttle, pitch, up_z, frames, flap);
+  const int16_t seed = flight_speed;
+  const bool first_stalled = _settle_stalled;
+  const int32_t first_vmean = _settle_vmean256;
+  _settle(throttle, pitch, up_z, frames, flap, seed);
+  if (_settle_stalled && !first_stalled) {
+    // The seeded pass found the worse branch; the first one is the answer.
+    _settle(throttle, pitch, up_z, frames, flap);
+    (void)first_vmean;
   }
 }
+
+// The lowest held pitch that holds altitude at this throttle, which is the
+// question flight.md 2.1 asks of every throttle setting. False if no attitude
+// in the sweep holds it.
+static bool _level_trim(uint8_t throttle, int16_t up_z, uint8_t flap,
+                        int16_t *out_pitch) {
+  for (int16_t p = -64; p <= 200; ++p) {
+    _settle2(throttle, p, up_z, 600, flap);
+    if (!flight_status && !_settle_stalled && _settle_vmean256 >= 0) {
+      *out_pitch = p;
+      return true;
+    }
+  }
+  return false;
+}
+
+#endif // __FLIGHT_AOA__
+
 
 // Compass heading, 0..kHeadingMax-1, using the game's own routine. For
 // printing; assertions compare the forward vector directly, which is both
@@ -123,6 +221,65 @@ static void _roll_by(int steps) {
 // out as left.z == roll. `roll_steps` additionally banks with real roll
 // inputs, for cases where reaching the attitude the way the pilot does is the
 // point - see _roll_by.
+#ifdef __FLIGHT_AOA__
+static int16_t _arm_touchdown(int16_t pitch, int16_t roll, int16_t speed,
+                              uint8_t gear, int roll_steps = 0) {
+  flight_init();
+  flight_eye_x = 0x200000;
+  flight_eye_y = 0x400000;
+  flight_eye_z = 0x040000;
+  flight_gear = gear;
+  flight_throttle = 0;
+  flight_speed = speed;
+  int16_t up_z = (int16_t)sqrt(65536.0 - (double)roll * roll);
+  flight_cam.front = make_vector(256, 0, 0);
+  flight_cam.left = make_vector(0, 256, 0);
+  flight_cam.up = make_vector(0, -roll, up_z);
+  _roll_by(roll_steps);
+  flight_cam.front.z = pitch;
+  vec_orthonormalize(&flight_cam);
+
+  // Let the flight path catch up with the attitude before reading the sink.
+  //
+  // This used to be a single frame at altitude, which was enough when vertical
+  // speed was front.z * speed and therefore a function of the attitude alone.
+  // It is not any more: the flight path is its own state, flight_init() starts
+  // it level, and one frame of a nose-down attitude produces an aeroplane
+  // pointing down while still travelling horizontally - a large negative angle
+  // of attack and hardly any sink. Arming a touchdown from that measures a
+  // moment no approach ever passes through.
+  //
+  // So the attitude and the airspeed are both held while only the flight path
+  // is allowed to move, which converges in a few tens of frames and leaves the
+  // aircraft descending the way one that had been holding this attitude at
+  // this speed really would be. The caller's airspeed is preserved exactly,
+  // which is what the speed triggers need.
+  mat3_t attitude = flight_cam;
+  int16_t saved_speed = flight_speed;
+  for (int i = 0; i < 60; ++i) {
+    flight_cam = attitude;
+    flight_speed = saved_speed;
+    flight_eye_z = 0x040000;
+    flight_advance();
+  }
+  int16_t saved_gamma = flight_gamma;
+  flight_cam = attitude;
+  flight_speed = saved_speed;
+  int16_t vs = flight_vspeed;
+
+  // Now re-arm the same state exactly one frame's descent above the ground.
+  flight_init();
+  flight_eye_x = 0x200000;
+  flight_eye_y = 0x400000;
+  flight_gear = gear;
+  flight_throttle = 0;
+  flight_speed = saved_speed;
+  flight_gamma = saved_gamma;
+  flight_cam = attitude;
+  flight_eye_z = (int32_t)kGroundZ - vs;
+  return vs;
+}
+#else // !__FLIGHT_AOA__
 static int16_t _arm_touchdown(int16_t pitch, int16_t roll, int16_t speed,
                               uint8_t gear, int roll_steps = 0) {
   flight_init();
@@ -158,6 +315,7 @@ static int16_t _arm_touchdown(int16_t pitch, int16_t roll, int16_t speed,
   flight_eye_z = (int32_t)kGroundZ - vs;
   return vs;
 }
+#endif // __FLIGHT_AOA__
 
 // Puts the model genuinely into ground mode. model_on_ground is a static
 // inside flight.cc that flight_init() clears, so setting flight_eye_z alone
@@ -181,6 +339,123 @@ static void _put_on_ground(int16_t speed) {
   flight_speed = speed;
 }
 
+// 1. Level cruise equilibrium test.
+// "Equilibrium" means the vertical speed settles to zero and the airspeed
+// settles to a value that is stable frame over frame - not merely that the
+// aircraft is still flying.
+
+// 0. The stall speeds are consequences, not constants.
+//
+// This is the headline result of the change and the cheapest thing in the
+// suite to check, so it goes first. Nothing in flight.cc is told 0x0400 or
+// 0x0340 any more; they fall out of an angle and a lift slope, and they fall
+// out on the numbers the old model had to be handed.
+#ifdef __FLIGHT_AOA__
+static void test_stall_speeds_are_derived() {
+  printf("Running test_stall_speeds_are_derived...\n");
+
+  // The lift slope is one unit of C_L per unit of alpha16, so C_L max upright
+  // is the stall angle in those units plus the camber.
+  const int32_t cl_max_clean = (kAlphaStall << 4) + kCamberCl;
+  const int32_t cl_max_flap = cl_max_clean + 512; // kFlightFlapDeltaCl
+  // Inverted the camber subtracts instead of adding, which is the whole of the
+  // inverted penalty.
+  const int32_t cl_max_inverted = (kAlphaStall << 4) - kCamberCl;
+
+  // lift = V^2 * C_L / 262144 and the weight is 0x1000, so the speed at which
+  // a C_L carries the aeroplane is sqrt(2^30 / C_L).
+  const double clean = sqrt((double)(1 << 30) / (double)cl_max_clean);
+  const double flap = sqrt((double)(1 << 30) / (double)cl_max_flap);
+  const double inverted = sqrt((double)(1 << 30) / (double)cl_max_inverted);
+  printf("  C_L max %d -> V_stall %.0f (clean, was told %d)\n", cl_max_clean,
+         clean, kStallSpeedWithoutFlaps);
+  printf("  C_L max %d -> V_stall %.0f (flaps, was told %d)\n", cl_max_flap,
+         flap, kStallSpeedWithFlaps);
+  printf("  C_L max %d -> V_stall %.0f (inverted)\n", cl_max_inverted,
+         inverted);
+
+  assert(clean > kStallSpeedWithoutFlaps - 1 &&
+         clean < kStallSpeedWithoutFlaps + 1);
+  assert(flap > kStallSpeedWithFlaps - 8 && flap < kStallSpeedWithFlaps + 8);
+  // Inverted is strictly harder, which is what the camber is there for.
+  assert(inverted > clean);
+
+  // And the model agrees with the arithmetic: just under the derived clean
+  // stall speed the wing runs out of angle, and just over it does not.
+  for (int i = 0; i < 2; ++i) {
+    const int16_t speed =
+        (int16_t)(i ? kStallSpeedWithoutFlaps + 300 : kStallSpeedWithoutFlaps - 100);
+    flight_init();
+    flight_throttle = 0;
+    bool stalled = false;
+    for (int f = 0; f < 200 && !stalled; ++f) {
+      flight_cam.front.z = 0;
+      flight_speed = speed;
+      flight_eye_z = 0x040000;
+      flight_advance();
+      stalled = flight_stall != 0;
+    }
+    printf("  held level at %d: stalled %d\n", speed, stalled);
+    assert(stalled == (i == 0));
+  }
+
+  printf("  PASS\n\n");
+}
+#endif // __FLIGHT_AOA__
+
+#ifdef __FLIGHT_AOA__
+static void test_level_cruise_equilibrium() {
+  printf("Running test_level_cruise_equilibrium...\n");
+
+  // Level flight is an attitude the pilot has to find, not front.z = 0. The
+  // wing needs a positive angle of attack to carry the weight, so the level
+  // attitude is that angle plus the flight path, and the flight path in level
+  // flight is zero.
+  int16_t pitch = 0;
+  assert(_level_trim(0x14, 256, 0, &pitch));
+  printf("  level trim at throttle 0x14: pitch %d, alpha %d, speed %d\n", pitch,
+         flight_alpha(), flight_speed);
+  assert(pitch > 0);
+  assert(flight_alpha() > 0);
+  assert(!flight_status);
+
+  // "Equilibrium" here means bit-stable, not "small". Every state variable the
+  // model carries stops moving and stays stopped - which is the property the
+  // sixteen-to-one resolution of flight_alpha16 bought, and which the model
+  // did not have at one unit per unit of front.z: there it could only hunt
+  // across a lift error a sixteenth of a g wide.
+  const int16_t held_pitch = flight_cam.front.z;
+  const int16_t held_up_z = flight_cam.up.z;
+  const int16_t speed = flight_speed;
+  const int16_t gamma = flight_gamma;
+  const int16_t alpha = flight_alpha16;
+  const int16_t vspeed = flight_vspeed;
+  for (int i = 0; i < 200; ++i) {
+    flight_cam.front.z = held_pitch;
+    flight_cam.up.z = held_up_z;
+    flight_eye_z = 0x040000;
+    flight_advance();
+    flight_throttle = 0x14;
+    assert(flight_speed == speed);
+    assert(flight_gamma == gamma);
+    assert(flight_alpha16 == alpha);
+    assert(flight_vspeed == vspeed);
+  }
+
+  // And with the altitude left free, it is genuinely held.
+  const int32_t z0 = flight_eye_z;
+  for (int i = 0; i < 100; ++i) {
+    flight_cam.front.z = held_pitch;
+    flight_cam.up.z = held_up_z;
+    flight_advance();
+    flight_throttle = 0x14;
+  }
+  assert(flight_eye_z == z0);
+
+  printf("  settled speed: %d (0x%04X), vspeed: %d\n", speed, speed, vspeed);
+  printf("  PASS\n\n");
+}
+#else // !__FLIGHT_AOA__
 // 1. Level cruise equilibrium test.
 // "Equilibrium" means the vertical speed settles to zero and the airspeed
 // settles to a value that is stable frame over frame - not merely that the
@@ -209,12 +484,63 @@ static void test_level_cruise_equilibrium() {
          settled_speed, flight_vspeed);
   printf("  PASS\n\n");
 }
+#endif // __FLIGHT_AOA__
 
 // 1b. Trim speed boundary test.
 // Below the trim speed the lift deficit produces sink; at or above it the
 // deficit is clamped away and level pitch means genuinely level flight.
-static void test_trim_speed_boundary() {
-  printf("Running test_trim_speed_boundary...\n");
+
+#ifdef __FLIGHT_AOA__
+// 1b. The level attitude falls as the aircraft goes faster.
+//
+// This replaces a test of the old model's central mechanism, the one-sided
+// lift deficit: there, below a trim speed the aircraft sank and at or above it
+// front.z = 0 was level and no faster level trim existed. There is no such
+// speed now. Lift is C_L(alpha) * V^2, so holding the weight at any speed is a
+// question of angle, and the faster you go the less of it you need - which is
+// the trim behaviour every real aeroplane has, and the one the attitude
+// indicator has been implying all along.
+static void test_level_trim_falls_with_speed() {
+  printf("Running test_level_trim_falls_with_speed...\n");
+
+  int16_t p_slow = 0, p_mid = 0, p_fast = 0;
+  assert(_level_trim(0x10, 256, 0, &p_slow));
+  const int16_t a_slow = flight_alpha(), v_slow = flight_speed;
+  assert(_level_trim(0x14, 256, 0, &p_mid));
+  const int16_t a_mid = flight_alpha(), v_mid = flight_speed;
+  assert(_level_trim(0x18, 256, 0, &p_fast));
+  const int16_t a_fast = flight_alpha(), v_fast = flight_speed;
+
+  printf("  0x10: pitch %3d alpha %3d speed %5d\n", p_slow, a_slow, v_slow);
+  printf("  0x14: pitch %3d alpha %3d speed %5d\n", p_mid, a_mid, v_mid);
+  printf("  0x18: pitch %3d alpha %3d speed %5d\n", p_fast, a_fast, v_fast);
+
+  // More throttle, more speed, less angle of attack, lower nose.
+  assert(v_slow < v_mid && v_mid < v_fast);
+  assert(a_slow > a_mid && a_mid > a_fast);
+  assert(p_slow > p_mid && p_mid > p_fast);
+  // And it is always some angle: there is no speed at which the wing carries
+  // the aeroplane for nothing.
+  assert(a_fast > 0);
+
+  // The corollary, which is what a pilot notices: front.z = 0 is a descent at
+  // every throttle, however fast.
+  _settle2(0x18, 0, 256, 600);
+  printf("  zero pitch at full throttle: speed %d, mean vspeed %.1f\n",
+         flight_speed, _settle_vmean256 / 256.0);
+  assert(_settle_vmean256 < 0);
+
+  printf("  PASS\n\n");
+}
+#else // !__FLIGHT_AOA__
+// Same case as the AoA build's `test_level_trim_falls_with_speed`, under that name so
+// main() needs no branch, but asserting the arcade model's behaviour -
+// which for several of these is the opposite behaviour.
+// 1b. Trim speed boundary test.
+// Below the trim speed the lift deficit produces sink; at or above it the
+// deficit is clamped away and level pitch means genuinely level flight.
+static void test_level_trim_falls_with_speed() {
+  printf("Running test_level_trim_falls_with_speed...\n");
 
   // A throttle that settles above trim speed -> no sink at zero pitch.
   _settle(0x18, 0, 256, 400);
@@ -230,6 +556,7 @@ static void test_trim_speed_boundary() {
 
   printf("  PASS\n\n");
 }
+#endif // __FLIGHT_AOA__
 
 // 2. Power-off stall recovery test
 static void test_power_off_stall_recovery() {
@@ -304,6 +631,68 @@ static void test_climb_at_different_throttles() {
 }
 
 // 5. Banked turns drag and descent test
+
+#ifdef __FLIGHT_AOA__
+static void test_banked_turns_drag_and_descent() {
+  printf("Running test_banked_turns_drag_and_descent...\n");
+
+  // A level turn needs 1/cos(bank) times the weight in lift, and the wing can
+  // only make it by working harder. Both halves of that are measurable: the
+  // angle of attack the pilot has to hold, and the induced drag it costs.
+  //
+  // The old model had neither - it charged a flat left.z^2 term for the bank
+  // and left the wing out of it - so this used to assert only that a banked
+  // aircraft ends up slower.
+  int16_t straight_pitch = 0;
+  assert(_level_trim(0x18, 256, 0, &straight_pitch));
+  const int16_t straight_speed = flight_speed;
+  const int16_t straight_alpha = flight_alpha();
+
+  // ~36 degrees of bank, held while the pitch is swept for a level trim.
+  int16_t banked_pitch = -1, banked_speed = 0, banked_alpha = 0;
+  for (int16_t p = -64; p <= 200; ++p) {
+    flight_init();
+    flight_eye_z = 0x040000;
+    flight_throttle = 0x18;
+    flight_fuel = 0x0FFFFFFF;
+    flight_cam.front = make_vector(256, 0, 0);
+    flight_cam.left = make_vector(0, 256, 0);
+    flight_cam.up = make_vector(0, -150, (int16_t)sqrt(65536.0 - 150.0 * 150));
+    flight_cam.front.z = p;
+    vec_orthonormalize(&flight_cam);
+    const int16_t hp = flight_cam.front.z, hu = flight_cam.up.z,
+                  hl = flight_cam.left.z;
+    int32_t vsum = 0;
+    for (int i = 0; i < 600; ++i) {
+      flight_cam.front.z = hp;
+      flight_cam.up.z = hu;
+      flight_cam.left.z = hl;
+      vec_orthonormalize(&flight_cam);
+      flight_eye_z = 0x040000;
+      flight_advance();
+      flight_throttle = 0x18;
+      if (i >= 400) vsum += flight_vspeed;
+    }
+    if (!flight_status && !flight_stall && vsum >= 0) {
+      banked_pitch = p;
+      banked_speed = flight_speed;
+      banked_alpha = flight_alpha();
+      break;
+    }
+  }
+
+  printf("  wings level: pitch %d alpha %d speed %d\n", straight_pitch,
+         straight_alpha, straight_speed);
+  printf("  36 deg bank: pitch %d alpha %d speed %d\n", banked_pitch,
+         banked_alpha, banked_speed);
+
+  assert(banked_pitch >= 0);              // A level turn is possible at 36 deg
+  assert(banked_alpha > straight_alpha);  // and it costs angle of attack
+  assert(banked_speed < straight_speed);  // which costs induced drag
+  printf("  PASS\n\n");
+}
+#else // !__FLIGHT_AOA__
+// 5. Banked turns drag and descent test
 static void test_banked_turns_drag_and_descent() {
   printf("Running test_banked_turns_drag_and_descent...\n");
 
@@ -331,7 +720,67 @@ static void test_banked_turns_drag_and_descent() {
   assert(banked_speed < straight_speed); // Induced turn drag penalty
   printf("  PASS\n\n");
 }
+#endif // __FLIGHT_AOA__
 
+// 6. Inverted flight drag and pitch test.
+// Inverted, lift acts downward, so the deficit is kTrimLift + |lift| rather
+// than kTrimLift - lift. That has two measurable consequences, and this test
+// asserts both against an upright baseline at the same throttle: the implicit
+// deficit drag settles the aircraft at a lower speed, and the sink penalty
+// means nose-up pitch is needed just to stay level.
+
+#ifdef __FLIGHT_AOA__
+static void test_inverted_flight_drag_and_pitch() {
+  printf("Running test_inverted_flight_drag_and_pitch...\n");
+
+  int16_t up_pitch = 0, inv_pitch = 0;
+  assert(_level_trim(0x14, 256, 0, &up_pitch));
+  const int16_t up_speed = flight_speed, up_alpha = flight_alpha();
+  assert(_level_trim(0x14, -256, 0, &inv_pitch));
+  const int16_t inv_speed = flight_speed, inv_alpha = flight_alpha();
+
+  printf("  upright:  pitch %3d alpha %4d speed %5d\n", up_pitch, up_alpha,
+         up_speed);
+  printf("  inverted: pitch %3d alpha %4d speed %5d\n", inv_pitch, inv_alpha,
+         inv_speed);
+
+  // Angle of attack is a body angle, so inverted it has the opposite sign:
+  // the air arrives on the canopy side, and that is what makes the lift point
+  // the right way once the aircraft is upside down.
+  assert(up_alpha > 0);
+  assert(inv_alpha < 0);
+
+  // Nose up relative to the horizon, and further up than the upright trim -
+  // flight.md 3.2. It is the camber that costs this: a symmetric wing would
+  // fly inverted on exactly the mirror of the upright attitude.
+  assert(inv_pitch > 0);
+  assert(inv_pitch > up_pitch);
+
+  // And the same camber raises the inverted stall speed, which is the price
+  // that stops inverted flight being free. The most negative C_L the wing can
+  // reach is short of the peak by twice the camber offset.
+  flight_init();
+  flight_eye_z = 0x040000;
+  flight_throttle = 0;
+  flight_speed = 0x0480; // Comfortably above the upright stall speed
+  flight_cam.up = make_vector(0, 0, -256);
+  vec_orthonormalize(&flight_cam);
+  const int16_t hu = flight_cam.up.z;
+  bool stalled = false;
+  for (int i = 0; i < 200 && !stalled; ++i) {
+    flight_cam.front.z = 0;
+    flight_cam.up.z = hu;
+    flight_eye_z = 0x040000;
+    flight_advance();
+    stalled = flight_stall != 0;
+  }
+  printf("  inverted at 0x0480 (above the upright stall speed): stalled %d\n",
+         stalled);
+  assert(stalled);
+
+  printf("  PASS\n\n");
+}
+#else // !__FLIGHT_AOA__
 // 6. Inverted flight drag and pitch test.
 // Inverted, lift acts downward, so the deficit is kTrimLift + |lift| rather
 // than kTrimLift - lift. That has two measurable consequences, and this test
@@ -374,6 +823,7 @@ static void test_inverted_flight_drag_and_pitch() {
 
   printf("  PASS\n\n");
 }
+#endif // __FLIGHT_AOA__
 
 // 7. Gear drag penalty test
 static void test_gear_drag_penalty() {
@@ -398,6 +848,60 @@ static void test_gear_drag_penalty() {
   printf("  PASS\n\n");
 }
 
+// 8. Flap drag, lift and stall reduction test.
+// Flaps do three separate things (flight.md 4.2) and this asserts each of them
+// rather than just that the flag is set: more parasite drag, 50% more lift,
+// and a lower stall speed.
+
+#ifdef __FLIGHT_AOA__
+static void test_flap_drag_lift_and_stall_reduction() {
+  printf("Running test_flap_drag_lift_and_stall_reduction...\n");
+
+  // (a) Drag: at the same throttle and the same level trim, flaps settle the
+  // aircraft slower.
+  int16_t clean_pitch = 0, flap_pitch = 0;
+  assert(_level_trim(0x18, 256, 0, &clean_pitch));
+  const int16_t clean_speed = flight_speed;
+  assert(_level_trim(0x18, 256, 1, &flap_pitch));
+  const int16_t flap_speed = flight_speed;
+  printf("  clean speed: %d, flap speed: %d\n", clean_speed, flap_speed);
+  assert(flap_speed < clean_speed);
+
+  // (b) Lift: flaps are a camber shift, so at the same attitude and speed the
+  // wing makes more of it. That shows up as a lower angle of attack for the
+  // same job - the flapped aircraft trims level with the nose lower, and here
+  // it trims below the horizon outright.
+  printf("  level trim pitch: clean %d, flaps %d\n", clean_pitch, flap_pitch);
+  assert(flap_pitch < clean_pitch);
+
+  // (c) Stall speed. The stall is an angle, so the speeds are consequences:
+  // between the two the clean wing runs out of angle and the flapped one does
+  // not. Both are flown, not asserted from a single frame - the flight path
+  // has to develop before the angle of attack means anything.
+  const int16_t between =
+      (int16_t)((kStallSpeedWithFlaps + kStallSpeedWithoutFlaps) / 2);
+  assert(between > kStallSpeedWithFlaps && between < kStallSpeedWithoutFlaps);
+
+  for (int flap = 0; flap < 2; ++flap) {
+    flight_init();
+    flight_eye_z = 0x040000;
+    flight_throttle = 0;
+    flight_flap = (uint8_t)flap;
+    bool stalled = false;
+    for (int i = 0; i < 200 && !stalled; ++i) {
+      flight_cam.front.z = 0;
+      flight_speed = between; // The speed is the independent variable here
+      flight_eye_z = 0x040000;
+      flight_advance();
+      stalled = flight_stall != 0;
+    }
+    printf("  held at %d, flap %d: stalled %d\n", between, flap, stalled);
+    assert(stalled == (flap == 0));
+  }
+
+  printf("  PASS\n\n");
+}
+#else // !__FLIGHT_AOA__
 // 8. Flap drag, lift and stall reduction test.
 // Flaps do three separate things (flight.md 4.2) and this asserts each of them
 // rather than just that the flag is set: more parasite drag, 50% more lift,
@@ -457,7 +961,78 @@ static void test_flap_drag_lift_and_stall_reduction() {
 
   printf("  PASS\n\n");
 }
+#endif // __FLIGHT_AOA__
 
+// 9. Touchdown flare and crash envelope test
+
+#ifdef __FLIGHT_AOA__
+static void test_touchdown_flare_and_crash_envelope() {
+  printf("Running test_touchdown_flare_and_crash_envelope...\n");
+
+  // Gear up landing -> crash
+  flight_init();
+  flight_eye_z = 0x2000; // Ground altitude
+  flight_gear = 0;
+  flight_advance();
+  assert(flight_status == FLIGHT_CRASH_GEAR);
+
+  // A flare with speed in hand is a landing.
+  int16_t vs = _arm_touchdown(45, 0, 1100, 1);
+  printf("  flare 45 at 1100 -> vspeed %d\n", vs);
+  assert(vs < 0);
+  assert(vs >= kMaxLandingVSpeed);
+  flight_advance();
+  assert(!flight_status);
+
+  // Holding it off too long is now a stall, not a pitch violation, and the
+  // sink is what kills it. This is a change of verdict rather than of outcome,
+  // and it is the better one: an aeroplane that arrives nose-high and slow has
+  // stalled onto the runway, which is what the classic accident is.
+  //
+  // Trigger 7 cannot own this any more, because it cannot be reached from the
+  // air at all. A *descending* aircraft with the nose above 64 is by
+  // construction past the stall angle - the flight path is below the horizon
+  // and the nose is well above it - so the break has already fired, and at
+  // that excess it trims the nose down by more in one step than the envelope
+  // limit is wide.
+  vs = _arm_touchdown(62, 0, 1030, 1);
+  printf("  flare 62 at 1030 -> vspeed %d\n", vs);
+  assert(vs < kMaxLandingVSpeed);
+  flight_advance();
+  printf("  front.z at the check: %d, status %d\n", flight_cam.front.z,
+         flight_status);
+  assert(flight_status == FLIGHT_CRASH_VSPEED);
+  assert(flight_cam.front.z < kMaxLandingPitch); // The break got there first
+
+  // Trigger 7 is not dead code, though: on the ground the flight path is the
+  // runway, so there is no stall and nothing trims the nose. Over-rotating on
+  // the roll is what it polices now, and it is why kFlightMaxGroundPitch has
+  // to sit below kMaxLandingPitch.
+  flight_init();
+  flight_eye_z = kGroundZ;
+  flight_gear = 1;
+  flight_speed = 0x0400;
+  flight_advance();
+  assert(!flight_status);
+  flight_cam.front.z = 80;
+  vec_orthonormalize(&flight_cam);
+  flight_advance();
+  printf("  over-rotated on the runway: status %d\n", flight_status);
+  assert(flight_status == FLIGHT_CRASH_PITCH_HIGH);
+
+  // And the pilot cannot get there with the stick: the rotation limit stops
+  // short of it.
+  _put_on_ground(0x0400);
+  for (int i = 0; i < 20; ++i) {
+    flight_input(FLIGHT_INPUT_PITCH_UP);
+    flight_advance();
+    assert(!flight_status);
+  }
+  assert(flight_cam.front.z < kMaxLandingPitch);
+
+  printf("  PASS\n\n");
+}
+#else // !__FLIGHT_AOA__
 // 9. Touchdown flare and crash envelope test
 static void test_touchdown_flare_and_crash_envelope() {
   printf("Running test_touchdown_flare_and_crash_envelope...\n");
@@ -499,12 +1074,94 @@ static void test_touchdown_flare_and_crash_envelope() {
 
   printf("  PASS\n\n");
 }
+#endif // __FLIGHT_AOA__
 
 // 10. Takeoff stall speed gate test.
 // The gate lives in the on-ground branch of flight_input, so the model has to
 // actually be in ground mode for this to test anything - see _put_on_ground.
-static void test_takeoff_stall_speed_gate() {
-  printf("Running test_takeoff_stall_speed_gate...\n");
+
+#ifdef __FLIGHT_AOA__
+// 10. Takeoff: the wing decides, not a gate.
+//
+// This used to test kFlightRotatePitchZ and the speed gate in front of it -
+// pitch up was refused outright below the stall speed, and accepted above it
+// by jumping the nose to a fixed attitude and declaring the aircraft airborne.
+// Both are gone. Rotating is now always allowed, it makes lift like any other
+// angle of attack, and flight_advance() unsticks the aircraft on the step the
+// wing carries it.
+static void test_takeoff_rotation_is_not_a_gate() {
+  printf("Running test_takeoff_rotation_is_not_a_gate...\n");
+
+  // Well below flying speed: the rotation is accepted, and nothing flies.
+  _put_on_ground(0x0200);
+  const int16_t before = flight_cam.front.z;
+  flight_input(FLIGHT_INPUT_PITCH_UP);
+  assert(flight_cam.front.z > before); // Accepted, not refused
+  for (int i = 0; i < 20; ++i) {
+    flight_speed = 0x0200; // Hold it there; the wing is what is under test
+    flight_advance();
+  }
+  assert(flight_eye_z == kGroundZ); // Still on the runway
+  assert(flight_vspeed == 0);
+  assert(!flight_status);
+
+  // Rotated and given flying speed, it leaves the ground on its own.
+  _put_on_ground(0x0500);
+  for (int i = 0; i < 4; ++i) {
+    flight_input(FLIGHT_INPUT_PITCH_UP);
+  }
+  const int16_t rotate_attitude = flight_cam.front.z;
+  int liftoff_step = -1;
+  int16_t liftoff_speed = 0;
+  for (int i = 0; i < 400 && liftoff_step < 0; ++i) {
+    flight_input(FLIGHT_INPUT_PITCH_UP); // Held back, as a pilot would
+    flight_advance();
+    flight_throttle = kMaxThrottle;
+    if (flight_eye_z > kGroundZ) {
+      liftoff_step = i;
+      liftoff_speed = flight_speed;
+    }
+  }
+  printf("  rotated to %d, airborne at step %d, speed %d\n", rotate_attitude,
+         liftoff_step, liftoff_speed);
+  assert(liftoff_step >= 0);
+  assert(!flight_status);
+  // The liftoff speed is a consequence of the lift equation, so it lands just
+  // above the speed at which the wing can carry the weight at all. Nothing in
+  // the model was told either number.
+  assert(liftoff_speed > (int16_t)kStallSpeedWithoutFlaps);
+  assert(liftoff_speed < (int16_t)kStallSpeedWithoutFlaps + 400);
+
+  // Flaps make more lift at the same angle, so the same rotation flies sooner.
+  _put_on_ground(0x0500);
+  flight_flap = 1;
+  for (int i = 0; i < 4; ++i) {
+    flight_input(FLIGHT_INPUT_PITCH_UP);
+  }
+  int16_t flap_liftoff = 0;
+  for (int i = 0; i < 400 && flap_liftoff == 0; ++i) {
+    flight_input(FLIGHT_INPUT_PITCH_UP);
+    flight_advance();
+    flight_throttle = kMaxThrottle;
+    if (flight_eye_z > kGroundZ) {
+      flap_liftoff = flight_speed;
+    }
+  }
+  printf("  with flaps: airborne at speed %d\n", flap_liftoff);
+  assert(flap_liftoff > 0);
+  assert(flap_liftoff < liftoff_speed);
+
+  printf("  PASS\n\n");
+}
+#else // !__FLIGHT_AOA__
+// Same case as the AoA build's `test_takeoff_rotation_is_not_a_gate`, under that name so
+// main() needs no branch, but asserting the arcade model's behaviour -
+// which for several of these is the opposite behaviour.
+// 10. Takeoff stall speed gate test.
+// The gate lives in the on-ground branch of flight_input, so the model has to
+// actually be in ground mode for this to test anything - see _put_on_ground.
+static void test_takeoff_rotation_is_not_a_gate() {
+  printf("Running test_takeoff_rotation_is_not_a_gate...\n");
 
   // Below stall speed: pitch up is refused outright.
   _put_on_ground(0x0200);
@@ -551,15 +1208,16 @@ static void test_takeoff_stall_speed_gate() {
 
   printf("  PASS\n\n");
 }
+#endif // __FLIGHT_AOA__
 
 // 10b. Takeoff rotation attitude.
-// The gate above says when the pilot is *allowed* to rotate. This says what
-// rotating actually does, which used to be a different thing entirely: lift
-// has no pitch term (flight_review.md A), so one 3.6 degree pitch step could
-// not out-climb the sink penalty until airspeed 1608 - two thirds of the way
-// up the green arc, with the wheels skipping off the runway once per frame
-// the whole way. The rotation now drives to a takeoff attitude instead.
-static const int16_t kRotatePitchZ = 47; // mirrors flight.cc
+// kRotatePitchZ used to be mirrored here: the attitude the old model jumped
+// the nose to once the aircraft passed a stall speed, because lift had no
+// pitch term and one 3.6 degree step could not out-climb the sink penalty
+// until airspeed 1608 - two thirds of the way up the green arc, with the
+// wheels skipping off the runway once per frame the whole way. Rotating makes
+// lift now, so the constant is gone and the liftoff speed is a consequence of
+// the attitude the pilot chose.
 
 // Rolls at a pinned airspeed with the stick back and reports whether the
 // aircraft actually left the ground. Pinned because this is about the attitude
@@ -569,7 +1227,12 @@ static bool _rotates_at(int16_t speed, uint8_t flap, int *touchdowns) {
   flight_flap = flap;
   bool climbed = false;
   *touchdowns = 0;
-  for (int f = 0; f < 40; ++f) {
+  // The budget scales with the step shift, because every rate in the model
+  // does (flight.md 8). A fixed count of frames is a different amount of
+  // flying on a SuperCPU than on a stock C64, and at shift 2 forty frames is
+  // not enough to rotate and climb clear of the runway.
+  const int frames = 40 << flight_step_shift;
+  for (int f = 0; f < frames; ++f) {
     flight_speed = speed;
     flight_input(FLIGHT_INPUT_PITCH_UP);
     flight_speed = speed;
@@ -584,6 +1247,68 @@ static bool _rotates_at(int16_t speed, uint8_t flap, int *touchdowns) {
   return climbed;
 }
 
+
+#ifdef __FLIGHT_AOA__
+static void test_takeoff_rotation_attitude() {
+  printf("Running test_takeoff_rotation_attitude...\n");
+
+  // The rotation limit, and the two things bounding it.
+  //
+  // It has to stay under kMaxLandingPitch, because the landing envelope runs
+  // on every frame at ground level (flight.md 5.3) and trigger 7 does not care
+  // that the aircraft is taking off rather than arriving. Set equal to it, the
+  // takeoff roll crashed: vec_orthonormalize puts a unit back and 65 > 64.
+  _put_on_ground(0x0800);
+  for (int i = 0; i < 8; ++i) {
+    flight_input(FLIGHT_INPUT_PITCH_UP);
+  }
+  const int16_t limit = flight_cam.front.z;
+  printf("  rotation limit: front.z=%d (landing limit %d)\n", limit,
+         (int)kMaxLandingPitch);
+  assert(limit > 0);
+  assert(limit < kMaxLandingPitch);
+
+  // Holding it there does not crash, however long the roll lasts.
+  for (int i = 0; i < 60; ++i) {
+    flight_speed = 0x0200; // Below flying speed, so it stays on the runway
+    flight_input(FLIGHT_INPUT_PITCH_UP);
+    flight_advance();
+    assert(!flight_status);
+  }
+
+  // Liftoff sits just above the speed at which the wing carries the weight,
+  // and it flies away cleanly - no skipping, so no touchdown event per frame.
+  // That skipping was the reason the old model needed a rotation constant at
+  // all: it lifted the wheels and put them straight back down once a frame.
+  int touchdowns = 0;
+  assert(!_rotates_at((int16_t)kStallSpeedWithoutFlaps - 200, 0, &touchdowns));
+  assert(_rotates_at(1500, 0, &touchdowns));
+  assert(touchdowns == 0);
+
+  // Flaps make more lift at the same angle, so they fly at a lower speed.
+  assert(_rotates_at(0x03C0, 1, &touchdowns) && touchdowns == 0); // 960
+
+  // Machine independence. The pitch step is scaled by the host's speed
+  // (vec_set_rotation_shift) and so is every rate in the model, so a stock C64
+  // and a SuperCPU take a different number of steps to the same attitude and
+  // reach flying speed at the same airspeed. kCpuMaxStepShift is 2, so those
+  // are the three cases that exist.
+  for (uint8_t shift = 0; shift <= 2; ++shift) {
+    flight_set_step_shift(shift);
+    _put_on_ground(0x0800);
+    for (int i = 0; i < 8 << shift; ++i) {
+      flight_input(FLIGHT_INPUT_PITCH_UP);
+    }
+    printf("  step shift %d: front.z=%d\n", shift, flight_cam.front.z);
+    assert(flight_cam.front.z == limit);
+    assert(flight_cam.front.z < kMaxLandingPitch);
+    assert(_rotates_at(1500, 0, &touchdowns));
+  }
+  flight_set_step_shift(0);
+
+  printf("  PASS\n\n");
+}
+#else // !__FLIGHT_AOA__
 static void test_takeoff_rotation_attitude() {
   printf("Running test_takeoff_rotation_attitude...\n");
 
@@ -629,6 +1354,7 @@ static void test_takeoff_rotation_attitude() {
 
   printf("  PASS\n\n");
 }
+#endif // __FLIGHT_AOA__
 
 // 11. Ground deceleration friction test
 static void test_ground_deceleration_friction() {
@@ -714,6 +1440,55 @@ static void test_zero_fuel_flameout_transition() {
 }
 
 // 13. Vertical dive terminal velocity clamping test
+
+#ifdef __FLIGHT_AOA__
+static void test_vertical_dive_terminal_velocity_clamping() {
+  printf("Running test_vertical_dive_terminal_velocity_clamping...\n");
+
+  // Nose truly straight down. Building the frame by writing front = (256, 0,
+  // -256) and normalizing gives a *45 degree* dive, not a vertical one, which
+  // is worth stating because it is the obvious way to do it and it is wrong.
+  flight_init();
+  flight_eye_z = 0x040000;
+  flight_throttle = kMaxThrottle;
+  flight_fuel = 0x0FFFFFFF;
+  flight_cam.front = make_vector(0, 0, -256);
+  flight_cam.left = make_vector(0, 256, 0);
+  flight_cam.up = make_vector(256, 0, 0);
+  const mat3_t dive = flight_cam;
+  for (int i = 0; i < 1500; ++i) {
+    flight_cam = dive;
+    flight_eye_z = 0x040000;
+    flight_advance();
+    flight_throttle = kMaxThrottle;
+  }
+  const int16_t terminal = flight_speed;
+  printf("  vertical dive terminal velocity: %d (clamp %d)\n", terminal,
+         (int)kMaxSpeed);
+
+  // Terminal velocity is where drag balances gravity, and it settles under the
+  // clamp - so in normal flight the clamp is not what limits the aircraft.
+  assert(terminal < (int16_t)kMaxSpeed);
+  assert(terminal > 3000); // But it is a real dive, not a mush
+  // It is a genuine steady state, not a snapshot of something still moving.
+  for (int i = 0; i < 200; ++i) {
+    flight_cam = dive;
+    flight_eye_z = 0x040000;
+    flight_advance();
+    flight_throttle = kMaxThrottle;
+    assert(flight_speed == terminal);
+  }
+
+  // The clamp still bounds flight_speed for everything downstream, whatever
+  // the attitude - sound.cc sizes its wind table by kMaxSpeed.
+  flight_speed = (int16_t)kMaxSpeed;
+  flight_advance();
+  assert(flight_speed <= (int16_t)kMaxSpeed);
+
+  printf("  PASS\n\n");
+}
+#else // !__FLIGHT_AOA__
+// 13. Vertical dive terminal velocity clamping test
 static void test_vertical_dive_terminal_velocity_clamping() {
   printf("Running test_vertical_dive_terminal_velocity_clamping...\n");
 
@@ -732,6 +1507,7 @@ static void test_vertical_dive_terminal_velocity_clamping() {
   assert(flight_speed >= 3800);
   printf("  PASS\n\n");
 }
+#endif // __FLIGHT_AOA__
 
 // 14. Inverted stall and nose recovery test
 static void test_inverted_stall_and_nose_recovery() {
@@ -846,6 +1622,108 @@ static void test_abrupt_climb_throttle_cut() {
 // only way to isolate the exact boundary. The reachable version of this crash
 // - held off until it stalls onto the runway - is covered as a real descent in
 // test_touchdown_flare_and_crash_envelope.
+// Puts the aircraft at the ground plane with an exact attitude, for the
+// boundary tests, which are about one trigger at a time and need the attitude
+// the envelope sees to be the attitude they asked for.
+//
+// It arms just *under* the plane rather than one frame's descent above it. The
+// old version placed it above and let it fall, using front.z * speed as the
+// descent - which is not the vertical speed any more. Worse, at the pitch
+// limit there is no descending arrival with the nose that high that is not
+// also stalled: 64 units of pitch against a stall angle of 56 means alpha is
+// past the break the moment the flight path is level, and the break would trim
+// the nose before the envelope ever saw it. Setting the flight path to keep
+// alpha inside the stall is what holds the attitude still, and arming below
+// the plane is what guarantees the contact happens anyway.
+#ifdef __FLIGHT_AOA__
+static void _arm_at_ground(int16_t pitch, int16_t speed, uint8_t gear) {
+  flight_init();
+  flight_eye_x = 0x200000;
+  flight_eye_y = 0x400000;
+  flight_gear = gear;
+  flight_throttle = 0;
+  flight_speed = speed;
+  // Normalize first and set the attitude second, so front.z is exactly what
+  // the caller asked for - the envelope reads it directly, and these tests are
+  // about one unit either side of a limit.
+  vec_orthonormalize(&flight_cam);
+  flight_cam.front.z = pitch;
+  // A gentle descent, well inside the sink limit, so that the arrival is a
+  // real one and the trigger under test is the only one armed.
+  flight_gamma = (int16_t)(-(100 * 4096) / speed);
+  flight_eye_z = (int32_t)kGroundZ;
+}
+#endif // __FLIGHT_AOA__
+
+
+
+#ifdef __FLIGHT_AOA__
+static void test_touchdown_exact_boundary_limits() {
+  printf("Running test_touchdown_exact_boundary_limits...\n");
+
+  // The nose-down boundary, flown as an arrival.
+  _arm_at_ground(kMinLandingPitch, kTrimSpeed, 1);
+  const int16_t low_ok = flight_cam.front.z;
+  flight_advance();
+  printf("  arrival pitch %d -> status %d (vspeed %d, limit %d)\n", low_ok,
+         flight_status, flight_vspeed, kMaxLandingVSpeed);
+  assert(low_ok == kMinLandingPitch);
+  assert(flight_vspeed >= kMaxLandingVSpeed); // Sink is not the binding check
+  assert(!flight_status);
+
+  _arm_at_ground(kMinLandingPitch - 1, kTrimSpeed, 1);
+  const int16_t low_bad = flight_cam.front.z;
+  flight_advance();
+  printf("  arrival pitch %d -> status %d\n", low_bad, flight_status);
+  assert(low_bad < kMinLandingPitch);
+  assert(flight_status == FLIGHT_CRASH_PITCH_LOW);
+
+  // The nose-up boundary is a *ground* limit now, and this is where it has to
+  // be tested from, because there is no arrival that reaches it.
+  //
+  // The reason is the model rather than the fixture. kMaxLandingPitch is 64
+  // and the wing breaks at 56, so an aircraft descending with the nose above
+  // the limit has its flight path below the horizon and its angle of attack
+  // past the stall by construction - and the break trims the nose before the
+  // envelope is asked. One that is *not* stalled at that attitude is climbing,
+  // and never arrives. On the ground neither applies: the runway is the flight
+  // path, there is no stall, and the nose stays where it is put.
+  for (int16_t pitch = kMaxLandingPitch; pitch <= kMaxLandingPitch + 1;
+       ++pitch) {
+    flight_init();
+    flight_eye_x = 0x200000;
+    flight_eye_y = 0x400000;
+    flight_eye_z = kGroundZ;
+    flight_gear = 1;
+    flight_throttle = 0;
+    flight_speed = 0x0400;
+    flight_advance(); // Into ground mode
+    assert(!flight_status);
+    vec_orthonormalize(&flight_cam);
+    flight_cam.front.z = pitch;
+    flight_advance();
+    printf("  ground roll at pitch %d -> status %d\n", pitch, flight_status);
+    if (pitch <= kMaxLandingPitch) {
+      assert(!flight_status);
+    } else {
+      assert(flight_status == FLIGHT_CRASH_PITCH_HIGH);
+    }
+  }
+
+  printf("  PASS\n\n");
+}
+#else // !__FLIGHT_AOA__
+// 19. Touchdown exact boundary limits test.
+//
+// The nose-up pair is set up by parking the aircraft just below the ground
+// plane so the clamp puts it exactly on it and the envelope predicate runs.
+// That is deliberate here: a front.z = 64 attitude cannot produce a descent at
+// any speed above stall (the steepest descending flare just above stall is
+// 51), and below stall the stall break trims the nose, which would move the
+// very value this test is pinning. Evaluating the predicate directly is the
+// only way to isolate the exact boundary. The reachable version of this crash
+// - held off until it stalls onto the runway - is covered as a real descent in
+// test_touchdown_flare_and_crash_envelope.
 static void test_touchdown_exact_boundary_limits() {
   printf("Running test_touchdown_exact_boundary_limits...\n");
 
@@ -906,6 +1784,7 @@ static void test_touchdown_exact_boundary_limits() {
 
   printf("  PASS\n\n");
 }
+#endif // __FLIGHT_AOA__
 
 // 20. Pause / unpause state freeze test
 static void test_pause_unpause_state_freeze() {
@@ -961,8 +1840,67 @@ static void test_high_altitude_thrust_lift_decay() {
 }
 
 // 22. High altitude stall speed increase test
-static void test_high_altitude_stall_speed_increase() {
-  printf("Running test_high_altitude_stall_speed_increase...\n");
+
+#ifdef __FLIGHT_AOA__
+// 22. Altitude and the stall.
+//
+// The old model raised its stall *speed* constant with altitude by hand. The
+// stall is an angle now, so nothing has to: thinner air makes less lift at the
+// same angle and speed, so the wing needs more angle to carry the weight, and
+// it reaches the break sooner. The effect is the same and there is no
+// constant behind it.
+static void test_high_altitude_stall_increases_with_altitude() {
+  printf("Running test_high_altitude_stall_increases_with_altitude...\n");
+
+  // Same airspeed and the same held attitude, at sea level and high up.
+  const int16_t speed = 0x0480; // Above the sea-level stall speed
+  int steps[2] = {-1, -1};
+  int16_t alpha[2] = {0, 0};
+  const int32_t alt[2] = {0x040000, 0x300000};
+  for (int i = 0; i < 2; ++i) {
+    flight_init();
+    flight_throttle = 0;
+    for (int f = 0; f < 200; ++f) {
+      flight_cam.front.z = 0;
+      flight_speed = speed;
+      flight_eye_z = alt[i];
+      flight_advance();
+      if (flight_stall && steps[i] < 0) {
+        steps[i] = f;
+        alpha[i] = flight_alpha();
+      }
+    }
+  }
+  printf("  sea level: stalls at step %d; at altitude: step %d\n", steps[0],
+         steps[1]);
+  assert(steps[1] >= 0);              // It stalls up high
+  assert(steps[0] < 0 || steps[1] < steps[0]); // and sooner than at sea level
+
+  // The mechanism, stated directly: at the same speed and attitude the thin
+  // air makes less lift, so the flight path falls away faster and the angle of
+  // attack builds quicker. Nothing here is a stall speed.
+  flight_init();
+  flight_eye_z = 0x300000;
+  flight_speed = speed;
+  flight_advance();
+  const int16_t high_gamma = flight_gamma;
+  flight_init();
+  flight_eye_z = 0x040000;
+  flight_speed = speed;
+  flight_advance();
+  printf("  first-step flight path: sea level %d, at altitude %d\n",
+         flight_gamma, high_gamma);
+  assert(high_gamma < flight_gamma);
+
+  printf("  PASS\n\n");
+}
+#else // !__FLIGHT_AOA__
+// Same case as the AoA build's `test_high_altitude_stall_increases_with_altitude`, under that name so
+// main() needs no branch, but asserting the arcade model's behaviour -
+// which for several of these is the opposite behaviour.
+// 22. High altitude stall speed increase test
+static void test_high_altitude_stall_increases_with_altitude() {
+  printf("Running test_high_altitude_stall_increases_with_altitude...\n");
 
   flight_init();
   flight_eye_z = 0x0C0000; // Very high altitude
@@ -976,7 +1914,71 @@ static void test_high_altitude_stall_speed_increase() {
   assert(flight_cam.front.z < 0);
   printf("  PASS\n\n");
 }
+#endif // __FLIGHT_AOA__
 
+// 23. Inverted flaps stall speed increase test
+
+#ifdef __FLIGHT_AOA__
+// 23. Inverted, flaps make it worse (flight.md 4.2).
+//
+// Flaps are a camber shift, added to C_L rather than multiplied into it, and
+// the permanent camber is another. Upright both help; inverted the attitude
+// needs a negative C_L and both fight it, so the wing runs out of angle
+// sooner. There is no `up.z < 0` case anywhere in the model - the sign of the
+// addition does all of it.
+static void test_inverted_flaps_stall_speed_increase() {
+  printf("Running test_inverted_flaps_stall_speed_increase...\n");
+
+  const int16_t speed = 0x0600; // Well above the upright stall speed
+  int steps[2] = {-1, -1};
+  for (int flap = 0; flap < 2; ++flap) {
+    flight_init();
+    flight_throttle = 0;
+    flight_flap = (uint8_t)flap;
+    flight_cam.up = make_vector(0, 0, -256);
+    vec_orthonormalize(&flight_cam);
+    const int16_t hu = flight_cam.up.z;
+    for (int f = 0; f < 200; ++f) {
+      flight_cam.front.z = 0;
+      flight_cam.up.z = hu;
+      flight_speed = speed;
+      flight_eye_z = 0x040000;
+      flight_advance();
+      if (flight_stall && steps[flap] < 0) {
+        steps[flap] = f;
+      }
+    }
+  }
+  printf("  inverted at %d: clean stalls at step %d, flaps at step %d\n", speed,
+         steps[0], steps[1]);
+  assert(steps[1] >= 0);                        // Flaps stall it
+  assert(steps[0] < 0 || steps[1] < steps[0]);  // and sooner than clean
+
+  // Upright, the same flaps do the opposite, which is the point of asserting
+  // both: one addition, two signs.
+  int up_steps[2] = {-1, -1};
+  for (int flap = 0; flap < 2; ++flap) {
+    flight_init();
+    flight_throttle = 0;
+    flight_flap = (uint8_t)flap;
+    for (int f = 0; f < 200; ++f) {
+      flight_cam.front.z = 0;
+      flight_speed = (int16_t)kStallSpeedWithoutFlaps - 40;
+      flight_eye_z = 0x040000;
+      flight_advance();
+      if (flight_stall && up_steps[flap] < 0) {
+        up_steps[flap] = f;
+      }
+    }
+  }
+  printf("  upright just under the clean stall speed: clean %d, flaps %d\n",
+         up_steps[0], up_steps[1]);
+  assert(up_steps[0] >= 0);  // Clean stalls
+  assert(up_steps[1] < 0);   // Flaps do not
+
+  printf("  PASS\n\n");
+}
+#else // !__FLIGHT_AOA__
 // 23. Inverted flaps stall speed increase test
 static void test_inverted_flaps_stall_speed_increase() {
   printf("Running test_inverted_flaps_stall_speed_increase...\n");
@@ -1001,6 +2003,7 @@ static void test_inverted_flaps_stall_speed_increase() {
 
   printf("  PASS\n\n");
 }
+#endif // __FLIGHT_AOA__
 
 // 24. Idle throttle glide slope speed decay test (Mission 2 fix)
 static void test_idle_throttle_glide_slope_speed_decay() {
@@ -1024,6 +2027,48 @@ static void test_idle_throttle_glide_slope_speed_decay() {
   printf("  PASS\n\n");
 }
 
+// 25. Rollout after touchdown test.
+// A landing arrives with the flare pitch still set, and ground mode only
+// clamps front.z to >= 0. Before the vspeed lock this fed a positive vertical
+// speed frame after frame and the aircraft climbed back off the runway while
+// still reporting on-ground.
+
+#ifdef __FLIGHT_AOA__
+static void test_rollout_stays_on_ground() {
+  printf("Running test_rollout_stays_on_ground...\n");
+
+  // Arrives with the flare pitch still set. Armed under the ground plane
+  // rather than a frame above it, because front.z * speed is not the descent
+  // any more - see _arm_at_ground.
+  _arm_at_ground(45, 0x0500, 1);
+
+  // Landing straight ahead, so the whole rollout must stay on front.y == 0.
+  assert(flight_cam.front.y == 0);
+
+  flight_advance();
+  assert(!flight_status);
+  assert(flight_eye_z == 0x2000);
+  assert(flight_vspeed == 0);      // Vertical speed zeroed on touchdown
+  assert(flight_gamma == 0);       // and so is the flight path: the runway is
+                                   // the flight path once the wheels are down
+  assert(flight_cam.front.z == 0); // Nose wheel down, once, at touchdown
+  // The one normalize the nose drop costs must not swing the heading.
+  assert(flight_cam.front.y == 0);
+
+  // The rollout must stay pinned to the ground plane, nose down, and must not
+  // wander off the heading it landed on.
+  for (int i = 0; i < 600; ++i) {
+    flight_advance();
+    assert(flight_eye_z == 0x2000);
+    assert(flight_vspeed == 0);
+    assert(flight_cam.front.z == 0);
+    assert(flight_cam.front.y == 0); // Does not wander off the runway heading
+    assert(!flight_status);
+  }
+  printf("  rolled out to speed %d, still on the ground\n", flight_speed);
+  printf("  PASS\n\n");
+}
+#else // !__FLIGHT_AOA__
 // 25. Rollout after touchdown test.
 // A landing arrives with the flare pitch still set, and ground mode only
 // clamps front.z to >= 0. Before the vspeed lock this fed a positive vertical
@@ -1067,7 +2112,100 @@ static void test_rollout_stays_on_ground() {
          flight_speed, flight_cam.front.z);
   printf("  PASS\n\n");
 }
+#endif // __FLIGHT_AOA__
 
+// 26. Landing envelope: excess sink rate (crash trigger 2).
+//
+// Note what this test documents about the envelope. Vertical speed is
+// front.z * V / 256 - sink_penalty, and both terms are bounded hard for an
+// upright arrival: pitch cannot go below kMinLandingPitch without trigger 4
+// firing first, and the sink penalty is bounded by the stall speed floor. A
+// sweep of every orthonormal attitude that passes the other four checks gives
+// a worst upright sink of -301, inside the -0x0180 limit. So trigger 2 is
+// only reachable inverted - where lift acts downward and the deficit doubles -
+// and it is reachable there precisely because the bank check looks at left.z,
+// which is ~0 after a full 180 degree roll. See docs/flight_review.md C5.
+
+#ifdef __FLIGHT_AOA__
+static void test_landing_envelope_sink_rate() {
+  printf("Running test_landing_envelope_sink_rate...\n");
+
+  // Nose down but with plenty of speed: sink stays inside the limit.
+  int16_t fast = _arm_touchdown(-24, 0, 0x0800, 1);
+  printf("  nose down at speed 0x0800 -> vspeed %d (limit %d)\n", fast,
+         kMaxLandingVSpeed);
+  assert(fast < 0);
+  assert(fast >= kMaxLandingVSpeed);
+  flight_advance();
+  assert(!flight_status);
+
+  // Steeper nose down: the sink drives past the limit while pitch, roll,
+  // speed, gear and up.z are all still legal.
+  int16_t steep = _arm_touchdown(-32, 0, 0x0800, 1);
+  printf("  steeper nose down at pitch -32 speed 0x0800 -> vspeed %d\n", steep);
+  assert(steep < kMaxLandingVSpeed);                    // Trigger 2 armed
+  assert(_abs16(flight_cam.left.z) <= kMaxLandingRoll); // 3 clear
+  assert(flight_cam.up.z >= kMinLandingUpZ);            // 6 clear
+  assert(flight_speed <= (int16_t)kMaxLandingSpeed);    // 5 clear
+  assert(flight_gear);                                  // 1 clear
+  flight_advance();
+  assert(flight_cam.front.z >= kMinLandingPitch); // 4 clear at the check
+  assert(flight_status == FLIGHT_CRASH_VSPEED);
+
+  // Sweep every arrival above stall speed that passes the other five checks.
+  //
+  // The property this used to assert - that a level-or-nose-up flare never
+  // trips the sink limit - is no longer true, and losing it is the point of
+  // the model rather than a regression. Vertical speed used to be front.z
+  // times airspeed, so nose-up simply could not descend fast. It is the flight
+  // path now, and an aeroplane held nose-high near the stall is descending
+  // steeply whatever the nose is doing. What survives is the same rule with
+  // the speed named: a flare *with speed in hand* is safe.
+  bool reachable = false;
+  int16_t worst = 0, worst_pitch = 0, worst_speed = 0;
+  int16_t worst_flared_fast = 0;
+  // 1.2 times the speed at which the wing runs out of angle - a normal
+  // approach speed, and the one the green arc is drawn around.
+  const int16_t kApproach = (int16_t)(kStallSpeedWithoutFlaps * 6 / 5);
+  for (int16_t roll = -kMaxLandingRoll; roll <= kMaxLandingRoll; roll += 8) {
+    for (int16_t p = kMinLandingPitch; p <= kMaxLandingPitch; p += 2) {
+      for (int16_t sp = (int16_t)kStallSpeedWithoutFlaps + 6;
+           sp <= (int16_t)kMaxLandingSpeed; sp += 40) {
+        _arm_touchdown(p, roll, sp, 1);
+        int16_t pitch = flight_cam.front.z;
+        if (pitch < kMinLandingPitch || pitch > kMaxLandingPitch ||
+            _abs16(flight_cam.left.z) > kMaxLandingRoll ||
+            flight_cam.up.z < kMinLandingUpZ || flight_vspeed >= 0) {
+          continue; // Another trigger owns it, or it is not descending
+        }
+        if (flight_vspeed < kMaxLandingVSpeed) {
+          reachable = true;
+        }
+        if (flight_vspeed < worst) {
+          worst = flight_vspeed;
+          worst_pitch = pitch;
+          worst_speed = flight_speed;
+        }
+        if (pitch >= 0 && sp >= kApproach && flight_vspeed < worst_flared_fast) {
+          worst_flared_fast = flight_vspeed;
+        }
+      }
+    }
+  }
+  printf("  above stall: worst sink %d at pitch=%d speed=%d;"
+         " worst flare at or above %d: %d; limit %d\n",
+         worst, worst_pitch, worst_speed, kApproach, worst_flared_fast,
+         kMaxLandingVSpeed);
+  assert(reachable); // The limit is live, not dead code
+  // A flare flown at an approach speed always survives it.
+  assert(worst_flared_fast >= kMaxLandingVSpeed);
+  // And the worst arrival in the whole sweep is a slow one, not a fast one -
+  // which is the shape of the rule the pilot has to learn now.
+  assert(worst_speed < kApproach);
+
+  printf("  PASS\n\n");
+}
+#else // !__FLIGHT_AOA__
 // 26. Landing envelope: excess sink rate (crash trigger 2).
 //
 // Note what this test documents about the envelope. Vertical speed is
@@ -1146,6 +2284,7 @@ static void test_landing_envelope_sink_rate() {
 
   printf("  PASS\n\n");
 }
+#endif // __FLIGHT_AOA__
 
 // 27. Landing envelope: excess bank angle (crash trigger 3).
 static void test_landing_envelope_bank_angle() {
@@ -1289,6 +2428,55 @@ static void test_inverted_high_nose_stall_breaks_downward() {
 // Flies a settled glide at the given pitch with the engine out and returns the
 // glide ratio (horizontal distance travelled / altitude lost) scaled by 1000.
 // Returns 0 if the aircraft could not hold the glide.
+#ifdef __FLIGHT_AOA__
+static int32_t _glide_ratio_x1000(int16_t pitch) {
+  flight_init();
+  flight_fuel = 0; // Engine out
+  flight_throttle = 0;
+  flight_cam.front = make_vector(256, 0, 0);
+  flight_cam.left = make_vector(0, 256, 0);
+  flight_cam.up = make_vector(0, 0, 256);
+  flight_cam.front.z = pitch;
+  vec_orthonormalize(&flight_cam);
+  int16_t hp = flight_cam.front.z, hu = flight_cam.up.z;
+
+  // Flown at a pinned altitude with the descent accumulated by hand, rather
+  // than by letting the aircraft actually fall from a great height. Two
+  // reasons, and the first is a bug this replaces: the old version started at
+  // 0x0400000, which is far above the 0x080000 density knee, so it measured
+  // the glide in half-density air. That barely troubled a model whose only
+  // drag was parasite; it wrecks one with an induced term, because thin air
+  // means more C_L for the same weight and induced drag goes as its square.
+  // Second, a glide steep enough to be interesting now reaches the ground
+  // inside the measuring run.
+  const int32_t kZ = 0x040000;
+  int32_t dh = 0, dz = 0;
+  for (int i = 0; i < 900; ++i) { // Settle
+    flight_cam.front.z = hp;
+    flight_cam.up.z = hu;
+    flight_eye_z = kZ;
+    flight_advance();
+  }
+  if (flight_status) {
+    return 0;
+  }
+  for (int i = 0; i < 300; ++i) { // Measure
+    flight_cam.front.z = hp;
+    flight_cam.up.z = hu;
+    const int32_t x0 = flight_eye_x;
+    flight_eye_z = kZ;
+    flight_advance();
+    // The glide is flown straight ahead, so the ground track is along x alone
+    // and no square root is needed for the horizontal distance.
+    dh += flight_eye_x - x0;
+    dz += kZ - flight_eye_z;
+  }
+  if (dz <= 0 || dh <= 0) {
+    return 0;
+  }
+  return (int32_t)(((int64_t)dh * 1000) / dz);
+}
+#else // !__FLIGHT_AOA__
 static int32_t _glide_ratio_x1000(int16_t pitch) {
   flight_init();
   flight_eye_z = 0x0400000; // High enough for a long glide
@@ -1325,7 +2513,43 @@ static int32_t _glide_ratio_x1000(int16_t pitch) {
   }
   return (int32_t)(((int64_t)dh * 1000) / dz);
 }
+#endif // __FLIGHT_AOA__
 
+// 31. Optimal glide angle test (flight.md 6.2).
+
+#ifdef __FLIGHT_AOA__
+static void test_optimal_glide_angle() {
+  printf("Running test_optimal_glide_angle...\n");
+
+  int32_t best = 0;
+  int16_t best_pitch = 0;
+  for (int16_t p = -2; p >= -120; --p) {
+    int32_t r = _glide_ratio_x1000(p);
+    if (r > best) {
+      best = r;
+      best_pitch = p;
+    }
+  }
+  printf("  best glide ratio %d.%03d:1 at front.z=%d\n", best / 1000,
+         best % 1000, best_pitch);
+
+  // Nose down, and a real glide rather than a mush.
+  assert(best_pitch < 0);
+  assert(best > 5000); // Better than 5:1
+
+  // It is a peak: much shallower and much steeper are both worse. The band is
+  // wide because the peak sits on a shelf - settled glide speed moves in
+  // steps, and either side of the shelf the aircraft trades airspeed for
+  // angle of attack at nearly the same cost.
+  const int32_t shallow = _glide_ratio_x1000(-4);
+  const int32_t steep = _glide_ratio_x1000(-110);
+  printf("  shallow(-4) %d, steep(-110) %d\n", shallow, steep);
+  assert(shallow < best);
+  assert(steep < best);
+
+  printf("  PASS\n\n");
+}
+#else // !__FLIGHT_AOA__
 // 31. Optimal glide angle test (flight.md 6.2).
 static void test_optimal_glide_angle() {
   printf("Running test_optimal_glide_angle...\n");
@@ -1360,6 +2584,7 @@ static void test_optimal_glide_angle() {
 
   printf("  PASS\n\n");
 }
+#endif // __FLIGHT_AOA__
 
 // Holds a bank for `frames` frames starting from a due-x heading, and leaves
 // the resulting forward vector in flight_cam. Turn magnitude is read off
@@ -1385,8 +2610,121 @@ static void _turn_over(int roll_steps, int16_t speed, int frames) {
 // 32. Turn rate test (flight.md 3.1).
 // Yaw rate is rot = left.z >> 5 - a function of bank angle only. It is
 // explicitly NOT proportional to airspeed; the spec used to claim left.z * V.
-static void test_turn_rate_depends_on_bank_not_speed() {
-  printf("Running test_turn_rate_depends_on_bank_not_speed...\n");
+
+#ifdef __FLIGHT_AOA__
+// 32. Turn rate is the horizontal half of lift (flight.md 3.1).
+//
+// This test used to assert the opposite of its own name's replacement: that
+// the turn rate did *not* depend on airspeed, because the old model turned at
+// `left.z >> 5` whatever the wing was doing (flight_review.md B4). The turn is
+// now L sin(bank) over momentum, the same equation and the same 1/V as the
+// flight path, so it depends on both - and a level turn's rate is g tan(bank)
+// / V, which falls as the aircraft goes faster.
+static void test_turn_rate_scales_with_lift_over_speed() {
+  printf("Running test_turn_rate_scales_with_lift_over_speed...\n");
+
+  // Wings level: no turn at all - the forward vector is untouched.
+  _turn_over(0, 1800, 60);
+  printf("  level      -> front=(%4d,%4d) heading %2d/%d\n", flight_cam.front.x,
+         flight_cam.front.y, _heading(), kHeadingMax);
+  assert(_same_heading(256, 0));
+
+  // Banked: the aircraft turns, and steeper bank turns faster. Both runs stay
+  // inside a quarter turn, so |front.y| orders them.
+  _turn_over(4, 1800, 60);
+  const int16_t medium_y = _abs16(flight_cam.front.y);
+  printf("  4 steps    -> front=(%4d,%4d) heading %2d/%d\n", flight_cam.front.x,
+         flight_cam.front.y, _heading(), kHeadingMax);
+  assert(medium_y != 0);
+  assert(flight_cam.front.x > 0); // Still inside the first quarter turn
+
+  _turn_over(8, 1800, 60);
+  const int16_t steep_y = _abs16(flight_cam.front.y);
+  printf("  8 steps    -> front=(%4d,%4d) heading %2d/%d\n", flight_cam.front.x,
+         flight_cam.front.y, _heading(), kHeadingMax);
+  assert(flight_cam.front.x > 0);
+  assert(steep_y > medium_y);
+
+  // Same bank, flown level at two airspeeds: the slower turn is the tighter
+  // one. Each is flown at the attitude that trims that speed level in the
+  // turn, because comparing rates across speeds means comparing them at the
+  // same lift - a fixed attitude would compare a 1 g turn with a 2 g one.
+  int16_t deg[2] = {0, 0};
+  const int16_t entry[2] = {1400, 2400};
+  for (int i = 0; i < 2; ++i) {
+    int16_t best_pitch = 0;
+    int32_t best_climb = 0x7FFFFFFF;
+    for (int16_t p = -16; p <= 120; p += 2) {
+      flight_init();
+      flight_eye_z = 0x040000;
+      flight_throttle = 0x18;
+      flight_fuel = 0x0FFFFFFF;
+      flight_speed = entry[i];
+      _roll_by(8);
+      const int16_t hu = flight_cam.up.z, hl = flight_cam.left.z;
+      int32_t vsum = 0;
+      for (int f = 0; f < 60; ++f) {
+        flight_cam.front.z = p;
+        flight_cam.up.z = hu;
+        flight_cam.left.z = hl;
+        vec_orthonormalize(&flight_cam);
+        flight_speed = entry[i];
+        flight_eye_z = 0x040000;
+        flight_advance();
+        flight_throttle = 0x18;
+        vsum += flight_vspeed;
+      }
+      const int32_t off = vsum < 0 ? -vsum : vsum;
+      if (!flight_status && off < best_climb) {
+        best_climb = off;
+        best_pitch = p;
+      }
+    }
+    // Fly the level turn and count the heading change.
+    flight_init();
+    flight_eye_z = 0x040000;
+    flight_throttle = 0x18;
+    flight_fuel = 0x0FFFFFFF;
+    flight_speed = entry[i];
+    _roll_by(8);
+    const int16_t hu = flight_cam.up.z, hl = flight_cam.left.z;
+    double turned = 0.0;
+    double hprev = atan2((double)flight_cam.front.y, (double)flight_cam.front.x);
+    for (int f = 0; f < 60; ++f) {
+      flight_cam.front.z = best_pitch;
+      flight_cam.up.z = hu;
+      flight_cam.left.z = hl;
+      vec_orthonormalize(&flight_cam);
+      flight_speed = entry[i];
+      flight_eye_z = 0x040000;
+      flight_advance();
+      flight_throttle = 0x18;
+      const double h =
+          atan2((double)flight_cam.front.y, (double)flight_cam.front.x);
+      double d = h - hprev;
+      while (d > M_PI) d -= 2 * M_PI;
+      while (d < -M_PI) d += 2 * M_PI;
+      turned += d;
+      hprev = h;
+    }
+    deg[i] = (int16_t)(_abs16((int16_t)(turned * 180.0 / M_PI)));
+    printf("  level turn at %d: pitch %d, %d degrees in 60 steps\n", entry[i],
+           best_pitch, deg[i]);
+  }
+  assert(deg[0] > 0 && deg[1] > 0);
+  assert(deg[0] > deg[1]); // Slower is tighter
+
+  printf("  PASS\n\n");
+}
+#else // !__FLIGHT_AOA__
+// Same case as the AoA build's `test_turn_rate_scales_with_lift_over_speed`, under that name so
+// main() needs no branch, but asserting the arcade model's behaviour -
+// which for several of these is the opposite behaviour.
+// 32. Turn rate test (flight.md 3.1).
+// Yaw rate is rot = left.z >> 5 - a function of bank angle only. It is
+// explicitly NOT proportional to airspeed; the spec used to claim left.z * V.
+static void test_turn_rate_scales_with_lift_over_speed() {
+  printf("Running test_turn_rate_scales_with_lift_over_speed...\n");
 
   // Wings level: no turn at all - the forward vector is untouched.
   _turn_over(0, 1800, 60);
@@ -1425,7 +2763,57 @@ static void test_turn_rate_depends_on_bank_not_speed() {
 
   printf("  PASS\n\n");
 }
+#endif // __FLIGHT_AOA__
 
+// 33. Altitude loss in a banked turn (flight.md 3.1).
+// Banking tilts the lift vector, so up.z falls and the vertical component of
+// lift no longer carries the weight. Without added pitch or throttle the
+// aircraft turns and descends.
+
+#ifdef __FLIGHT_AOA__
+static void test_banked_turn_loses_altitude() {
+  printf("Running test_banked_turn_loses_altitude...\n");
+
+  // Held at the wings-level trim attitude, so the bank is the only variable.
+  // Altitude is accumulated rather than flown, because a 70 degree bank with
+  // no pitch compensation now reaches the ground inside the run.
+  int16_t trim_pitch = 0;
+  assert(_level_trim(0x18, 256, 0, &trim_pitch));
+
+  int32_t dz[3];
+  const int roll_steps[3] = {0, 6, 10}; // Level, ~left.z 169, ~left.z 239
+  for (int i = 0; i < 3; ++i) {
+    flight_init();
+    flight_eye_z = 0x040000;
+    flight_throttle = 0x18; // Full throttle, so thrust is not the variable
+    flight_fuel = 0x0FFFFFFF;
+    flight_speed = 0x0900;
+    flight_cam.front = make_vector(256, 0, 0);
+    flight_cam.left = make_vector(0, 256, 0);
+    flight_cam.up = make_vector(0, 0, 256);
+    _roll_by(roll_steps[i]);
+    const int16_t held_roll = flight_cam.left.z;
+    dz[i] = 0;
+    for (int f = 0; f < 200; ++f) {
+      flight_cam.left.z = held_roll;
+      flight_cam.front.z = trim_pitch; // Level trim, no extra pull
+      const int32_t z0 = 0x040000;
+      flight_eye_z = z0;
+      flight_advance();
+      flight_throttle = 0x18;
+      dz[i] += flight_eye_z - z0;
+    }
+    printf("  left.z=%3d -> dz=%8d, speed=%d, alpha=%d\n", held_roll, dz[i],
+           flight_speed, flight_alpha());
+  }
+
+  assert(dz[0] >= 0);    // Wings level at its own trim: holds altitude
+  assert(dz[1] < 0);     // 45 deg bank: descends
+  assert(dz[2] < dz[1]); // 70 deg bank: descends faster
+
+  printf("  PASS\n\n");
+}
+#else // !__FLIGHT_AOA__
 // 33. Altitude loss in a banked turn (flight.md 3.1).
 // Banking tilts the lift vector, so up.z falls and the vertical component of
 // lift no longer carries the weight. Without added pitch or throttle the
@@ -1464,6 +2852,7 @@ static void test_banked_turn_loses_altitude() {
 
   printf("  PASS\n\n");
 }
+#endif // __FLIGHT_AOA__
 
 // 34. Ground steering test (flight.md 5.1).
 // On the ground the roll inputs are remapped to nose-wheel steering, and the
@@ -2339,6 +3728,60 @@ static void test_flight_path_samples_are_connected() {
 // after the crash, so simply reaching the end of a step while crashed means it
 // happened during that step. That is only true as long as the early return
 // stays at the top, which is what this pins down.
+
+#ifdef __FLIGHT_AOA__
+static void test_crash_event_fires_once() {
+  printf("Running test_crash_event_fires_once...\n");
+
+  flight_init_from_mission(3);
+  flight_eye_z = 0x040000;
+  flight_advance();
+  assert(!flight_crashed());
+  assert((flight_events & FLIGHT_EV_CRASH) == 0);
+
+  // Fly it into the ground by holding a steep nose-down attitude.
+  //
+  // This used to hold the pitch-down *input*, which drove the old model
+  // straight in because its flight path was its attitude. Held now it flies an
+  // outside loop - the nose keeps rotating, the flight path follows it round,
+  // and the aircraft comes over the top and climbs away. Holding an attitude
+  // rather than an input is what a dive is in a model that has both.
+  int steps = 0;
+  while (!flight_crashed() && steps < 4000) {
+    flight_cam.front.z = -200;
+    vec_orthonormalize(&flight_cam);
+    flight_advance();
+    ++steps;
+  }
+  printf("  crashed after %d steps, status %d\n", steps, flight_status);
+  assert(flight_crashed());
+
+  // The wrecking step published it, alongside a bumped generation.
+  assert((flight_events & FLIGHT_EV_CRASH) != 0);
+  const uint8_t gen_at_crash = flight_gen;
+
+  // Every later frame publishes nothing at all - not the crash again, and not
+  // a new generation. Without that, a consumer keyed on the generation would
+  // retrigger the crash sound on every frame for the rest of the flight.
+  for (int i = 0; i < 20; ++i) {
+    flight_advance();
+    assert(flight_gen == gen_at_crash);
+  }
+
+  // A restart clears it, so the next attempt does not begin wrecked.
+  flight_init_from_mission(3);
+  assert(!flight_crashed());
+  assert((flight_events & FLIGHT_EV_CRASH) == 0);
+
+  printf("  PASS\n\n");
+}
+#else // !__FLIGHT_AOA__
+// The crash event fires exactly once, on the step that wrecks the aircraft.
+//
+// It carries no flag of its own: flight_advance() returns early on every frame
+// after the crash, so simply reaching the end of a step while crashed means it
+// happened during that step. That is only true as long as the early return
+// stays at the top, which is what this pins down.
 static void test_crash_event_fires_once() {
   printf("Running test_crash_event_fires_once...\n");
 
@@ -2376,6 +3819,7 @@ static void test_crash_event_fires_once() {
 
   printf("  PASS (crashed after %d steps)\n\n", steps);
 }
+#endif // __FLIGHT_AOA__
 
 // Pause freezes the controls as well as the physics.
 //
@@ -2750,10 +4194,23 @@ int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   mem_screen_row_ptrs[0] = test_screen_row;
-  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (63 TESTS) ===\n\n");
+  #ifdef __FLIGHT_AOA__
+  const char *model = "angle of attack";
+  const int count = 64;
+#else
+  // test_stall_speeds_are_derived has nothing to say about a model that is
+  // told its stall speeds, so it is not compiled into the arcade build.
+  const char *model = "arcade";
+  const int count = 63;
+#endif
+  printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (%d TESTS, %s) ===\n\n", count,
+         model);
   test_host_multiply_matches_c64();
+#ifdef __FLIGHT_AOA__
+  test_stall_speeds_are_derived();
+#endif
   test_level_cruise_equilibrium();
-  test_trim_speed_boundary();
+  test_level_trim_falls_with_speed();
   test_power_off_stall_recovery();
   test_no_backward_flight();
   test_climb_at_different_throttles();
@@ -2762,7 +4219,7 @@ int main(int argc, char **argv) {
   test_gear_drag_penalty();
   test_flap_drag_lift_and_stall_reduction();
   test_touchdown_flare_and_crash_envelope();
-  test_takeoff_stall_speed_gate();
+  test_takeoff_rotation_is_not_a_gate();
   test_takeoff_rotation_attitude();
   test_ground_deceleration_friction();
   test_ground_braking();
@@ -2776,7 +4233,7 @@ int main(int argc, char **argv) {
   test_touchdown_exact_boundary_limits();
   test_pause_unpause_state_freeze();
   test_high_altitude_thrust_lift_decay();
-  test_high_altitude_stall_speed_increase();
+  test_high_altitude_stall_increases_with_altitude();
   test_inverted_flaps_stall_speed_increase();
   test_idle_throttle_glide_slope_speed_decay();
   test_rollout_stays_on_ground();
@@ -2786,7 +4243,7 @@ int main(int argc, char **argv) {
   test_landing_envelope_inverted();
   test_inverted_high_nose_stall_breaks_downward();
   test_optimal_glide_angle();
-  test_turn_rate_depends_on_bank_not_speed();
+  test_turn_rate_scales_with_lift_over_speed();
   test_banked_turn_loses_altitude();
   test_ground_steering();
   test_takeoff_roll_speed_margin();
@@ -2814,6 +4271,6 @@ int main(int argc, char **argv) {
   test_flight_path_samples_are_connected();
   test_flight_path_ring_buffer();
   test_ground_gear_retraction_blocked();
-  printf("ALL 57 TESTS PASSED SUCCESSFULLY!\n");
+  printf("ALL %d TESTS PASSED SUCCESSFULLY (%s model)!\n", count, model);
   return 0;
 }
