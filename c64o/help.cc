@@ -29,7 +29,7 @@ static const char kHelpText[] =
     "G        TOGGLE GEAR\n"
     "B        BRAKE ON GROUND\n"
     "\n"
-    "1 2 3    LOOK LEFT/CENTER/RIGHT\n"
+    "1 2 3 4  LOOK LEFT/FWD/RIGHT/BACK\n"
     "N        TOGGLE NAV POINT\n"
     "M        TOGGLE MAP VIEW\n"
     "P        PAUSE / RESUME\n"

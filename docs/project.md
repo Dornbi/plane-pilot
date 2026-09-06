@@ -416,16 +416,30 @@ and checks both the shipped `panel.koa` and the Makefile's pin list against
 them, since the same four cells are now written down in three places.
 The lamps also only update in the center view, like the heading strip: a side
 view replaces those cells with the fill pattern, which draws with color RAM
-itself.
+itself, and the back view replaces the whole panel with it.
 
-### `view.cc` — the three views
+### `view.cc` — the four views
 
-`view_update_cam()` derives the camera from `flight_cam`: forward, or ±90°
-using the `left` vector. Switching to a side view rebuilds the panel bitmap,
-sliding the retained 8 columns (`kCopyWidthChars`) to one side and filling the
-rest with a gradient pattern. Returning to center re-expands the compressed
-panel. Bitmap state is tracked separately (`view_bitmap_state`) so a
-center→side switch skips the re-expansion.
+`view_update_cam()` derives the camera from `flight_cam`: forward, ±90° using
+the `left` vector, or 180° by negating **both** `front` and `left` — negating
+one alone would mirror the world rather than turn round in it, and every
+polygon would come out wound the wrong way.
+
+Switching to a side view rebuilds the panel bitmap, sliding the retained 8
+columns (`kCopyWidthChars`) to one side and filling the rest with a gradient
+pattern. Returning to center re-expands the compressed panel. Bitmap state is
+tracked separately (`view_bitmap_state`) so a center→side switch skips the
+re-expansion.
+
+The back view keeps no columns at all — there is no dashboard behind the
+pilot's head — so it fills all forty with the same gradient, and the colours
+are two memsets rather than a shift. That makes it the one view switch with no
+LZO pass in it: the fill overwrites everything the expansion would have
+produced, so the two to four frames it costs elsewhere are not spent. It leaves
+`view_bitmap_state` at `VIEW_BACK`, which is what makes *leaving* the back view
+re-expand the art the fill destroyed, the heading strip included. No instrument
+sprite, no lamp, no heading strip and no orientation mark is drawn while it is
+up; each of those already bails out on a `view_state != VIEW_CENTER` test.
 
 ### `sprites.cc` / `spritedef.cc`
 
@@ -450,7 +464,9 @@ one; [planes.md](planes.md) is meant to be the third.
 Seven slots, not eight: index 7 is the vertical-speed needle below the split
 and the **orientation indicator** above it — a fixed bar with a gap in it at
 the centre of the viewport, in the front view only, which is what gives the
-moving horizon something to be read against. Designed in
+moving horizon something to be read against. The side views park every needle
+but one at x = 0, where the left border hides it, and the back view parks all
+of them. Designed in
 [clouds.md](clouds.md) §1 and §1.9; the host suite is `test/sprites_test.cc`.
 
 ### `clouds.cc` / `clouddef.cc`

@@ -44,7 +44,9 @@ What you can do in Plane Pilot:
 - SID sound effects: engine roar, stall alarm, touchdown squeal, flap/gear clicks, crash sound effects
 - Full-screen 128x128 map view (`M`) displaying world terrain, numbered mission waypoints, aircraft location marker, and real-time flight path tracking trail
 - Dashboard instrument panel with working indicator lamps (flaps, gear, stall warning, nav points)
-- Look forward, left, right, and toggle the HUD debug view with per-stage cycle counters (`D`)
+- Look forward, left, right, and back over the tail — the back view drops the dashboard
+  entirely and gives the whole screen to the world
+- Toggle the HUD debug view with per-stage cycle counters (`D`)
 - On-screen HUD notifications, approach warnings, and crash diagnostics
 - Wheel braking (`B`) and ground nose-wheel steering
 - Maintain ~10 frames per second on standard C64 hardware
@@ -70,7 +72,7 @@ To fly the plane you can use the following keys:
 | `F`             | Toggle flaps                          |
 | `G`             | Toggle landing gear                   |
 | `B`             | Wheel brakes (on ground)              |
-| `1` `2` `3`     | Look left, forward, right             |
+| `1` `2` `3` `4` | Look left, forward, right, back       |
 | `N`             | Toggle Nav point 1 / 2 (runways)      |
 | `M`             | Toggle map view                       |
 | `R`             | Reset to starting state               |
@@ -94,38 +96,26 @@ See [docs/development.md](docs/development.md) for more details,
 
 ## Updates
 
+### 2026-09-06
+
+- A fourth view, `4`: over the tail, 180 degrees from the nose.
+
 ### 2026-09-05
 
 The flight model can have an angle of attack, as a build option.
-
 The aircraft now has two directions instead of one: where the nose points, and
 where it is actually going. The angle between them drives lift, and everything
-else follows from that — the stall is an angle rather than a speed, so the
-stall speeds are *derived* (1024 clean, 836 with flaps, against the 1024 and 832
-the old model had to be told); turn rate depends on airspeed; induced drag is
-one term instead of three stand-ins; and the takeoff needs no rotation fudge,
-because rotating makes lift.
-
-What a pilot will notice:
+else follows from that — the stall is an angle rather than a speed,; turn rate depends on airspeed; induced drag is one term instead of three stand-ins; and the takeoff needs no rotation fudge, because rotating makes lift.
 
 - Level flight needs a little nose-up at every speed, less of it the faster you
-  go. Zero pitch is a gentle descent.
+  go.
+- Zero pitch is a gentle descent.
 - Pulling hard can stall the wing at any speed, not just a slow one.
 - A flare with speed in hand lands; holding it off until the wing stops flying
   is a stall onto the runway.
 - Inverted flight needs a visibly nose-high attitude and flies nearer the
   stall.
 - The glide is longer (7.3 : 1, was 6.1 : 1) and the climb is slower.
-
-It costs +768 bytes, so it ships as **its own binary** rather than replacing
-anything: `ppilot.prg` is the arcade model that has always shipped, at 47,607
-bytes, and `flighta.prg` is this one at 48,375. `make` builds both from the same
-sources. Both are covered by the test suite (`make -C c64o/test test-both`).
-Per model step it costs roughly nothing — re-orthonormalizing dominates a step
-and is untouched.
-
-`docs/flight.md` specifies both and `docs/flight_aoa.md` is the prototype and
-the measurements either side.
 
 ### 2026-08-30
 

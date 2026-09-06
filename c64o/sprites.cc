@@ -394,12 +394,14 @@ static const uint8_t kSpriteOrientVY =
 // The front view only. Looking left or right the camera is 90 degrees off the
 // nose, so a mark fixed to the middle of the screen would be a reference for an
 // attitude nobody is flying: the horizon out of the side window rises and falls
-// with *roll*, and reading pitch off it is exactly backwards. The panel says
-// the same thing - the side views draw one instrument and leave the roll and
-// pitch dials off (sprites_show_panel_bottom_sprites()).
+// with *roll*, and reading pitch off it is exactly backwards. Looking back it
+// is worse than useless - pitch and roll both read reversed there. The panel
+// says the same thing: a side view draws one instrument, the back view draws
+// none, and neither draws the roll and pitch dials
+// (sprites_show_panel_bottom_sprites()).
 //
 // The test is here rather than at the call site so that no caller can put the
-// mark in a side view by forgetting it.
+// mark in a side or back view by forgetting it.
 void sprites_set_orientation(void) {
   _sprites_orient_on = view_state == VIEW_CENTER;
 }
@@ -601,7 +603,7 @@ inline void sprites_show_panel_bottom_sprites() {
     *(kScreenRamAlt + 1016 + kSpriteIdxFuel) =
         _sprites_instrument_idx[kSpriteIdxFuel];
     vic.spr_msbx = (1 << kSpriteIdxFuel);
-  } else {
+  } else if (view_state == VIEW_RIGHT) {
     vic.spr_pos[kSpriteIdxThrottle].x =
         _sprites_instrument_xy[kSpriteIdxThrottle].x;
     vic.spr_pos[kSpriteIdxThrottle].y =
@@ -612,4 +614,10 @@ inline void sprites_show_panel_bottom_sprites() {
         _sprites_instrument_idx[kSpriteIdxThrottle];
     // Assume vic.spr_msbx is already 0
   }
+  // VIEW_BACK falls out with nothing done, which is the whole of it: the back
+  // view shows no dashboard, so it shows no instrument either.
+  // sprites_show_panel_top_sprites() has already parked all eight sprites at
+  // x = 0, where the left border hides them, and left $D010 zero, so every
+  // needle is off screen for this band and the sprite pointers at +1016 are
+  // stale but never read.
 }

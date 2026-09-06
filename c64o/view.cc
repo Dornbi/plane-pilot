@@ -42,10 +42,19 @@ void view_update_cam() {
     world_cam.front = flight_cam.left;
     world_cam.left = flight_cam.front;
     vec_negate(&world_cam.left);
-  } else {
+  } else if (view_state == VIEW_RIGHT) {
     world_cam.front = flight_cam.left;
     vec_negate(&world_cam.front);
     world_cam.left = flight_cam.front;
+  } else {
+    // Looking back: half a turn about `up`, which negates both of the other
+    // two. Negating only one would mirror the world rather than turn round in
+    // it -- the handedness has to survive, or every polygon comes out wound
+    // the wrong way.
+    world_cam.front = flight_cam.front;
+    vec_negate(&world_cam.front);
+    world_cam.left = flight_cam.left;
+    vec_negate(&world_cam.left);
   }
   world_cam.up = flight_cam.up;
 }
@@ -55,6 +64,11 @@ void view_update_cam() {
 #pragma optimize(push, outline)
 
 static char *const kViewBitmapDst = (char *)0xF000;
+// Where the panel's own eleven rows start inside that bitmap. The expansion
+// above it covers a little more, because the embedded slice of the koala
+// begins at a round address rather than at a row boundary, but everything
+// before this is behind the char-mode viewport and never seen.
+static char *const kViewBitmapPanel = (char *)0xE000 + 320 * kViewportHeight;
 static char *const kViewScreenDst = (char *)0xEE30;
 static char *const kViewColorDst = (char *)0xDA30;
 
@@ -66,11 +80,27 @@ static const uint8_t kViewFillPattern[] = {
 };
 // clang-format on
 
-static void _view_fill_with_pattern(char *dst, const char *src) {
-  for (uint8_t n = 0; n < kFillWidthChars; ++n) {
+static void _view_fill_with_pattern(char *dst, const char *src, uint8_t chars) {
+  for (uint8_t n = 0; n < chars; ++n) {
     for (uint8_t c = 0; c < 8; ++c) {
       *dst++ = src[c];
     }
+  }
+}
+
+// The gradient, into `chars` columns of all eleven panel rows starting at
+// `dst` in the first of them. The top three rows are the gradient proper and
+// everything below is the solid colour it ends on. A side view fills the
+// columns the dashboard no longer covers; the back view fills all forty.
+static void _view_fill_bitmap(char *dst, uint8_t chars) {
+  for (uint8_t row = 0; row < kScreenHeight - kViewportHeight; ++row) {
+    if (row >= 3) {
+      memset(dst, 0xAA, chars * 8);
+    } else {
+      _view_fill_with_pattern(dst, (const char *)kViewFillPattern + row * 8,
+                              chars);
+    }
+    dst += kScreenWidth * 8;
   }
 }
 
@@ -100,12 +130,13 @@ static void _view_blackout_panel(void) {
 }
 
 // A side view keeps kCopyWidthChars of the panel's 40 columns and fills the
-// rest with the gradient pattern. The bitmap half of that, and the color half
-// below it, used to be one loop; they are two so that the slow half can run
-// while the panel is blacked out and the fast half can run at the end, where
-// it is the frame the finished panel appears in.
+// rest with the gradient pattern; the back view has its own path above, since
+// it keeps nothing and so has no columns to slide. The bitmap half of that,
+// and the color half below it, used to be one loop; they are two so that the
+// slow half can run while the panel is blacked out and the fast half can run
+// at the end, where it is the frame the finished panel appears in.
 static void _view_shift_bitmap(bool is_left_view) {
-  char *bmp_src = (char *)0xE000 + 320 * kViewportHeight;
+  char *bmp_src = kViewBitmapPanel;
   char *bmp_dst = bmp_src;
   char *bmp_fill = bmp_src;
   if (is_left_view) {
@@ -116,16 +147,10 @@ static void _view_shift_bitmap(bool is_left_view) {
   }
   for (uint8_t row = 0; row < kScreenHeight - kViewportHeight; ++row) {
     memcpy(bmp_dst, bmp_src, kCopyWidthChars * 8);
-    if (row >= 3) {
-      memset(bmp_fill, 0xAA, kFillWidthChars * 8);
-    } else {
-      _view_fill_with_pattern(bmp_fill,
-                              (const char *)kViewFillPattern + row * 8);
-    }
     bmp_dst += kScreenWidth * 8;
     bmp_src += kScreenWidth * 8;
-    bmp_fill += kScreenWidth * 8;
   }
+  _view_fill_bitmap(bmp_fill, kFillWidthChars);
 }
 
 static void _view_shift_colors(bool is_left_view) {
@@ -163,12 +188,27 @@ static void _view_shift_colors(bool is_left_view) {
 // Rebuilds the panel for the current view_state, in an order chosen so that
 // nothing half-built is ever on screen: black it out, do all the slow work
 // under that, and put the colors back last. Every caller is either a screen
-// transition, where screen_blank() has the display off anyway, or a 1/2/3 view
-// switch, where the blackout above is the only cover there is.
+// transition, where screen_blank() has the display off anyway, or a 1/2/3/4
+// view switch, where the blackout above is the only cover there is.
 //
 // The caller has already ruled out the debug view.
 static void _view_build_panel(void) {
   _view_blackout_panel();
+
+  if (view_state == VIEW_BACK) {
+    // Nothing of the dashboard is kept, so there is nothing to expand and
+    // nothing to shift: the gradient covers all forty columns, and the two
+    // colour memsets replace the whole of _view_shift_colors(). This is the
+    // one view switch with no LZO pass in it, so the two to four frames the
+    // expansion costs elsewhere are simply not spent here.
+    _view_fill_bitmap(kViewBitmapPanel, kScreenWidth);
+    // Not VIEW_CENTER, which is what makes leaving this view re-expand the
+    // art the fill just wrote over -- the heading strip included.
+    view_bitmap_state = VIEW_BACK;
+    memset(kViewScreenDst, kColorMedGray, kViewPanelCells);
+    memset(kViewColorDst, kColorLightGray, kViewPanelCells);
+    return;
+  }
 
   // The one genuinely slow step, two to four frames of it, and the reason
   // view_bitmap_state exists: coming from the center view the bitmap still

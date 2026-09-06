@@ -239,6 +239,9 @@ void sim_run(uint8_t selected_mission) {
     if (key_pressed(KSCAN_3)) {
       view_update_view(VIEW_RIGHT);
     }
+    if (key_pressed(KSCAN_4)) {
+      view_update_view(VIEW_BACK);
+    }
     // Only the opening half of the toggle lives here; the map's own key
     // handling above closes it, M included.
     if (key_pressed(KSCAN_M)) {

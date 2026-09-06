@@ -129,8 +129,8 @@ void sprites_stack_commit(void);
 // docs/clouds.md §1.9, which reserved this slot for exactly this.
 //
 // The front view only: it says nothing about an attitude read out of a side
-// window, so calling this in VIEW_LEFT or VIEW_RIGHT clears the mark rather
-// than setting it.
+// window or over the tail, so calling this in VIEW_LEFT, VIEW_RIGHT or
+// VIEW_BACK clears the mark rather than setting it.
 //
 // Per frame, like the stack: sprites_stack_reset() clears the mark, this sets
 // it, sprites_stack_commit() publishes it. A frame that never calls this leaves
