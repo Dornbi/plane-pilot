@@ -66,6 +66,8 @@ FIXED = [
     (0xEFF8, 0xF000, 'Instrument Panel', 'alt screen sprite pointers'),
     (0xF000, 0xFF40, 'Instrument Panel',
      'panel bitmap, incl. the four heading strips at $F000 (view.cc, gfx.cc)'),
+    (0xFF40, 0xFFC0, 'Horizon Graphics',
+     "back view's tail fin, 2 sprite blocks (mem.h kFinSpriteData)"),
     (0xFFFA, 0x10000, None, 'NMI / RESET / IRQ vectors'),
 ]
 
@@ -91,7 +93,9 @@ DESCRIPTIONS = {
         'ZP': 'roll and render registers (`roll_dx`, `roll_dy`, `roll_period`, '
               '`render_cx_pixels`, ...)',
         'VRAM': 'character RAM `$E000-$E7FF`, main screen `$E800`, '
-                'alt screen `$EC00` - the two double-buffered VIC screens',
+                'alt screen `$EC00` - the two double-buffered VIC screens - '
+                "and the back view's tail fin at `$FF40-$FFBF`, the two sprite "
+                'blocks that fit between the panel bitmap and the vectors',
     },
     'Polygon Graphics': {
         'Code': 'polygon pipeline, edge scan conversion, near and screen '

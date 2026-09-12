@@ -138,6 +138,35 @@ void sprites_stack_commit(void);
 // view and the band handlers program for themselves.
 void sprites_set_orientation(void);
 
+// --- The tail fin ----------------------------------------------------------
+//
+// The vertical stabiliser, down the middle of the viewport in the back view:
+// three hardware sprites in a column, all three Y-expanded, drawn from two
+// bitmaps - a tapered tip and a straight shaft, the shaft used for the two
+// sprites below the tip. It is the aeroplane's own tail, so like the mark above
+// it never moves and never culls, and like it this is a flag rather than a
+// position.
+//
+// It owns hardware sprites 0, 1 and 2 for the length of the viewport band, and
+// owns the *lowest* three on purpose: VIC priority is index order, so those are
+// the indices that draw in front of every cloud and of the sun. While it is up
+// the stack starts above it and has four slots rather than seven; the entries
+// that lose are the farthest, which is the stack's own overflow rule.
+//
+// Two things it does not need, both by construction rather than by a test:
+//
+// - **The message strip.** The tip's ink starts below viewport row 0, which is
+//   the only row a message occupies, so the fin cannot draw over the text. The
+//   alternative for an object that does not move would be blinking the whole
+//   tail out whenever a message appeared.
+// - **The panel split.** Y-expansion doubles a sprite's DMA to 42 raster lines,
+//   so the bottom sprite starts at mem.h's kSpritesOffLeadExpandY rather than
+//   at kSpritesOffLead, and its last fetch is the line before the cut.
+//
+// The back view only, and the test is inside rather than at the call site, for
+// the same reason sprites_set_orientation()'s is.
+void sprites_set_fin(void);
+
 void sprites_show_terrain_sprites();
 void sprites_show_no_sprites();
 void sprites_show_panel_top_sprites();

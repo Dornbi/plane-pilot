@@ -96,6 +96,11 @@ struct sprite_frame_t {
   uint8_t color[8];
   uint8_t msbx;
   uint8_t expand;
+  // $D017. Only the tail fin ever sets a bit here, but the field is per frame
+  // rather than written once at the view switch: the terrain band programs the
+  // whole of the sprite state from one frame, and a register it did not own
+  // would be one more thing to unwind on the way back to the panel.
+  uint8_t expand_y;
   uint8_t enable;
 };
 
@@ -115,6 +120,11 @@ static uint8_t _sprites_cand_count;
 // position: the marker does not move - see sprites_set_orientation().
 static bool _sprites_orient_on;
 
+// The same, for the tail fin - see sprites_set_fin(). The two are mutually
+// exclusive by construction, since one is the front view and the other the
+// back, but nothing here relies on that: they own different sprite indices.
+static bool _sprites_fin_on;
+
 // Double buffered, and that is not optional. _gfx_switch_to_terrain() reads the
 // frame from an interrupt at raster 250 while sprites_stack_commit() writes it
 // from the main line at an unrelated point. A torn read of a single object -
@@ -132,6 +142,10 @@ static volatile uint8_t _sprites_frame_shown;
 
 static volatile sprite_xy_t _sprites_instrument_xy[8];
 static volatile uint8_t _sprites_instrument_idx[8];
+
+// Defined with the rest of the tail fin, below; sprites_init() is the only
+// caller and it comes first in this file.
+static void _sprites_draw_fin(void);
 
 inline void sprites_init(void) {
   for (uint8_t i = 0; i < 8; i++) {
@@ -158,6 +172,13 @@ inline void sprites_init(void) {
   vic.spr_multi = 0;
   vic.spr_priority = 0;
   vic.spr_enable = 0xFF;
+
+  // The two blocks at $FF40, which mem_init()'s expansion of the blob does not
+  // reach. Here rather than there because the art is this file's, and because
+  // this runs on every entry to the simulation and every return from the map -
+  // one of which, one day, will be the screen that learns to borrow those two
+  // blocks the way the map borrows the panel bitmap.
+  _sprites_draw_fin();
 }
 
 static void _sprites_set_instrument_sprite(uint8_t idx,
@@ -264,6 +285,7 @@ static bool _sprites_hidden_by_msg(int16_t x, int16_t y, uint8_t width,
 void sprites_stack_reset(void) {
   _sprites_cand_count = 0;
   _sprites_orient_on = false;
+  _sprites_fin_on = false;
 }
 
 bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
@@ -406,14 +428,207 @@ void sprites_set_orientation(void) {
   _sprites_orient_on = view_state == VIEW_CENTER;
 }
 
+// --- The tail fin -----------------------------------------------------------
+//
+// Three hardware sprites in a column down the middle of the viewport, all three
+// Y-expanded, drawn from two bitmaps: a tapered tip on top and a straight shaft
+// used for the two below it. Like the orientation indicator it is furniture
+// rather than an object - it is bolted to the aeroplane, so it never moves and
+// never culls - and like it, it is a flag and a set of constants rather than a
+// stack entry.
+//
+// **Why the lowest three indices.** VIC sprite-to-sprite priority is index
+// order, and the fin is four metres away while everything else the stack hands
+// out is a cloud or the sun. Taking 0, 1 and 2 is what puts it in front of all
+// of them; anything higher and a distant cloud would draw over the tail. The
+// stack starts above the fin for as long as it is up, so the back view has
+// four slots for clouds instead of seven - the entries that lose are the
+// farthest, which is the stack's ordinary overflow rule.
+
+static const uint8_t kSpriteFinCount = 3;
+static const uint8_t kSpriteFinMask = (1 << kSpriteFinCount) - 1;
+
+// A Y-expanded sprite is 42 raster lines tall, so the three tile the column
+// with no seam when they are 42 apart.
+static const uint8_t kSpriteFinPitch = 2 * kSpriteHeightPixels;
+
+// The whole DMA argument below is written in raster lines and read out of
+// sprite Y registers, which is only the same number because these two agree.
+static_assert(kSpriteOffsetY == kRasterScreenYStart,
+              "sprite Y and raster line no longer count from the same place");
+
+// Where the column sits. X is the sprite's own middle on the screen's, the same
+// two steps kSpriteOrientVX takes. Y is fixed at the bottom by the hardware:
+// mem.h derives the lowest line a Y-expanded sprite may start on from its 42
+// lines of DMA and the cycle-counted panel split below it.
+//
+// **And then two lines lower than that, which closes the gap between the shaft
+// and the panel.** Left on the line mem.h names, the shaft stops on raster 159
+// and the panel starts at 162, so two lines of ground show between the tail and
+// the instruments. These two lines are what remove them: the shaft's last line
+// becomes 161, the viewport's own last line, and the fin meets the panel.
+//
+// **Why that is allowed here when kSpritesOffLead forbids it everywhere else.**
+// mem.h's limit is derived from, and measured with, *seven* sprites parked at
+// the swept Y, all seven of them still fetching across the split - that is the
+// case where the handler came out 55 cycles late and a row of terrain charset
+// was drawn over the panel. The fin is not that case. It is three sprites, and
+// they are indices 0, 1 and 2, whose data for a line is fetched in the tail
+// cycles of the line *before* it; the four slots the stack can still hand out
+// in this view are culled against kSpritesOffLead as they always were, so they
+// are finished by raster 159 and nothing of theirs is in flight here.
+//
+// Measured rather than argued, which is the rule this file inherited from
+// mem.h: with the stack full and every entry of it starting on the lowest line
+// kSpritesOffLead allows, the panel is byte-identical to the build with the fin
+// two lines higher - over six frames in x64sc and three in xscpu64, whose
+// handler has its own NOP count and its own window. The fin never moves, so
+// unlike an object passing through the band there is no "sometimes" for it to
+// hide in: it is the same three sprites on the same three lines every frame.
+//
+// None of that generalises. It is an exemption for one fixed object on the
+// lowest indices, not a new limit - docs/sprite_objects.md 0 says what a cloud
+// would have to re-derive before it could do the same.
+//
+// The other two sprites follow upwards, which puts the top one at 36 - in the
+// top border, where the border clips it, and where the tip's empty rows are
+// anyway.
+static const uint8_t kSpriteFinPivotX = 12;
+static const uint8_t kSpriteFinVX =
+    kScreenWidthPixels / 2 - kSpriteFinPivotX + kSpriteOffsetX;
+static const uint8_t kSpriteFinDropLines = 2;
+static const uint8_t kSpriteFinBottomVY = kSpriteOffsetY + kViewportEndYPixels -
+                                          1 - kSpritesOffLeadExpandY +
+                                          kSpriteFinDropLines;
+static const uint8_t kSpriteFinTopVY =
+    kSpriteFinBottomVY - (kSpriteFinCount - 1) * kSpriteFinPitch;
+
+// The last line the bottom sprite draws on, against the viewport's last line.
+// Equal is the whole point - that is the gap being closed - and one lower is a
+// sprite drawing into the panel, which is both a fin poking below the horizon
+// strip and a sprite whose DMA really does run into the handler's window. This
+// is the check kSpriteFinDropLines has to pass now that it has spent mem.h's
+// spare line and the margin line under it.
+static_assert(kSpriteFinBottomVY + kSpriteFinPitch - 1 <=
+                  kSpriteOffsetY + kViewportEndYPixels - 1,
+              "the fin's lowest sprite draws past the viewport into the panel");
+
+// --- The art ---------------------------------------------------------------
+//
+// Drawn at run time rather than embedded, because it has to be: the two blocks
+// live at $FF40 (mem.h kFinSpriteData), outside the $D400 blob and past the end
+// of what a .prg can load, so something has to write them either way. Every row
+// of both bitmaps is a horizontal run centred in the sprite, so "either way" is
+// nine numbers rather than 126 bytes of bitmap.
+//
+// The shaft is a constant width, which is what lets one bitmap serve two of the
+// three sprites: a taper repeated would step back to narrow at the seam. What
+// tapers is the tip, and it ends on the shaft's width so that seam is invisible
+// too.
+static const uint8_t kSpriteFinBodyWidth = 12;
+
+// The tip's first inked row. Everything above it is transparent, and that is
+// what keeps the fin out of the message strip: the message occupies row 0 of
+// the viewport and nothing else does, so a tip whose ink starts below it can
+// never draw over the text. The orientation indicator clears the same strip the
+// same way, by sitting below it rather than by testing for it - which is worth
+// more than a test here, because the alternative for a fixed object is to blink
+// the whole tail out whenever a message appears.
+static const uint8_t kSpriteFinTipFirstRow = 13;
+// Last entry spelled as the shaft's width rather than as 12, so the seam
+// between the two bitmaps matches by construction. A `const` array is not a
+// constant expression on either compiler, so this is the only way to say it at
+// compile time; sprites_test.cc checks the rest of the shape.
+static const uint8_t kSpriteFinTipWidths[] = {2,  4,  6, 6,
+                                              8, 10, 10, kSpriteFinBodyWidth};
+static const uint8_t kSpriteFinTipRows = sizeof(kSpriteFinTipWidths);
+
+static const uint8_t kSpriteFinInkTopVY =
+    kSpriteFinTopVY + 2 * kSpriteFinTipFirstRow;
+
+static_assert(kSpriteFinTipFirstRow + kSpriteFinTipRows == kSpriteHeightPixels,
+              "the fin tip's widths do not fill the rest of the sprite");
+static_assert(kSpriteFinBodyWidth <= kSpriteWidthPixels,
+              "the fin is wider than a sprite");
+static_assert(kSpriteFinInkTopVY >= kSpriteOffsetY + kMsgHeightPixels,
+              "the fin's tip reaches into the message row");
+
+// One row of one bitmap: `width` pixels centred in the sprite's 24, and
+// nothing else. Width 0 leaves the row blank, which is what the tip's upper
+// rows ask for.
+static void _sprites_draw_fin_row(uint8_t *dst, uint8_t width) {
+  dst[0] = 0;
+  dst[1] = 0;
+  dst[2] = 0;
+  uint8_t x = (kSpriteWidthPixels - width) >> 1;
+  for (uint8_t n = width; n != 0; --n) {
+    dst[x >> 3] |= 0x80 >> (x & 7);
+    ++x;
+  }
+}
+
+// Both blocks. Called from sprites_init(), which is every entry to the
+// simulation and every return from the map - more often than the once this
+// needs, and cheap enough at a thousand-odd loop iterations on a screen
+// transition that pinning it to boot would buy nothing.
+//
+// **Two passes, and the second one is not a tidiness choice.** The obvious
+// shape is one pass with the tip's width per row read as
+//
+//     row < kSpriteFinTipFirstRow
+//         ? 0
+//         : kSpriteFinTipWidths[row - kSpriteFinTipFirstRow]
+//
+// and oscar64 v1.32.272-117 compiles that to `LDA kSpriteFinTipWidths-13,x`
+// with the guard discarded, so every row above the taper reads the thirteen
+// bytes in front of the array and draws whatever width it finds there. It is
+// the third face of the biased-index-into-a-const-array bug in bugs/ - the two
+// written up there are fixed and neither is this - and it is silent: the rows
+// above the taper came out as full-width bars, which on screen is a grey slab
+// across the top of the fin. Clearing every row first and then painting the
+// taper over the rows that have one indexes both arrays from zero, so there is
+// no bias for the compiler to fold. See bugs/const-array-ternary-guard/.
+static void _sprites_draw_fin(void) {
+  uint8_t *tip = kFinSpriteData;
+  uint8_t *shaft = kFinSpriteData + 64;
+  for (uint8_t row = 0; row < kSpriteHeightPixels; ++row) {
+    _sprites_draw_fin_row(tip, 0);
+    _sprites_draw_fin_row(shaft, kSpriteFinBodyWidth);
+    tip += 3;
+    shaft += 3;
+  }
+  uint8_t *ink = kFinSpriteData + kSpriteFinTipFirstRow * 3;
+  for (uint8_t i = 0; i < kSpriteFinTipRows; ++i) {
+    _sprites_draw_fin_row(ink, kSpriteFinTipWidths[i]);
+    ink += 3;
+  }
+}
+
+// The back view only, and by the same argument that keeps the orientation
+// indicator to the front view: this is the aeroplane's own tail, so it belongs
+// in the one view the tail is in front of the camera in. The test is here
+// rather than at the call site so that no caller can leave the fin standing in
+// a view that has flown round it.
+//
+// Per frame, like the stack and the mark: sprites_stack_reset() clears this,
+// world.cc sets it, sprites_stack_commit() publishes it.
+void sprites_set_fin(void) { _sprites_fin_on = view_state == VIEW_BACK; }
+
 void sprites_stack_commit(void) {
   // Main line, so a pointer is fine here - the restriction above is on the
   // interrupt side only.
   uint8_t back = _sprites_frame_shown ^ 1;
   sprite_frame_t *f = back ? &_sprites_frame_b : &_sprites_frame_a;
 
+  // Above the fin when it is up, so that it keeps the lowest indices and with
+  // them the priority - see the tail fin section. The shift is by a constant
+  // either way, which is what the two assignments are for.
   uint8_t idx = 0;
   uint8_t bit = 1;
+  if (_sprites_fin_on) {
+    idx = kSpriteFinCount;
+    bit = 1 << kSpriteFinCount;
+  }
   uint8_t msbx = 0;
   uint8_t expand = 0;
   uint8_t enable = 0;
@@ -472,8 +687,30 @@ void sprites_stack_commit(void) {
     enable |= kSpriteOrientBit;
   }
 
+  // The fin, into the three indices the loop above skipped rather than into
+  // ones the fill has just parked - so it is written last for the same reason
+  // the mark is, and reaches the same frame whether the stack overflowed or was
+  // empty. One pointer variable rather than a table: the top sprite is the tip
+  // and everything below it is the shaft, which is the whole of the art.
+  uint8_t expand_y = 0;
+  if (_sprites_fin_on) {
+    uint8_t sy = kSpriteFinTopVY;
+    uint8_t ptr = kFinSpriteBlock;
+    for (uint8_t i = 0; i < kSpriteFinCount; ++i) {
+      f->pos[i << 1] = kSpriteFinVX;
+      f->pos[(i << 1) + 1] = sy;
+      f->ptr[i] = ptr;
+      f->color[i] = kColorAircraft;
+      sy += kSpriteFinPitch;
+      ptr = kFinSpriteBlock + 1;
+    }
+    enable |= kSpriteFinMask;
+    expand_y = kSpriteFinMask;
+  }
+
   f->msbx = msbx;
   f->expand = expand;
+  f->expand_y = expand_y;
   f->enable = enable;
 
   _sprites_frame_shown = back;
@@ -517,6 +754,7 @@ void sprites_stack_commit(void) {
     }                                                                          \
     vic.spr_msbx = (F).msbx;                                                   \
     vic.spr_expand_x = (F).expand;                                             \
+    vic.spr_expand_y = (F).expand_y;                                           \
     vic.spr_enable = (F).enable;                                               \
   } while (0)
 
@@ -531,6 +769,7 @@ inline void sprites_show_terrain_sprites() {
 inline void sprites_show_no_sprites() {
   vic.spr_enable = 0;
   vic.spr_expand_x = 0;
+  vic.spr_expand_y = 0;
   vic.spr_msbx = 0;
 }
 
@@ -543,8 +782,15 @@ inline void sprites_show_panel_top_sprites() {
   //   X-expanded one, which is 48 wide and would poke 24 pixels into the panel.
   // - Sprite 7's colour. It is the vertical speed needle, the one instrument
   //   drawn in this band, and the terrain handler now writes all eight colours.
+  // - $D017, for the same reason as $D01D: the back view's tail fin leaves the
+  //   three lowest sprites Y-expanded, and three of the instruments are those
+  //   three. Nothing shows it in the back view itself, which draws no
+  //   instruments at all - it shows on the frame the view switches away on,
+  //   where the fin's expansion would still be set while the fuel, speed and
+  //   roll needles are drawn.
   vic.spr_enable = 0xFF;
   vic.spr_expand_x = 0;
+  vic.spr_expand_y = 0;
   vic.spr_color[kSpriteIdxVSpeed] = kColorInstrument;
 // Guarded because clang - which is what `g++` is on macOS - *recognises*
 // `#pragma unroll` and then rejects `full` as its argument, so it is a hard

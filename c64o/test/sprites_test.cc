@@ -45,6 +45,12 @@ uint8_t *kScreenRamMain = screen_main;
 uint8_t *kScreenRamAlt = screen_alt;
 uint8_t *kColorRam = nullptr;
 
+// The tail fin's two sprite blocks, which live at $FF40 on the C64 (mem.h).
+// An array here, so that the art sprites_init() draws into them can be read
+// back and checked rather than only assumed.
+static uint8_t fin_blocks[128];
+uint8_t *kFinSpriteData = fin_blocks;
+
 // Which panel layout the band handlers build. The simulation drives this from
 // the 1/2/3 keys; here it is set directly.
 view_state_t view_state = VIEW_CENTER;
@@ -75,6 +81,7 @@ static uint8_t spr_y(uint8_t i) { return vic_regs[i * 2 + 1]; }
 static uint8_t spr_msbx(void) { return vic_regs[0x10]; }
 static uint8_t spr_enable(void) { return vic_regs[0x15]; }
 static uint8_t spr_expand(void) { return vic_regs[0x1d]; }
+static uint8_t spr_expand_y(void) { return vic_regs[0x17]; }
 static uint8_t spr_color(uint8_t i) { return vic_regs[0x27 + i]; }
 static uint8_t spr_ptr(uint8_t i) { return screen_main[1016 + i]; }
 
@@ -572,9 +579,11 @@ static void test_init(void) {
   printf("  sprites_init leaves a defined frame and defined registers\n");
   memset(vic_regs, 0xAA, sizeof(vic_regs));
   sprites_init();
-  // sprite_objects.md §0: hires only, never Y-expanded, always in front of the
-  // terrain. Nothing else in the program writes these, so if init does not,
-  // they are whatever the machine came up with.
+  // sprite_objects.md §0: hires only, always in front of the terrain, and not
+  // Y-expanded until a frame asks for it - the tail fin is the only thing that
+  // does, and it does so through the committed frame rather than here. Nothing
+  // else in the program writes these, so if init does not, they are whatever
+  // the machine came up with.
   assert(vic_regs[0x17] == 0x00); // spr_expand_y
   assert(vic_regs[0x1b] == 0x00); // spr_priority
   assert(vic_regs[0x1c] == 0x00); // spr_multi
@@ -590,6 +599,194 @@ static void test_init(void) {
   assert(spr_enable() == 0x00);
 }
 
+// --- The tail fin ----------------------------------------------------------
+
+// Reads one row of a fin bitmap back as a run: the first set column and how
+// many pixels are set, asserting on the way that the set pixels are one
+// contiguous run centred in the sprite. A fin row is a centred bar and nothing
+// else, so anything that is not is a bug in _sprites_draw_fin_row().
+static void fin_row_run(const uint8_t *block, uint8_t row, int *x0, int *w) {
+  const uint8_t *r = block + row * 3;
+  int first = -1, last = -1, count = 0;
+  for (int x = 0; x < 24; ++x) {
+    if (r[x >> 3] & (0x80 >> (x & 7))) {
+      if (first < 0) {
+        first = x;
+      }
+      last = x;
+      ++count;
+    }
+  }
+  if (first < 0) {
+    *x0 = 0;
+    *w = 0;
+    return;
+  }
+  // Contiguous, and centred: the gap on the left is the gap on the right.
+  assert(last - first + 1 == count);
+  assert(first == 24 - 1 - last);
+  *x0 = first;
+  *w = count;
+}
+
+static void test_fin_art(void) {
+  printf("  the fin art is two centred bars, tip then shaft\n");
+  memset(fin_blocks, 0xAA, sizeof(fin_blocks));
+  sprites_init();
+
+  const uint8_t *tip = fin_blocks;
+  const uint8_t *shaft = fin_blocks + 64;
+  for (uint8_t row = 0; row < kSpriteHeightPixels; ++row) {
+    int x0, w;
+    fin_row_run(tip, row, &x0, &w);
+    if (row < kSpriteFinTipFirstRow) {
+      // Blank, which is what keeps the fin clear of the message row below.
+      assert(w == 0);
+    } else {
+      assert(w == kSpriteFinTipWidths[row - kSpriteFinTipFirstRow]);
+    }
+    // Never wider than the sprite, and never wider than the row below it: the
+    // fin tapers one way only.
+    assert(w <= kSpriteWidthPixels);
+    if (row > kSpriteFinTipFirstRow) {
+      int px0, pw;
+      fin_row_run(tip, row - 1, &px0, &pw);
+      assert(w >= pw);
+    }
+    fin_row_run(shaft, row, &x0, &w);
+    assert(w == kSpriteFinBodyWidth);
+  }
+  // The seam: the tip's last row and the shaft's first are the same bar, so
+  // the join between the top sprite and the one under it is invisible.
+  int tx0, tw, sx0, sw;
+  fin_row_run(tip, kSpriteHeightPixels - 1, &tx0, &tw);
+  fin_row_run(shaft, 0, &sx0, &sw);
+  assert(tx0 == sx0 && tw == sw);
+
+  // The 64th byte of each block is not a sprite byte; nothing should have been
+  // written past the 63 that are.
+  assert(fin_blocks[63] == 0xAA);
+  assert(fin_blocks[127] == 0xAA);
+}
+
+static void test_fin(void) {
+  test_fin_art();
+
+  printf("  the back view carries the fin on sprites 0..2\n");
+  view_state = VIEW_BACK;
+  sprites_stack_reset();
+  sprites_set_fin();
+  sprites_stack_commit();
+  show_terrain();
+  assert(spr_enable() == kSpriteFinMask);
+  // Y-expanded, and only the fin is: that is the whole reason $D017 became a
+  // per-frame register.
+  assert(spr_expand_y() == kSpriteFinMask);
+  // Not X-expanded, and centred, so no ninth X bit either.
+  assert(spr_expand() == 0x00);
+  assert(spr_msbx() == 0x00);
+  for (uint8_t i = 0; i < kSpriteFinCount; ++i) {
+    assert(spr_x(i) == kSpriteFinVX);
+    assert(spr_y(i) == (uint8_t)(kSpriteFinTopVY + i * kSpriteFinPitch));
+    assert(spr_color(i) == kColorAircraft);
+  }
+  // One tip on top, the shaft twice below it.
+  assert(spr_ptr(0) == kFinSpriteBlock);
+  assert(spr_ptr(1) == kFinSpriteBlock + 1);
+  assert(spr_ptr(2) == kFinSpriteBlock + 1);
+  // The three tile the column: each starts where the one above it ends.
+  assert(spr_y(1) - spr_y(0) == 2 * kSpriteHeightPixels);
+  assert(spr_y(2) - spr_y(1) == 2 * kSpriteHeightPixels);
+
+  printf("  and its lowest line is the viewport's, not the panel's\n");
+  // mem.h kSpritesOffLeadExpandY, less the two lines kSpriteFinDropLines spends
+  // to close the gap between the shaft and the instruments. The bottom sprite
+  // is the one at risk, and where it ends is the whole of what this case
+  // defends: on the viewport's last line it meets the panel, and one line lower
+  // it draws into the panel and its DMA is inside the cycle-counted handler's
+  // window. Neither would show up as a failing assertion anywhere else.
+  assert(spr_y(2) == kSpriteFinBottomVY);
+  const int fin_last_line = (int)spr_y(2) + 2 * kSpriteHeightPixels - 1;
+  const int viewport_last_line = kSpriteOffsetY + (int)kViewportEndYPixels - 1;
+  assert(fin_last_line == viewport_last_line);
+
+  printf("  and its ink starts below the message row\n");
+  // Not a cull, unlike every stack object: the fin is fixed, so it clears the
+  // message strip by sitting under it rather than by hiding while one is up.
+  assert(kSpriteFinInkTopVY >= kSpriteOffsetY + kMsgHeightPixels);
+  msg_is_active = true;
+  msg_span_x0 = 0;
+  msg_span_x1 = kScreenWidthPixels;
+  sprites_stack_reset();
+  sprites_set_fin();
+  sprites_stack_commit();
+  show_terrain();
+  assert(spr_enable() == kSpriteFinMask);
+  assert(spr_x(0) == kSpriteFinVX);
+  msg_is_active = false;
+
+  printf("  the stack starts above it, so nothing draws over the tail\n");
+  sprites_stack_reset();
+  sprites_set_fin();
+  assert(sprites_stack_add(100, 160, 56, kSunPivotX, kSunPivotY, 42, NB,
+                           kColorSun, 0));
+  sprites_stack_commit();
+  show_terrain();
+  // The nearest object there is still lands on index 3, behind all three fin
+  // sprites. VIC priority is index order, so this is the assertion that the
+  // tail is in front of the clouds.
+  assert(spr_ptr(kSpriteFinCount) == 42);
+  assert(enabled(kSpriteFinCount));
+  assert(spr_enable() == (kSpriteFinMask | (1 << kSpriteFinCount)));
+  // And the fin is untouched by a frame full of objects: it does not move.
+  assert(spr_x(0) == kSpriteFinVX && spr_y(0) == kSpriteFinTopVY);
+
+  printf("  and it costs the stack three of its seven slots\n");
+  sprites_stack_reset();
+  sprites_set_fin();
+  for (int i = 0; i < 7; ++i) {
+    sprites_stack_add((int16_t)(100 + i), (int16_t)(20 + 40 * i), 30,
+                      kSunPivotX, kSunPivotY, (uint8_t)(i + 1), NB, 1, 0);
+  }
+  sprites_stack_commit();
+  show_terrain();
+  // Four objects fit, nearest first, and index 7 is still the one the stack
+  // never hands out.
+  for (uint8_t i = 0; i < 4; ++i) {
+    assert(spr_ptr((uint8_t)(kSpriteFinCount + i)) == (uint8_t)(i + 1));
+  }
+  assert(!enabled(kSpriteIdxOrient));
+  assert(spr_enable() == 0x7F);
+
+  printf("  the other three views do not carry it\n");
+  static const view_state_t kFrontAndSides[3] = {VIEW_LEFT, VIEW_CENTER,
+                                                 VIEW_RIGHT};
+  for (uint8_t i = 0; i < 3; ++i) {
+    view_state = kFrontAndSides[i];
+    sprites_stack_reset();
+    sprites_set_fin();
+    sprites_stack_commit();
+    show_terrain();
+    assert(spr_enable() == 0x00);
+    assert(spr_expand_y() == 0x00);
+  }
+
+  printf("  and the panel band takes the expansion back\n");
+  // Three of the instrument needles are sprites 0..2, so a $D017 the panel band
+  // inherited would stretch them on the frame the view switches away on.
+  view_state = VIEW_BACK;
+  sprites_stack_reset();
+  sprites_set_fin();
+  sprites_stack_commit();
+  show_terrain();
+  assert(spr_expand_y() == kSpriteFinMask);
+  sprites_show_panel_top_sprites();
+  assert(spr_expand_y() == 0x00);
+  sprites_show_no_sprites();
+  assert(spr_expand_y() == 0x00);
+  view_state = VIEW_CENTER;
+}
+
 int main() {
   printf("Running sprites_test...\n");
   test_init();
@@ -603,6 +800,7 @@ int main() {
   test_culls();
   test_dither_lattice();
   test_orientation();
+  test_fin();
   test_double_buffer();
   test_panel_bands();
   printf("sprites_test PASSED\n");

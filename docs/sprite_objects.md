@@ -23,7 +23,24 @@ covers (`docs/project.md` §7, `c64o/title.cc`):
 
 - **Hires only. Never multicolour.** One colour per sprite, full horizontal
   resolution. `$D01C` stays zero.
-- **Never expand along Y.** X-expansion is available. `$D017` stays zero.
+- **Never expand along Y.** X-expansion is available.
+
+The back view's tail fin (`c64o/sprites.cc`) is the one thing in the viewport
+that expands along Y, and `$D017` is a per-frame register because of it. It is
+allowed to for the same reason the title aeroplane is allowed its multicolour:
+it is not a world object. Both arguments for the rule are about objects that
+are projected, and the fin is bolted to the aircraft — it is at one fixed
+position, at one fixed size, in one view. What it does pay is the rule's real
+cost: a Y-expanded sprite's DMA runs 42 raster lines rather than 21, so it needs
+twice the clearance above the panel split, which is `mem.h`'s
+`kSpritesOffLeadExpandY`. The fin then starts two lines below even that, at
+raster 120, so that its last line is the viewport's last line and it meets the
+panel — which is allowed only because it is three sprites on indices 0–2 that
+never move, and only because it was measured that way with the stack full on
+both emulators (`c64o/sprites.cc`, `kSpriteFinDropLines`). A cloud that expanded
+gets none of that: it moves through the band, so it would have to be culled
+against a line instead of parked on one, and §1.8's whole argument would need
+redoing.
 
 Earlier drafts of §3 and §4 proposed both; those sections have been rewritten.
 

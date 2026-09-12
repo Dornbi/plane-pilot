@@ -45,7 +45,7 @@ What you can do in Plane Pilot:
 - Full-screen 128x128 map view (`M`) displaying world terrain, numbered mission waypoints, aircraft location marker, and real-time flight path tracking trail
 - Dashboard instrument panel with working indicator lamps (flaps, gear, stall warning, nav points)
 - Look forward, left, right, and back over the tail — the back view drops the dashboard
-  entirely and gives the whole screen to the world
+  entirely and shows the vertical stabilizer standing in the middle of the view
 - Toggle the HUD debug view with per-stage cycle counters (`D`)
 - On-screen HUD notifications, approach warnings, and crash diagnostics
 - Wheel braking (`B`) and ground nose-wheel steering
@@ -99,6 +99,8 @@ See [docs/development.md](docs/development.md) for more details,
 ### 2026-09-06
 
 - A fourth view, `4`: over the tail, 180 degrees from the nose.
+- The back view shows the vertical stabilizer: three sprites stretched to
+  double height, in front of the clouds and clear of the message row.
 
 ### 2026-09-05
 

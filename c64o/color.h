@@ -36,6 +36,11 @@ static const uint8_t kColorCloud = kColorWhite;
 // marker against both halves of the viewport, and it cannot be mistaken for a
 // cloud or for the sun.
 static const uint8_t kColorOrientation = kColorWhite;
+// The tail fin in the back view (sprites.h). Medium grey, because it has to
+// read as aircraft structure against both halves of the viewport - the blue to
+// cyan sky above the horizon and the green ground below it - and it must not
+// be mistaken for a cloud, which is the one other large pale shape out there.
+static const uint8_t kColorAircraft = kColorMedGray;
 static const uint8_t kColorWater = kColorBlue;
 
 #endif /* COLOR_H */

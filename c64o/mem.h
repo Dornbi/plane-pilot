@@ -87,6 +87,27 @@ static uint8_t *const kCharRam = (uint8_t *)0xE000;
 // use than the ones above it: no banking, no masked interrupts, just a store.
 // It costs 256 bytes off the top of the main region above.
 static uint8_t *const kTitleSpriteData = (uint8_t *)0xCF00;
+// The tail fin's two sprite bitmaps (sprites.h), in the 186 bytes between the
+// end of the panel bitmap at $FF3F and the hardware vectors at $FFFA.
+//
+// That run is the only place they could go. The blob at $D400 is 48 blocks and
+// reaches $DFFF exactly, with nothing spare; $CF00 is the title aircraft's;
+// and everything else free in the bank is inside a linker region, which is to
+// say at no address the VIC can be pointed at from a constant. Two blocks fit
+// here and $FFC0 would be the third, which is the page the vectors are in.
+//
+// Two is enough because the fin is three sprites drawn from two bitmaps - a
+// tapered tip and a straight shaft, the shaft used twice.
+//
+// Nothing else in the program writes here: the map view borrows $E000-$FF3F
+// and stops short of it, and the linker's own regions end at $CEFF.
+static const uint8_t kFinSpriteBlock = (0xFF40 - 0xC000) / 64;
+#ifdef __OSCAR64__
+static uint8_t *const kFinSpriteData = (uint8_t *)0xFF40;
+#else
+// Host builds point this at an ordinary array, like the screen pointers below.
+extern uint8_t *kFinSpriteData;
+#endif
 // The same address as a VIC sprite block number - bank 3 starts at $C000 and
 // a block is 64 bytes. title.cc checks this against the generated
 // kTitleDefBitmapBase, which is what the sprite pointers are written from.
@@ -129,6 +150,23 @@ static const uint8_t kRasterScreenYStart = 50;
 static const uint8_t kSpritesOffLead = 22;
 static const uint16_t kSpriteVisibleEndYPixels =
     kViewportEndYPixels - kSpritesOffLead;
+
+// The same lead for a **Y-expanded** sprite, which is twice the sprite in the
+// only way that matters here: its DMA runs for 42 raster lines rather than 21.
+// The VIC fetches sprite data on every line the sprite is displayed on and
+// Y-expansion slows the data counter, not the fetches, so doubling the height
+// doubles the band of lines the sprite steals cycles in. Nothing else in the
+// derivation above changes, so this is 2 * 21 + 1 by the same arithmetic that
+// made kSpritesOffLead 21 + 1, and the lowest line such a sprite may start on
+// is 161 - 42 - 1 = 118.
+//
+// The tail fin (sprites.h) is the only thing in the program that expands
+// vertically, and it starts two lines *below* that - which is a measured
+// exemption for one fixed object on sprites 0-2, not a correction to the number
+// here. The derivation above is what an object that moves through the band
+// still has to obey, and sprites.cc's kSpriteFinDropLines is where the fin's
+// case is made and where the measurement is written down.
+static const uint8_t kSpritesOffLeadExpandY = 2 * 21 + 1;
 
 #ifdef __OSCAR64__
 static uint8_t *const kScreenRamMain = (uint8_t *)0xE800;
