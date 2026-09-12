@@ -96,7 +96,7 @@ See [docs/development.md](docs/development.md) for more details,
 
 ## Updates
 
-### 2026-09-06
+### 2026-09-12
 
 - A fourth view, `4`: over the tail, 180 degrees from the nose.
 - The back view shows the vertical stabilizer: three sprites stretched to
@@ -104,14 +104,13 @@ See [docs/development.md](docs/development.md) for more details,
 
 ### 2026-09-05
 
-The flight model can have an angle of attack, as a build option.
-The aircraft now has two directions instead of one: where the nose points, and
-where it is actually going. The angle between them drives lift, and everything
-else follows from that — the stall is an angle rather than a speed,; turn rate depends on airspeed; induced drag is one term instead of three stand-ins; and the takeoff needs no rotation fudge, because rotating makes lift.
+Another binary, in which the flight model has an angle of attack:
 
+- In this version the aircraft now has two directions instead of one: where the nose points, and where it is actually going.
+- The angle between them drives lift, and everythin else follows from that.
+  — The stall is an angle rather than a speed,; turn rate depends on airspeed; induced drag is one term instead of three stand-ins; and the takeoff needs no rotation fudge, because rotating makes lift.
 - Level flight needs a little nose-up at every speed, less of it the faster you
-  go.
-- Zero pitch is a gentle descent.
+  go. Zero pitch is a gentle descent.
 - Pulling hard can stall the wing at any speed, not just a slow one.
 - A flare with speed in hand lands; holding it off until the wing stops flying
   is a stall onto the runway.
