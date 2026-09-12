@@ -1,6 +1,6 @@
 # Plane Pilot
 
-Plane Pilot is a 3D flight simulator demo for the C64.
+Plane Pilot is a 3D flight simulator for the C64.
 
 ![Plane Pilot Screenshot](screens/screen01_crt.png)
 
@@ -10,6 +10,22 @@ Plane Pilot is an attempt to show how modern compilers and AI tools can
 be used in to create something retro in 2026. It is also an attempt
 to push the boundaries of C64 in a somewhat non-typical genre -
 3D simulations - something the C64 was absolutely not designed to do.
+
+## Credits
+
+This project would not have been possible without:
+
+- First and foremost, the [oscar64](http://github.com/drmortalwombat/oscar64)
+  C cross-compiler from [drmortalwombat](https://github.com/drmortalwombat).
+  Make sure to check out his [itch.io](https://drmortalwombat.itch.io/)
+  page as well, with many great C64 games!
+- Most of the actual testing was done on the VICE emulator.
+- Many of the tools and techniques to develop this did not exist back in the 80s.
+  Including but not limited to: C was not mature, Python, but even basic things
+  like LZO compression.
+- While there is a human in charge, and he has even written and optimized a lot
+  of the code; the development process has made extensive use of AI coding tools.
+  Antigravity and Gemini was involved during early prototyping, and many of the later features were built using Claude Opus 5.
 
 ## How to play
 
@@ -25,7 +41,7 @@ https://github.com/Dornbi/plane-pilot/raw/refs/heads/main/bin/ppilot.prg
 Alternatively, download the binary and upload it to any of the online or offline emulators:
 
 - [ppilot.prg](bin/ppilot.prg) — the whole game: sound effects, music, and the debug view behind `D`
-- [flighta.prg](bin/flighta.prg) — the same game with the angle-of-attack flight model (see the 2026-09-05 note below)
+- [ppilota.prg](bin/ppilota.prg) — the same game with the angle-of-attack flight model (see the 2026-09-12 note below)
 
 Emulators:
 
@@ -86,13 +102,7 @@ The help screen (`H`) is also available from the main menu.
 
 ## Development
 
-Much of the code was written with Antigravity and Gemini. Prototyping and
-data generation was done in Python, and the C64 code is in C with some assembly.
-To compile the code, you need the [oscar64](https://github.com/drmortalwombat/oscar64/blob/main/README.md) cross-compiler.
-
-See [docs/development.md](docs/development.md) for more details,
-[docs/project.md](docs/project.md) for the architecture, and
-[docs/missions.md](docs/missions.md) for what each mission asks for.
+See [docs/development.md](docs/development.md) for more details.
 
 ## Updates
 
@@ -120,12 +130,10 @@ Another binary, in which the flight model has an angle of attack:
 
 ### 2026-08-30
 
-Bugfixes:
-
-- Fixed waypoint matching check and made it work for every copy of the world.
-- Fixed Crop Duster margins to make it flyable.
-- Added altitude limit for the Airshow pass.
-- Increased margin for the Fuel Challenge mission.
+- Bugfix: Waypoint matching check and made it work for every copy of the world.
+- Bugfix: Fixed Crop Duster margins to make it flyable.
+- Bugfix: Added altitude limit for the Airshow pass.
+- Bugfix: Increased margin for the Fuel Challenge mission.
 
 ### 2026-08-29
 
