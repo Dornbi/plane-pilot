@@ -2,7 +2,18 @@
 
 Plane Pilot is a 3D flight simulator for the C64.
 
-![[Plane Pilot Screenshot](screens/screen01_crt.png)](https://github.com/user-attachments/assets/7ebd0c35-9890-4fd9-9afb-5222ffcda5c5)
+[![Plane Pilot Screenshot](screens/screen01_crt.png)](https://raw.githubusercontent.com/Dornbi/plane-pilot/blob/main/screens/screen01_crt.mov)
+
+![Plane Pilot Screenshot](https://raw.githubusercontent.com/Dornbi/plane-pilot/blob/main/screens/screen01_crt.mov)
+
+
+
+<video src="https://raw.githubusercontent.com/Dornbi/plane-pilot/blob/main/screens/screen01_crt.mov" controls="controls" style="max-width: 100%;">
+</video>
+
+<video src="./screens/screen01_crt.mov" controls="controls" style="max-width: 100%;">
+</video>
+
 
 ## History and motivation
 
