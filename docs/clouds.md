@@ -138,6 +138,18 @@ is a sprite in the wrong place, not a sprite one frame late. Commit fills the
 back frame and then stores `_spr_frame_shown` — a single byte, so the store is
 atomic on a 6502 and needs no `sei`.
 
+**"And then" needs the frames to be `volatile` too, not only the index.** C
+orders a volatile store only against other volatile accesses, and as shipped
+the frames were plain: oscar64 hoisted the index store from the end of
+`sprites_stack_commit()` to its first instruction, beside the load it is
+computed from. Whenever raster 250 fell inside the commit, the handler
+programmed a half-written frame, mostly two game frames old, enable mask
+included. On screen that is one PAL frame of a near cloud in a stale bitmap and
+a far one blinking in beside it: the intermittent cloud flicker, easiest to see
+when flying straight at a group. Captured every PAL frame in `x64sc` on such an
+approach, it showed up three times in a minute before the fix and never after
+it. The binary is the same size with or without the fix.
+
 ### 1.4. Changes to the three raster handlers
 
 This is [sprite_objects.md](sprite_objects.md) §2's restructure, and it is what

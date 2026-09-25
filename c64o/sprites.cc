@@ -134,8 +134,20 @@ static bool _sprites_fin_on;
 // index, and a single byte store is atomic on a 6502, so no sei is needed.
 // Two named objects rather than an array of two, because the raster handler
 // must reach them by a *constant* address - see the macro below.
-static sprite_frame_t _sprites_frame_a;
-static sprite_frame_t _sprites_frame_b;
+//
+// **The frames are volatile as well as the index, and "then" depends on it.**
+// C orders a volatile access only against other volatile accesses, so with
+// plain frames oscar64 was free to move the index store - the last statement
+// of sprites_stack_commit() - up to the top of it, next to the load it is
+// computed from, and it did: the flip landed before a single byte of the back
+// frame was written. Whenever raster 250 fell inside the ~1,000 cycles of
+// commit, the handler programmed a half-filled frame whose enable mask and
+// most of whose sprites were two game frames old. One PAL frame of that is a
+// near cloud drawn with a stale bitmap and a far one blinking in beside it -
+// the cloud flicker that flying straight at a cloud group shows best.
+// Volatile frames make every write into them ordered against the flip.
+static volatile sprite_frame_t _sprites_frame_a;
+static volatile sprite_frame_t _sprites_frame_b;
 static volatile uint8_t _sprites_frame_shown;
 
 #pragma bss(bss2)
@@ -618,7 +630,7 @@ void sprites_stack_commit(void) {
   // Main line, so a pointer is fine here - the restriction above is on the
   // interrupt side only.
   uint8_t back = _sprites_frame_shown ^ 1;
-  sprite_frame_t *f = back ? &_sprites_frame_b : &_sprites_frame_a;
+  volatile sprite_frame_t *f = back ? &_sprites_frame_b : &_sprites_frame_a;
 
   // Above the fin when it is up, so that it keeps the lowest indices and with
   // them the priority - see the tail fin section. The shift is by a constant
