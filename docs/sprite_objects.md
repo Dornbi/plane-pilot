@@ -23,7 +23,9 @@ covers (`docs/project.md` §7, `c64o/title.cc`):
 
 - **Hires only. Never multicolour.** One colour per sprite, full horizontal
   resolution. `$D01C` stays zero.
-- **Never expand along Y.** X-expansion is available.
+- **Never expand along Y.** X-expansion is available. **One exception, for
+  near traffic:** an aircraft inside ~110 m expands along X and Y together
+  ([planes.md](planes.md) §4).
 
 The back view's tail fin (`c64o/sprites.cc`) is the one thing in the viewport
 that expands along Y, and `$D017` is a per-frame register because of it. It is
@@ -41,6 +43,17 @@ both emulators (`c64o/sprites.cc`, `kSpriteFinDropLines`). A cloud that expanded
 gets none of that: it moves through the band, so it would have to be culled
 against a line instead of parked on one, and §1.8's whole argument would need
 redoing.
+
+Traffic's exception is not the fin's. Aircraft are projected and do move
+through the band, so the rule's arguments do apply to them — and they no longer
+hold. The shape argument (§3) was about thin lines and dithers: a near-horizontal
+stroke turns into a two-line staircase and a checkerboard into stripes. Traffic
+is now drawn as filled polygons, whose weight is carried by their area, and a
+2 × 2 sprite pixel is exactly the terrain's 2 × 2 dot. The DMA argument is met
+by rasterising: a traffic bitmap is redrawn every frame, so rather than being
+culled against `kSpritesOffLeadExpandY`'s line it slides above it inside its own
+buffer ([planes.md](planes.md) §4). Clouds have neither way out and stay
+unexpanded vertically.
 
 Earlier drafts of §3 and §4 proposed both; those sections have been rewritten.
 
@@ -141,8 +154,10 @@ pixel is 2 screen pixels wide, which is exactly one X-expanded sprite pixel.
 | Two hires stacked, 1:1 | 24 × 42 | 12 × 42 | ½ world px | 1 each |
 | Two hires stacked, X-expand | 48 × 42 | 24 × 42 | 1 world px | 1 each |
 
-The Y-expanded and multicolour rows that used to appear here have been removed
-under §0.
+The multicolour rows that used to appear here have been removed under §0, and
+so have the Y-expanded ones except for the one traffic uses: **2 × 2 hires,
+X- and Y-expanded: 96 × 84 screen pixels, 48 world pixels by 84 lines, each
+sprite pixel one world pixel by two lines** — see below.
 
 A single X-expanded sprite is **24 world pixels wide — 15% of the viewport
 width**. That is already large. The detail ladder therefore lives mostly in the
@@ -160,9 +175,12 @@ cloud makes the checkerboard dither read as stripes. X-expansion by contrast
 lands on 2 screen pixels — the same granularity as the world around it — so it
 costs nothing either way. See [planes.md](planes.md) §4.
 
-For aircraft the two axes are chosen **independently** rather than as a ladder:
-width picks expansion, height picks the sprite count. A steeply banked aircraft
-is tall and narrow and must not be expanded along with its extra sprite.
+That is still the rule for clouds. Aircraft have since got Y-expansion back, as
+a fourth rung taken together with X, because they are filled polygons now and
+the staircase argument was about lines ([planes.md](planes.md) §1). Their pixel
+size follows **distance** — 1:1, then X, then X+Y — and their sprite layout,
+1 × 1 up to 2 × 2, follows the bounding box; the layout changes no pixel, so a
+banked aircraft never changes resolution as it rolls.
 
 **Vertical granularity mismatch — 2:1, and only vertically.** An earlier draft
 of this paragraph said the terrain dot characters put each plotted dot in a
@@ -297,7 +315,8 @@ interrupts off, which rules it out for anything written per frame
 ([planes.md](planes.md) §5). Cloud bitmaps are written **once at startup**,
 exactly like the instrument needles already there, so the restriction costs
 nothing. The division of labour is clean: static art under I/O at `$D400`,
-dynamic aircraft buffers in plain RAM at `$CE00`.
+dynamic aircraft buffers in plain RAM at `$CCC0–$CFFF`, the top page shared with
+the title screen's aeroplane ([planes.md](planes.md) §5).
 
 ### 6.2. Other aircraft
 
@@ -365,10 +384,10 @@ conflict entirely and is still worth considering separately.
   rung's own bitmap.
 - ~~Do aircraft need per-object colour at all, or is a single traffic colour
   enough to free the colour writes in the terrain handler?~~ **Answered** —
-  [planes.md](planes.md) §8: colour switches on whether the aircraft is above
-  or below the eye's altitude, which is a one-comparison test and the
-  difference between a visible silhouette and an invisible one against the
-  green ground. Two planes can differ, so it must be per object.
+  [planes.md](planes.md) §8: one fixed traffic colour, no background test. An
+  above/below-the-horizon switch was designed and dropped, because a target
+  crossing the horizon would change colour mid-manoeuvre. The terrain handler
+  writes all eight colours anyway (§2), so nothing was freed either way.
 - One more thing this document got right and should not be relitigated: §5's
   warning against projecting distant objects on alternate frames. Camera
   rotation moves stationary objects across the screen, so half-rate updates

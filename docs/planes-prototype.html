@@ -14,12 +14,12 @@
     font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
   h1 { font-size: 17px; margin: 0 0 2px; font-weight: 600; }
-  .sub { color: var(--dim); margin: 0 0 18px; font-size: 12px; }
+  .sub { color: var(--dim); margin: 0 0 18px; font-size: 12px; max-width: 1100px; }
   .sub a { color: var(--accent); }
   .row { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
   .card {
     background: var(--panel); border: 1px solid var(--line);
-    border-radius: 8px; padding: 12px;
+    border-radius: 8px; padding: 12px; margin-bottom: 18px;
   }
   .card h2 {
     font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
@@ -44,7 +44,7 @@
   table.read td:last-child { font-variant-numeric: tabular-nums; }
   pre.dump {
     font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
-    color: var(--dim); margin: 0; white-space: pre;
+    color: var(--dim); margin: 0; white-space: pre; max-height: 420px; overflow: auto;
   }
   .pill {
     display: inline-block; padding: 1px 7px; border-radius: 10px;
@@ -53,11 +53,12 @@
   .pill.hit { background: #2c3b22; color: #9ad284; }
   .pill.miss { background: #3a2a24; color: #c08a76; }
   .pill.tier { background: #2a2f42; color: #8fa0d8; }
-  .note { color: var(--dim); font-size: 11px; margin-top: 10px; max-width: 340px; }
-  button {
-    background: #2a3040; color: var(--fg); border: 1px solid var(--line);
-    border-radius: 5px; padding: 4px 10px; font-size: 11.5px; cursor: pointer;
+  .note { color: var(--dim); font-size: 11px; margin-top: 10px; max-width: 640px; }
+  select, button {
+    width: 100%; background: #2a3040; color: var(--fg); border: 1px solid var(--line);
+    border-radius: 5px; padding: 3px 8px; font-size: 12px;
   }
+  button { width: auto; padding: 4px 10px; cursor: pointer; }
   button:hover { background: #333a4d; }
 </style>
 </head>
@@ -65,10 +66,13 @@
 
 <h1>Traffic sprite prototype</h1>
 <p class="sub">
-  Reference implementation of <a href="planes.md">planes.md</a> — same
-  projection, same 8.8 fixed-point arithmetic, same tier ladder, same row-run
-  rasteriser. Everything below the projection runs in integers, so the sprite
-  bytes are the bytes the C64 should produce.
+  Reference implementation of <a href="planes.md">planes.md</a>, and the twin of
+  <code>lib/planes.py</code>: same projection, same 8.8 fixed-point arithmetic, same
+  pixel-size ladder and layout, same polygon fill. Everything below the projection
+  runs in integers, so the sprite bytes are the bytes the C64 should produce. The
+  <b>strokes</b> renderer is the design this replaced, kept here only so the two can
+  be compared; it is not part of the spec and <code>lib/planes.py</code> does not
+  implement it.
 </p>
 
 <div class="row">
@@ -80,15 +84,15 @@
   </div>
 
   <div class="card">
-    <h2>Sprite buffer &mdash; 24 columns</h2>
-    <canvas id="buffer" width="336" height="420"></canvas>
+    <h2>Sprite buffer &mdash; <span id="bufdim"></span></h2>
+    <canvas id="buffer" width="400" height="360"></canvas>
   </div>
 
   <div class="card ctrls">
     <h2>Geometry</h2>
 
     <div class="ctrl"><label>Distance <b><span id="l_dist"></span> m</b></label>
-      <input type="range" id="dist" min="25" max="1200" value="150" step="1"></div>
+      <input type="range" id="dist" min="20" max="1500" value="150" step="1"></div>
     <div class="ctrl"><label>Bearing <b><span id="l_bear"></span>&deg;</b></label>
       <input type="range" id="bear" min="-30" max="30" value="6" step="1"></div>
     <div class="ctrl"><label>Elevation <b><span id="l_elev"></span>&deg;</b></label>
@@ -100,7 +104,7 @@
     <div class="ctrl"><label>Target pitch <b><span id="l_tpit"></span>&deg;</b></label>
       <input type="range" id="tpit" min="-45" max="45" value="0" step="1"></div>
     <div class="ctrl"><label>Target bank <b><span id="l_tbnk"></span>&deg;</b></label>
-      <input type="range" id="tbnk" min="-80" max="80" value="20" step="1"></div>
+      <input type="range" id="tbnk" min="-90" max="90" value="20" step="1"></div>
 
     <div class="grp"></div>
     <div class="ctrl"><label>Own pitch <b><span id="l_opit"></span>&deg;</b></label>
@@ -110,40 +114,55 @@
 
     <div class="grp"></div>
     <div class="ctrl"><label>Wingspan <b><span id="l_span"></span> m</b></label>
-      <input type="range" id="span" min="6" max="20" value="11" step="1"></div>
+      <input type="range" id="span" min="6" max="20" value="11" step="0.5"></div>
     <div class="ctrl"><label>Length <b><span id="l_len"></span> m</b></label>
-      <input type="range" id="len" min="5" max="18" value="8" step="1"></div>
+      <input type="range" id="len" min="5" max="18" value="8.3" step="0.1"></div>
     <div class="ctrl"><label>Size exaggeration <b><span id="l_scale"></span>&times;</b></label>
       <input type="range" id="scale" min="10" max="30" value="15" step="1"></div>
     <div class="ctrl"><label>Wing forward of centre <b><span id="l_wfwd"></span>% of length</b></label>
       <input type="range" id="wfwd" min="0" max="35" value="20" step="1"></div>
 
     <div class="grp"></div>
-    <div class="ctrl"><label>Max stroke thickness <b><span id="l_thick"></span> px</b></label>
-      <input type="range" id="thick" min="1" max="4" value="4" step="1"></div>
+    <div class="ctrl"><label>Renderer <b></b></label>
+      <select id="renderer">
+        <option value="poly" selected>Polygons, up to 2 &times; 2, X+Y &mdash; the spec</option>
+        <option value="strokes">Three strokes, up to 1 &times; 2, X only &mdash; previous design</option>
+      </select></div>
     <div class="ctrl"><label>Colour <b></b></label>
-      <select id="color" style="width:100%;background:#2a3040;color:#d7dae3;border:1px solid #2b3040;border-radius:5px;padding:3px">
+      <select id="color">
         <option value="15" selected>Light grey</option>
         <option value="12">Medium grey</option>
         <option value="1">White</option>
         <option value="11">Dark grey</option>
       </select></div>
+    <div class="ctrl"><label>Animate, at the 10 Hz sim rate <b></b></label>
+      <select id="anim">
+        <option value="none" selected>off</option>
+        <option value="fly">crossing flyby at the set distance</option>
+        <option value="app">approach from 600 m</option>
+      </select></div>
 
     <div class="grp"></div>
-    <label class="chk"><input type="checkbox" id="fin" checked> Third stroke: tail fin</label>
-    <label class="chk"><input type="checkbox" id="box"> Show sprite bounds</label>
-    <label class="chk"><input type="checkbox" id="anim"> Animate flyby</label>
+    <label class="chk"><input type="checkbox" id="fin" checked> Fin</label>
+    <label class="chk"><input type="checkbox" id="stab" checked> Tailplane (polygons only)</label>
+    <label class="chk"><input type="checkbox" id="box"> Show sprite bounds and the DMA cut lines</label>
+    <label class="chk"><input type="checkbox" id="gallery" checked> Gallery</label>
     <button id="reset">Reset</button>
   </div>
 
-  <div class="card" style="min-width:260px">
+  <div class="card" style="min-width:280px; max-width:360px">
     <h2>Pipeline readout</h2>
     <table class="read" id="readout"></table>
     <div class="grp"></div>
-    <h2>Block 0 &mdash; 63 bytes</h2>
+    <h2>Sprite blocks &mdash; 63 bytes each</h2>
     <pre class="dump" id="dump"></pre>
   </div>
 
+</div>
+
+<div class="card" id="galCard">
+  <h2>Gallery &mdash; ten attitudes at the set distance, target centred, shown at 3&times;</h2>
+  <canvas id="gal"></canvas>
 </div>
 
 <script>
@@ -153,18 +172,38 @@
 const PAL = ["#000000","#FFFFFF","#68372B","#70A4B2","#6F3D86","#588D43",
              "#352879","#B8C76F","#6F4F25","#433900","#9A6759","#444444",
              "#6C6C6C","#9AD284","#6C5EB5","#959595"];
-const C_SKY = PAL[6], C_GRAD = PAL[14], C_GRAD2 = PAL[3], C_GROUND = PAL[5];
+const C_SKY = PAL[6], C_GRAD = PAL[14], C_GRAD2 = PAL[3], C_GROUND = PAL[5], C_DOTS = PAL[13];
+const ZOOM = 2;
+const EYE_ALT = 250;                        // metres, for the terrain dots only
+
+/* ============================================================================
+   The spec -- a line-by-line twin of lib/planes.py. Keep the two in step.
+   ========================================================================== */
 
 /* ---------- viewport geometry (mem.h) ---------- */
 const VIEW_W = 320, VIEW_H = 112;
 const CX0 = VIEW_W / 2, CY0 = VIEW_H / 2;   // gfx.cc: px = 160 - vec_sx
-const ZOOM = 2;
-const COLS = 24;                            // sprite width in sprite pixels
-const ROWS = 21;                            // sprite height in raster lines
-// Largest bounding-box EXTENT each buffer can hold. One less than the pixel
-// size (an extent of 21 spans 22 rows), and one less again on the width
-// because an X-expanded column is reached through a divide that rounds up.
-const MAX_BBOX_W = COLS * 2 - 2, MAX_BBOX_H = ROWS * 2 - 1;
+const PROJ = 256;
+const COLS = 24, ROWS = 21, BLOCK_BYTES = 63;
+const RENDER_UNIT_M = 0.25, EIGHTHS_PER_M = 8;
+const MIN_CAM_X = 64, MAX_CAM_X = 16000;
+// Last viewport line a hardware sprite may START on: kSpritesOffLead and
+// kSpritesOffLeadExpandY in mem.h. The stack rejects past it; this slides.
+const SPRITE_START_MAX = VIEW_H - 22 - 1;          // 89
+const SPRITE_START_MAX_EXP_Y = VIEW_H - 43 - 1;    // 68
+
+/* ---------- pixel-size ladder, on the unforeshortened diameter d ---------- */
+const LEVEL_DOT = 0, LEVEL_1X = 1, LEVEL_XEXP = 2, LEVEL_XYEXP = 3;
+const LEVEL_SCALE = { 1: [1, 1], 2: [2, 1], 3: [2, 2] };
+const D_DOT = 3, D_1X = 21, D_XEXP = 39, D_MAX = 80;
+const LIMITS = [D_DOT, D_1X, D_XEXP];
+const HYSTERESIS = 0.87;
+
+/* ---------- cycle model: estimates, not measurements ---------- */
+const CYC_POSITION = 940, CYC_AXES = 900, CYC_FMUL = 45, CYC_DIV = 150;
+const CYC_CACHE_BYTE = 4, CYC_EDGE = 40, CYC_SLOPE = 55, CYC_EDGE_ROW = 25;
+const CYC_SPAN = 30, CYC_SPAN_BYTE = 8, CYC_CLEAR_BYTE = 5, CYC_SPRITE = 30;
+const SIM_FRAME_CYCLES = 98500;
 
 /* ---------- 6502 fixed point, matching vec_asm.cc ---------- */
 // trunc(a * b / 256), rounding toward zero -- vec_fastmul8p8
@@ -178,100 +217,430 @@ function fdiv(a, b) {
   const p = (a * 256) / b;
   return p < 0 ? -Math.floor(-p) : Math.floor(p);
 }
+// a * b / 256 rounded to nearest from one multiply, sign applied last so a
+// negative model offset rounds like its positive twin.
+function smul(a, b) {
+  const p = (fmul(2 * Math.abs(a), Math.abs(b)) + 1) >> 1;
+  return ((a < 0) !== (b < 0)) && p ? -p : p;
+}
+const jround = x => Math.floor(x + 0.5);
+// |(x, y)| within ~3%: max(hi, 7/8 hi + 1/2 lo).
+function norm2(x, y) {
+  x = Math.abs(x); y = Math.abs(y);
+  const hi = x > y ? x : y, lo = x > y ? y : x;
+  return Math.max(hi, hi - (hi >> 3) + (lo >> 1));
+}
+function isqrtCeil(n) {
+  let r = Math.floor(Math.sqrt(n));
+  while (r * r > n) r--;
+  while (r * r < n) r++;
+  return r;
+}
 
 /* ---------- vectors ---------- */
 const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
 const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
-const rad = d => d * Math.PI / 180;
-
+const rad = d => d * (Math.PI / 180);      // as math.radians
 // mat3_t: front (x fwd), left (y), up (z). up = front x left.
 function orient(hdg, pitch, bank) {
   const h = rad(hdg), p = rad(pitch), b = rad(bank);
   const front = [Math.cos(p)*Math.cos(h), Math.cos(p)*Math.sin(h), Math.sin(p)];
   const left0 = [-Math.sin(h), Math.cos(h), 0];
   const up0 = cross(front, left0);
-  const left = [left0[0]*Math.cos(b) + up0[0]*Math.sin(b),
-                left0[1]*Math.cos(b) + up0[1]*Math.sin(b),
-                left0[2]*Math.cos(b) + up0[2]*Math.sin(b)];
+  const left = [0, 1, 2].map(i => left0[i]*Math.cos(b) + up0[i]*Math.sin(b));
   return { front, left, up: cross(front, left) };
 }
-// vec_transform_inv: world -> camera
 const toCam = (m, v) => [dot(v, m.front), dot(v, m.left), dot(v, m.up)];
-// quantise a unit vector to 8.8, as mat3_t stores it
-const q88 = v => v.map(c => Math.round(c * 256));
+const q88 = v => v.map(c => jround(c * 256));
+function place(D, bearing = 0, elevation = 0) {
+  const b = rad(bearing), e = rad(elevation);
+  return [D * Math.cos(e) * Math.cos(b), -D * Math.cos(e) * Math.sin(b), D * Math.sin(e)];
+}
 
-/* ---------- run-mask tables (144 bytes on the C64) ---------- */
-const kMaskFrom = [], kMaskTo = [];
-for (let i = 0; i < COLS; i++) {
-  const f = [0,0,0], t = [0,0,0];
-  for (let x = 0; x < COLS; x++) {
-    const bit = 0x80 >> (x & 7), by = x >> 3;
-    if (x >= i) f[by] |= bit;
-    if (x <= i) t[by] |= bit;
+/* ---------- aircraft model ---------- */
+const MODEL_DEFAULTS = {
+  span_m: 11.0, length_m: 8.3, nose_frac: 0.55, tail_frac: 0.45,
+  wing_fwd_frac: 0.20, chord_frac: 0.14, stab_span_frac: 0.31,
+  stab_chord_frac: 0.15, fin_frac: 0.14, fin_root_frac: 0.20,
+  fin_tip_frac: 0.05, cabin_frac: 0.15, nose_radius_frac: 0.045,
+  cabin_radius_frac: 0.075, tail_radius_frac: 0.015, scale: 1.5,
+};
+function makeModel(over) {
+  const m = Object.assign({}, MODEL_DEFAULTS, over);
+  // metres to eighths, rounding the magnitude so the model stays symmetric
+  m.e = metres => {
+    const v = jround(Math.abs(metres) * EIGHTHS_PER_M * m.scale);
+    return metres < 0 ? -v : v;
+  };
+  const s = m.span_m, ln = m.length_m, e = m.e;
+  const wf = ln * m.wing_fwd_frac;
+  const c2 = s * m.chord_frac / 2;
+  const h = s / 2;
+  const rc = ln * m.cabin_radius_frac;
+  const t = -ln * m.tail_frac;
+  const sc = ln * m.stab_chord_frac;
+  const hs = s * m.stab_span_frac / 2;
+  const fh = s * m.fin_frac;
+  const pt = (f, l, u) => [e(f), e(l), e(u)];
+  m.geometry = {
+    wing: [pt(wf + c2, h, rc), pt(wf + c2, -h, rc), pt(wf - c2, -h, rc), pt(wf - c2, h, rc)],
+    stab: [pt(t + sc, hs, 0), pt(t + sc, -hs, 0), pt(t, -hs, 0), pt(t, hs, 0)],
+    fin:  [pt(t, 0, 0), pt(t + ln * m.fin_root_frac, 0, 0),
+           pt(t + ln * m.fin_tip_frac, 0, fh), pt(t, 0, fh)],
+    body: [[e(ln * m.nose_frac), e(ln * m.nose_radius_frac)],
+           [e(ln * m.cabin_frac), e(rc)],
+           [e(t), e(ln * m.tail_radius_frac)]],
+    hub: [e(wf), 0, 0],
+  };
+  const g = m.geometry, hf = g.hub[0];
+  // Furthest any part reaches from the wing hub: the size-cap radius.
+  let sq = 0;
+  for (const part of ["wing", "stab", "fin"])
+    for (const [f, l, u] of g[part]) sq = Math.max(sq, (f - hf) ** 2 + l * l + u * u);
+  let R = isqrtCeil(sq);
+  for (const [f, r] of g.body) R = Math.max(R, Math.abs(f - hf) + r);
+  m.maxRadius = R;
+  m.kMax = Math.floor((D_MAX * 128) / R);
+  // One multiply by k per distinct magnitude, two by the axis per distinct
+  // (axis, magnitude) pair, two per fuselage station, two divides.
+  const pairs = new Set();
+  for (const part of ["wing", "stab", "fin"])
+    for (const p of g[part]) p.forEach((v, axis) => { if (v) pairs.add(axis + ":" + Math.abs(v)); });
+  for (const [f] of g.body) if (f) pairs.add("0:" + Math.abs(f));
+  const mags = new Set([...pairs].map(k => +k.split(":")[1]));
+  for (const [, r] of g.body) mags.add(r);
+  m.projectionCycles = CYC_FMUL * (mags.size + 2 * pairs.size + 2 * g.body.length) + 2 * CYC_DIV;
+  return m;
+}
+
+/* ---------- sprite buffer: cols x rows blocks of 63 bytes ---------- */
+class SpriteBuffer {
+  constructor(cols = 1, rows = 1) {
+    this.cols = cols; this.rows = rows;
+    this.width = COLS * cols; this.height = ROWS * rows;
+    this.blocks = [];
+    for (let i = 0; i < cols * rows; i++) this.blocks.push(new Uint8Array(BLOCK_BYTES));
+    this.edges = this.slopes = this.edgeRows = this.spans = this.bytes = 0;
   }
-  kMaskFrom.push(f); kMaskTo.push(t);
+  // OR pixels a..b of row y: two 8-entry edge-mask tables and $FF between.
+  fillSpan(y, a, b) {
+    if (y < 0 || y >= this.height) return false;
+    if (a > b) { const t = a; a = b; b = t; }
+    a = Math.max(0, a); b = Math.min(this.width - 1, b);
+    if (b < a) return false;
+    const br = Math.floor(y / ROWS), line = y % ROWS;
+    const i0 = a >> 3, i1 = b >> 3;
+    for (let i = i0; i <= i1; i++) {
+      let m = 0xFF;
+      if (i === i0) m &= 0xFF >> (a & 7);
+      if (i === i1) m &= (0xFF << (7 - (b & 7))) & 0xFF;
+      this.blocks[br * this.cols + Math.floor(i / 3)][3 * line + (i % 3)] |= m;
+    }
+    this.spans++;
+    this.bytes += i1 - i0 + 1;
+    return true;
+  }
+  get(x, y) {
+    const br = Math.floor(y / ROWS), line = y % ROWS, i = x >> 3;
+    return (this.blocks[br * this.cols + Math.floor(i / 3)][3 * line + (i % 3)] >> (7 - (x & 7))) & 1;
+  }
+  ink() {
+    let n = 0;
+    for (let y = 0; y < this.height; y++) for (let x = 0; x < this.width; x++) n += this.get(x, y);
+    return n;
+  }
+  rasterCycles() {
+    return BLOCK_BYTES * this.cols * this.rows * CYC_CLEAR_BYTE
+         + this.edges * CYC_EDGE + this.slopes * CYC_SLOPE
+         + this.edgeRows * CYC_EDGE_ROW
+         + this.spans * CYC_SPAN + this.bytes * CYC_SPAN_BYTE;
+  }
 }
 
-/* ---------- sprite buffer ---------- */
-function makeBuf(rows) {
-  return { rows, bytes: new Uint8Array(3 * rows), touched: 0, repeat: 0 };
+// 65536 / dy for every edge height a polygon can have (at most 41 rows).
+const RECIP = [0, 0];
+for (let dy = 2; dy < 2 * ROWS; dy++) RECIP.push(Math.floor(65536 / dy));
+
+// Edge-inclusive convex fill, the trace poly.cc uses for the terrain: a
+// polygon seen edge-on degrades into a 1 px line instead of disappearing, and
+// clamping a span to the buffer is an exact clip.
+function fillPoly(buf, pts) {
+  let minY = Infinity, maxY = -Infinity, minX = Infinity, maxX = -Infinity;
+  for (const p of pts) {
+    minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]);
+    minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]);
+  }
+  const y0 = Math.max(0, minY), y1 = Math.min(buf.height - 1, maxY);
+  if (y0 > y1 || maxX < 0 || minX >= buf.width) return;
+  const lo = new Array(buf.height).fill(1 << 30), hi = new Array(buf.height).fill(-(1 << 30));
+  const put = (y, a, b) => {
+    if (y >= y0 && y <= y1) { lo[y] = Math.min(lo[y], a); hi[y] = Math.max(hi[y], b); }
+  };
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    let [xa0, ya] = pts[i], [xb0, yb] = pts[(i + 1) % n];
+    buf.edges++;
+    if (ya === yb) { put(ya, Math.min(xa0, xb0), Math.max(xa0, xb0)); continue; }
+    if (yb < ya) { let t = xa0; xa0 = xb0; xb0 = t; t = ya; ya = yb; yb = t; }
+    const dy = yb - ya;
+    let slope;
+    if (dy > 1) { buf.slopes++; slope = fmul(xb0 - xa0, RECIP[dy]); }
+    else slope = (xb0 - xa0) * 256;
+    let xa = xa0 * 256;
+    for (let y = ya; y <= yb; y++) {
+      let xb;
+      if (y === yb) { xa = xb0 * 256; xb = xa; } else { xb = xa + slope; }
+      if (y >= y0 && y <= y1) {
+        put(y, Math.min(xa, xb) >> 8, Math.max(xa, xb) >> 8);
+        buf.edgeRows++;
+      }
+      xa = xb;
+    }
+  }
+  for (let y = y0; y <= y1; y++) if (lo[y] <= hi[y]) buf.fillSpan(y, lo[y], hi[y]);
 }
 
-// isRepeat: the mask is already in hand from the previous row, so only the
-// three stores are paid for -- see the cycle model in compute().
-function fillRun(buf, y, a, b, isRepeat) {
-  if (y < 0 || y >= buf.rows) return;
-  if (a > b) { const t = a; a = b; b = t; }
-  a = Math.max(0, a); b = Math.min(COLS - 1, b);
-  if (b < a) return;
-  const o = 3 * y, mf = kMaskFrom[a], mt = kMaskTo[b];
-  buf.bytes[o]   |= mf[0] & mt[0];
-  buf.bytes[o+1] |= mf[1] & mt[1];
-  buf.bytes[o+2] |= mf[2] & mt[2];
-  if (isRepeat) buf.repeat++; else buf.touched++;
+// The far tier's static bitmap: a 2 x 2 blob on the block's LAST two rows,
+// so that the sprite starts as far above the dot as it can.
+const DOT_X = COLS >> 1, DOT_Y = ROWS - 2;
+const DOT_BITMAP = (() => {
+  const b = new SpriteBuffer();
+  b.fillSpan(DOT_Y, DOT_X, DOT_X + 1); b.fillSpan(DOT_Y + 1, DOT_X, DOT_X + 1);
+  b.spans = b.bytes = 0;
+  return b;
+})();
+
+/* ---------- projection ---------- */
+function projectModel(model, k, centre, fore, lat, vert, parts) {
+  const [cx, cy] = centre;
+  const pr = p => {
+    const pf = smul(p[0], k), pl = smul(p[1], k), pu = smul(p[2], k);
+    return [cx - fmul(fore[1], pf) - fmul(lat[1], pl) - fmul(vert[1], pu),
+            cy - fmul(fore[2], pf) - fmul(lat[2], pl) - fmul(vert[2], pu)];
+  };
+  const g = model.geometry, shapes = {};
+  for (const part of ["wing", "stab", "fin"])
+    if (parts.has(part)) shapes[part] = [g[part].map(pr)];
+
+  if (parts.has("body")) {
+    // A body of revolution: offset each station perpendicular to the
+    // PROJECTED axis by a radius that depends on distance alone.
+    const st = g.body.map(([f, r]) => [pr([f, 0, 0]), smul(r, k)]);
+    const fx = st[0][0][0] - st[st.length - 1][0][0];
+    const fy = st[0][0][1] - st[st.length - 1][0][1];
+    const n = norm2(fx, fy);
+    let cab = st[0];
+    for (const s of st) if (s[1] > cab[1]) cab = s;
+    const polys = [];
+    if (n > 0) {
+      const ux = fdiv(-fy, n), uy = fdiv(fx, n);
+      const off = st.map(([, r]) => [smul(ux, r), smul(uy, r)]);
+      for (let i = 0; i + 1 < st.length; i++) {
+        const a = st[i][0], b = st[i + 1][0], oa = off[i], ob = off[i + 1];
+        polys.push([[a[0] + oa[0], a[1] + oa[1]], [b[0] + ob[0], b[1] + ob[1]],
+                    [b[0] - ob[0], b[1] - ob[1]], [a[0] - oa[0], a[1] - oa[1]]]);
+      }
+    }
+    // End-on: the cabin's cross-section, a disc.
+    if (n < 4 * cab[1]) {
+      const r = Math.max(1, cab[1]), h = (r * 106) >> 8, [x, y] = cab[0];
+      polys.push([[x + r, y + h], [x + h, y + r], [x - h, y + r], [x - r, y + h],
+                  [x - r, y - h], [x - h, y - r], [x + h, y - r], [x + r, y - h]]);
+    }
+    shapes.body = polys;
+  }
+  return { shapes, hub: pr(g.hub) };
 }
 
-const getPix = (buf, x, y) =>
-  (buf.bytes[3*y + (x >> 3)] >> (7 - (x & 7))) & 1;
+/* ---------- level and layout ---------- */
+function ladder(d, limits) {
+  for (let i = 0; i < limits.length; i++) if (d <= limits[i]) return i;
+  return limits.length;
+}
+// Promote past a limit, demote below 87% of it, and never be held more than
+// the demotion thresholds allow.
+function pickLevel(prev, d) {
+  const up = ladder(d, LIMITS);
+  const down = ladder(d, LIMITS.map(l => HYSTERESIS * l));
+  return Math.min(Math.max(prev, up), down);
+}
+function tierName(t) {
+  if (t.level === LEVEL_DOT) return "dot";
+  return `${t.cols}x${t.rows}, ${["", "1:1", "X-exp", "X+Y-exp"][t.level]}`;
+}
+// Invisible -- only the sprite count changes -- so it may follow the attitude.
+function pickLayout(state, level, bw, bh) {
+  const [xs, ys] = LEVEL_SCALE[level];
+  const same = state.level === level;
+  let cols = bw <= xs * (COLS - 1) ? 1 : 2;
+  if (same && state.cols === 2 && cols === 1 && bw > HYSTERESIS * xs * (COLS - 1)) cols = 2;
+  let rows = bh <= ys * (ROWS - 1) ? 1 : 2;
+  if (same && state.rows === 2 && rows === 1 && bh > HYSTERESIS * ys * (ROWS - 1)) rows = 2;
+  return { level, xs, ys, cols, rows };
+}
+const newState = () => ({ level: LEVEL_DOT, cols: 1, rows: 1, cacheKey: null, cacheBuf: null });
+const ALL_PARTS = new Set(["wing", "stab", "fin", "body"]);
 
-// Liang-Barsky clip against the buffer rectangle.
-// Endpoints must be CLIPPED, never clamped: clamping pins every point of a
-// very close aircraft to a corner, and the silhouette degenerates into the
-// two diagonals of the buffer -- a bare X with no tail.
+/* ---------- the pipeline, one aircraft, one frame ---------- */
+function render(state, cam, target, relPosM, model, parts = ALL_PARTS) {
+  // 1. to render units (quarter metres), 3. camera space
+  const pu = relPosM.map(c => jround(c / RENDER_UNIT_M));
+  const c = toCam(cam, pu).map(jround);
+  if (c[0] <= MIN_CAM_X) return { visible: false, reason: "behind camera", cam: c };
+  if (c[0] > MAX_CAM_X) return { visible: false, reason: "out of range", cam: c };
+
+  // 5. centre, 6. perspective scale, 6b. the size clamp
+  const cx = CX0 - fdiv(c[1], c[0]);
+  const cy = CY0 - fdiv(c[2], c[0]);
+  let k = fdiv(128, c[0]);
+  const clamped = k > model.kMax;
+  if (clamped) k = model.kMax;
+
+  // 7. pixel size, from distance alone -- before the body axes
+  const d = Math.floor((model.maxRadius * k) / 128);
+  const level = pickLevel(state.level, d);
+
+  if (level === LEVEL_DOT) {
+    state.level = LEVEL_DOT; state.cols = state.rows = 1;
+    state.cacheKey = state.cacheBuf = null;
+    const origin = [cx - DOT_X, cy - DOT_Y];
+    if (origin[1] > SPRITE_START_MAX) return { visible: false, reason: "below the sprite cut", cam: c };
+    return { visible: true, cam: c, k, d, centre: [cx, cy],
+             tier: { level: LEVEL_DOT, xs: 1, ys: 1, cols: 1, rows: 1 }, origin, slid: 0,
+             buf: DOT_BITMAP, clamped, cached: false, fits: true, shapes: {}, local: {},
+             bbox: [0, 0], cycles: CYC_POSITION + CYC_SPRITE };
+  }
+
+  // 8. body axes, 9. polygons in screen pixels
+  const fore = q88(toCam(cam, target.front));
+  const lat  = q88(toCam(cam, target.left));
+  const vert = q88(toCam(cam, target.up));
+  const { shapes, hub } = projectModel(model, k, [cx, cy], fore, lat, vert, parts);
+  let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
+  for (const polys of Object.values(shapes))
+    for (const poly of polys)
+      for (const p of poly) {
+        minx = Math.min(minx, p[0]); maxx = Math.max(maxx, p[0]);
+        miny = Math.min(miny, p[1]); maxy = Math.max(maxy, p[1]);
+      }
+  const bw = maxx - minx, bh = maxy - miny;
+
+  // 10. layout, then the centring anchor
+  const tier = pickLayout(state, level, bw, bh);
+  state.level = level; state.cols = tier.cols; state.rows = tier.rows;
+  const { xs, ys } = tier;
+  const wpx = COLS * tier.cols * xs, hpx = ROWS * tier.rows * ys;
+  const fits = bw <= xs * (COLS * tier.cols - 1) && bh <= ys * (ROWS * tier.rows - 1);
+  const anchor = fits ? [jround((minx + maxx) / 2), jround((miny + maxy) / 2)] : hub;
+  const ox = anchor[0] - (wpx >> 1);
+  let oy = anchor[1] - (hpx >> 1);
+
+  // 11. slide, don't reject
+  const cut = ys === 2 ? SPRITE_START_MAX_EXP_Y : SPRITE_START_MAX;
+  const slid = Math.max(0, oy + (tier.rows - 1) * ROWS * ys - cut);
+  oy -= slid;
+
+  const loc = p => [Math.floor((p[0] - ox) / xs), Math.floor((p[1] - oy) / ys)];
+  const local = {};
+  let nverts = 0;
+  for (const name in shapes) {
+    local[name] = shapes[name].map(poly => poly.map(loc));
+    for (const poly of local[name]) nverts += poly.length;
+  }
+
+  // 12. cache on the local vertices and the layout
+  const key = `${level}|${tier.cols}|${tier.rows}|` + JSON.stringify(local);
+  const cached = state.cacheKey === key && state.cacheBuf !== null;
+  let cycles = CYC_POSITION + CYC_AXES + model.projectionCycles
+             + CYC_CACHE_BYTE * 2 * nverts + CYC_SPRITE * tier.cols * tier.rows;
+
+  // 13. fill into the back buffer
+  let buf;
+  if (cached) buf = state.cacheBuf;
+  else {
+    buf = new SpriteBuffer(tier.cols, tier.rows);
+    for (const name in local) for (const poly of local[name]) fillPoly(buf, poly);
+    state.cacheKey = key; state.cacheBuf = buf;
+    cycles += buf.rasterCycles();
+  }
+  return { visible: true, cam: c, k, d, centre: [cx, cy], shapes, local, bbox: [bw, bh],
+           tier, origin: [ox, oy], slid, fits, buf, cached, cycles, clamped };
+}
+
+/* ---------- cross-checking against lib/planes.py ---------- */
+function signature(r) {
+  if (!r.visible) return "invisible:" + r.reason;
+  const hex = r.buf.blocks.map(b => Array.from(b, v => v.toString(16).padStart(2, "0")).join("")).join("");
+  return `${r.tier.level}|${r.tier.cols}x${r.tier.rows}|${r.origin[0]},${r.origin[1]}|${r.slid}|` +
+         `${r.clamped ? 1 : 0}|${r.cycles}|${hex}`;
+}
+function fnv1a(s) {
+  let h = 0x811C9DC5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h >>> 0;
+}
+// The same sweep as tests/test_planes.py's TestTwin. Returns one hash per
+// block of cases; compare against planes.twin_hashes() on the Python side.
+function twinHashes() {
+  const out = {}, level = orient(0, 0, 0);
+  const add = (name, sigs) => { out[name] = fnv1a(sigs.join("\n")).toString(16).padStart(8, "0"); };
+  const models = [["default", makeModel({})],
+                  ["big", makeModel({ span_m: 15.5, length_m: 12.2, scale: 2.0, wing_fwd_frac: 0.1 })]];
+  for (const [mname, model] of models)
+    for (const D of [18, 30, 55, 80, 110, 150, 210, 300, 600, 1100, 1500]) {
+      const sigs = [];
+      for (let h = -180; h < 180; h += 30)
+        for (const b of [0, 30, 60, 89, -45])
+          for (const p of [-30, 0, 30])
+            for (const [be, el] of [[0, 0], [8, 4], [-12, -9]])
+              sigs.push(signature(render(newState(), level, orient(h, p, b), place(D, be, el), model)));
+      add(`${mname} ${D} m`, sigs);
+    }
+  for (const [name, cam] of [["approach, level", level], ["approach, banked", orient(0, 5, 15)]]) {
+    const st = newState(), sigs = [], model = makeModel({});
+    for (let D = 1500; D > 19; D -= 7)
+      sigs.push(signature(render(st, cam, orient(150, 5, 25), place(D, 3, -2), model)));
+    add(name, sigs);
+  }
+  return out;
+}
+
+/* ============================================================================
+   The previous design: three strokes into at most 1 x 2 X-expanded sprites.
+   Comparison only. Its two known bugs are fixed here -- the thickness latch
+   could be held two rungs up, and "fits" was one pixel generous.
+   ========================================================================== */
+function strokeModel(model) {
+  const e = model.e, s = model.span_m, ln = model.length_m;
+  const m = { H: e(s / 2), LN: e(ln * 0.55), LT: e(ln * 0.45), WF: e(ln * model.wing_fwd_frac),
+              FN: e(s * 0.13), cl: 0.15 * s / ln };
+  m.R = Math.max(m.H, m.LN - m.WF, jround(Math.hypot(m.LT + m.WF, m.FN)));
+  m.kMax = Math.floor(46 * 128 / m.R);
+  return m;
+}
 function clipSeg(x0, y0, x1, y1, w, h) {
   let t0 = 0, t1 = 1;
   const dx = x1 - x0, dy = y1 - y0;
-  const p = [-dx, dx, -dy, dy];
-  const q = [x0, (w - 1) - x0, y0, (h - 1) - y0];
+  const p = [-dx, dx, -dy, dy], q = [x0, (w - 1) - x0, y0, (h - 1) - y0];
   for (let i = 0; i < 4; i++) {
     if (p[i] === 0) { if (q[i] < 0) return null; continue; }
     const r = q[i] / p[i];
     if (p[i] < 0) { if (r > t1) return null; if (r > t0) t0 = r; }
     else          { if (r < t0) return null; if (r < t1) t1 = r; }
   }
-  return [Math.round(x0 + t0*dx), Math.round(y0 + t0*dy),
-          Math.round(x0 + t1*dx), Math.round(y0 + t1*dy)];
+  return [jround(x0 + t0*dx), jround(y0 + t0*dy), jround(x0 + t1*dx), jround(y0 + t1*dy)];
 }
-
-// planes.md section 6 -- row-run stroke.
-// tv = thickness perpendicular to a shallow stroke (extra rows)
-// th = thickness perpendicular to a steep stroke (extra columns)
-function stroke(buf, x0, y0, x1, y1, tv, th, xs) {
-  const c = clipSeg(x0, y0, x1, y1, COLS, buf.rows);
+function stroke(buf, cnt, a, b, [tv, th], xs) {
+  const run = (y, lo, hi, rep) => { if (buf.fillSpan(y, lo, hi)) cnt[rep ? 1 : 0]++; };
+  const c = clipSeg(a[0], a[1], b[0], b[1], buf.width, buf.height);
   if (!c) return;
-  [x0, y0, x1, y1] = c;
-  if (y1 < y0) { let t; t = x0; x0 = x1; x1 = t; t = y0; y0 = y1; y1 = t; }
+  let [x0, y0, x1, y1] = c;
+  if (y1 < y0) { let s; s = x0; x0 = x1; x1 = s; s = y0; y0 = y1; y1 = s; }
   const dy = y1 - y0, dx = x1 - x0;
-  // The steep/shallow test decides which axis gets thickened, so it must be
-  // made in SCREEN space. In an X-expanded sprite one buffer column is two
-  // screen pixels, so a line that looks like 45 degrees in the buffer is
-  // really 26 degrees on screen and wants row thickening, not column.
-  const steep = Math.abs(dx) * xs < dy;
+  const steep = Math.abs(dx) * xs < dy;       // in SCREEN space
   const top = -(tv >> 1), side = -(th >> 1);
-
   if (dy === 0) {
-    for (let r = 0; r < tv; r++)
-      fillRun(buf, y0 + top + r, Math.min(x0, x1), Math.max(x0, x1), r > 0);
+    for (let r = 0; r < tv; r++) run(y0 + top + r, Math.min(x0, x1), Math.max(x0, x1), r > 0);
     return;
   }
   const slope = fdiv(dx, dy);
@@ -279,468 +648,396 @@ function stroke(buf, x0, y0, x1, y1, tv, th, xs) {
   for (let y = y0; y <= y1; y++) {
     let xb;
     if (y === y1) { xa = x1 << 8; xb = xa; } else { xb = xa + slope; }
-    let a = Math.min(xa, xb) >> 8, b = Math.max(xa, xb) >> 8;
-    if (steep) {
-      a += side; b = a + th - 1;
-      fillRun(buf, y, a, b);
-    } else {
-      for (let r = 0; r < tv; r++) fillRun(buf, y + top + r, a, b, r > 0);
-    }
+    let lo = Math.min(xa, xb) >> 8, hi = Math.max(xa, xb) >> 8;
+    if (steep) { lo += side; run(y, lo, lo + th - 1, false); }
+    else for (let r = 0; r < tv; r++) run(y + top + r, lo, hi, r > 0);
     xa = xb;
   }
 }
-
-// Thickness follows the silhouette size: a 6 px plane wants 1 px strokes,
-// a 40 px one looks anaemic at anything under 3.
-// Thickness is specified in SCREEN pixels and the ladder is 1, 2, 4 -- never 3.
-// Two independent continuity constraints force this:
-//   * across the 45-degree steep/shallow crossover, th columns weigh th*xs
-//     screen px against tv rows weighing tv, so th*xs must equal tv exactly;
-//   * across an X-expansion tier change, the screen weight must not move,
-//     so tv must be the same value on both sides.
-// Both hold only if tv is divisible by xs for every xs in use, i.e. even.
-// Quantise a screen-pixel thickness onto the 1 / 2 / 4 ladder, with
-// hysteresis. `prev` is a one-element box so each surface keeps its own state.
-function rung(px, lim, prev) {
-  let t = px < lim[0] ? 1 : px < lim[1] ? 2 : 4;
-  if (prev[0] > t && px > 0.87 * lim[t === 1 ? 0 : 1]) t = prev[0];
-  prev[0] = t;
-  return t;
+function rung(px, lim, st, key) {
+  const up = px < lim[0] ? 1 : px < lim[1] ? 2 : 4;
+  const down = px < HYSTERESIS * lim[0] ? 1 : px < HYSTERESIS * lim[1] ? 2 : 4;
+  return st[key] = Math.min(Math.max(st[key], up), down);
 }
-const prevBody = [1], prevWing = [1], prevFin = [1];
-
-// |v| without a square root: the octagonal approximation, within ~4%.
-const norm2 = (x, y) => {
-  x = Math.abs(x); y = Math.abs(y);
-  return x > y ? x + (y >> 1) : y + (x >> 1);
-};
-
-// Extent of the fuselage vector F measured PERPENDICULAR to a surface's screen
-// direction S. That is what a flat surface's chord projects to: face-on it is
-// the full chord, edge-on it is zero.
-function chordPx(F, S, chordOverLen) {
+function chordPx(F, S, r) {
   const n = norm2(S[0], S[1]);
-  if (n === 0) return 0;
-  const cross = Math.abs(F[0] * S[1] - F[1] * S[0]);
-  return (cross / n) * chordOverLen;
+  return n === 0 ? 0 : Math.abs(F[0] * S[1] - F[1] * S[0]) / n * r;
 }
+const newStrokeState = () => ({ xs: 1, rows: 1, tb: 1, tw: 1, tf: 1 });
 
-// The fuselage is a body of revolution -- it looks the same width from every
-// angle -- so its thickness depends on distance alone, via the unforeshortened
-// wingspan in screen pixels. The wing and fin are flat plates and genuinely do
-// change apparent width as they rotate, so they are driven by their projected
-// chord.
-function thicknessFor(spanPx, wingChord, finChord, xs, max) {
-  const conv = v => {
-    v = Math.min(max, v);
-    if (v >= 2) v &= ~1;               // even, for the crossover -- see docs
-    return [v, Math.max(1, v / xs)];
-  };
-  return {
-    body: conv(rung(spanPx,   [12, 48], prevBody)),
-    wing: conv(rung(wingChord, [2,  4], prevWing)),
-    fin:  conv(rung(finChord,  [2,  4], prevFin)),
-  };
-}
-
-// The far tier's bitmap: a 2x2 blob, built once. Beyond ~700 m there is no
-// silhouette left to draw, and this is the common case by a wide margin, so it
-// gets a fixed bitmap instead of three strokes -- no clear, no rasteriser, no
-// pointer flip. On the C64 this is a static block in $D400, written once at
-// startup alongside the instrument needles.
-const DOT_BITMAP = (() => {
-  const b = makeBuf(21), mx = 12, my = 11;
-  fillRun(b, my, mx, mx + 1); fillRun(b, my + 1, mx, mx + 1);
-  b.touched = b.repeat = 0;
-  return b;
-})();
-
-/* ---------- tier selection (planes.md section 4) ----------
-   The two axes are decided independently: width picks X-expansion, height
-   picks the sprite count. A steeply banked aircraft is tall and narrow and
-   must not be X-expanded just because it needs two sprites.               */
-let prevXs = 1, prevRows = 21;
-
-function pickTier(w, h) {
-  if (w <= 3 && h <= 3) {
-    prevXs = 1; prevRows = 21;
-    return { dot: true, xs: 1, rows: 21, sprites: 1, name: "dot" };
-  }
-  let xs = w <= COLS - 1 ? 1 : 2;
-  if (prevXs === 2 && xs === 1 && w > 0.87 * (COLS - 1)) xs = 2;   // hysteresis
-  let rows = h <= ROWS - 1 ? 21 : 42;
-  if (prevRows === 42 && rows === 21 && h > 0.87 * (ROWS - 1)) rows = 42;
-  prevXs = xs; prevRows = rows;
-  const sprites = rows / 21;
-  return { dot: false, xs, rows, sprites,
-           name: `${sprites} sprite${sprites > 1 ? "s" : ""}, ${xs === 2 ? "X-exp" : "1:1"}` };
-}
-
-/* ---------- the pipeline ---------- */
-let cache = null;
-let animT = 0;
-
-function compute() {
-  const V = id => parseFloat(document.getElementById(id).value);
-  const scale = V("scale") / 10;
-  const spanM = V("span"), lenM = V("len");
-  const cam = orient(0, V("opit"), V("obnk"));
-
-  // --- target world position, metres (x fwd, y left, z up), eye at origin ---
-  let P, tgt;
-  if (document.getElementById("anim").checked) {
-    const y = 420 - animT * 840;              // crosses left to right
-    P = [200, y, 18];
-    tgt = orient(-90, 0, -18);
-  } else {
-    const D = V("dist"), b = rad(V("bear")), e = rad(V("elev"));
-    P = [D*Math.cos(e)*Math.cos(b), -D*Math.cos(e)*Math.sin(b), D*Math.sin(e)];
-    tgt = orient(V("thdg"), V("tpit"), V("tbnk"));
-  }
-
-  // --- step 1: to render units, int16 ---
-  // Traffic uses QUARTER-METRE units, not the terrain's 2 m. The grid needs
-  // kilometres of range; a nearby aircraft needs precision. At 100 m and 6
-  // degrees off the nose the lateral offset is only ~5 of the coarse units, so
-  // one unit of rounding swung the projected centre by several pixels and the
-  // silhouette visibly jumped as the range changed. A quarter metre still
-  // reaches 4 km inside an int16.
-  const Pu = P.map(c => Math.round(c / 0.25));
-  // --- step 3: camera space ---
-  const C = toCam(cam, Pu).map(Math.round);
-
-  const out = { P, C, visible: true };
-  if (C[0] <= 64) { out.visible = false; out.reason = "behind camera"; return out; }
-  if (C[0] > 16000) { out.visible = false; out.reason = "out of range"; return out; }
-
-  // --- step 5: centre ---
-  const cx = CX0 - fdiv(C[1], C[0]);
-  const cy = CY0 - fdiv(C[2], C[0]);
-  // --- step 6: perspective scale, k = 32768 / C.x ---
-  // Model offsets are in eighths of a metre and C.x in quarters, so
-  // px = 256 * (O/8) / (C.x/4) = fmul(O, 32768 / C.x).
-  let k = fdiv(128, C[0]);
-
-  // --- step 7: body axes in camera space, 8.8 ---
-  const fore = q88(toCam(cam, tgt.front));
-  const lat  = q88(toCam(cam, tgt.left));
-  const vert = q88(toCam(cam, tgt.up));
-  const hasFin = document.getElementById("fin").checked;
-
-  // --- model, eighths of a metre, int8 ---
-  // Furthest any model point can be from the wing hub: bounds the silhouette
-  // in both axes whatever the attitude, so it gives a size cap that does not
-  // move as the aircraft rotates.
-  const modelRadius = (H, LN, LT, WF, FN) =>
-    Math.max(H, LN - WF, Math.round(Math.hypot(LT + WF, FN)));
-
-  const H  = Math.round(spanM / 2 * 8 * scale);
-  const LN = Math.round(lenM * 0.55 * 8 * scale);
-  const LT = Math.round(lenM * 0.45 * 8 * scale);
-  const FN = Math.round(spanM * 0.13 * 8 * scale);            // fin height
-  const WF = Math.round(lenM * V("wfwd") / 100 * 8 * scale);  // wing ahead of centre
-
-  // --- step 8: model half-extents in pixels, three multiplies, once ---
-  // vec_fastmul8p8 truncates toward zero, which costs up to a whole pixel out
-  // of a 12 px half-span. Doubling the input and halving the rounded result
-  // recovers it for one shift-and-add per extent.
-  const half = v => (fmul(2 * v, k) + 1) >> 1;
-  // Size clamp: closer than ~94 m the silhouette outgrows even the largest
-  // tier, and cropping would show the middle of an aircraft rather than an
-  // aircraft. Cap k instead -- exactly pretending the target stopped
-  // approaching.
-  //
-  // The cap is a CONSTANT of the model, not a function of the current bounding
-  // box. Scaling to the box fills the buffer better but then the apparent size
-  // changes as the aircraft rotates, which reads as breathing rather than as a
-  // size limit.
-  //
-  // The constant is taken from the buffer WIDTH, not its height. Capping on
-  // height would guarantee a fit at every attitude but cost 15% of silhouette
-  // in all of them; capping on width keeps that 15% and clips the wingtips by
-  // a pixel or two only past ~73 degrees of bank, where the span projects
-  // vertically into 41 rows of buffer.
-  const kMax = Math.floor(MAX_BBOX_W * 128 / modelRadius(H, LN, LT, WF, FN));
-  const clamped = k > kMax;
-  if (clamped) k = kMax;
-
+function renderStrokes(st, cam, target, relPosM, model, withFin) {
+  const pu = relPosM.map(c => jround(c / RENDER_UNIT_M));
+  const c = toCam(cam, pu).map(jround);
+  if (c[0] <= MIN_CAM_X) return { visible: false, reason: "behind camera", cam: c };
+  if (c[0] > MAX_CAM_X) return { visible: false, reason: "out of range", cam: c };
+  const cx = CX0 - fdiv(c[1], c[0]), cy = CY0 - fdiv(c[2], c[0]);
+  const SM = strokeModel(model);
+  let k = fdiv(128, c[0]);
+  const clamped = k > SM.kMax;
+  if (clamped) k = SM.kMax;
+  const fore = q88(toCam(cam, target.front)), lat = q88(toCam(cam, target.left)),
+        vert = q88(toCam(cam, target.up));
+  const h = v => (fmul(2 * v, k) + 1) >> 1;
+  const px = { h: h(SM.H), ln: h(SM.LN), lt: h(SM.LT), wf: h(SM.WF), fn: h(SM.FN) };
   const pt = (axis, ext) => [cx - fmul(axis[1], ext), cy - fmul(axis[2], ext)];
   const add = (a, b) => [a[0] + b[0] - cx, a[1] + b[1] - cy];
-
-  function project(k) {
-    const h = v => (fmul(2 * v, k) + 1) >> 1;
-    const px = { h: h(H), ln: h(LN), lt: h(LT), wf: h(WF), fn: h(FN) };
-    // the wing sits ahead of the centre, so both tips carry a fore offset
-    const hub = pt(fore, px.wf);
-    const pts = {
-      nose: pt(fore,  px.ln), tail: pt(fore, -px.lt),
-      tipL: add(hub, pt(lat,  px.h)),
-      tipR: add(hub, pt(lat, -px.h)),
-    };
-    if (hasFin) pts.fin = add(pts.tail, pt(vert, px.fn));
-    const all = Object.values(pts);
-    const box = [Math.min(...all.map(p => p[0])), Math.max(...all.map(p => p[0])),
-                 Math.min(...all.map(p => p[1])), Math.max(...all.map(p => p[1]))];
-    return { px, hub, pts, bw: box[1] - box[0], bh: box[3] - box[2], box };
+  const hub = pt(fore, px.wf);
+  const P = { nose: pt(fore, px.ln), tail: pt(fore, -px.lt),
+              tipL: add(hub, pt(lat, px.h)), tipR: add(hub, pt(lat, -px.h)) };
+  if (withFin) P.fin = add(P.tail, pt(vert, px.fn));
+  const all = Object.values(P);
+  const minx = Math.min(...all.map(p => p[0])), maxx = Math.max(...all.map(p => p[0]));
+  const miny = Math.min(...all.map(p => p[1])), maxy = Math.max(...all.map(p => p[1]));
+  const bw = maxx - minx, bh = maxy - miny;
+  const base = { visible: true, cam: c, k, centre: [cx, cy], clamped, bbox: [bw, bh], slid: 0 };
+  if (bw <= 3 && bh <= 3) {
+    st.xs = 1; st.rows = 1;
+    return Object.assign(base, { tier: { level: 0, xs: 1, ys: 1, cols: 1, rows: 1 },
+      origin: [cx - DOT_X, cy - DOT_Y], buf: DOT_BITMAP, cycles: 2160, name: "dot" });
   }
-
-  const P2 = project(k);
-  const { pts, hub: wingHub, bw, bh } = P2;
-  const pxH = P2.px.h;
-  const [minx, maxx, miny, maxy] = P2.box;
-
-  // --- step 9: tier ---
-  const T = pickTier(bw, bh);
-  // Centre on the bounding box while the silhouette fits. Once it does not,
-  // centre on the wing hub instead: the wing carries the shape, so it is the
-  // fuselage that should run off the ends, not a wingtip.
-  const fits = bw <= COLS * T.xs && bh <= T.rows;
-  const anchor = fits ? [Math.round((minx + maxx) / 2), Math.round((miny + maxy) / 2)]
-                      : [wingHub[0], wingHub[1]];
-  const originX = anchor[0] - ((COLS * T.xs) >> 1);
-  const originY = anchor[1] - (T.rows >> 1);
-
-  // NOT clamped -- see clipSeg(). Endpoints may legitimately fall outside the
-  // buffer when the aircraft is closer than the largest tier can hold.
-  // FLOORS rather than rounds: an X-expanded sprite column covers screen
-  // pixels 2c and 2c+1, so floor is what the hardware does. Rounding biased
-  // both ends of a full-width silhouette outward and pushed a tip off-buffer.
-  const loc = p => [Math.floor((p[0] - originX) / T.xs), p[1] - originY];
-  const L = { nose: loc(pts.nose), tail: loc(pts.tail),
-              tipL: loc(pts.tipL), tipR: loc(pts.tipR) };
-  if (hasFin) L.fin = loc(pts.fin);
-
-  // Screen-space direction vectors, for the chord projections.
-  const F = [pts.nose[0] - pts.tail[0], pts.nose[1] - pts.tail[1]];
-  const W = [pts.tipL[0] - pts.tipR[0], pts.tipL[1] - pts.tipR[1]];
-  const N = hasFin ? [pts.fin[0] - pts.tail[0], pts.fin[1] - pts.tail[1]] : [0, 0];
-  const chordOverLen = 0.15 * spanM / lenM;
-  // k is a function of distance alone (the clamp is a constant), so the
-  // unforeshortened span in pixels is too, and the fuselage cannot change
-  // weight as the aircraft rotates.
-  const thick = thicknessFor(2 * pxH,
-                             chordPx(F, W, chordOverLen),
-                             chordPx(F, N, chordOverLen),
-                             T.xs,
-                             parseInt(document.getElementById("thick").value, 10));
-
-  // --- step 10: cache on the eight local bytes + tier ---
-  const key = [T.name, thick.body, thick.wing, thick.fin,
-               L.nose, L.tail, L.tipL, L.tipR, L.fin || []].flat().join(",");
-  const hit = cache !== null && cache.key === key;
-
-  // --- step 11: rasterise -- or, in the far tier, do not ---
-  let buf, cycles;
-  if (T.dot) {
-    buf = DOT_BITMAP; cache = { key, buf };
-    cycles = 2160;                     // transform and sprite registers only
-  } else if (hit) {
-    buf = cache.buf; cycles = 2100;
-  } else {
-    buf = makeBuf(T.rows);
-    const [bv, bc] = thick.body, [wv, wc] = thick.wing, [fv, fc] = thick.fin;
-    stroke(buf, L.tail[0], L.tail[1], L.nose[0], L.nose[1], bv, bc, T.xs);
-    stroke(buf, L.tipL[0], L.tipL[1], L.tipR[0], L.tipR[1], wv, wc, T.xs);
-    if (L.fin) stroke(buf, L.tail[0], L.tail[1], L.fin[0], L.fin[1], fv, fc, T.xs);
-    cache = { key, buf };
-    // 35 cycles for a row whose mask must be built, 15 for a thickness repeat
-    // that reuses the mask already in hand.
-    cycles = 2360 + buf.touched * 35 + buf.repeat * 15;
-  }
-
-  return Object.assign(out, {
-    cx, cy, k, fore, lat, pts, L, bw, bh, T, originX, originY, thick, fits, clamped,
-    buf, hit, cycles, H, LN, LT, WF,
-    // one colour, always -- no background test, no multicolour
-    color: parseInt(document.getElementById("color").value, 10),
-  });
+  // Width picks X-expansion, height the sprite count.
+  let xs = bw <= COLS - 1 ? 1 : 2;
+  if (st.xs === 2 && xs === 1 && bw > HYSTERESIS * (COLS - 1)) xs = 2;
+  let rows = bh <= ROWS - 1 ? 1 : 2;
+  if (st.rows === 2 && rows === 1 && bh > HYSTERESIS * (ROWS - 1)) rows = 2;
+  st.xs = xs; st.rows = rows;
+  const H = rows * ROWS;
+  const fits = bw <= xs * (COLS - 1) && bh <= H - 1;
+  const anchor = fits ? [jround((minx + maxx) / 2), jround((miny + maxy) / 2)] : hub;
+  const origin = [anchor[0] - ((COLS * xs) >> 1), anchor[1] - (H >> 1)];
+  const loc = p => [Math.floor((p[0] - origin[0]) / xs), p[1] - origin[1]];
+  const L = {};
+  for (const n in P) L[n] = loc(P[n]);
+  const F = [P.nose[0] - P.tail[0], P.nose[1] - P.tail[1]];
+  const W = [P.tipL[0] - P.tipR[0], P.tipL[1] - P.tipR[1]];
+  const N = withFin ? [P.fin[0] - P.tail[0], P.fin[1] - P.tail[1]] : [0, 0];
+  const conv = v => { v = Math.min(4, v); if (v >= 2) v &= ~1; return [v, Math.max(1, v / xs)]; };
+  const th = { body: conv(rung(2 * px.h, [12, 48], st, "tb")),
+               wing: conv(rung(chordPx(F, W, SM.cl), [2, 4], st, "tw")),
+               fin:  conv(rung(chordPx(F, N, SM.cl), [2, 4], st, "tf")) };
+  const buf = new SpriteBuffer(1, rows), cnt = [0, 0];
+  stroke(buf, cnt, L.tail, L.nose, th.body, xs);
+  stroke(buf, cnt, L.tipL, L.tipR, th.wing, xs);
+  if (withFin) stroke(buf, cnt, L.tail, L.fin, th.fin, xs);
+  return Object.assign(base, {
+    tier: { level: xs === 2 ? 2 : 1, xs, ys: 1, cols: 1, rows }, origin, buf, fits, th,
+    endpoints: L, name: `1x${rows}, ${xs === 2 ? "X-exp" : "1:1"}`,
+    // What sprites_stack_add() does today: reject an entry whose last
+    // sprite would start below the cut.
+    rejected: origin[1] + H - ROWS > SPRITE_START_MAX,
+    cycles: 2360 + cnt[0] * 35 + cnt[1] * 15 });
 }
 
-/* ---------- viewport rendering ---------- */
-function drawViewport(r) {
-  const cv = document.getElementById("viewport"), g = cv.getContext("2d");
-  const cam = orient(0, parseFloat(document.getElementById("opit").value),
-                        parseFloat(document.getElementById("obnk").value));
-  g.setTransform(1, 0, 0, 1, 0, 0);
+/* ============================================================================
+   UI
+   ========================================================================== */
+const $ = id => document.getElementById(id);
+const val = id => parseFloat($(id).value);
+let polyState = newState(), strokeState = newStrokeState();
+let animStep = 0, animTimer = null;
+
+function uiModel() {
+  return makeModel({ span_m: val("span"), length_m: val("len"),
+                     scale: val("scale") / 10, wing_fwd_frac: val("wfwd") / 100 });
+}
+function uiParts() {
+  const p = new Set(["wing", "body"]);
+  if ($("fin").checked) p.add("fin");
+  if ($("stab").checked) p.add("stab");
+  return p;
+}
+function scene() {
+  const cam = orient(0, val("opit"), val("obnk"));
+  const mode = $("anim").value, D = val("dist");
+  let tgt = orient(val("thdg"), val("tpit"), val("tbnk")), P;
+  if (mode === "fly") {
+    // Crossing left to right at the set distance, 5 m per sim frame.
+    let y = 0.75 * D - animStep * 5;
+    if (y < -0.75 * D) { animStep = 0; y = 0.75 * D; }
+    P = [D, y, 0];
+    tgt = orient(-90, val("tpit"), val("tbnk"));
+  } else {
+    let R = D;
+    if (mode === "app") {
+      R = 600 - animStep * 8;               // 80 m/s closing
+      if (R < 25) { animStep = 0; R = 600; }
+    }
+    P = place(R, val("bear"), val("elev"));
+  }
+  return { cam, tgt, P };
+}
+function frame(s, rendererName, pState, sState, model, parts) {
+  return rendererName === "poly"
+    ? render(pState, s.cam, s.tgt, s.P, model, parts)
+    : renderStrokes(sState, s.cam, s.tgt, s.P, model, parts.has("fin"));
+}
+
+/* ---------- drawing ---------- */
+const bgCache = new Map();
+function background(opit, obnk) {
+  const key = opit + "," + obnk;
+  if (bgCache.has(key)) return bgCache.get(key);
+  const cv = document.createElement("canvas");
+  cv.width = VIEW_W * ZOOM; cv.height = VIEW_H * ZOOM;
+  const g = cv.getContext("2d");
+  const cam = orient(0, opit, obnk);
   g.fillStyle = C_SKY; g.fillRect(0, 0, cv.width, cv.height);
   g.scale(ZOOM, ZOOM);
-
   // horizon: every direction with world z = 0
   const poly = [];
   for (let b = -89; b <= 89; b += 2) {
-    const d = [Math.cos(rad(b)), -Math.sin(rad(b)), 0];
-    const c = toCam(cam, d);
+    const c = toCam(cam, [Math.cos(rad(b)), -Math.sin(rad(b)), 0]);
     if (c[0] < 0.12) continue;
-    poly.push([CX0 - 256 * c[1] / c[0], CY0 - 256 * c[2] / c[0]]);
+    poly.push([CX0 - PROJ * c[1] / c[0], CY0 - PROJ * c[2] / c[0]]);
   }
   if (poly.length > 1) {
-    g.beginPath();
-    g.moveTo(poly[0][0], poly[0][1]);
+    g.beginPath(); g.moveTo(poly[0][0], poly[0][1]);
     for (const p of poly) g.lineTo(p[0], p[1]);
-    const last = poly[poly.length - 1], first = poly[0];
-    // close through whichever side is "down" in camera space
     const down = cam.up[2] >= 0 ? VIEW_H + 200 : -200;
-    g.lineTo(last[0], down); g.lineTo(first[0], down);
+    g.lineTo(poly[poly.length - 1][0], down); g.lineTo(poly[0][0], down);
     g.closePath();
     g.fillStyle = C_GROUND; g.fill();
     g.lineWidth = 3; g.strokeStyle = C_GRAD2; g.stroke();
     g.lineWidth = 1; g.strokeStyle = C_GRAD; g.stroke();
   }
-
-  if (!r.visible) { g.setTransform(1,0,0,1,0,0); return; }
-
-  // the sprite bitmap, at the size and position the VIC would give it
-  g.fillStyle = PAL[r.color];
-  for (let y = 0; y < r.buf.rows; y++) {
-    for (let x = 0; x < COLS; x++) {
-      if (!getPix(r.buf, x, y)) continue;
-      g.fillRect(r.originX + x * r.T.xs, r.originY + y, r.T.xs, 1);
+  // Ground dots on the terrain's 2 x 2 lattice, to judge sprite pixels against.
+  g.fillStyle = C_DOTS;
+  for (let x = 200; x <= 2600; x += 200)
+    for (let y = -3000; y <= 3000; y += 200) {
+      const c = toCam(cam, [x, y, -EYE_ALT]);
+      if (c[0] < 1) continue;
+      const sx = CX0 - PROJ * c[1] / c[0], sy = CY0 - PROJ * c[2] / c[0];
+      if (sx < 0 || sx >= VIEW_W || sy < 0 || sy >= VIEW_H) continue;
+      g.fillRect(Math.floor(sx / 2) * 2, Math.floor(sy / 2) * 2, 2, 2);
     }
-  }
-
-  if (document.getElementById("box").checked) {
-    g.strokeStyle = "rgba(184,199,111,.55)"; g.lineWidth = 0.5;
-    for (let s = 0; s < r.T.sprites; s++) {
-      g.strokeRect(r.originX + .25, r.originY + s * 21 + .25,
-                   COLS * r.T.xs - .5, 21 - .5);
-    }
-  }
-  g.setTransform(1, 0, 0, 1, 0, 0);
+  if (bgCache.size > 64) bgCache.clear();
+  bgCache.set(key, cv);
+  return cv;
 }
 
-/* ---------- sprite buffer rendering ---------- */
-function drawBuffer(r) {
-  const cv = document.getElementById("buffer"), g = cv.getContext("2d");
-  g.clearRect(0, 0, cv.width, cv.height);
-  if (!r.visible) return;
-  const rows = r.buf.rows;
-  const cell = Math.floor(Math.min(cv.width / COLS, cv.height / rows));
-  const w = cell * COLS, h = cell * rows;
-  const ox = Math.floor((cv.width - w) / 2), oy = 0;
+// The bitmap at the size and position the VIC would give it. (ox, oy) is
+// added to viewport coordinates and z is the zoom.
+function drawSprite(g, r, color, ox, oy, z, bounds) {
+  const { buf, origin } = r, { xs, ys } = r.tier;
+  g.globalAlpha = r.rejected ? 0.28 : 1;
+  g.fillStyle = PAL[color];
+  for (let y = 0; y < buf.height; y++)
+    for (let x = 0; x < buf.width; x++)
+      if (buf.get(x, y))
+        g.fillRect((ox + origin[0] + x * xs) * z, (oy + origin[1] + y * ys) * z, xs * z, ys * z);
+  g.globalAlpha = 1;
+  if (bounds) {
+    g.strokeStyle = "rgba(184,199,111,.6)"; g.lineWidth = 1;
+    for (let c = 0; c < buf.cols; c++)
+      for (let s = 0; s < buf.rows; s++)
+        g.strokeRect((ox + origin[0] + c * COLS * xs) * z + .5, (oy + origin[1] + s * ROWS * ys) * z + .5,
+                     COLS * xs * z - 1, ROWS * ys * z - 1);
+  }
+}
 
-  g.fillStyle = "#0d0f14"; g.fillRect(ox, oy, w, h);
-  g.strokeStyle = "#232838"; g.lineWidth = 1;
-  for (let x = 0; x <= COLS; x++) {
-    g.beginPath(); g.moveTo(ox + x*cell + .5, oy); g.lineTo(ox + x*cell + .5, oy + h); g.stroke();
-  }
-  for (let y = 0; y <= rows; y++) {
-    g.beginPath(); g.moveTo(ox, oy + y*cell + .5); g.lineTo(ox + w, oy + y*cell + .5); g.stroke();
-  }
-  // byte boundaries and the 21-row sprite split
-  g.strokeStyle = "#39415c"; g.lineWidth = 1.5;
-  for (const x of [8, 16]) {
-    g.beginPath(); g.moveTo(ox + x*cell + .5, oy); g.lineTo(ox + x*cell + .5, oy + h); g.stroke();
-  }
-  if (rows > 21) {
-    g.strokeStyle = "#b8c76f"; g.setLineDash([4, 3]);
-    g.beginPath(); g.moveTo(ox, oy + 21*cell + .5); g.lineTo(ox + w, oy + 21*cell + .5); g.stroke();
+function drawViewport(r, color) {
+  const cv = $("viewport"), g = cv.getContext("2d");
+  g.drawImage(background(val("opit"), val("obnk")), 0, 0);
+  const bounds = $("box").checked;
+  if (bounds) {
+    g.setLineDash([4, 4]); g.lineWidth = 1; g.font = "10px ui-monospace, monospace";
+    for (const [y, c, t] of [[SPRITE_START_MAX, "rgba(192,138,118,.8)", "last start line, unexpanded"],
+                             [SPRITE_START_MAX_EXP_Y, "rgba(143,160,216,.8)", "last start line, Y-expanded"]]) {
+      g.strokeStyle = c; g.fillStyle = c;
+      g.beginPath(); g.moveTo(0, y * ZOOM + .5); g.lineTo(cv.width, y * ZOOM + .5); g.stroke();
+      g.fillText(t, 4, y * ZOOM - 3);
+    }
     g.setLineDash([]);
   }
+  if (r.visible) drawSprite(g, r, color, 0, 0, ZOOM, bounds);
+}
 
-  g.fillStyle = PAL[r.color];
-  for (let y = 0; y < rows; y++)
-    for (let x = 0; x < COLS; x++)
-      if (getPix(r.buf, x, y)) g.fillRect(ox + x*cell + 1, oy + y*cell + 1, cell - 1, cell - 1);
-
-  // endpoints -- may fall outside the buffer, which is legal (clipped, not clamped)
-  const marks = [["nose", r.L.nose], ["tail", r.L.tail], ["tipL", r.L.tipL], ["tipR", r.L.tipR]];
-  if (r.L.fin) marks.push(["fin", r.L.fin]);
-  g.font = "9px ui-monospace, monospace";
-  for (const [name, p] of marks) {
-    if (p[0] < 0 || p[0] >= COLS || p[1] < 0 || p[1] >= rows) continue;
-    g.strokeStyle = "#b8c76f"; g.lineWidth = 1;
+function drawBuffer(r, isPoly) {
+  const cv = $("buffer"), g = cv.getContext("2d");
+  g.clearRect(0, 0, cv.width, cv.height);
+  if (!r.visible) { $("bufdim").textContent = "none"; return; }
+  const buf = r.buf, W = buf.width, H = buf.height;
+  $("bufdim").textContent = `${W} × ${H} bits in ${buf.cols * buf.rows} block${buf.cols * buf.rows > 1 ? "s" : ""}`;
+  const cell = Math.floor(Math.min(cv.width / W, cv.height / H));
+  const w = cell * W, h = cell * H, ox = Math.floor((cv.width - w) / 2), oy = 0;
+  g.fillStyle = "#0d0f14"; g.fillRect(ox, oy, w, h);
+  const line = (x0, y0, x1, y1) => { g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); };
+  g.strokeStyle = "#232838"; g.lineWidth = 1;
+  for (let x = 0; x <= W; x++) line(ox + x*cell + .5, oy, ox + x*cell + .5, oy + h);
+  for (let y = 0; y <= H; y++) line(ox, oy + y*cell + .5, ox + w, oy + y*cell + .5);
+  g.strokeStyle = "#39415c"; g.lineWidth = 1.5;
+  for (let x = 8; x < W; x += 8) line(ox + x*cell + .5, oy, ox + x*cell + .5, oy + h);
+  // block boundaries
+  g.strokeStyle = "#b8c76f"; g.setLineDash([4, 3]); g.lineWidth = 1;
+  for (let x = COLS; x < W; x += COLS) line(ox + x*cell + .5, oy, ox + x*cell + .5, oy + h);
+  for (let y = ROWS; y < H; y += ROWS) line(ox, oy + y*cell + .5, ox + w, oy + y*cell + .5);
+  g.setLineDash([]);
+  g.fillStyle = PAL[parseInt($("color").value, 10)];
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++)
+      if (buf.get(x, y)) g.fillRect(ox + x*cell + 1, oy + y*cell + 1, cell - 1, cell - 1);
+  // vertices -- may fall outside the buffer, which is legal
+  const marks = [];
+  if (isPoly) { for (const name in r.local) for (const poly of r.local[name]) for (const p of poly) marks.push(p); }
+  else if (r.endpoints) marks.push(...Object.values(r.endpoints));
+  g.strokeStyle = "#b8c76f"; g.lineWidth = 1;
+  for (const p of marks) {
+    if (p[0] < 0 || p[0] >= W || p[1] < 0 || p[1] >= H) continue;
     g.strokeRect(ox + p[0]*cell + .5, oy + p[1]*cell + .5, cell - 1, cell - 1);
-    g.fillStyle = "#b8c76f";
-    g.fillText(name, ox + p[0]*cell + cell + 2, oy + p[1]*cell + cell - 1);
   }
 }
 
-/* ---------- readout ---------- */
-function drawReadout(r) {
-  const t = document.getElementById("readout");
+function drawReadout(r, isPoly, model) {
+  const t = $("readout");
   const row = (a, b) => `<tr><td>${a}</td><td>${b}</td></tr>`;
   if (!r.visible) {
     t.innerHTML = row("state", `<span class="pill miss">${r.reason}</span>`);
-    document.getElementById("dump").textContent = "";
-    document.getElementById("vpnote").textContent = "";
+    $("dump").textContent = ""; $("vpnote").textContent = "";
     return;
   }
-  const f = a => `${a[0]}, ${a[1]}`;
-  t.innerHTML =
-    row("tier", `<span class="pill tier">${r.T.name}</span> ${COLS*r.T.xs} &times; ${r.T.rows} px`) +
-    row("cache", r.hit ? '<span class="pill hit">HIT</span>' : '<span class="pill miss">MISS</span>') +
-    (r.clamped ? row("size", '<span class="pill tier">held</span> too close &mdash; apparent size capped so the whole plane fits') : "") +
-    row("distance", `${Math.round(Math.hypot(...r.P))} m`) +
-    row("C (¼ m units)", `${r.C[0]}, ${r.C[1]}, ${r.C[2]}`) +
+  const T = r.tier, sprites = T.cols * T.rows, name = isPoly ? tierName(T) : r.name;
+  const pct = c => `${c.toLocaleString("en")} &nbsp;<span style="color:#858c9e">(${(c / SIM_FRAME_CYCLES * 100).toFixed(1)}% of a sim frame)</span>`;
+  let html =
+    row("tier", `<span class="pill tier">${name}</span> ${COLS*T.cols*T.xs} &times; ${ROWS*T.rows*T.ys} px, ${sprites} sprite${sprites > 1 ? "s" : ""}`);
+  if (isPoly) html +=
+    row("pixel size", `d = ${r.d} px &nbsp;<span style="color:#858c9e">(1:1 &le; ${D_1X} &lt; X &le; ${D_XEXP} &lt; X+Y; dot &le; ${D_DOT})</span>`) +
+    row("cache", r.cached ? '<span class="pill hit">HIT</span>' : '<span class="pill miss">MISS</span>');
+  if (r.clamped) html += row("size", `<span class="pill tier">held</span> k capped at ${isPoly ? model.kMax : strokeModel(model).kMax}`);
+  if (r.slid) html += row("slid", `<span class="pill tier">${r.slid} lines</span> kept the last sprite row above the DMA cut`);
+  if (r.rejected) html += row("stack", '<span class="pill miss">rejected</span> lower sprite starts below the cut');
+  const s = scene();
+  html +=
+    row("distance", `${Math.round(Math.hypot(...s.P))} m`) +
+    row("C (¼ m units)", `${r.cam[0]}, ${r.cam[1]}, ${r.cam[2]}`) +
     row("k = 32768/C.x", r.k) +
-    row("centre px", `${r.cx}, ${r.cy}`) +
-    row("bbox", `${r.bw} &times; ${r.bh} px`) +
-    row("sprite origin", `${r.originX}, ${r.originY}`) +
-    row("nose (local)", f(r.L.nose)) +
-    row("tail (local)", f(r.L.tail)) +
-    row("tipL (local)", f(r.L.tipL)) +
-    row("tipR (local)", f(r.L.tipR)) +
-    row("thickness", `body ${r.thick.body[0]}&times;${r.thick.body[1]} &nbsp; wing ${r.thick.wing[0]}&times;${r.thick.wing[1]} &nbsp; fin ${r.thick.fin[0]}&times;${r.thick.fin[1]}`) +
-    row("centred on", r.fits ? "bounding box" : '<span class="pill miss">wing hub</span> (overruns buffer)') +
-    row("rows touched", `${r.buf.touched} + ${r.buf.repeat} repeat`) +
-    row("est. cycles", `${r.cycles} &nbsp;<span style="color:#858c9e">(${(r.cycles/98500*100).toFixed(1)}% of a sim frame)</span>`) +
-    row("colour", `hires, fixed <span style="display:inline-block;width:9px;height:9px;background:${PAL[r.color]};border:1px solid #555;vertical-align:-1px"></span>`);
-
-  const hex = [];
-  for (let y = 0; y < Math.min(21, r.buf.rows); y++) {
-    const b = [r.buf.bytes[3*y], r.buf.bytes[3*y+1], r.buf.bytes[3*y+2]];
-    let bits = "";
-    for (let x = 0; x < COLS; x++) bits += getPix(r.buf, x, y) ? "#" : ".";
-    hex.push(b.map(v => v.toString(16).padStart(2, "0")).join(" ") + "  " + bits);
+    row("centre px", `${r.centre[0]}, ${r.centre[1]}`) +
+    row("bbox", `${r.bbox[0]} &times; ${r.bbox[1]} px`) +
+    row("sprite origin", `${r.origin[0]}, ${r.origin[1]}`);
+  if (isPoly && T.level > LEVEL_DOT) {
+    let nv = 0; for (const n in r.local) for (const p of r.local[n]) nv += p.length;
+    html += row("fill", `${nv} vertices, ${r.buf.edges} edges, ${r.buf.slopes} slopes, ` +
+                        `${r.buf.edgeRows} edge-rows, ${r.buf.spans} spans`);
   }
-  document.getElementById("dump").textContent = hex.join("\n");
+  if (!isPoly && r.th)
+    html += row("stroke weight", `body ${r.th.body[0]} &nbsp; wing ${r.th.wing[0]} &nbsp; fin ${r.th.fin[0]}`);
+  html += row("est. cycles", pct(r.cycles)) +
+    row("colour", `hires, fixed <span style="display:inline-block;width:9px;height:9px;background:${PAL[+$("color").value]};border:1px solid #555;vertical-align:-1px"></span>`);
+  t.innerHTML = html;
 
-  const spanPx = Math.round(256 * parseFloat(document.getElementById("span").value)
-                  * (parseFloat(document.getElementById("scale").value)/10)
-                  / Math.hypot(...r.P));
-  document.getElementById("vpnote").textContent =
+  const lines = [];
+  const buf = r.buf;
+  for (let br = 0; br < buf.rows; br++)
+    for (let bc = 0; bc < buf.cols; bc++) {
+      const b = buf.blocks[br * buf.cols + bc];
+      lines.push(`block ${br},${bc}`);
+      for (let y = 0; y < ROWS; y++) {
+        let bits = "";
+        for (let x = 0; x < COLS; x++) bits += buf.get(bc * COLS + x, br * ROWS + y) ? "#" : ".";
+        lines.push(Array.from(b.slice(3 * y, 3 * y + 3), v => v.toString(16).padStart(2, "0")).join(" ") + "  " + bits);
+      }
+    }
+  $("dump").textContent = lines.join("\n");
+
+  const spanPx = Math.round(PROJ * val("span") * (val("scale") / 10) / Math.hypot(...s.P));
+  $("vpnote").textContent =
     `Wingspan subtends ${spanPx} px at this range (256 × S / D). ` +
-    `Sprite occupies ${COLS * r.T.xs} × ${r.T.rows} screen px.`;
+    `Sprites cover ${COLS*T.cols*T.xs} × ${ROWS*T.rows*T.ys} screen px.`;
+}
+
+/* ---------- gallery ---------- */
+const GALLERY = [
+  ["head-on, level",       180,  0,   0,   0],
+  ["front three-quarter",  145,  0,   0,   0],
+  ["side",                  90,  0,   0,   0],
+  ["rear three-quarter",    35,  0,   0,   0],
+  ["crossing, 30° bank",   110,  0,  30,   0],
+  ["turning, 60° bank",     60,  0, -60,   0],
+  ["knife-edge",           100,  0,  88,   0],
+  ["seen from above",      130,  0,  10, -25],
+  ["seen from below",       60,  5, -20,  20],
+  ["climbing away",         20, 25,   0,   0],
+];
+const GZ = 3, CELL_W = 104, CELL_H = 90, LABEL_W = 150, HEAD_H = 26, CAP_H = 20, GAP = 12;
+
+function drawGallery() {
+  const cv = $("gal"), D = val("dist"), model = uiModel(), parts = uiParts(), color = +$("color").value;
+  const W = LABEL_W + 2 * (CELL_W * GZ + GAP), H = HEAD_H + GALLERY.length * (CELL_H * GZ + CAP_H + GAP);
+  if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  const g = cv.getContext("2d");
+  g.fillStyle = "#1c1f28"; g.fillRect(0, 0, W, H);
+  g.font = "600 11px -apple-system, sans-serif"; g.fillStyle = "#858c9e";
+  g.fillText(`POLYGONS, THE SPEC — ${D} M`, LABEL_W, 14);
+  g.fillText("STROKES, PREVIOUS DESIGN", LABEL_W + CELL_W * GZ + GAP, 14);
+  const bounds = $("box").checked;
+  GALLERY.forEach(([label, hdg, pitch, bank, elev], i) => {
+    const y0 = HEAD_H + i * (CELL_H * GZ + CAP_H + GAP);
+    g.font = "12px -apple-system, sans-serif"; g.fillStyle = "#d7dae3";
+    g.fillText(label, 0, y0 + 16);
+    const s = { cam: orient(0, elev, 0), tgt: orient(hdg, pitch, bank), P: place(D, 0, elev) };
+    ["poly", "strokes"].forEach((rn, col) => {
+      const x0 = LABEL_W + col * (CELL_W * GZ + GAP);
+      const r = frame(s, rn, newState(), newStrokeState(), model, parts);
+      g.save();
+      g.beginPath(); g.rect(x0, y0, CELL_W * GZ, CELL_H * GZ); g.clip();
+      g.fillStyle = C_SKY; g.fillRect(x0, y0, CELL_W * GZ, CELL_H * GZ);
+      if (r.visible) {
+        r.rejected = false;          // the gallery is about shape, not placement
+        g.translate(x0, y0);
+        drawSprite(g, r, color, CELL_W / 2 - r.centre[0], CELL_H / 2 - r.centre[1], GZ, bounds);
+      }
+      g.restore();
+      if (r.visible) {
+        const n = r.tier.cols * r.tier.rows;
+        g.font = "11px -apple-system, sans-serif"; g.fillStyle = "#858c9e";
+        g.fillText(`${rn === "poly" ? tierName(r.tier) : r.name} · ${n} sprite${n > 1 ? "s" : ""}` +
+                   `${r.clamped ? " · held" : ""} · ≈${r.cycles.toLocaleString("en")} cycles`,
+                   x0, y0 + CELL_H * GZ + 14);
+      }
+    });
+  });
 }
 
 /* ---------- glue ---------- */
-const LABELS = { dist:"l_dist", bear:"l_bear", elev:"l_elev", thdg:"l_thdg",
-                 tpit:"l_tpit", tbnk:"l_tbnk", opit:"l_opit", obnk:"l_obnk",
-                 span:"l_span", len:"l_len", wfwd:"l_wfwd", thick:"l_thick" };
+const LABELS = ["dist", "bear", "elev", "thdg", "tpit", "tbnk", "opit", "obnk", "span", "len", "wfwd"];
 
-function render() {
-  for (const id in LABELS)
-    document.getElementById(LABELS[id]).textContent = document.getElementById(id).value;
-  document.getElementById("l_scale").textContent =
-    (parseFloat(document.getElementById("scale").value) / 10).toFixed(1);
-  const r = compute();
-  drawViewport(r); drawBuffer(r); drawReadout(r);
+function renderUI(withGallery) {
+  for (const id of LABELS) $("l_" + id).textContent = $(id).value;
+  $("l_scale").textContent = (val("scale") / 10).toFixed(1);
+  const rn = $("renderer").value, isPoly = rn === "poly", model = uiModel();
+  const r = frame(scene(), rn, polyState, strokeState, model, uiParts());
+  const color = +$("color").value;
+  drawViewport(r, color); drawBuffer(r, isPoly); drawReadout(r, isPoly, model);
+  $("galCard").style.display = $("gallery").checked ? "" : "none";
+  if (withGallery && $("gallery").checked) drawGallery();
 }
+function resetState() { polyState = newState(); strokeState = newStrokeState(); }
 
-document.querySelectorAll("input, select").forEach(el => el.addEventListener("input", render));
-document.getElementById("reset").addEventListener("click", () => {
-  const d = { dist:150, bear:6, elev:3, thdg:120, tpit:0, tbnk:20,
-              opit:0, obnk:0, span:11, len:8, scale:15, wfwd:20, thick:4 };
-  for (const id in d) document.getElementById(id).value = d[id];
-  document.getElementById("fin").checked = true;
-  document.getElementById("anim").checked = false;
-  cache = null; prevXs = 1; prevRows = 21;
-  prevBody[0] = prevWing[0] = prevFin[0] = 1; render();
+const DEFAULTS = { dist: 150, bear: 6, elev: 3, thdg: 120, tpit: 0, tbnk: 20, opit: 0, obnk: 0,
+                   span: 11, len: 8.3, scale: 15, wfwd: 20 };
+document.querySelectorAll("input, select").forEach(el => {
+  if (el.id === "anim") return;
+  el.addEventListener("input", () => {
+    // The gallery follows everything except the view of the main target.
+    const local = ["bear", "elev", "thdg", "tpit", "tbnk", "opit", "obnk"].includes(el.id);
+    if (el.id === "renderer") resetState();
+    renderUI(!local);
+  });
+});
+$("anim").addEventListener("change", () => {
+  clearInterval(animTimer); animTimer = null; animStep = 0; resetState();
+  if ($("anim").value !== "none")
+    animTimer = setInterval(() => { animStep++; renderUI(false); }, 100);
+  renderUI(false);
+});
+$("reset").addEventListener("click", () => {
+  for (const id in DEFAULTS) $(id).value = DEFAULTS[id];
+  $("fin").checked = $("stab").checked = true;
+  $("renderer").value = "poly"; $("anim").value = "none";
+  clearInterval(animTimer); animTimer = null; animStep = 0;
+  resetState(); renderUI(true);
 });
 
-let raf = null;
-function tick() {
-  if (!document.getElementById("anim").checked) { raf = null; return; }
-  animT += 0.0016;
-  if (animT > 1) animT = 0;
-  render();
-  raf = requestAnimationFrame(tick);
-}
-document.getElementById("anim").addEventListener("change", () => {
-  if (document.getElementById("anim").checked && raf === null) { animT = 0; tick(); }
-});
-
-render();
+renderUI(true);
 </script>
 </body>
 </html>

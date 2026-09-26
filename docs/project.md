@@ -798,8 +798,9 @@ C64; `make -C c64o test` runs those.
   character viewport; the C64 uses 40 × 14. The Python renderer is a design
   tool, not a mirror of the shipped renderer.
 - **There is no traffic.** [planes.md](planes.md) specifies aircraft sprites in
-  full and nothing of it is written. Its §5 memory plan also predates the title
-  screen taking `$CF00–$CFFF`.
+  full and nothing of it is written. Its §5 memory plan shares `$CF00–$CFFF`
+  with the title screen's aeroplane, which `title_arm()` re-expands on every
+  menu paint, and takes `$CCC0–$CEFF` from the top of the free run.
 - **A single polygon can cost more than the rest of the frame.** On the runway
   it is 43,064 cycles, a third of everything measured. See
   [framerate.md](framerate.md).
