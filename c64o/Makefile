@@ -174,6 +174,27 @@ VECTEST_SRC = 	benchmark.h \
 		vec_lut.cc \
 		vectest.cc
 
+# The traffic-sprite renderer of docs/planes.md on its own: default character
+# mode, one aircraft on up to four sprites, keys to fly it, cycles on screen.
+# planedef.h is generated from lib/planes.py by `make planes` at the top.
+PLANEDEMO_PROGRAM = planedemo
+PLANEDEMO_SRC = benchmark.h \
+		benchmark.cc \
+		bcd.h \
+		bcd.cc \
+		keys.h \
+		keys.cc \
+		planedef.h \
+		planes.h \
+		planes.cc \
+		print.h \
+		print.cc \
+		vec.h \
+		vec.cc \
+		vec_asm.cc \
+		vec_lut.cc \
+		planedemo.cc
+
 CC = oscar64
 # -g is not optional here: it emits the .asm and .map that ZPCHECK reads.
 CFLAGS = -ii=${OSCAR64_INCLUDE} -D__OSCAR64__ -g -xz
@@ -237,7 +258,7 @@ define prg_size
 		"$(1)" "$$bytes" "$$image" "$$start" "$$end"
 endef
 
-all: $(PPILOT_PROGRAM).prg $(PPILOTA_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg test
+all: $(PPILOT_PROGRAM).prg $(PPILOTA_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg $(PLANEDEMO_PROGRAM).prg test
 	@echo ""
 	$(call prg_size,$(PPILOT_PROGRAM).prg)
 	$(call prg_size,$(PPILOTA_PROGRAM).prg)
@@ -285,6 +306,19 @@ $(VECTEST_PROGRAM).prg: $(VECTEST_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ vectest.cc
 	@$(ZPCHECK) $(VECTEST_PROGRAM).asm
 
+# No MATHCHECK, yet: planes.cc divides exactly -- k, the projected centre and
+# the fuselage normal, five a frame -- because lib/planes.py does. vec_div8p8
+# rounds differently, so moving to it means moving the reference with it; that
+# is part of putting planes.cc into ppilot, and the check goes on then. Every
+# multiply is already a shift, a table or vec_fastmul8p8.
+$(PLANEDEMO_PROGRAM).prg: $(PLANEDEMO_SRC)
+	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ planedemo.cc
+	@$(ZPCHECK) $(PLANEDEMO_PROGRAM).asm
+
+# The same, timing each step of planes_render() onto the screen.
+planedemo_prof.prg: $(PLANEDEMO_SRC)
+	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ -D__PLANES_PROFILE__ -o=planedemo_prof.prg planedemo.cc
+
 # Re-run the checks on whatever is already built, without provoking a build.
 zpcheck:
 	$(ZPCHECK) $(PPILOT_PROGRAM).asm $(PPILOTA_PROGRAM).asm \
@@ -304,7 +338,7 @@ test flight_test msg_test:
 	$(MAKE) -C test $@
 
 clean:
-	rm -rf $(PPILOT_PROGRAM).prg $(PPILOTA_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg *.asm *.dbj *.int *.lbl *.map $(FLIGHT_STAMP)
+	rm -rf $(PPILOT_PROGRAM).prg $(PPILOTA_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg $(PLANEDEMO_PROGRAM).prg planedemo_prof.prg *.asm *.dbj *.int *.lbl *.map $(FLIGHT_STAMP)
 	$(MAKE) -C test clean
 
 .PHONY: all size ram zpcheck mathcheck romcheck test flight_test msg_test clean

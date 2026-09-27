@@ -117,6 +117,12 @@ POLY_TEST_HDRS = ../poly.h ../poly.cc ../vec.h ../mem.h ../chardefs.h
 CPU_TEST_SRC = cpu_test.cc
 CPU_TEST_HDRS = ../cpu.h ../cpu.cc ../cia.h
 
+# planes_test holds planes.cc to lib/planes.py. Its cases are generated from the
+# Python reference for every build rather than checked in: four thousand of
+# them, a third of a megabyte, and they must follow lib/planes.py anyway.
+PLANES_TEST_SRC = planes_test.cc ../planes.cc
+PLANES_TEST_HDRS = ../planes.h ../planedef.h ../vec.h planes_cases.h
+
 all: test
 
 flight_test: $(FLIGHT_TEST_SRC) $(FLIGHT_TEST_HDRS)
@@ -146,13 +152,20 @@ cpu_test: $(CPU_TEST_SRC) $(CPU_TEST_HDRS)
 poly_test: $(POLY_TEST_SRC) $(POLY_TEST_HDRS)
 	$(HOST_CC) $(HOST_CFLAGS) -Wno-unused-function -o poly_test $(POLY_TEST_SRC)
 
+planes_cases.h: ../../tools/generate_planes.py ../../lib/planes.py
+	python3 ../../tools/generate_planes.py --cases planes_cases.h
+
+planes_test: $(PLANES_TEST_SRC) $(PLANES_TEST_HDRS)
+	$(HOST_CC) $(HOST_CFLAGS) -o planes_test $(PLANES_TEST_SRC)
+
 # Every suite's sources, for the syntax-only narrowing pass. Kept as one list
 # rather than reusing the per-suite variables because the pass does not link and
 # does not care which binary a file belongs to - only that it is compiled once
 # with the same flags the real build uses.
 NARROW_TUS = "$(FLIGHT_TEST_SRC)" "$(SOUND_TEST_SRC)" "$(MUSIC_TEST_SRC)" \
 		"$(MUL_TEST_SRC)" "$(SPRITES_TEST_SRC)" "$(CPU_TEST_SRC)" \
-		"$(POLY_TEST_SRC)" "$(MSG_TEST_SRC)" "$(MAP_TEST_SRC)"
+		"$(POLY_TEST_SRC)" "$(MSG_TEST_SRC)" "$(MAP_TEST_SRC)" \
+		"$(PLANES_TEST_SRC)"
 
 # Collect the warnings from every translation unit into one stream. -Wno-error
 # is implicit: this pass never fails the compile, only the count comparison.
@@ -163,7 +176,11 @@ define narrow_scan
 	done
 endef
 
-target_test.prg: target_test.cc int16.h ../vec.h ../vec.cc ../vec_lut.cc
+planes_target_cases.h: ../../tools/generate_planes.py ../../lib/planes.py
+	python3 ../../tools/generate_planes.py --target planes_target_cases.h
+
+target_test.prg: target_test.cc int16.h ../vec.h ../vec.cc ../vec_lut.cc \
+		../planes.h ../planes.cc ../planedef.h planes_target_cases.h
 	$(OSCAR64) $(TARGET_CFLAGS) -o=target_test.prg target_test.cc
 
 target-test:
@@ -188,8 +205,8 @@ narrowing-update:
 	fi
 	@{ $(narrow_scan) ; } | $(NARROW_CHECK) --update $(NARROW_BASELINE)
 
-test: flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test narrowing $(TARGET_TEST)
-	@./flight_test > output.txt && ./msg_test >> output.txt && ./map_test >> output.txt && ./sound_test >> output.txt && ./music_test >> output.txt && ./mul_test >> output.txt && ./sprites_test >> output.txt && ./cpu_test >> output.txt && ./poly_test >> output.txt && echo "ALL TESTS PASSED (flight_test, msg_test, map_test, sound_test, music_test, mul_test, sprites_test, cpu_test, poly_test) -> test/output.txt"
+test: flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test planes_test narrowing $(TARGET_TEST)
+	@./flight_test > output.txt && ./msg_test >> output.txt && ./map_test >> output.txt && ./sound_test >> output.txt && ./music_test >> output.txt && ./mul_test >> output.txt && ./sprites_test >> output.txt && ./cpu_test >> output.txt && ./poly_test >> output.txt && ./planes_test >> output.txt && echo "ALL TESTS PASSED (flight_test, msg_test, map_test, sound_test, music_test, mul_test, sprites_test, cpu_test, poly_test, planes_test) -> test/output.txt"
 
 # Both models, from clean, because the object files are not model-tagged.
 test-both:
@@ -197,7 +214,7 @@ test-both:
 	$(MAKE) clean && $(MAKE) test FLIGHT_AOA=1
 
 clean:
-	rm -rf flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test output.txt *.dSYM
+	rm -rf flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test planes_test planes_cases.h planes_target_cases.h output.txt *.dSYM
 	rm -f target_test.prg target_test.asm target_test.lbl target_test.map target_test.int target_test.dbj
 
 .PHONY: all test test-both narrowing narrowing-update target-test flight_test msg_test map_test sound_test music_test mul_test sprites_test poly_test clean

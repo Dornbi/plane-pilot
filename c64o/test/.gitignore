@@ -9,3 +9,6 @@ sound_test
 sprites_test
 output.txt
 *.dSYM/
+planes_test
+planes_cases.h
+planes_target_cases.h

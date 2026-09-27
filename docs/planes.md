@@ -1,7 +1,11 @@
 # Other Aircraft — Traffic Sprites
 
-**Status: designed, not built.** None of §12's phases has landed; there is no
-traffic in `ppilot.prg`. The layer underneath it did ship, though — the sprite
+**Status: designed, not built into the game.** None of §12's phases has landed
+in `ppilot.prg`; there is no traffic there. The renderer does run on its own:
+`c64o/planedemo.prg` draws one aircraft in default character mode with
+`c64o/planes.cc`, a C port of `lib/planes.py` held to it byte for byte on the
+host (`test/planes_test.cc`) and on an emulated 6510 (`test/target_test.cc`,
+test 6). §11 has what it costs there. The layer underneath it did ship, though — the sprite
 stack of [sprite_objects.md](sprite_objects.md) §2 exists in `c64o/sprites.cc`
 and serves the sun and the clouds, so §5's "hardware sprite indices" is a
 matter of calling `sprites_stack_add()` rather than of writing an allocator —
@@ -850,6 +854,28 @@ that is ~1% on the worst frame and ~9% on a hit.
 | One close and redrawing (median), one dot | 14,280 | 14.5% | — |
 | One close and redrawing (worst), one cached | 21,610 | 21.9% | 9.1% |
 | Both close, both redrawing (worst) | 33,850 | 34.4% | 14.0% |
+
+**Measured, in plain C.** `planedemo_prof.prg` times each step of
+`planes_render()` on the C64 (at 150 m, one sprite, cache hit):
+
+| Step | Measured | Estimate |
+| :--- | ---: | ---: |
+| Centre and `k` (exact divisions) | 1,457 | ~940 with the transform |
+| Magnitudes × `k`, 16 multiplies | 4,440 | 720 |
+| Axis products, 30 multiplies | 5,768 | 1,350 |
+| Flat-surface vertices, no multiplies | 7,321 | — |
+| Fuselage | 4,445 | ~600 |
+| Layout | 3,234 | — |
+| Local coordinates and cache key | 4,300 | ~250 |
+| **Cache hit, total** | **~31,000** | **~4,700** |
+| Fill, when redrawn | ~25,000 | ~5,800 |
+
+About six times the model. `vec_fastmul8p8` costs 150–200 cycles a call from
+C rather than 45, and the C around it -- indexing, sign branches, 16-bit adds --
+costs more than the maths: the vertices take 460 cycles each without a single
+multiply. The per-operation constants above are the target an assembly
+rasteriser and projection would have to meet; the C port is the reference for
+what they must produce, not for what they may cost.
 
 The dot tier got cheaper, because it is now decided before the body axes are
 transformed. Everything else roughly doubled. The last row is a near-collision

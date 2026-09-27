@@ -30,10 +30,14 @@
 //    3  the int8_t negate-then-shift of mul_test.cc
 //    4  vec_fastmul8p8 against a 16-bit product, at the edges
 //    5  render.cc's _mul over the roll table's full int8_t range
+//    6  planes.cc against lib/planes.py: frame fields and every bitmap byte,
+//       reported as id 1000 + the case number
 
 #include <stdint.h>
 
+#include "../planes.h"
 #include "../vec.h"
+#include "planes_target_cases.h"
 
 // If this ever fails the file is being built for something that is not the
 // target, and every literal below is wrong.
@@ -122,6 +126,69 @@ static void test_mul_against_16bit_product(void) {
   }
 }
 
+// 6. The host suite holds planes.cc to lib/planes.py over four thousand cases,
+// and the first version passed it and drew only the left edge of every
+// polygon on the C64: oscar64 mis-compiled the endpoint swap in _fill_poly
+// (bugs/). So a few dozen cases run here too, with every expected byte from
+// the reference, rendered through a front and a back buffer as a program
+// would and compared byte for byte.
+static uint8_t _planes_sets[2][4][kPlaneBlockBytes];
+static uint8_t _planes_dot[kPlaneBlockBytes];
+
+static void test_planes(void) {
+  const planes_view_t view = {kTargetCx0, kTargetCy0, kTargetCut1, kTargetCut2};
+  planes_state_t state;
+  planes_state_init(&state);
+  planes_dot_bitmap(_planes_dot);
+  uint8_t front = 0;
+  for (uint8_t n = 0; n < kPlaneTargetCount; ++n) {
+    const plane_target_case_t *pc = &kPlaneTargetCases[n];
+    const uint16_t id = 1000 + n;
+    if (pc->fresh) {
+      planes_state_init(&state);
+    }
+    vec3_t c = make_vector(pc->c[0], pc->c[1], pc->c[2]);
+    mat3_t axes;
+    axes.front = make_vector(pc->axes[0][0], pc->axes[0][1], pc->axes[0][2]);
+    axes.left = make_vector(pc->axes[1][0], pc->axes[1][1], pc->axes[1][2]);
+    axes.up = make_vector(pc->axes[2][0], pc->axes[2][1], pc->axes[2][2]);
+    uint8_t *back[4];
+    for (uint8_t b = 0; b < 4; ++b) {
+      back[b] = _planes_sets[front ^ 1][b];
+    }
+    planes_frame_t frame;
+    planes_render(&state, &view, &c, &axes, back, &frame);
+
+    expect(id, frame.hidden, pc->hidden);
+    if (pc->hidden) {
+      continue;
+    }
+    expect(id, frame.level, pc->level);
+    expect(id, frame.ys, pc->ys);
+    expect(id, frame.cols, pc->cols);
+    expect(id, frame.rows, pc->rows);
+    expect(id, frame.x, pc->x);
+    expect(id, frame.y, pc->y);
+    expect(id, frame.slid, pc->slid);
+    expect(id, frame.clamped ? 1 : 0, pc->clamped);
+    const uint8_t *want = kPlaneTargetBytes + pc->bytes;
+    if (frame.level == kPlaneLevelDot) {
+      for (uint8_t i = 0; i < kPlaneBlockBytes; ++i) {
+        expect(id, _planes_dot[i], want[i]);
+      }
+      continue;
+    }
+    if (!frame.cached) {
+      front ^= 1;
+    }
+    for (uint8_t b = 0; b < frame.cols * frame.rows; ++b) {
+      for (uint8_t i = 0; i < kPlaneBlockBytes; ++i) {
+        expect(id, _planes_sets[front][b][i], want[b * kPlaneBlockBytes + i]);
+      }
+    }
+  }
+}
+
 int main(void) {
   g_failures = 0;
   g_first_fail = 0;
@@ -131,6 +198,7 @@ int main(void) {
   test_int8_negate_then_shift();
   test_fastmul_edges();
   test_mul_against_16bit_product();
+  test_planes();
 
   // Something for vice_dump.sh's @spin to break on. Everything above has
   // landed in the globals by the time the loop is reached.
