@@ -621,9 +621,9 @@ fill_poly(pts):                          # convex, any winding
         order so a.y < b.y;  dy = b.y - a.y
         slope = (dy == 1) ? (b.x - a.x) << 8
                           : fmul(b.x - a.x, RECIP[dy])   # 65536 / dy
-        xa = a.x << 8                    # vertices are pixel CENTRES:
-        for y in a.y .. b.y:             # the end rows get half a step
-            xb = (y == b.y) ? b.x << 8
+        xa = (a.x << 8) + 128            # vertices are pixel CENTRES: x
+        for y in a.y .. b.y:             # rounds, the end rows get half a step
+            xb = (y == b.y) ? (b.x << 8) + 128
                : (y == a.y) ? xa + (slope >> 1)
                :              xa + slope
             widen row y to cover xa >> 8 .. xb >> 8
@@ -645,16 +645,23 @@ Properties that matter:
   edge-on degrades into a 1 px line rather than vanishing, and at range, where
   every chord is under a pixel, the model degrades into what the strokes used
   to draw.
-- **Vertices are pixel centres.** Each row takes the part of an edge within
-  half a row of it, so the first and last rows of a shallow edge get half a
-  step each. `poly.cc`'s trace puts vertices on row *boundaries*, where an
-  edge's last row gets its end point alone — and wherever the lowest or highest
-  vertex of a polygon is a shallow corner, that end point is a lone pixel
-  under or over the silhouette. It first showed as a dot under the fuselage;
-  swept over distance, heading, bank, pitch and elevation it was on 2,065 of
-  4,320 frames. With the half step it is on 367, and those are real tips: the
-  end of a wing or fin seen nearly edge-on, the point of the tail cone. It
-  costs one shift per edge.
+- **Vertices are pixel centres, on both axes.** Vertically, each row takes
+  the part of an edge within half a row of it, so the first and last rows of
+  a shallow edge get half a step each. `poly.cc`'s trace puts vertices on row
+  *boundaries*, where an edge's last row gets its end point alone — and
+  wherever the lowest or highest vertex of a polygon is a shallow corner, that
+  end point is a lone pixel under or over the silhouette. It first showed as a
+  dot under the fuselage, on 2,065 of 4,320 frames of a sweep over distance,
+  heading, bank, pitch and elevation. Horizontally, x rounds to the nearest
+  pixel centre instead of truncating. Truncating put every step of a slanted
+  edge half a pixel early, so an edge that leaned by a pixel stepped on its
+  first row and left its corner sticking out alone: the fin's top trailing
+  corner, the tailplane's tip. Single pixels sticking out sideways past both
+  neighbouring rows went from 4,154 to 1,341 over the sweep. What remains of
+  both kinds is mostly real: the end of a wing or fin seen nearly edge-on, and
+  the corners of the flat nose seen from steeply above or below. The half
+  step costs a shift per edge; the rounding is the 128 in each edge's starting
+  x, and costs nothing.
 - **No divides.** An edge is never taller than the buffer: `d` bounds the box,
   and every level's `d` fits 41 rows. So the slope is a lookup in a 42-entry
   table of `65536 / dy` and one multiply. The test sweeps attitudes to check

@@ -433,12 +433,16 @@ def fill_poly(buf: SpriteBuffer, pts: Poly) -> None:
     line instead of disappearing, and at range the model falls back to what
     three strokes used to draw.
 
-    Vertices are pixel CENTRES: each row takes the part of an edge within
-    half a row of it, so a shallow edge's first and last rows get half a step
-    each. With vertices on row boundaries instead, an edge's last row got its
-    end point alone, and wherever the lowest or highest vertex of a polygon
-    was a shallow corner that showed as a lone pixel under or over the
-    silhouette -- on nearly half of all frames.
+    Vertices are pixel CENTRES, on both axes. Each row takes the part of an
+    edge within half a row of it, so a shallow edge's first and last rows get
+    half a step each; with vertices on row boundaries instead, an edge's last
+    row got its end point alone, and wherever the lowest or highest vertex of
+    a polygon was a shallow corner that showed as a lone pixel under or over
+    the silhouette -- on nearly half of all frames. And x rounds to the
+    nearest pixel centre rather than truncating: truncating put every step of
+    a slanted edge half a pixel early, so a fin whose trailing edge leaned by
+    a pixel had its top corner stick out on its own. The rounding is the 128
+    folded into each edge's starting x, so it costs nothing.
 
     Clamping a SPAN to the buffer is an exact clip for a filled polygon, so
     unlike the stroke rasteriser this needs no Liang-Barsky.
@@ -471,10 +475,10 @@ def fill_poly(buf: SpriteBuffer, pts: Poly) -> None:
             slope = fmul(xb0 - xa0, RECIP[dy])
         else:
             slope = (xb0 - xa0) * 256
-        xa = xa0 * 256
+        xa = xa0 * 256 + 128
         for y in range(ya, yb + 1):
             if y == yb:
-                xb = xb0 * 256
+                xb = xb0 * 256 + 128
             elif y == ya:
                 xb = xa + (slope >> 1)
             else:

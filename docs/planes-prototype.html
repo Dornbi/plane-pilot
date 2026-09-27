@@ -382,9 +382,11 @@ for (let dy = 2; dy < 2 * ROWS; dy++) RECIP.push(Math.floor(65536 / dy));
 
 // Edge-inclusive convex fill, the trace poly.cc uses for the terrain: a
 // polygon seen edge-on degrades into a 1 px line instead of disappearing, and
-// clamping a span to the buffer is an exact clip. Vertices are pixel centres:
-// each row takes the part of an edge within half a row of it, so a shallow
-// edge does not end in a lone pixel.
+// clamping a span to the buffer is an exact clip. Vertices are pixel centres
+// on both axes: each row takes the part of an edge within half a row of it, so
+// a shallow edge does not end in a lone pixel, and x rounds to the nearest
+// pixel (the 128 in each edge's starting x) so a slanted edge's steps are not
+// half a pixel early.
 function fillPoly(buf, pts) {
   let minY = Infinity, maxY = -Infinity, minX = Infinity, maxX = -Infinity;
   for (const p of pts) {
@@ -407,10 +409,10 @@ function fillPoly(buf, pts) {
     let slope;
     if (dy > 1) { buf.slopes++; slope = fmul(xb0 - xa0, RECIP[dy]); }
     else slope = (xb0 - xa0) * 256;
-    let xa = xa0 * 256;
+    let xa = xa0 * 256 + 128;
     for (let y = ya; y <= yb; y++) {
       let xb;
-      if (y === yb) xb = xb0 * 256;
+      if (y === yb) xb = xb0 * 256 + 128;
       else if (y === ya) xb = xa + (slope >> 1);
       else xb = xa + slope;
       if (y >= y0 && y <= y1) {
