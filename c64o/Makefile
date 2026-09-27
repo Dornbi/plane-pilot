@@ -176,7 +176,8 @@ VECTEST_SRC = 	benchmark.h \
 
 # The traffic-sprite renderer of docs/planes.md on its own: default character
 # mode, one aircraft on up to four sprites, keys to fly it, cycles on screen.
-# planedef.h is generated from lib/planes.py by `make planes` at the top.
+# planedef.h and planeproj.h are generated from lib/planes.py by `make planes`
+# at the top.
 PLANEDEMO_PROGRAM = planedemo
 PLANEDEMO_SRC = benchmark.h \
 		benchmark.cc \
@@ -185,6 +186,7 @@ PLANEDEMO_SRC = benchmark.h \
 		keys.h \
 		keys.cc \
 		planedef.h \
+		planeproj.h \
 		planes.h \
 		planes.cc \
 		print.h \

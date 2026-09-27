@@ -33,17 +33,28 @@ struct planes_view_t {
   int16_t cut1, cut2;
 };
 
-// The vertex cache's key: the level and layout, then every vertex in buffer
-// coordinates, two bytes an axis.
-static const uint8_t kPlaneKeyMax = 4 + 32 * 4;
+// The most vertices a frame has: the flat surfaces, the fuselage outline and
+// the end-on disc.
+static const uint8_t kPlaneVertMax = 32;
 
 // Everything that persists between frames: the hysteresis latches and the
-// vertex cache. One per aircraft.
+// caches. One per aircraft.
 struct planes_state_t {
   uint8_t level, ys, cols, rows;
+  // The rest describes the last frame that projected the model, if
+  // key_valid; the dot tier and planes_state_init() clear it.
   bool key_valid;
-  uint8_t key_len;
-  uint8_t key[kPlaneKeyMax];
+  // The vertex cache: that frame's vertices in buffer coordinates, under the
+  // layout in the latches above. They are the last bitmap drawn.
+  uint8_t key_count;
+  int16_t key_x[kPlaneVertMax], key_y[kPlaneVertMax];
+  // What they were projected from -- the scale, and the screen components
+  // (y, z) of the front, left and up axes -- and where the buffer sat: its
+  // top left less the centre before the slide, and the slide. The same scale
+  // and axes project the same silhouette again, moved with the centre.
+  uint16_t k;
+  int16_t axes[6];
+  int16_t ox, oy, slid;
 };
 
 enum planes_hidden_t {

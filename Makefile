@@ -33,7 +33,7 @@ help:
 	@echo "  make map-tiles   - c64o/mapdefs.{cc,h} from gfx/ppilot_map_tiles.png"
 	@echo "  make panel       - c64o/panel.koa from gfx/ppilot_panel_40.png"
 	@echo "  make music       - c64o/musicdef.{cc,h} and docs/sid-intro-theme.html from lib/music.py"
-	@echo "  make planes      - c64o/planedef.h, the traffic model, from lib/planes.py"
+	@echo "  make planes      - c64o/planedef.h and planeproj.h, the traffic model, from lib/planes.py"
 	@echo ""
 	@echo "Preview and build:"
 	@echo "  make cloud-preview - render out/cloud_preview.png and report the cloud density"
@@ -76,9 +76,10 @@ map-tiles:
 music:
 	$(PYTHON) tools/generate_music.py
 
-# The traffic-sprite model and renderer constants for c64o/planes.cc, from the
-# reference in lib/planes.py. The host and on-target tests regenerate their own
-# cases from the same reference; this is the one checked-in output.
+# The traffic-sprite model, renderer constants and projection code for
+# c64o/planes.cc, from the reference in lib/planes.py. The host and on-target
+# tests regenerate their own cases from the same reference; these two headers
+# are the checked-in output.
 planes:
 	$(PYTHON) tools/generate_planes.py
 

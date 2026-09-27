@@ -55,12 +55,20 @@ bool mem_debug_enabled = true;
 static const planes_view_t kView = {160, 100, 250, 250};
 
 // Where it starts. Build with -DDEMO_DISTANCE=40 -DDEMO_PRESET=3, say, to
-// screenshot one case without a keyboard (tools/vice_shot.sh cannot type).
+// screenshot one case without a keyboard (tools/vice_shot.sh cannot type);
+// -DDEMO_SPIN=1 to time frames whose attitude changes, -DDEMO_APPROACH=1 ones
+// whose distance does.
 #ifndef DEMO_DISTANCE
 #define DEMO_DISTANCE 150
 #endif
 #ifndef DEMO_PRESET
 #define DEMO_PRESET 1
+#endif
+#ifndef DEMO_SPIN
+#define DEMO_SPIN 0
+#endif
+#ifndef DEMO_APPROACH
+#define DEMO_APPROACH 0
 #endif
 
 static const uint8_t kColorPlane = 15;   // light grey
@@ -254,6 +262,8 @@ int main(void) {
   planes_state_init(&_state);
   _reset(DEMO_PRESET);
   _distance = DEMO_DISTANCE;
+  _spin = DEMO_SPIN != 0;
+  _approach = DEMO_APPROACH != 0;
   _approach_dir = -1;
 
   for (;;) {

@@ -599,14 +599,14 @@ Estimates, except the buffers:
 | Sprite buffers and the dot, `$CCC0–$CEFF` | 576 |
 | Time-shared with the title aircraft, `$CF00–$CFFF` | (256) |
 | Edge masks (8 + 8) and the reciprocal table (42 × 2) | 100 |
-| Per-plane state — latches, a cache key of up to 30 vertices — 2 planes | ~150 |
+| Per-plane state — latches, up to 30 cached vertices and the `k` and axes they came from — 2 planes | ~310 |
 | Model data | ~60 |
 | Rasteriser code: edge trace and span fill | ~400 |
 | Pipeline code: projection, fuselage, level, layout, slide | ~700 |
-| **Total** | **~1.9 KB** |
+| **Total** | **~2.1 KB** |
 
 Against the stroke design's ~1.5 KB. The difference is mostly code — the
-fuselage, the layout and the slide. The buffers cost only 64 bytes more than
+fuselage, the layout and the slide — and the caches. The buffers cost only 64 bytes more than
 the old plan's 512, because half of the new ones are the title aircraft's, and
 the rasteriser's tables shrank from 144 bytes to 100.
 
@@ -726,9 +726,18 @@ frame (the test checks it), and so does formation flight. A closing target
 misses whenever `k` changes, which at 300 m is every other frame.
 
 A hit is ~4,700 cycles, over twice the stroke design's, because the key is the
-projected vertices and producing them is most of the cost. A second, earlier
-key on `k` and the six axis components the projection reads would skip the
-projection too when nothing has moved, for seven bytes per plane (§11).
+projected vertices and producing them is most of the cost. So `planes.cc`
+checks something earlier, before projecting: `k` and the six axis components
+the projection reads. When they are the last frame's, the silhouette is the
+same one moved with the centre, and so is the layout, because the hysteresis
+settles in one frame. All that is left is where the buffer goes, kept as its
+offset from the centre. The slide can still change the bitmap, since it
+depends on where the centre is; a frame that slides differently projects as
+usual. It costs 20 bytes per plane in C and turns a still frame's ~37,000
+cycles into ~3,000 (§11). `lib/planes.py` has no such check: its only effect is
+to skip work whose result would be the same, and `test/planes_test.cc` holds
+the C port's cache hits to the reference's, frame by frame, over runs that
+drift across the screen and through the DMA cut.
 
 ---
 
@@ -855,32 +864,51 @@ that is ~1% on the worst frame and ~9% on a hit.
 | One close and redrawing (worst), one cached | 21,610 | 21.9% | 9.1% |
 | Both close, both redrawing (worst) | 33,850 | 34.4% | 14.0% |
 
-**Measured, in plain C.** `planedemo_prof.prg` times each step of
-`planes_render()` on the C64 (at 150 m, one sprite, cache hit):
-
-| Step | Measured | Estimate |
-| :--- | ---: | ---: |
-| Centre and `k` (exact divisions) | 1,457 | ~940 with the transform |
-| Magnitudes × `k`, 16 multiplies | 4,440 | 720 |
-| Axis products, 30 multiplies | 5,768 | 1,350 |
-| Flat-surface vertices, no multiplies | 7,321 | — |
-| Fuselage | 4,445 | ~600 |
-| Layout | 3,234 | — |
-| Local coordinates and cache key | 4,300 | ~250 |
-| **Cache hit, total** | **~31,000** | **~4,700** |
-| Fill, when redrawn | ~25,000 | ~5,800 |
-
-About six times the model. `vec_fastmul8p8` costs 150–200 cycles a call from
-C rather than 45, and the C around it -- indexing, sign branches, 16-bit adds --
-costs more than the maths: the vertices take 460 cycles each without a single
-multiply. The per-operation constants above are the target an assembly
-rasteriser and projection would have to meet; the C port is the reference for
-what they must produce, not for what they may cost.
-
 The dot tier got cheaper, because it is now decided before the body axes are
 transformed. Everything else roughly doubled. The last row is a near-collision
 with two aircraft at once — momentary, and not worth designing around. The
 fourth is the case to hold in mind.
+
+**Measured, in plain C.** `planedemo.prg` times the whole `planes_render()`
+call on the C64, and `planedemo_prof.prg` each step of it. The first port cost
+about six times the model; this one has the flat-surface vertices and the axis
+products written out as straight-line code (`c64o/planeproj.h`), keeps the
+magnitudes × `k` while `k` holds, compares vertices in place rather than
+through a key, and skips the projection for a frame with the last one's `k`
+and axes (§7):
+
+| Frame | First port | Now |
+| :--- | ---: | ---: |
+| Same `k` and axes as the last, 150 m | 37,111 | **2,975** |
+| — 60 m, banked, 2 × 2 | 39,109 | 3,347 |
+| Axes changed, same pixels (a vertex cache hit), 300 m | 36,912 | 19,988 |
+| Axes changed, redrawn, 150 m | 69,591 | 55,888 |
+| — 60 m, banked, 2 × 2 | 121,287 | 108,359 |
+| Closing, redrawn, ~120 m | 62,000–65,000 | ~53,000 |
+
+And by step, the redrawn frame at 150 m, one sprite:
+
+| Step | First port | Now | Estimate |
+| :--- | ---: | ---: | ---: |
+| Centre and `k` (exact divisions) | 1,371 | 1,376 | ~940 with the transform |
+| Magnitudes × `k`, 16 multiplies | 4,341 | 128 while `k` holds | 720 |
+| Axis products, 30 multiplies | 6,100 | 5,343 | 1,350 |
+| Flat-surface vertices, no multiplies | 7,137 | 1,190 | — |
+| Fuselage | 5,006 | 4,802 | ~600 |
+| Layout, and what the next frame compares | 4,152 | 4,989 | — |
+| Local coordinates and the vertex cache | 5,843 + compare and copy | 4,315 | ~250 |
+| Fill | 32,298 | 32,858 | ~5,800 |
+
+The timings are CIA timer differences, so they include the cycles the VIC
+steals, and the same frame measures a few per cent differently from build to
+build. The multiplies and the fill are now most of it. `vec_fastmul8p8` costs
+150–200 cycles a call from C rather than 45, so the 30 axis products alone cost
+twice what the whole projection was estimated at, and writing them out saved
+only the loop around them. The per-operation constants above are the target an
+assembly rasteriser and projection would have to meet; the C port is the
+reference for what they must produce, not for what they may cost. Straight-line
+code costs memory too: the renderer is 6.3 KB of code in `planedemo.prg`, 1.4 KB
+more than with loops.
 
 The levers, cheapest first:
 
@@ -888,7 +916,6 @@ The levers, cheapest first:
 | :--- | ---: |
 | Clear only the rows the frame before last drew | up to ~1,000 |
 | The two opposite edges of a projected wing, tailplane or fin quad are parallel: one slope for both | ~300 |
-| A pre-projection cache key on `k` and the axes (§7) | ~2,300 per hit |
 | Fewer distinct stations in the model | ~135 per magnitude |
 | Leave the tailplane out at 1:1, where it is a pixel or two | ~1,000 at range |
 

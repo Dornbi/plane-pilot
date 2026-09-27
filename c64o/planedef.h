@@ -7,39 +7,14 @@
 
 // The model, in eighths of a metre at the exaggeration, as shared products:
 // every distinct magnitude is multiplied by k once, and every (axis,
-// magnitude) pair by the two screen components of its axis once.
+// magnitude) pair by the two screen components of its axis once
+// (planeproj.h).
 static const uint8_t kPlaneMagCount = 16;
 static const uint8_t kPlaneMags[16] = {27, 66, 5, 30, 13, 9, 32, 20, 43, 45, 25, 40, 18, 55, 6, 1};
 static const uint8_t kPlanePairCount = 15;
-// 0 fore, 1 left, 2 up.
-static const uint8_t kPlanePairAxis[15] = {0, 1, 2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0};
-static const uint8_t kPlanePairMag[15] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 2};
 
-// Flat-surface vertices as (fore, left, up) references: pair index + 1,
-// negated for a negative coordinate, 0 for none.
-static const uint8_t kPlaneVertCount = 16;
-static const int8_t kPlaneVerts[16][3] = {
-    {1, 2, -3},
-    {4, 0, -3},
-    {1, -2, -3},
-    {5, -2, -3},
-    {6, 0, -3},
-    {5, 2, -3},
-    {-7, 8, 0},
-    {-4, 0, 0},
-    {-7, -8, 0},
-    {-9, -8, 0},
-    {-10, 0, 0},
-    {-9, 8, 0},
-    {-10, 0, 0},
-    {-11, 0, 0},
-    {-12, 0, 13},
-    {-10, 0, 13},
-};
-// Wing, tailplane and fin, as ranges of kPlaneVerts.
-static const uint8_t kPlanePolyStart[4] = {0, 6, 12, 16};
-
-// Fuselage stations, nose to tail: fore reference and radius magnitude.
+// Fuselage stations, nose to tail: fore reference and radius magnitude. A
+// reference is a pair index + 1, negated for a negative coordinate.
 static const uint8_t kPlaneBodyCount = 3;
 static const int8_t kPlaneBodyFore[3] = {14, 15, -10};
 static const uint8_t kPlaneBodyRadius[3] = {14, 14, 15};

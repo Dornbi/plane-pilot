@@ -171,6 +171,7 @@ static void test_planes(void) {
     expect(id, frame.y, pc->y);
     expect(id, frame.slid, pc->slid);
     expect(id, frame.clamped ? 1 : 0, pc->clamped);
+    expect(id, frame.cached ? 1 : 0, pc->cached);
     const uint8_t *want = kPlaneTargetBytes + pc->bytes;
     if (frame.level == kPlaneLevelDot) {
       for (uint8_t i = 0; i < kPlaneBlockBytes; ++i) {
