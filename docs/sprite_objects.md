@@ -24,8 +24,8 @@ covers (`docs/project.md` §7, `c64o/title.cc`):
 - **Hires only. Never multicolour.** One colour per sprite, full horizontal
   resolution. `$D01C` stays zero.
 - **Never expand along Y.** X-expansion is available. **One exception, for
-  near traffic:** an aircraft inside ~110 m expands along X and Y together
-  ([planes.md](planes.md) §4).
+  near traffic:** a close aircraft too tall for two sprites — steeply banked,
+  inside ~100 m — expands along Y as well as X ([planes.md](planes.md) §4).
 
 The back view's tail fin (`c64o/sprites.cc`) is the one thing in the viewport
 that expands along Y, and `$D017` is a per-frame register because of it. It is
@@ -175,12 +175,13 @@ cloud makes the checkerboard dither read as stripes. X-expansion by contrast
 lands on 2 screen pixels — the same granularity as the world around it — so it
 costs nothing either way. See [planes.md](planes.md) §4.
 
-That is still the rule for clouds. Aircraft have since got Y-expansion back, as
-a fourth rung taken together with X, because they are filled polygons now and
-the staircase argument was about lines ([planes.md](planes.md) §1). Their pixel
-size follows **distance** — 1:1, then X, then X+Y — and their sprite layout,
-1 × 1 up to 2 × 2, follows the bounding box; the layout changes no pixel, so a
-banked aircraft never changes resolution as it rolls.
+That is still the rule for clouds. Aircraft have since got Y-expansion back,
+taken together with X, because they are filled polygons now and the staircase
+argument was about lines ([planes.md](planes.md) §1) — but only as a last
+resort, when a close aircraft is too tall for two unexpanded sprites, so level
+traffic keeps one line per pixel however near it comes. Their horizontal pixel
+size follows **distance** — 1:1, then X — and their sprite layout, 1 × 1 up to
+2 × 2, follows the bounding box; the layout changes no pixel.
 
 **Vertical granularity mismatch — 2:1, and only vertically.** An earlier draft
 of this paragraph said the terrain dot characters put each plotted dot in a

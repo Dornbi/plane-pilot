@@ -56,22 +56,32 @@ SPRITE_START_MAX = VIEW_H - 22 - 1          # 89
 SPRITE_START_MAX_EXP_Y = VIEW_H - 43 - 1    # 68
 
 # --------------------------------------------------------------------------
-# Pixel-size ladder (planes.md section 4)
+# Pixel size (planes.md section 4)
 # --------------------------------------------------------------------------
 #
-# Chosen from d, the aircraft's unforeshortened diameter in screen pixels --
-# a function of distance alone, so the pixel size never changes while the
-# aircraft rotates. Each limit is the largest d whose every attitude fits the
-# largest layout of that level, less a margin for the rounding of the
-# projection; tests/test_planes.py sweeps attitudes to hold that true.
+# The two axes are decided differently.
+#
+# HORIZONTAL -- the level: dot, 1:1 or X-expanded -- comes from d, the
+# aircraft's unforeshortened diameter in screen pixels. That is a function of
+# distance alone, so the horizontal pixel size never changes while the
+# aircraft rotates. D_1X is the largest d whose every attitude fits 1:1's
+# largest layout, 24 x 42, less a margin for the rounding of the projection.
+#
+# VERTICAL -- Y-expansion -- comes from the silhouette's height, and only
+# when two unexpanded sprites cannot hold it: as close in as it can possibly
+# be. Level flight never needs it, even at the size cap; a 40 degree bank
+# needs it inside ~64 m, knife-edge inside ~102 m.
 
-LEVEL_DOT, LEVEL_1X, LEVEL_XEXP, LEVEL_XYEXP = 0, 1, 2, 3
-LEVEL_SCALE = {LEVEL_1X: (1, 1), LEVEL_XEXP: (2, 1), LEVEL_XYEXP: (2, 2)}
+LEVEL_DOT, LEVEL_1X, LEVEL_XEXP = 0, 1, 2
+LEVEL_XS = {LEVEL_1X: 1, LEVEL_XEXP: 2}
 
 D_DOT = 3        # at or below: the static dot
 D_1X = 21        # at or below: unexpanded, 24 x 42 at most
-D_XEXP = 39      # at or below: X-expanded, 48 x 42 at most
 D_MAX = 80       # the size cap: X+Y-expanded, 96 x 84 at most
+
+# The tallest extent two unexpanded sprites hold -- 42 lines, less one because
+# an extent of 41 spans 42. Taller than this, the sprites expand along Y.
+Y_LIMIT = 2 * ROWS - 1
 
 HYSTERESIS = 0.87
 
@@ -220,27 +230,31 @@ ALL_PARTS: FrozenSet[str] = frozenset(PARTS)
 
 @dataclass(frozen=True)
 class Model:
-    """Aircraft dimensions in metres. Defaults are a Cessna 172.
+    """Aircraft dimensions in metres. Defaults are a Cessna 172's size with a
+    low, lightly tapered wing -- the shape of a Piper Warrior.
 
     Flat surfaces -- wing, tailplane, fin -- are polygons in body space. The
-    fuselage is not: it is a body of revolution, given as stations along the
-    axis with a radius each, and drawn in screen space (`project_model`).
+    fuselage is not: it is a cylinder from the nose that tapers to the tail,
+    given as stations with a radius each and drawn in screen space
+    (`project_model`).
     """
     span_m: float = 11.0
     length_m: float = 8.3
     nose_frac: float = 0.55        # of length, ahead of the centre
     tail_frac: float = 0.45        # of length, behind it
     wing_fwd_frac: float = 0.20    # wing mid-chord ahead of the centre
-    chord_frac: float = 0.14       # wing chord, of span
+    chord_frac: float = 0.16       # wing root chord, of span
+    wing_taper: float = 0.7        # wing tip chord, of the root chord
+    wing_height: float = -0.8      # of the fuselage radius: just inside the belly
     stab_span_frac: float = 0.31   # tailplane span, of span
-    stab_chord_frac: float = 0.15  # tailplane chord, of length
+    stab_chord_frac: float = 0.15  # tailplane root chord, of length
+    stab_taper: float = 0.7        # tailplane tip chord, of its root chord
     fin_frac: float = 0.14         # fin height above the axis, of span
     fin_root_frac: float = 0.20    # fin root chord with the dorsal, of length
     fin_tip_frac: float = 0.05     # fin tip chord, of length
-    cabin_frac: float = 0.15       # widest station, of length ahead of centre
-    nose_radius_frac: float = 0.045
-    cabin_radius_frac: float = 0.075
-    tail_radius_frac: float = 0.015
+    body_radius_frac: float = 0.06   # fuselage radius, of length
+    cone_frac: float = 0.05          # where it starts tapering, of length ahead of centre
+    tail_radius_frac: float = 0.015  # fuselage radius at the tail, of length
     # Size exaggeration. At true scale a plane is under 4 px beyond 700 m,
     # which is most of any encounter; 1.5x makes traffic readable at realistic
     # separations. The default 11 m span therefore draws as 16.5 m.
@@ -256,29 +270,38 @@ class Model:
     def geometry(self) -> dict:
         """The model in eighths of a metre, (fore, left, up) about the centre.
 
-        The high wing sits on the cabin's top, at the widest radius. The
-        tailplane's trailing edge and the fin's are both on the tail station.
+        The wing and the tailplane are trapezoids, tapered evenly on both
+        edges about their mid-chord, so each is a convex hexagon: tip, root
+        and tip along the leading edge, then back along the trailing edge.
+        The fuselage is three stations, (fore, radius): the nose and the start
+        of the tail cone at one radius, the tail at a smaller one. The low
+        wing sits just inside its underside; the tailplane's root trailing
+        edge and the fin's are on the tail station.
         """
         s, ln = self.span_m, self.length_m
         wf = ln * self.wing_fwd_frac
-        c2 = s * self.chord_frac / 2
         h = s / 2
-        rc = ln * self.cabin_radius_frac
         t = -ln * self.tail_frac
         sc = ln * self.stab_chord_frac
         hs = s * self.stab_span_frac / 2
         fh = s * self.fin_frac
         e = self._e
         pt = lambda f, l, u: (e(f), e(l), e(u))
+
+        def planform(mid, half_root, half_tip, half_span, u):
+            return [pt(mid + half_tip, half_span, u), pt(mid + half_root, 0, u),
+                    pt(mid + half_tip, -half_span, u), pt(mid - half_tip, -half_span, u),
+                    pt(mid - half_root, 0, u), pt(mid - half_tip, half_span, u)]
+
+        rb = ln * self.body_radius_frac
+        wr = s * self.chord_frac / 2
+        sr = sc / 2
         return {
-            "wing": [pt(wf + c2, h, rc), pt(wf + c2, -h, rc),
-                     pt(wf - c2, -h, rc), pt(wf - c2, h, rc)],
-            "stab": [pt(t + sc, hs, 0), pt(t + sc, -hs, 0),
-                     pt(t, -hs, 0), pt(t, hs, 0)],
+            "wing": planform(wf, wr, wr * self.wing_taper, h, rb * self.wing_height),
+            "stab": planform(t + sr, sr, sr * self.stab_taper, hs, 0),
             "fin": [pt(t, 0, 0), pt(t + ln * self.fin_root_frac, 0, 0),
                     pt(t + ln * self.fin_tip_frac, 0, fh), pt(t, 0, fh)],
-            "body": [(e(ln * self.nose_frac), e(ln * self.nose_radius_frac)),
-                     (e(ln * self.cabin_frac), e(rc)),
+            "body": [(e(ln * self.nose_frac), e(rb)), (e(ln * self.cone_frac), e(rb)),
                      (e(t), e(ln * self.tail_radius_frac))],
             "hub": (e(wf), 0, 0),
         }
@@ -410,6 +433,13 @@ def fill_poly(buf: SpriteBuffer, pts: Poly) -> None:
     line instead of disappearing, and at range the model falls back to what
     three strokes used to draw.
 
+    Vertices are pixel CENTRES: each row takes the part of an edge within
+    half a row of it, so a shallow edge's first and last rows get half a step
+    each. With vertices on row boundaries instead, an edge's last row got its
+    end point alone, and wherever the lowest or highest vertex of a polygon
+    was a shallow corner that showed as a lone pixel under or over the
+    silhouette -- on nearly half of all frames.
+
     Clamping a SPAN to the buffer is an exact clip for a filled polygon, so
     unlike the stroke rasteriser this needs no Liang-Barsky.
     """
@@ -444,8 +474,9 @@ def fill_poly(buf: SpriteBuffer, pts: Poly) -> None:
         xa = xa0 * 256
         for y in range(ya, yb + 1):
             if y == yb:
-                xa = xb0 * 256
-                xb = xa
+                xb = xb0 * 256
+            elif y == ya:
+                xb = xa + (slope >> 1)
             else:
                 xb = xa + slope
             if y0 <= y <= y1:
@@ -508,36 +539,41 @@ def project_model(model: Model, k: int, centre: Vec2, fore, lat, vert,
             shapes[part] = [[pr(p) for p in g[part]]]
 
     if "body" in parts:
-        # A body of revolution looks equally wide from every side, so it is
-        # not a 3D polygon: offset each station perpendicular to the
-        # PROJECTED axis by its radius -- a radius that depends on distance
-        # alone -- and fill the trapezoids between stations.
+        # A tube looks equally wide from every side, so it is not a 3D
+        # polygon: offset each station perpendicular to the PROJECTED axis by
+        # its radius -- a radius that depends on distance alone -- and fill
+        # the outline as one polygon. The radius holds from the nose to the
+        # start of the tail cone and then falls, so the outline is convex and
+        # its belly is a flat edge. That matters: wherever the outline has a
+        # single lowest corner -- a widest station part-way along, or a nose
+        # wider than everything behind it -- the edge-inclusive fill gives
+        # that corner a pixel of its own, a lone dot under the aircraft.
         st = [(pr((f, 0, 0)), smul(r, k)) for f, r in g["body"]]
         fx = st[0][0][0] - st[-1][0][0]
         fy = st[0][0][1] - st[-1][0][1]
         n = norm2(fx, fy)
-        cab = st[0]
+        widest = st[0]
         for s in st:
-            if s[1] > cab[1]:
-                cab = s
-        polys: List[Poly] = []
+            if s[1] > widest[1]:
+                widest = s
+        shapes["body"] = []
         if n > 0:
             ux, uy = fdiv(-fy, n), fdiv(fx, n)
             off = [(smul(ux, r), smul(uy, r)) for _, r in st]
-            for i in range(len(st) - 1):
-                (a, oa), (b, ob) = (st[i][0], off[i]), (st[i + 1][0], off[i + 1])
-                polys.append([(a[0] + oa[0], a[1] + oa[1]), (b[0] + ob[0], b[1] + ob[1]),
-                              (b[0] - ob[0], b[1] - ob[1]), (a[0] - oa[0], a[1] - oa[1])])
-        # End-on the axis collapses and the trapezoids with it; what is left
-        # is the cabin's cross-section, a disc. Skipped once the axis is long
-        # enough to hide it.
-        if n < 4 * cab[1]:
-            r = max(1, cab[1])
-            h = (r * 106) >> 8
-            x, y = cab[0]
-            polys.append([(x + r, y + h), (x + h, y + r), (x - h, y + r), (x - r, y + h),
-                          (x - r, y - h), (x - h, y - r), (x + h, y - r), (x + r, y - h)])
-        shapes["body"] = polys
+            upper = [(c[0] + o[0], c[1] + o[1]) for (c, _), o in zip(st, off)]
+            lower = [(c[0] - o[0], c[1] - o[1]) for (c, _), o in zip(st, off)]
+            shapes["body"].append(upper + lower[::-1])
+        # End-on the axis collapses and the outline with it; what is left is
+        # the fuselage's cross-section at its widest, a disc. Skipped once the
+        # axis is long enough to hide it. The octagon's short offset rounds
+        # UP, so that a small disc is a square rather than a diamond with a
+        # lone pixel on each point.
+        if n < 4 * widest[1]:
+            r = max(1, widest[1])
+            h = (r * 106 + 255) >> 8
+            x, y = widest[0]
+            shapes["disc"] = [[(x + r, y + h), (x + h, y + r), (x - h, y + r), (x - r, y + h),
+                               (x - r, y - h), (x - h, y - r), (x + h, y - r), (x + r, y - h)]]
 
     return shapes, pr(g["hub"])
 
@@ -566,7 +602,7 @@ class Tier:
     def name(self) -> str:
         if self.dot:
             return "dot"
-        px = {1: "1:1", 2: "X-exp", 3: "X+Y-exp"}[self.level]
+        px = "1:1" if self.xs == 1 else ("X+Y-exp" if self.ys == 2 else "X-exp")
         return "%dx%d, %s" % (self.cols, self.rows, px)
 
 
@@ -575,6 +611,7 @@ class State:
     """Everything that persists between frames: the hysteresis latches and the
     vertex cache. One instance per tracked aircraft."""
     level: int = LEVEL_DOT
+    ys: int = 1
     cols: int = 1
     rows: int = 1
     cache_key: Optional[tuple] = None
@@ -588,11 +625,11 @@ def _ladder(d: float, limits) -> int:
     return len(limits)
 
 
-LIMITS = (D_DOT, D_1X, D_XEXP)
+LIMITS = (D_DOT, D_1X)
 
 
 def pick_level(prev: int, d: int) -> int:
-    """The pixel size, from the unforeshortened diameter alone.
+    """The horizontal pixel size, from the unforeshortened diameter alone.
 
     Promote past a limit, demote below 87% of it -- and a demotion lands on
     the level the demotion thresholds give, however far that is, rather than
@@ -604,14 +641,23 @@ def pick_level(prev: int, d: int) -> int:
 
 
 def pick_layout(state: State, level: int, bw: int, bh: int) -> Tier:
-    """How many sprites, from the bounding box.
+    """Y-expansion, then how many sprites, from the bounding box.
 
-    Invisible -- only the sprite count changes, never the pixels -- so it may
-    follow the attitude freely. The hysteresis is only there so that the
-    count does not flicker and push other objects in and out of the stack.
+    Y-expansion only once two unexpanded sprites cannot hold the height, and
+    held until the height falls below 87% of that. It does change pixels, so
+    this is the one place the silhouette's resolution follows its attitude --
+    the price of expanding vertically as late as possible.
+
+    The sprite count is invisible -- it changes no pixel -- so it may follow
+    the attitude freely. Its hysteresis is only there so that the count does
+    not flicker and push other objects in and out of the stack.
     """
-    xs, ys = LEVEL_SCALE[level]
-    same = state.level == level
+    xs = LEVEL_XS[level]
+    ys = 1
+    if level == LEVEL_XEXP and (bh > Y_LIMIT or (state.level == level and state.ys == 2
+                                                 and bh > HYSTERESIS * Y_LIMIT)):
+        ys = 2
+    same = state.level == level and state.ys == ys
     cols = 1 if bw <= xs * (COLS - 1) else 2
     if same and state.cols == 2 and cols == 1 and bw > HYSTERESIS * xs * (COLS - 1):
         cols = 2
@@ -650,8 +696,8 @@ class Result:
         if not self.visible:
             return "invisible:" + self.reason
         blocks = "".join(b.hex() for b in self.buf.blocks)
-        return "%d|%dx%d|%d,%d|%d|%d|%d|%s" % (
-            self.tier.level, self.tier.cols, self.tier.rows,
+        return "%d|%d|%dx%d|%d,%d|%d|%d|%d|%s" % (
+            self.tier.level, self.tier.ys, self.tier.cols, self.tier.rows,
             self.origin[0], self.origin[1], self.slid, int(self.clamped),
             self.cycles, blocks)
 
@@ -689,7 +735,7 @@ def render(state: State, cam: Mat3, target: Mat3, rel_pos_m: Vec3,
     level = pick_level(state.level, d)
 
     if level == LEVEL_DOT:
-        state.level, state.cols, state.rows = LEVEL_DOT, 1, 1
+        state.level, state.ys, state.cols, state.rows = LEVEL_DOT, 1, 1, 1
         state.cache_key, state.cache_buf = None, None
         origin = (cx - DOT_X, cy - DOT_Y)
         if origin[1] > SPRITE_START_MAX:
@@ -708,9 +754,9 @@ def render(state: State, cam: Mat3, target: Mat3, rel_pos_m: Vec3,
     miny, maxy = min(p[1] for p in pts), max(p[1] for p in pts)
     bw, bh = maxx - minx, maxy - miny
 
-    # 10. layout, then the centring anchor
+    # 10. Y-expansion and layout, then the centring anchor
     tier = pick_layout(state, level, bw, bh)
-    state.level, state.cols, state.rows = level, tier.cols, tier.rows
+    state.level, state.ys, state.cols, state.rows = level, tier.ys, tier.cols, tier.rows
     xs, ys = tier.xs, tier.ys
     wpx, hpx = COLS * tier.cols * xs, ROWS * tier.rows * ys
     # The largest extent n sprites hold is one less than their size -- an
@@ -739,7 +785,7 @@ def render(state: State, cam: Mat3, target: Mat3, rel_pos_m: Vec3,
     nverts = sum(len(poly) for polys in local.values() for poly in polys)
 
     # 12. cache on the local vertices and the layout
-    key = (level, tier.cols, tier.rows,
+    key = (level, tier.ys, tier.cols, tier.rows,
            tuple((name, tuple(tuple(poly) for poly in polys))
                  for name, polys in local.items()))
     cached = state.cache_key == key and state.cache_buf is not None

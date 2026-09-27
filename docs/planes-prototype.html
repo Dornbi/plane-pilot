@@ -92,7 +92,7 @@
     <h2>Geometry</h2>
 
     <div class="ctrl"><label>Distance <b><span id="l_dist"></span> m</b></label>
-      <input type="range" id="dist" min="20" max="1500" value="150" step="1"></div>
+      <input type="range" id="dist" min="20" max="500" value="150" step="1"></div>
     <div class="ctrl"><label>Bearing <b><span id="l_bear"></span>&deg;</b></label>
       <input type="range" id="bear" min="-30" max="30" value="6" step="1"></div>
     <div class="ctrl"><label>Elevation <b><span id="l_elev"></span>&deg;</b></label>
@@ -121,6 +121,15 @@
       <input type="range" id="scale" min="10" max="30" value="15" step="1"></div>
     <div class="ctrl"><label>Wing forward of centre <b><span id="l_wfwd"></span>% of length</b></label>
       <input type="range" id="wfwd" min="0" max="35" value="20" step="1"></div>
+    <div class="ctrl"><label>Wing taper, tip of root chord <b><span id="l_wtap"></span>%</b></label>
+      <input type="range" id="wtap" min="40" max="100" value="70" step="5"></div>
+    <div class="ctrl"><label>Tailplane taper, tip of root chord <b><span id="l_stap"></span>%</b></label>
+      <input type="range" id="stap" min="40" max="100" value="70" step="5"></div>
+    <div class="ctrl"><label>Wing position <b></b></label>
+      <select id="wpos">
+        <option value="-0.8" selected>Low, under the fuselage</option>
+        <option value="0.8">High, on top of the fuselage</option>
+      </select></div>
 
     <div class="grp"></div>
     <div class="ctrl"><label>Renderer <b></b></label>
@@ -192,11 +201,15 @@ const MIN_CAM_X = 64, MAX_CAM_X = 16000;
 const SPRITE_START_MAX = VIEW_H - 22 - 1;          // 89
 const SPRITE_START_MAX_EXP_Y = VIEW_H - 43 - 1;    // 68
 
-/* ---------- pixel-size ladder, on the unforeshortened diameter d ---------- */
-const LEVEL_DOT = 0, LEVEL_1X = 1, LEVEL_XEXP = 2, LEVEL_XYEXP = 3;
-const LEVEL_SCALE = { 1: [1, 1], 2: [2, 1], 3: [2, 2] };
-const D_DOT = 3, D_1X = 21, D_XEXP = 39, D_MAX = 80;
-const LIMITS = [D_DOT, D_1X, D_XEXP];
+/* ---------- pixel size ----------
+   Horizontally, the level -- dot, 1:1, X -- from the unforeshortened diameter
+   d, so it never changes as the aircraft rotates. Vertically, Y-expansion only
+   once two unexpanded sprites cannot hold the height: as late as possible. */
+const LEVEL_DOT = 0, LEVEL_1X = 1, LEVEL_XEXP = 2;
+const LEVEL_XS = { 1: 1, 2: 2 };
+const D_DOT = 3, D_1X = 21, D_MAX = 80;
+const LIMITS = [D_DOT, D_1X];
+const Y_LIMIT = 2 * ROWS - 1;             // tallest extent two unexpanded sprites hold
 const HYSTERESIS = 0.87;
 
 /* ---------- cycle model: estimates, not measurements ---------- */
@@ -260,10 +273,11 @@ function place(D, bearing = 0, elevation = 0) {
 /* ---------- aircraft model ---------- */
 const MODEL_DEFAULTS = {
   span_m: 11.0, length_m: 8.3, nose_frac: 0.55, tail_frac: 0.45,
-  wing_fwd_frac: 0.20, chord_frac: 0.14, stab_span_frac: 0.31,
-  stab_chord_frac: 0.15, fin_frac: 0.14, fin_root_frac: 0.20,
-  fin_tip_frac: 0.05, cabin_frac: 0.15, nose_radius_frac: 0.045,
-  cabin_radius_frac: 0.075, tail_radius_frac: 0.015, scale: 1.5,
+  wing_fwd_frac: 0.20, chord_frac: 0.16, wing_taper: 0.7, wing_height: -0.8,
+  stab_span_frac: 0.31, stab_chord_frac: 0.15, stab_taper: 0.7,
+  fin_frac: 0.14, fin_root_frac: 0.20,
+  fin_tip_frac: 0.05, body_radius_frac: 0.06, cone_frac: 0.05, tail_radius_frac: 0.015,
+  scale: 1.5,
 };
 function makeModel(over) {
   const m = Object.assign({}, MODEL_DEFAULTS, over);
@@ -274,21 +288,26 @@ function makeModel(over) {
   };
   const s = m.span_m, ln = m.length_m, e = m.e;
   const wf = ln * m.wing_fwd_frac;
-  const c2 = s * m.chord_frac / 2;
   const h = s / 2;
-  const rc = ln * m.cabin_radius_frac;
   const t = -ln * m.tail_frac;
   const sc = ln * m.stab_chord_frac;
   const hs = s * m.stab_span_frac / 2;
   const fh = s * m.fin_frac;
   const pt = (f, l, u) => [e(f), e(l), e(u)];
+  // Trapezoids tapered evenly about the mid-chord: convex hexagons.
+  const planform = (mid, halfRoot, halfTip, halfSpan, u) =>
+    [pt(mid + halfTip, halfSpan, u), pt(mid + halfRoot, 0, u),
+     pt(mid + halfTip, -halfSpan, u), pt(mid - halfTip, -halfSpan, u),
+     pt(mid - halfRoot, 0, u), pt(mid - halfTip, halfSpan, u)];
+  const rb = ln * m.body_radius_frac;
+  const wr = s * m.chord_frac / 2;
+  const sr = sc / 2;
   m.geometry = {
-    wing: [pt(wf + c2, h, rc), pt(wf + c2, -h, rc), pt(wf - c2, -h, rc), pt(wf - c2, h, rc)],
-    stab: [pt(t + sc, hs, 0), pt(t + sc, -hs, 0), pt(t, -hs, 0), pt(t, hs, 0)],
+    wing: planform(wf, wr, wr * m.wing_taper, h, rb * m.wing_height),
+    stab: planform(t + sr, sr, sr * m.stab_taper, hs, 0),
     fin:  [pt(t, 0, 0), pt(t + ln * m.fin_root_frac, 0, 0),
            pt(t + ln * m.fin_tip_frac, 0, fh), pt(t, 0, fh)],
-    body: [[e(ln * m.nose_frac), e(ln * m.nose_radius_frac)],
-           [e(ln * m.cabin_frac), e(rc)],
+    body: [[e(ln * m.nose_frac), e(rb)], [e(ln * m.cone_frac), e(rb)],
            [e(t), e(ln * m.tail_radius_frac)]],
     hub: [e(wf), 0, 0],
   };
@@ -363,7 +382,9 @@ for (let dy = 2; dy < 2 * ROWS; dy++) RECIP.push(Math.floor(65536 / dy));
 
 // Edge-inclusive convex fill, the trace poly.cc uses for the terrain: a
 // polygon seen edge-on degrades into a 1 px line instead of disappearing, and
-// clamping a span to the buffer is an exact clip.
+// clamping a span to the buffer is an exact clip. Vertices are pixel centres:
+// each row takes the part of an edge within half a row of it, so a shallow
+// edge does not end in a lone pixel.
 function fillPoly(buf, pts) {
   let minY = Infinity, maxY = -Infinity, minX = Infinity, maxX = -Infinity;
   for (const p of pts) {
@@ -389,7 +410,9 @@ function fillPoly(buf, pts) {
     let xa = xa0 * 256;
     for (let y = ya; y <= yb; y++) {
       let xb;
-      if (y === yb) { xa = xb0 * 256; xb = xa; } else { xb = xa + slope; }
+      if (y === yb) xb = xb0 * 256;
+      else if (y === ya) xb = xa + (slope >> 1);
+      else xb = xa + slope;
       if (y >= y0 && y <= y1) {
         put(y, Math.min(xa, xb) >> 8, Math.max(xa, xb) >> 8);
         buf.edgeRows++;
@@ -423,31 +446,32 @@ function projectModel(model, k, centre, fore, lat, vert, parts) {
     if (parts.has(part)) shapes[part] = [g[part].map(pr)];
 
   if (parts.has("body")) {
-    // A body of revolution: offset each station perpendicular to the
-    // PROJECTED axis by a radius that depends on distance alone.
+    // A cylinder that tapers to the tail: offset each station perpendicular
+    // to the PROJECTED axis by a radius that depends on distance alone, and
+    // fill the outline. The belly is a flat edge: a single lowest corner --
+    // a widest station part-way along, or a nose wider than the rest --
+    // would get a lone pixel of its own from the fill.
     const st = g.body.map(([f, r]) => [pr([f, 0, 0]), smul(r, k)]);
     const fx = st[0][0][0] - st[st.length - 1][0][0];
     const fy = st[0][0][1] - st[st.length - 1][0][1];
     const n = norm2(fx, fy);
-    let cab = st[0];
-    for (const s of st) if (s[1] > cab[1]) cab = s;
-    const polys = [];
+    let widest = st[0];
+    for (const s of st) if (s[1] > widest[1]) widest = s;
+    shapes.body = [];
     if (n > 0) {
       const ux = fdiv(-fy, n), uy = fdiv(fx, n);
       const off = st.map(([, r]) => [smul(ux, r), smul(uy, r)]);
-      for (let i = 0; i + 1 < st.length; i++) {
-        const a = st[i][0], b = st[i + 1][0], oa = off[i], ob = off[i + 1];
-        polys.push([[a[0] + oa[0], a[1] + oa[1]], [b[0] + ob[0], b[1] + ob[1]],
-                    [b[0] - ob[0], b[1] - ob[1]], [a[0] - oa[0], a[1] - oa[1]]]);
-      }
+      const upper = st.map(([c], i) => [c[0] + off[i][0], c[1] + off[i][1]]);
+      const lower = st.map(([c], i) => [c[0] - off[i][0], c[1] - off[i][1]]);
+      shapes.body.push(upper.concat(lower.reverse()));
     }
-    // End-on: the cabin's cross-section, a disc.
-    if (n < 4 * cab[1]) {
-      const r = Math.max(1, cab[1]), h = (r * 106) >> 8, [x, y] = cab[0];
-      polys.push([[x + r, y + h], [x + h, y + r], [x - h, y + r], [x - r, y + h],
-                  [x - r, y - h], [x - h, y - r], [x + h, y - r], [x + r, y - h]]);
+    // End-on: the cross-section at the widest end, a disc. The short offset
+    // rounds up, so a small disc is a square rather than a diamond.
+    if (n < 4 * widest[1]) {
+      const r = Math.max(1, widest[1]), h = (r * 106 + 255) >> 8, [x, y] = widest[0];
+      shapes.disc = [[[x + r, y + h], [x + h, y + r], [x - h, y + r], [x - r, y + h],
+                      [x - r, y - h], [x - h, y - r], [x + h, y - r], [x + r, y - h]]];
     }
-    shapes.body = polys;
   }
   return { shapes, hub: pr(g.hub) };
 }
@@ -466,19 +490,23 @@ function pickLevel(prev, d) {
 }
 function tierName(t) {
   if (t.level === LEVEL_DOT) return "dot";
-  return `${t.cols}x${t.rows}, ${["", "1:1", "X-exp", "X+Y-exp"][t.level]}`;
+  return `${t.cols}x${t.rows}, ${t.xs === 1 ? "1:1" : t.ys === 2 ? "X+Y-exp" : "X-exp"}`;
 }
-// Invisible -- only the sprite count changes -- so it may follow the attitude.
+// Y-expansion only when the height needs it, held down to 87% of that; then
+// the sprite count, which is invisible and may follow the attitude freely.
 function pickLayout(state, level, bw, bh) {
-  const [xs, ys] = LEVEL_SCALE[level];
-  const same = state.level === level;
+  const xs = LEVEL_XS[level];
+  let ys = 1;
+  if (level === LEVEL_XEXP && (bh > Y_LIMIT || (state.level === level && state.ys === 2
+                                                && bh > HYSTERESIS * Y_LIMIT))) ys = 2;
+  const same = state.level === level && state.ys === ys;
   let cols = bw <= xs * (COLS - 1) ? 1 : 2;
   if (same && state.cols === 2 && cols === 1 && bw > HYSTERESIS * xs * (COLS - 1)) cols = 2;
   let rows = bh <= ys * (ROWS - 1) ? 1 : 2;
   if (same && state.rows === 2 && rows === 1 && bh > HYSTERESIS * ys * (ROWS - 1)) rows = 2;
   return { level, xs, ys, cols, rows };
 }
-const newState = () => ({ level: LEVEL_DOT, cols: 1, rows: 1, cacheKey: null, cacheBuf: null });
+const newState = () => ({ level: LEVEL_DOT, ys: 1, cols: 1, rows: 1, cacheKey: null, cacheBuf: null });
 const ALL_PARTS = new Set(["wing", "stab", "fin", "body"]);
 
 /* ---------- the pipeline, one aircraft, one frame ---------- */
@@ -501,7 +529,7 @@ function render(state, cam, target, relPosM, model, parts = ALL_PARTS) {
   const level = pickLevel(state.level, d);
 
   if (level === LEVEL_DOT) {
-    state.level = LEVEL_DOT; state.cols = state.rows = 1;
+    state.level = LEVEL_DOT; state.ys = state.cols = state.rows = 1;
     state.cacheKey = state.cacheBuf = null;
     const origin = [cx - DOT_X, cy - DOT_Y];
     if (origin[1] > SPRITE_START_MAX) return { visible: false, reason: "below the sprite cut", cam: c };
@@ -525,9 +553,9 @@ function render(state, cam, target, relPosM, model, parts = ALL_PARTS) {
       }
   const bw = maxx - minx, bh = maxy - miny;
 
-  // 10. layout, then the centring anchor
+  // 10. Y-expansion and layout, then the centring anchor
   const tier = pickLayout(state, level, bw, bh);
-  state.level = level; state.cols = tier.cols; state.rows = tier.rows;
+  state.level = level; state.ys = tier.ys; state.cols = tier.cols; state.rows = tier.rows;
   const { xs, ys } = tier;
   const wpx = COLS * tier.cols * xs, hpx = ROWS * tier.rows * ys;
   const fits = bw <= xs * (COLS * tier.cols - 1) && bh <= ys * (ROWS * tier.rows - 1);
@@ -549,7 +577,7 @@ function render(state, cam, target, relPosM, model, parts = ALL_PARTS) {
   }
 
   // 12. cache on the local vertices and the layout
-  const key = `${level}|${tier.cols}|${tier.rows}|` + JSON.stringify(local);
+  const key = `${level}|${tier.ys}|${tier.cols}|${tier.rows}|` + JSON.stringify(local);
   const cached = state.cacheKey === key && state.cacheBuf !== null;
   let cycles = CYC_POSITION + CYC_AXES + model.projectionCycles
              + CYC_CACHE_BYTE * 2 * nverts + CYC_SPRITE * tier.cols * tier.rows;
@@ -571,7 +599,7 @@ function render(state, cam, target, relPosM, model, parts = ALL_PARTS) {
 function signature(r) {
   if (!r.visible) return "invisible:" + r.reason;
   const hex = r.buf.blocks.map(b => Array.from(b, v => v.toString(16).padStart(2, "0")).join("")).join("");
-  return `${r.tier.level}|${r.tier.cols}x${r.tier.rows}|${r.origin[0]},${r.origin[1]}|${r.slid}|` +
+  return `${r.tier.level}|${r.tier.ys}|${r.tier.cols}x${r.tier.rows}|${r.origin[0]},${r.origin[1]}|${r.slid}|` +
          `${r.clamped ? 1 : 0}|${r.cycles}|${hex}`;
 }
 function fnv1a(s) {
@@ -738,7 +766,9 @@ let animStep = 0, animTimer = null;
 
 function uiModel() {
   return makeModel({ span_m: val("span"), length_m: val("len"),
-                     scale: val("scale") / 10, wing_fwd_frac: val("wfwd") / 100 });
+                     scale: val("scale") / 10, wing_fwd_frac: val("wfwd") / 100,
+                     wing_taper: val("wtap") / 100, stab_taper: val("stap") / 100,
+                     wing_height: val("wpos") });
 }
 function uiParts() {
   const p = new Set(["wing", "body"]);
@@ -900,7 +930,7 @@ function drawReadout(r, isPoly, model) {
   let html =
     row("tier", `<span class="pill tier">${name}</span> ${COLS*T.cols*T.xs} &times; ${ROWS*T.rows*T.ys} px, ${sprites} sprite${sprites > 1 ? "s" : ""}`);
   if (isPoly) html +=
-    row("pixel size", `d = ${r.d} px &nbsp;<span style="color:#858c9e">(1:1 &le; ${D_1X} &lt; X &le; ${D_XEXP} &lt; X+Y; dot &le; ${D_DOT})</span>`) +
+    row("pixel size", `d = ${r.d} px, height ${r.bbox[1]} &nbsp;<span style="color:#858c9e">(X from d &gt; ${D_1X}; Y from height &gt; ${Y_LIMIT})</span>`) +
     row("cache", r.cached ? '<span class="pill hit">HIT</span>' : '<span class="pill miss">MISS</span>');
   if (r.clamped) html += row("size", `<span class="pill tier">held</span> k capped at ${isPoly ? model.kMax : strokeModel(model).kMax}`);
   if (r.slid) html += row("slid", `<span class="pill tier">${r.slid} lines</span> kept the last sprite row above the DMA cut`);
@@ -998,7 +1028,8 @@ function drawGallery() {
 }
 
 /* ---------- glue ---------- */
-const LABELS = ["dist", "bear", "elev", "thdg", "tpit", "tbnk", "opit", "obnk", "span", "len", "wfwd"];
+const LABELS = ["dist", "bear", "elev", "thdg", "tpit", "tbnk", "opit", "obnk", "span", "len", "wfwd",
+                "wtap", "stap"];
 
 function renderUI(withGallery) {
   for (const id of LABELS) $("l_" + id).textContent = $(id).value;
@@ -1013,7 +1044,7 @@ function renderUI(withGallery) {
 function resetState() { polyState = newState(); strokeState = newStrokeState(); }
 
 const DEFAULTS = { dist: 150, bear: 6, elev: 3, thdg: 120, tpit: 0, tbnk: 20, opit: 0, obnk: 0,
-                   span: 11, len: 8.3, scale: 15, wfwd: 20 };
+                   span: 11, len: 8.3, scale: 15, wfwd: 20, wtap: 70, stap: 70, wpos: -0.8 };
 document.querySelectorAll("input, select").forEach(el => {
   if (el.id === "anim") return;
   el.addEventListener("input", () => {
