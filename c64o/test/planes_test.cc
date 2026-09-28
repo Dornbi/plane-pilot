@@ -42,7 +42,7 @@ int main() {
   const planes_view_t view = {kCaseCx0, kCaseCy0, kCaseCut1, kCaseCut2};
   static const char *const kReasons[] = {"", "behind camera", "out of range",
                                          "below the sprite cut"};
-  static uint8_t sets[2][4][kPlaneBlockBytes];
+  static uint8_t sets[2][4][kPlaneBlockStride];
   uint8_t dot[kPlaneBlockBytes];
   planes_dot_bitmap(dot);
 
@@ -62,8 +62,7 @@ int main() {
     axes.front = make_vector(pc.axes[0][0], pc.axes[0][1], pc.axes[0][2]);
     axes.left = make_vector(pc.axes[1][0], pc.axes[1][1], pc.axes[1][2]);
     axes.up = make_vector(pc.axes[2][0], pc.axes[2][1], pc.axes[2][2]);
-    uint8_t *back[4] = {sets[front ^ 1][0], sets[front ^ 1][1], sets[front ^ 1][2],
-                        sets[front ^ 1][3]};
+    uint8_t *back = sets[front ^ 1][0];
 
     planes_frame_t frame;
     planes_render(&state, &view, &c, &axes, back, &frame);

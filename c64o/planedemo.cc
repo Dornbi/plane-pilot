@@ -273,10 +273,7 @@ int main(void) {
     // The camera looks along +x, so the aircraft straight ahead is at
     // (distance, 0, 0), in quarter metres, and camera space is world space.
     vec3_t c = make_vector((int16_t)(_distance << 2), 0, 0);
-    uint8_t *back[4];
-    for (uint8_t i = 0; i < 4; ++i) {
-      back[i] = kSpriteBase + ((((_front ^ 1) << 2) + i) << 6);
-    }
+    uint8_t *back = kSpriteBase + ((uint16_t)(_front ^ 1) << 8);
     planes_frame_t frame;
     bm_start();
     planes_render(&_state, &kView, &c, &_target, back, &frame);

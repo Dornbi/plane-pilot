@@ -19,8 +19,9 @@ static const uint8_t kPlaneLevelDot = 0;
 static const uint8_t kPlaneLevel1x = 1;
 static const uint8_t kPlaneLevelX = 2;
 
-// A sprite block holds 21 rows of 3 bytes.
+// A sprite block holds 21 rows of 3 bytes, and blocks sit 64 bytes apart.
 static const uint8_t kPlaneBlockBytes = 63;
+static const uint8_t kPlaneBlockStride = 64;
 
 // Where the aircraft is drawn and where sprite DMA stops.
 //
@@ -45,9 +46,12 @@ struct planes_state_t {
   // key_valid; the dot tier and planes_state_init() clear it.
   bool key_valid;
   // The vertex cache: that frame's vertices in buffer coordinates, under the
-  // layout in the latches above. They are the last bitmap drawn.
-  uint8_t key_count;
-  int16_t key_x[kPlaneVertMax], key_y[kPlaneVertMax];
+  // layout in the latches above. They are the last bitmap drawn. A byte
+  // each: x is inside the buffer, and y is too until the slide pushes it
+  // down, so y is kept modulo 256 and the slide's 128-line band beside it --
+  // within one band no two rows share a byte.
+  uint8_t key_count, key_band;
+  uint8_t key_x[kPlaneVertMax], key_y[kPlaneVertMax];
   // What they were projected from -- the scale, and the screen components
   // (y, z) of the front, left and up axes -- and where the buffer sat: its
   // top left less the centre before the slide, and the slide. The same scale
@@ -82,13 +86,18 @@ void planes_state_init(planes_state_t *state);
 // One aircraft, one frame.
 //
 // `c` is its position in camera space, in quarter metres, and `axes` its
-// front, left and up in camera space, 8.8. On a miss the silhouette is drawn
-// into `back`: frame->cols * frame->rows blocks, row-major, which the caller
-// then shows. On a hit (frame->cached) and in the dot tier nothing is drawn
-// and `back` is not touched; for the dot the caller shows the block it filled
+// front, left and up in camera space: unit vectors in 8.8, so no component
+// reaches 512. An aircraft more than 45 degrees off the view axis, up or
+// across, is out of range -- far outside any viewport, and past where the
+// projection's division is exact.
+//
+// On a miss the silhouette is drawn into `back`, four sprite blocks 64 bytes
+// apart: frame->cols * frame->rows of them, row-major, which the caller then
+// shows. On a hit (frame->cached) and in the dot tier nothing is drawn and
+// `back` is not touched; for the dot the caller shows the block it filled
 // with planes_dot_bitmap() once.
 void planes_render(planes_state_t *state, const planes_view_t *view,
-                   const vec3_t *c, const mat3_t *axes, uint8_t *const *back,
+                   const vec3_t *c, const mat3_t *axes, uint8_t *back,
                    planes_frame_t *frame);
 
 // The far tier's static bitmap: a 2 x 2 blob on the block's last two rows.

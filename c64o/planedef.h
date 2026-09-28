@@ -7,20 +7,27 @@
 
 // The model, in eighths of a metre at the exaggeration, as shared products:
 // every distinct magnitude is multiplied by k once, and every (axis,
-// magnitude) pair by the two screen components of its axis once
-// (planeproj.h).
+// magnitude) pair by the two screen components of its axis once.
 static const uint8_t kPlaneMagCount = 16;
 static const uint8_t kPlaneMags[16] = {27, 66, 5, 30, 13, 9, 32, 20, 43, 45, 25, 40, 18, 55, 6, 1};
-static const uint8_t kPlanePairCount = 15;
+// Pair p's magnitude, for p = 1 .. 15; the pairs of axis a (front, left, up)
+// are kPlaneAxisPairs[a] .. kPlaneAxisPairs[a + 1] - 1.
+static const uint8_t kPlanePairMag[16] = {0, 0, 3, 4, 5, 6, 8, 9, 10, 11, 13, 2, 1, 7, 2, 12};
+static const uint8_t kPlaneAxisPairs[4] = {1, 12, 14, 16};
 
-// Fuselage stations, nose to tail: fore reference and radius magnitude. A
-// reference is a pair index + 1, negated for a negative coordinate.
+// The wing, tailplane and fin: each vertex's fore, left and up terms. A term
+// indexes the product tables -- pair p's product negated at p, as is at
+// 16 + p, zero at 0 -- so a vertex relative to the centre is their sum.
+static const uint8_t kPlaneVertCount = 16;
+static const uint8_t kPlaneVertFore[16] = {1, 2, 1, 3, 4, 3, 21, 18, 21, 22, 23, 22, 23, 24, 25, 23};
+static const uint8_t kPlaneVertLeft[16] = {12, 0, 28, 28, 0, 12, 13, 0, 29, 29, 0, 13, 0, 0, 0, 0};
+static const uint8_t kPlaneVertUp[16] = {30, 30, 30, 30, 30, 30, 0, 0, 0, 0, 0, 0, 0, 0, 15, 15};
+static const uint8_t kPlanePolyStart[4] = {0, 6, 12, 16};
+
+// Fuselage stations, nose to tail: fore term and radius magnitude.
 static const uint8_t kPlaneBodyCount = 3;
-static const int8_t kPlaneBodyFore[3] = {14, 15, -10};
+static const uint8_t kPlaneBodyFore[3] = {10, 11, 23};
 static const uint8_t kPlaneBodyRadius[3] = {14, 14, 15};
-// The wing hub, on the fore axis: magnitude index and sign.
-static const uint8_t kPlaneHubMag = 7;
-static const int8_t kPlaneHubSign = 1;
 
 // The size cap and the pixel-size ladder (docs/planes.md section 4).
 static const uint8_t kPlaneMaxRadius = 68;

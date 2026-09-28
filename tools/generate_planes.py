@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 """Generate the C64 traffic-sprite tables from the reference in lib/planes.py.
 
-  tools/generate_planes.py                  writes c64o/planedef.h and planeproj.h
+  tools/generate_planes.py                  writes c64o/planedef.h
   tools/generate_planes.py --cases <path>   writes the host test's cases
   tools/generate_planes.py --target <path>  writes the on-target test's cases
 
-The model reaches c64o/planes.cc as shared products: every distinct model
-magnitude is multiplied by k once, every (axis, magnitude) pair by its axis
-once, and each vertex is a sum of those -- the sharing docs/planes.md section
-3 costs the projection by. c64o/planeproj.h writes the products and the
-flat-surface vertices out as straight-line code; c64o/planedef.h is the
-renderer's constants and the tables the rest reads. Both are checked in;
-change lib/planes.py and run `make planes`.
+c64o/planedef.h is the model and the renderer's constants, in the shape
+c64o/planes.cc reads them: every distinct model magnitude once, every (axis,
+magnitude) product once, and the vertices as sums of those -- the sharing
+docs/planes.md section 3 costs the projection by. It is checked in; change
+lib/planes.py and run `make planes`.
 
 The cases are camera-space inputs and the hash of what lib/planes.py renders
 from them, for c64o/test/planes_test.cc to hold c64o/planes.cc to the
@@ -31,42 +29,52 @@ from lib.planes import (Model, State, orient, place, q88, to_cam, jround,  # noq
                         render, fnv1a)
 
 DEF_PATH = os.path.join(ROOT, "c64o", "planedef.h")
-PROJ_PATH = os.path.join(ROOT, "c64o", "planeproj.h")
 
 
 def model_tables(model):
+    """The model as c64o/planes.cc reads it: the distinct magnitudes, the
+    (axis, magnitude) pairs grouped by axis, and every coordinate as a term --
+    an index into the port's product tables, which hold each pair's product
+    negated at p and as is at 16 + p, so that a vertex is a plain sum of its
+    terms. 0 is no term; the tables' entry 0 is zero."""
     g = model.geometry
-    pairs, mags = [], []
+    mags, keys = [], []
 
     def mag(m):
         if m not in mags:
             mags.append(m)
         return mags.index(m)
 
-    def ref(axis, v):
-        """A coordinate as a signed reference: pair index + 1, negated for a
-        negative value, 0 for zero."""
+    coords = []
+    for part in ("wing", "stab", "fin"):
+        for p in g[part]:
+            coords.extend((axis, v) for axis, v in enumerate(p))
+    coords.extend((0, f) for f, _ in g["body"])
+    for axis, v in coords:
+        if v != 0 and (axis, mag(abs(v))) not in keys:
+            keys.append((axis, mag(abs(v))))
+    # Grouped by axis, so that one pass per axis multiplies by one component.
+    pairs = sorted(keys, key=lambda k: k[0])
+    assert len(pairs) <= 15, "the product tables hold 15 pairs"
+
+    def term(axis, v):
+        # The centre less the product: the negated entry for a positive
+        # coordinate, the plain one for a negative.
         if v == 0:
             return 0
-        key = (axis, mag(abs(v)))
-        if key not in pairs:
-            pairs.append(key)
-        i = pairs.index(key) + 1
-        return -i if v < 0 else i
+        p = pairs.index((axis, mag(abs(v)))) + 1
+        return p if v > 0 else 16 + p
 
     verts, starts = [], []
     for part in ("wing", "stab", "fin"):
         starts.append(len(verts))
         for p in g[part]:
-            verts.append(tuple(ref(axis, v) for axis, v in enumerate(p)))
+            verts.append(tuple(term(axis, v) for axis, v in enumerate(p)))
     starts.append(len(verts))
-    body_fore = [ref(0, f) for f, _ in g["body"]]
+    body_fore = [term(0, f) for f, _ in g["body"]]
     body_radius = [mag(r) for _, r in g["body"]]
-    # The hub is only projected when the silhouette overruns -- a guard -- so
-    # it is a magnitude and a sign, not one of the per-frame products.
-    hf = g["hub"][0]
-    hub = (mag(abs(hf)), -1 if hf < 0 else 1)
-    return mags, pairs, verts, starts, body_fore, body_radius, hub
+    axis_starts = [1 + sum(1 for a, _ in pairs if a < axis) for axis in range(4)]
+    return mags, pairs, axis_starts, verts, starts, body_fore, body_radius
 
 
 def floor_of(x):
@@ -74,8 +82,14 @@ def floor_of(x):
 
 
 def write_def(model):
-    mags, pairs, verts, starts, body_fore, body_radius, hub = model_tables(model)
-    assert len(mags) < 256 and len(pairs) < 128
+    mags, pairs, axis_starts, verts, starts, body_fore, body_radius = model_tables(model)
+    # The port multiplies bytes (vec_mul8x8): magnitude by k, R by k, and the
+    # axis components by the magnitudes times k, whose products it keeps as
+    # signed bytes -- as it does every vertex relative to the centre, a sum of
+    # three of them.
+    px_max = (max(mags) * model.k_max + 128) // 256
+    assert 2 * max(mags) < 256 and model.k_max < 256 and 2 * model.max_radius < 256
+    assert 3 * px_max <= 127, "vertices no longer fit a signed byte"
     h = planes.HYSTERESIS
     out = []
     w = out.append
@@ -88,20 +102,28 @@ def write_def(model):
     w("")
     w("// The model, in eighths of a metre at the exaggeration, as shared products:")
     w("// every distinct magnitude is multiplied by k once, and every (axis,")
-    w("// magnitude) pair by the two screen components of its axis once")
-    w("// (planeproj.h).")
+    w("// magnitude) pair by the two screen components of its axis once.")
     w("static const uint8_t kPlaneMagCount = %d;" % len(mags))
     w("static const uint8_t kPlaneMags[%d] = {%s};" % (len(mags), ", ".join(map(str, mags))))
-    w("static const uint8_t kPlanePairCount = %d;" % len(pairs))
+    w("// Pair p's magnitude, for p = 1 .. %d; the pairs of axis a (front, left, up)" % len(pairs))
+    w("// are kPlaneAxisPairs[a] .. kPlaneAxisPairs[a + 1] - 1.")
+    w("static const uint8_t kPlanePairMag[16] = {%s};" % ", ".join(
+        map(str, [0] + [m for _, m in pairs] + [0] * (15 - len(pairs)))))
+    w("static const uint8_t kPlaneAxisPairs[4] = {%s};" % ", ".join(map(str, axis_starts)))
     w("")
-    w("// Fuselage stations, nose to tail: fore reference and radius magnitude. A")
-    w("// reference is a pair index + 1, negated for a negative coordinate.")
+    w("// The wing, tailplane and fin: each vertex's fore, left and up terms. A term")
+    w("// indexes the product tables -- pair p's product negated at p, as is at")
+    w("// 16 + p, zero at 0 -- so a vertex relative to the centre is their sum.")
+    w("static const uint8_t kPlaneVertCount = %d;" % len(verts))
+    for i, name in enumerate(("Fore", "Left", "Up")):
+        w("static const uint8_t kPlaneVert%s[%d] = {%s};" % (
+            name, len(verts), ", ".join(str(v[i]) for v in verts)))
+    w("static const uint8_t kPlanePolyStart[4] = {%s};" % ", ".join(map(str, starts)))
+    w("")
+    w("// Fuselage stations, nose to tail: fore term and radius magnitude.")
     w("static const uint8_t kPlaneBodyCount = %d;" % len(body_fore))
-    w("static const int8_t kPlaneBodyFore[%d] = {%s};" % (len(body_fore), ", ".join(map(str, body_fore))))
+    w("static const uint8_t kPlaneBodyFore[%d] = {%s};" % (len(body_fore), ", ".join(map(str, body_fore))))
     w("static const uint8_t kPlaneBodyRadius[%d] = {%s};" % (len(body_radius), ", ".join(map(str, body_radius))))
-    w("// The wing hub, on the fore axis: magnitude index and sign.")
-    w("static const uint8_t kPlaneHubMag = %d;" % hub[0])
-    w("static const int8_t kPlaneHubSign = %d;" % hub[1])
     w("")
     w("// The size cap and the pixel-size ladder (docs/planes.md section 4).")
     w("static const uint8_t kPlaneMaxRadius = %d;" % model.max_radius)
@@ -128,77 +150,6 @@ def write_def(model):
     with open(DEF_PATH, "w") as f:
         f.write("\n".join(out) + "\n")
     print("wrote", os.path.relpath(DEF_PATH, ROOT))
-
-
-def write_proj(model):
-    """The projection's fixed part as straight-line code. A loop over tables
-    of references did the same adds and multiplies, and spent more cycles
-    finding its operands and testing their signs than on the arithmetic.
-
-    The magnitudes times k stay a loop over kPlaneMags: planes.cc keeps them
-    while k holds, and written out they saved ~300 cycles of 4,300 -- the
-    multiplies are the cost -- for ~450 bytes."""
-    _, pairs, verts, starts, _, _, _ = model_tables(model)
-    out = []
-    w = out.append
-    w("// Generated by tools/generate_planes.py from lib/planes.py -- do not edit.")
-    w("// Regenerate with `make planes` after changing the reference.")
-    w("//")
-    w("// The projection of the model's fixed part, as straight-line code: every")
-    w("// (axis, magnitude) product, and the wing, tailplane and fin vertices as sums")
-    w("// of those. c64o/planes.cc includes it after the arrays it reads and writes.")
-    w("#ifndef PLANEPROJ_H")
-    w("#define PLANEPROJ_H")
-    w("")
-    names = ("front", "left", "up")
-    used = sorted({a for a, _ in pairs})
-    w("// _ox[p], _oy[p]: pair p - 1's screen offset, its axis's screen components")
-    w("// times its magnitude. Index 0 is the zero product.")
-    w("static void _project_pairs(const mat3_t *axes) {")
-    for a in used:
-        n = names[a]
-        w("  int16_t %sy = axes->%s.y, %sz = axes->%s.z;" % (n[0], n, n[0], n))
-    for p, (a, m) in enumerate(pairs):
-        n = names[a][0]
-        w("  _ox[%d] = vec_fastmul8p8(%sy, _px[%d]);" % (p + 1, n, m))
-        w("  _oy[%d] = vec_fastmul8p8(%sz, _px[%d]);" % (p + 1, n, m))
-    w("}")
-    w("")
-
-    def total(axis, refs):
-        s = "_c%s" % axis
-        for r in refs:
-            if r > 0:
-                s += " - _o%s[%d]" % (axis, r)
-            elif r < 0:
-                s += " + _o%s[%d]" % (axis, -r)
-        return s
-
-    w("// The flat surfaces: the centre less each coordinate's product.")
-    w("static void _project_flat(void) {")
-    parts = ("wing", "tailplane", "fin")
-    seen = {}
-    for i, refs in enumerate(verts):
-        if i in starts[:-1]:
-            w("  // %s" % parts[starts.index(i)])
-        if refs in seen:
-            j = seen[refs]
-            w("  _vx[%d] = _vx[%d];" % (i, j))
-            w("  _vy[%d] = _vy[%d];" % (i, j))
-            continue
-        seen[refs] = i
-        w("  _vx[%d] = (int16_t)(%s);" % (i, total("x", refs)))
-        w("  _vy[%d] = (int16_t)(%s);" % (i, total("y", refs)))
-    for i, start in enumerate(starts):
-        w("  _poly_start[%d] = %d;" % (i, start))
-    w("  _poly_count = %d;" % (len(starts) - 1))
-    w("  _vert_count = %d;" % len(verts))
-    w("}")
-    w("")
-    w("#endif")
-    with open(PROJ_PATH, "w") as f:
-        f.write("\n".join(out) + "\n")
-    print("wrote", os.path.relpath(PROJ_PATH, ROOT))
 
 
 def camera_inputs(cam, target, rel_pos_m):
@@ -299,6 +250,51 @@ def write_cases(path):
     print("wrote", path, "(%d cases)" % len(rows))
 
 
+def checksum(r, dot):
+    """A 16-bit Fletcher sum (both halves mod 256, cheap on a 6510) of what
+    the C64 renders: the frame's fields, then every byte it shows."""
+    if not r.visible:
+        data = [{"behind camera": 1, "out of range": 2, "below the sprite cut": 3}[r.reason]]
+    else:
+        t = r.tier
+        data = [0, t.level, t.ys, t.cols, t.rows, r.origin[0] & 255, (r.origin[0] >> 8) & 255,
+                r.origin[1] & 255, (r.origin[1] >> 8) & 255, r.slid, int(r.clamped),
+                int(r.cached)]
+        if t.level == planes.LEVEL_DOT:
+            data.extend(dot)
+        else:
+            for b in r.buf.blocks:
+                data.extend(b)
+    s1 = s2 = 0
+    for b in data:
+        s1 = (s1 + b) & 255
+        s2 = (s2 + s1) & 255
+    return s2 << 8 | s1
+
+
+def sweep_cases():
+    """test 7 of target_test.cc: a few hundred frames, checked by checksum --
+    enough to hold the assembly in planes.cc to the reference across
+    attitudes, distances, the hysteresis, both caches and the slide."""
+    level = orient(0, 0, 0)
+    cases = []
+    n = 0
+    for d in (30, 60, 110, 200, 400, 1100):
+        for h in (0, 60, 120, 180, 240, 300):
+            for b in (0, 45, 89):
+                for p in (-30, 20):
+                    pos = place(d, 4, 2) if n % 2 else place(d, -6, -5)
+                    cases.append((1, level, orient(h + 7, p, b), pos))
+                    n += 1
+    for i, d in enumerate(range(1500, 19, -10)):
+        cases.append((1 if i == 0 else 0, level, orient(150 + i, 5, 25), place(d, 3, -2)))
+    bearings = [x * 0.5 for x in range(-2, 3)]
+    for tgt, d in ((orient(60, -20, 89), 45), (orient(20, 25, -30), 150)):
+        for i, (be, el) in enumerate(drift((0, -4, -8, -12), bearings)):
+            cases.append((1 if i == 0 else 0, level, tgt, place(d, be, el)))
+    return cases
+
+
 def write_target_cases(path):
     """A few dozen cases for c64o/test/target_test.cc, with every expected
     byte spelled out rather than hashed: a 6510 can compare bytes far faster
@@ -375,10 +371,33 @@ def write_target_cases(path):
         w("    " + ", ".join(str(v) for v in data[i:i + 21]) + ",")
     w("};")
     w("")
+    dot = list(planes.DOT_BITMAP.blocks[0])
+    sweep = []
+    state = State()
+    for fresh, cam, tgt, pos in sweep_cases():
+        if fresh:
+            state = State()
+        c, axes = camera_inputs(cam, tgt, pos)
+        sweep.append((fresh, c, axes, checksum(render(state, cam, tgt, pos), dot)))
+    w("// test 7: frames checked by checksum() in tools/generate_planes.py.")
+    w("struct plane_sweep_case_t {")
+    w("  uint8_t fresh;")
+    w("  int16_t c[3];")
+    w("  int16_t axes[3][3];")
+    w("  uint16_t check;")
+    w("};")
+    w("")
+    w("static const uint16_t kPlaneSweepCount = %d;" % len(sweep))
+    w("static const plane_sweep_case_t kPlaneSweep[%d] = {" % len(sweep))
+    for fresh, c, axes, check in sweep:
+        w("    {%d, {%d, %d, %d}, {{%d, %d, %d}, {%d, %d, %d}, {%d, %d, %d}}, 0x%04x}," % (
+            (fresh,) + tuple(c) + tuple(axes[0]) + tuple(axes[1]) + tuple(axes[2]) + (check,)))
+    w("};")
+    w("")
     w("#endif")
     with open(path, "w") as f:
         f.write("\n".join(out) + "\n")
-    print("wrote", path, "(%d cases, %d bytes)" % (len(rows), len(data)))
+    print("wrote", path, "(%d cases, %d bytes; %d in the sweep)" % (len(rows), len(data), len(sweep)))
 
 
 if __name__ == "__main__":
@@ -388,6 +407,5 @@ if __name__ == "__main__":
         write_target_cases(sys.argv[2])
     elif len(sys.argv) == 1:
         write_def(Model())
-        write_proj(Model())
     else:
         sys.exit(__doc__)

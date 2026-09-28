@@ -19,13 +19,69 @@ __zeropage vec3_t vec_v;
 __zeropage int16_t vec_sx;
 __zeropage int16_t vec_sy;
 
-// These are used for temporary storage. vec_fastmul8p8 reuses tmp1..tmp4;
-// they are never live across calls (single-threaded, the raster IRQs do no
-// vector math).
-static __zeropage uint8_t tmp1, tmp2, tmp3, tmp4;
+// These are used for temporary storage. vec_fastmul8p8 reuses tmp1, tmp2 and
+// vec_mul8's two; they are never live across calls (single-threaded, the
+// raster IRQs do no vector math).
+static __zeropage uint8_t tmp1, tmp2;
+__zeropage uint8_t vec_mul8_b, vec_mul8_lo;
 static __zeropage int16_t project_mul_a;
 static __zeropage int16_t project_mul_b;
 static __zeropage int16_t mul_res;
+
+// Unsigned 8 x 8 -> 16 multiply on the quarter-square tables, for assembly:
+// A times vec_mul8_b, returning the high byte in A and the low byte in
+// vec_mul8_lo. Clobbers X, Y and tmp2. vec_fastmul8p8 builds its products
+// from it, and planes.cc calls it directly.
+void vec_mul8(void) {
+  // clang-format off
+  __asm {
+        sta tmp2;
+        sec;
+        sbc vec_mul8_b;
+        bcs L_diff_pos_m8;
+        eor #$ff;
+        adc #$01;
+    L_diff_pos_m8:
+        tax;
+        lda tmp2;
+        clc;
+        adc vec_mul8_b;
+        tay;
+        bcs L_sum_hi_m8;
+        lda vec_sqr_lo, y;
+        sec;
+        sbc vec_sqr_lo, x;
+        sta vec_mul8_lo;
+        lda vec_sqr_hi, y;
+        sbc vec_sqr_hi, x;
+        rts;
+    L_sum_hi_m8:
+        lda vec_sqr_lo+256, y;
+        sec;
+        sbc vec_sqr_lo, x;
+        sta vec_mul8_lo;
+        lda vec_sqr_hi+256, y;
+        sbc vec_sqr_hi, x;
+        rts;
+  }
+  // clang-format on
+}
+
+// a * b for bytes, exactly.
+uint16_t vec_mul8x8(uint8_t a, uint8_t b) {
+  // clang-format off
+  __asm {
+        lda b;
+        sta vec_mul8_b;
+        lda a;
+        jsr vec_mul8;
+        sta mul_res+1;
+        lda vec_mul8_lo;
+        sta mul_res;
+  }
+  // clang-format on
+  return (uint16_t)mul_res;
+}
 
 // PERF: This is 200 bytes smaller and about the same speed as the C version.
 //
@@ -90,17 +146,17 @@ int16_t vec_fastmul8p8(int16_t a, int16_t b) {
     L_a_hi_mul_fm:
         // result = ah * |b| = ah*bl + (ah*bh << 8)
         lda b;
-        sta tmp3;
+        sta vec_mul8_b;
         lda a+1;
-        jsr L_mul8_fm;
+        jsr vec_mul8;
         sta mul_res+1;
-        lda tmp4;
+        lda vec_mul8_lo;
         sta mul_res;
         lda b+1;
-        sta tmp3;
+        sta vec_mul8_b;
         lda a+1;
-        jsr L_mul8_fm;
-        lda tmp4;
+        jsr vec_mul8;
+        lda vec_mul8_lo;
         clc;
         adc mul_res+1;
         sta mul_res+1;
@@ -128,15 +184,15 @@ int16_t vec_fastmul8p8(int16_t a, int16_t b) {
         jmp L_sign_fm;
     L_b_hi_mul_fm:
         // result = bh * |a| = bh*al + (bh*ah << 8)
-        sta tmp3;
+        sta vec_mul8_b;
         lda a;
-        jsr L_mul8_fm;
+        jsr vec_mul8;
         sta mul_res+1;
-        lda tmp4;
+        lda vec_mul8_lo;
         sta mul_res;
         lda a+1;
-        jsr L_mul8_fm;
-        lda tmp4;
+        jsr vec_mul8;
+        lda vec_mul8_lo;
         clc;
         adc mul_res+1;
         sta mul_res+1;
@@ -144,30 +200,30 @@ int16_t vec_fastmul8p8(int16_t a, int16_t b) {
 
     L_b_lo_nonzero_fm:
         lda b+1;
-        sta tmp3;
+        sta vec_mul8_b;
         ora a+1;
         bne L_full_fm;
         // Both high bytes zero: result = al*bl >> 8.
         lda b;
-        sta tmp3;
+        sta vec_mul8_b;
         lda a;
-        jsr L_mul8_fm;
+        jsr vec_mul8;
         sta mul_res;
         lda #0;
         sta mul_res+1;
         jmp L_sign_fm;
 
     L_full_fm:
-        // ah*bh, low byte into the result high byte (tmp3 = bh).
+        // ah*bh, low byte into the result high byte (vec_mul8_b = bh).
         lda a+1;
-        jsr L_mul8_fm;
-        lda tmp4;
+        jsr vec_mul8;
+        lda vec_mul8_lo;
         sta mul_res+1;
-        // al*bh (tmp3 still bh).
+        // al*bh (vec_mul8_b still bh).
         lda a;
-        jsr L_mul8_fm;
+        jsr vec_mul8;
         tax;
-        lda tmp4;
+        lda vec_mul8_lo;
         sta mul_res;
         txa;
         clc;
@@ -175,20 +231,20 @@ int16_t vec_fastmul8p8(int16_t a, int16_t b) {
         sta mul_res+1;
         // ah*bl
         lda b;
-        sta tmp3;
+        sta vec_mul8_b;
         lda a+1;
-        jsr L_mul8_fm;
+        jsr vec_mul8;
         tax;
-        lda tmp4;
+        lda vec_mul8_lo;
         clc;
         adc mul_res;
         sta mul_res;
         txa;
         adc mul_res+1;
         sta mul_res+1;
-        // al*bl, high byte only (tmp3 still bl).
+        // al*bl, high byte only (vec_mul8_b still bl).
         lda a;
-        jsr L_mul8_fm;
+        jsr vec_mul8;
         clc;
         adc mul_res;
         sta mul_res;
@@ -205,40 +261,6 @@ int16_t vec_fastmul8p8(int16_t a, int16_t b) {
         lda #0;
         sbc mul_res+1;
         sta mul_res+1;
-        jmp L_done_fm;
-
-        // 8x8 -> 16 multiply via the quarter square tables.
-        // In: A = x, tmp3 = y. Out: A = high byte, tmp4 = low byte.
-        // Clobbers X, Y, tmp2.
-    L_mul8_fm:
-        sta tmp2;
-        sec;
-        sbc tmp3;
-        bcs L_m_diff_pos_fm;
-        eor #$ff;
-        adc #$01;
-    L_m_diff_pos_fm:
-        tax;
-        lda tmp2;
-        clc;
-        adc tmp3;
-        tay;
-        bcs L_m_sum_hi_fm;
-        lda vec_sqr_lo, y;
-        sec;
-        sbc vec_sqr_lo, x;
-        sta tmp4;
-        lda vec_sqr_hi, y;
-        sbc vec_sqr_hi, x;
-        rts;
-    L_m_sum_hi_fm:
-        lda vec_sqr_lo+256, y;
-        sec;
-        sbc vec_sqr_lo, x;
-        sta tmp4;
-        lda vec_sqr_hi+256, y;
-        sbc vec_sqr_hi, x;
-        rts;
 
     L_done_fm:
   }
@@ -286,7 +308,7 @@ static inline void _vec_project_internal() {
 
         // Project Y
         lda vec_v+3;
-        sta tmp4;          // top bit has sign of Y
+        sta vec_mul8_lo;          // top bit has sign of Y
         lda project_mul_a; // Y_norm
         jsr L_do_project_mul;
         sta vec_sx;
@@ -294,7 +316,7 @@ static inline void _vec_project_internal() {
 
         // Project Z
         lda vec_v+5;
-        sta tmp4;          // top bit has sign of Z
+        sta vec_mul8_lo;          // top bit has sign of Z
         lda project_mul_b; // Z_norm
         jsr L_do_project_mul;
         sta vec_sy;
@@ -305,9 +327,9 @@ static inline void _vec_project_internal() {
     L_do_project_mul:
         // A = val_norm
         // tmp2 = R
-        // tmp4 = original sign (bit 7)
+        // vec_mul8_lo = original sign (bit 7)
         // returns X=high, A=low of result
-        sta tmp3; // save val_norm
+        sta vec_mul8_b; // save val_norm
 
         // 8x8 multiply: A * tmp2 -> high byte of product
         sec;
@@ -319,7 +341,7 @@ static inline void _vec_project_internal() {
         tax; // |A - tmp2|
 
         clc;
-        lda tmp3;
+        lda vec_mul8_b;
         adc tmp2;
         bcc L_nc_mul;
         tay;
@@ -341,13 +363,13 @@ static inline void _vec_project_internal() {
     L_add_mul:
         // A is now EXACT (val_norm * R) >> 8
         clc;
-        adc tmp3;
+        adc vec_mul8_b;
         ldx #0;
         bcc L_apply_sign_mul;
         inx;
         
     L_apply_sign_mul:
-        bit tmp4;
+        bit vec_mul8_lo;
         bpl L_done_mul;
         // negate (X, A) -> 0 - (X, A)
         eor #$FF;
@@ -383,16 +405,16 @@ inline bool vec_project() {
   return true;
 }
 
-// Restoring 32/16 division, sixteen iterations. The dividend is |a| << 16, so
-// its high half starts as the remainder and the quotient grows into the low
-// half as the whole thing shifts left. |a| <= |b| is what keeps the remainder
-// under the divisor at every step, and therefore what makes sixteen
-// iterations enough; a == b saturates to 0xFFFF, which is the nearest a 0.16
-// fraction gets to one.
+// Restoring division, one iteration per quotient bit. The dividend is
+// |a| << bits, so its high half starts as the remainder and the quotient grows
+// into the low half as the whole thing shifts left. |a| <= |b| is what keeps
+// the remainder under the divisor at every step, and therefore what makes
+// `bits` iterations enough; a == b saturates to all ones, which is the nearest
+// a fraction of that many bits gets to one. vec_frac16 is sixteen of them.
 static __zeropage uint8_t frac_q0, frac_q1, frac_r0, frac_r1;
 static __zeropage uint8_t frac_d0, frac_d1;
 
-uint16_t vec_frac16(int16_t a, int16_t b) {
+uint16_t vec_fracn(int16_t a, int16_t b, uint8_t bits) {
   // clang-format off
   __asm {
         // Remainder starts as |a|, the high half of the dividend.
@@ -426,7 +448,7 @@ uint16_t vec_frac16(int16_t a, int16_t b) {
         lda #0;
         sta frac_q0;
         sta frac_q1;
-        ldx #16;
+        ldx bits;
     L_loop_fr:
         asl frac_q0;
         rol frac_q1;

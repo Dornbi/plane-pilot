@@ -32,8 +32,20 @@
 //    5  render.cc's _mul over the roll table's full int8_t range
 //    6  planes.cc against lib/planes.py: frame fields and every bitmap byte,
 //       reported as id 1000 + the case number
+//    7  planes.cc against lib/planes.py over a few hundred more frames, by
+//       checksum, reported as id 2000 + the case number
 
 #include <stdint.h>
+
+// Test 7's cases need more room than oscar64's default layout leaves: one
+// region up to the BASIC ROM, no heap (nothing here allocates) and a 1 KB
+// stack rather than 4.
+#pragma heapsize(0)
+#pragma stacksize(0x400)
+#pragma region(main, 0x0880, 0xA000, , , {code, data, bss, heap, stack})
+// And the zero page the programs under test get from -xz: vec_asm.cc's
+// routines keep their operands there.
+#pragma region(zeropage, 0x80, 0x100, , , {zeropage})
 
 #include "../planes.h"
 #include "../vec.h"
@@ -132,7 +144,7 @@ static void test_mul_against_16bit_product(void) {
 // (bugs/). So a few dozen cases run here too, with every expected byte from
 // the reference, rendered through a front and a back buffer as a program
 // would and compared byte for byte.
-static uint8_t _planes_sets[2][4][kPlaneBlockBytes];
+static uint8_t _planes_sets[2][4][kPlaneBlockStride];
 static uint8_t _planes_dot[kPlaneBlockBytes];
 
 static void test_planes(void) {
@@ -152,10 +164,7 @@ static void test_planes(void) {
     axes.front = make_vector(pc->axes[0][0], pc->axes[0][1], pc->axes[0][2]);
     axes.left = make_vector(pc->axes[1][0], pc->axes[1][1], pc->axes[1][2]);
     axes.up = make_vector(pc->axes[2][0], pc->axes[2][1], pc->axes[2][2]);
-    uint8_t *back[4];
-    for (uint8_t b = 0; b < 4; ++b) {
-      back[b] = _planes_sets[front ^ 1][b];
-    }
+    uint8_t *back = _planes_sets[front ^ 1][0];
     planes_frame_t frame;
     planes_render(&state, &view, &c, &axes, back, &frame);
 
@@ -190,7 +199,75 @@ static void test_planes(void) {
   }
 }
 
+// 7. The same through a few hundred frames, compared by checksum rather than
+// byte by byte so that they fit: attitudes and distances, an approach through
+// the hysteresis, and drifts through both caches and the slide. This is what
+// holds planes.cc's assembly to the reference; the host test cannot run it.
+static uint8_t _sum1, _sum2;
+
+static void _sum(uint8_t b) {
+  _sum1 = (uint8_t)(_sum1 + b);
+  _sum2 = (uint8_t)(_sum2 + _sum1);
+}
+
+static void _sum_bytes(const uint8_t *p, uint8_t n) {
+  for (uint8_t i = 0; i < n; ++i) {
+    _sum(p[i]);
+  }
+}
+
+static void test_planes_sweep(void) {
+  const planes_view_t view = {kTargetCx0, kTargetCy0, kTargetCut1, kTargetCut2};
+  planes_state_t state;
+  planes_state_init(&state);
+  uint8_t front = 0;
+  for (uint16_t n = 0; n < kPlaneSweepCount; ++n) {
+    const plane_sweep_case_t *pc = &kPlaneSweep[n];
+    if (pc->fresh) {
+      planes_state_init(&state);
+    }
+    vec3_t c = make_vector(pc->c[0], pc->c[1], pc->c[2]);
+    mat3_t axes;
+    axes.front = make_vector(pc->axes[0][0], pc->axes[0][1], pc->axes[0][2]);
+    axes.left = make_vector(pc->axes[1][0], pc->axes[1][1], pc->axes[1][2]);
+    axes.up = make_vector(pc->axes[2][0], pc->axes[2][1], pc->axes[2][2]);
+    uint8_t *back = _planes_sets[front ^ 1][0];
+    planes_frame_t frame;
+    planes_render(&state, &view, &c, &axes, back, &frame);
+
+    _sum1 = _sum2 = 0;
+    _sum(frame.hidden);
+    if (frame.hidden == kPlaneShown) {
+      _sum(frame.level);
+      _sum(frame.ys);
+      _sum(frame.cols);
+      _sum(frame.rows);
+      _sum((uint8_t)frame.x);
+      _sum((uint8_t)((uint16_t)frame.x >> 8));
+      _sum((uint8_t)frame.y);
+      _sum((uint8_t)((uint16_t)frame.y >> 8));
+      _sum(frame.slid);
+      _sum(frame.clamped ? 1 : 0);
+      _sum(frame.cached ? 1 : 0);
+      if (frame.level == kPlaneLevelDot) {
+        _sum_bytes(_planes_dot, kPlaneBlockBytes);
+      } else {
+        if (!frame.cached) {
+          front ^= 1;
+        }
+        for (uint8_t b = 0; b < frame.cols * frame.rows; ++b) {
+          _sum_bytes(_planes_sets[front][b], kPlaneBlockBytes);
+        }
+      }
+    }
+    expect((uint16_t)(2000 + n), (int16_t)(((uint16_t)_sum2 << 8) | _sum1), (int16_t)pc->check);
+  }
+}
+
 int main(void) {
+  // The KERNAL's timer interrupt keeps its clock and keyboard state in the
+  // zero page the region above hands out. Nothing here needs it.
+  __asm { sei }
   g_failures = 0;
   g_first_fail = 0;
   g_cases = 0;
@@ -200,6 +277,7 @@ int main(void) {
   test_fastmul_edges();
   test_mul_against_16bit_product();
   test_planes();
+  test_planes_sweep();
 
   // Something for vice_dump.sh's @spin to break on. Everything above has
   // landed in the globals by the time the loop is reached.

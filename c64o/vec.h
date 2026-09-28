@@ -41,23 +41,39 @@ inline int16_t vec_fastmul8p8(int16_t a, int16_t b) {
 // versions are in vec_asm.cc, and a host result that does not match them says
 // nothing about the target. Both are checked against the assembly in
 // test/host_vec.cc.
-inline uint16_t vec_frac16(int16_t a, int16_t b) {
+inline uint16_t vec_fracn(int16_t a, int16_t b, uint8_t bits) {
   uint32_t ua = a < 0 ? (uint32_t)(-(int32_t)a) : (uint32_t)a;
   uint32_t ub = b < 0 ? (uint32_t)(-(int32_t)b) : (uint32_t)b;
+  uint32_t ones = ((uint32_t)1 << bits) - 1;
   if (ub == 0) {
-    return 0xFFFF;
+    return (uint16_t)ones;
   }
-  uint32_t q = (ua << 16) / ub;
-  return q > 0xFFFF ? 0xFFFF : (uint16_t)q;
+  uint32_t q = (ua << bits) / ub;
+  return q > ones ? (uint16_t)ones : (uint16_t)q;
 }
+
+inline uint16_t vec_frac16(int16_t a, int16_t b) { return vec_fracn(a, b, 16); }
 
 inline int16_t vec_mulfrac(uint16_t t, int16_t d) {
   int16_t hi = vec_fastmul8p8((int16_t)(t >> 8), d);
   int16_t lo = vec_fastmul8p8((int16_t)(t & 0xFF), d);
   return (int16_t)(hi + (int16_t)((lo + 128) >> 8));
 }
+
+// a * b for bytes, exactly: the quarter-square step vec_fastmul8p8 is built
+// from, for callers whose operands are already bytes.
+inline uint16_t vec_mul8x8(uint8_t a, uint8_t b) { return (uint16_t)(a * b); }
 #else
 int16_t vec_fastmul8p8(int16_t a, int16_t b);
+
+// a * b for bytes, exactly: the quarter-square step vec_fastmul8p8 is built
+// from, for callers whose operands are already bytes.
+uint16_t vec_mul8x8(uint8_t a, uint8_t b);
+
+// The same step for assembly: A times vec_mul8_b, the high byte back in A and
+// the low byte in vec_mul8_lo. Clobbers X, Y. JSR to it; not callable from C.
+extern uint8_t vec_mul8_b, vec_mul8_lo;
+void vec_mul8(void);
 #endif
 
 // Squares a 16-bit signed integer and returns a 16-bit unsigned integer.
@@ -79,7 +95,14 @@ int16_t vec_div8p8(int16_t a, int16_t b);
 //
 // The callers pass a and b with the same sign and |a| <= |b| (both hold for a
 // crossing), so the true value is in [0, 1].
-uint16_t vec_frac16(int16_t a, int16_t b);
+//
+// vec_fracn is the same fraction to `bits` bits, 1 to 16: floor(|a| * 2^bits
+// / |b|), all ones for |a| == |b|. It takes one iteration a bit, so a
+// quotient that needs fewer bits costs less; vec_frac16 is sixteen of them.
+#ifdef __OSCAR64__
+uint16_t vec_fracn(int16_t a, int16_t b, uint8_t bits);
+inline uint16_t vec_frac16(int16_t a, int16_t b) { return vec_fracn(a, b, 16); }
+#endif
 
 // (t * d) / 65536 for a 0.16 fraction t from vec_frac16, rounded.
 int16_t vec_mulfrac(uint16_t t, int16_t d);

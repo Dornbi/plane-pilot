@@ -5,7 +5,7 @@ in `ppilot.prg`; there is no traffic there. The renderer does run on its own:
 `c64o/planedemo.prg` draws one aircraft in default character mode with
 `c64o/planes.cc`, a C port of `lib/planes.py` held to it byte for byte on the
 host (`test/planes_test.cc`) and on an emulated 6510 (`test/target_test.cc`,
-test 6). §11 has what it costs there. The layer underneath it did ship, though — the sprite
+tests 6 and 7). §11 has what it costs there, and §5 whether it fits. The layer underneath it did ship, though — the sprite
 stack of [sprite_objects.md](sprite_objects.md) §2 exists in `c64o/sprites.cc`
 and serves the sun and the clouds, so §5's "hardware sprite indices" is a
 matter of calling `sprites_stack_add()` rather than of writing an allocator —
@@ -207,12 +207,16 @@ Per plane, per frame:
 3. **To camera space.** `vec_transform_inv(&world_cam, &P, &C)` — 9 multiplies,
    already exists.
 4. **Cull.** `C.x <= 64` (16 m — behind or on top of the camera) → skip.
-   Range cull at `C.x > 16000` (4 km) → skip. Cull if the sprite would land
+   Range cull at `C.x > 16000` (4 km) → skip, and at `|C.y|` or `|C.z| >= C.x`
+   — more than 45° off the axis, far outside any viewport, as `vec_project`
+   culls; it is also where the centre's exact division stops being a
+   fraction (step 5). Cull if the sprite would land
    in the message band while a message is up
    ([sprite_objects.md](sprite_objects.md) §7).
-5. **Centre.** `vec_project_nocull()` → `cx = 160 − vec_sx`,
-   `cy = 56 − vec_sy`.
-6. **Perspective scale.** `k = 32768 / C.x` via `vec_div8p8(128, C.x)`. Model
+5. **Centre.** `cx = 160 − trunc(256·C.y / C.x)`, `cy = 56 − trunc(256·C.z /
+   C.x)`, exactly: `vec_fracn(C.y, C.x, 8)`, the restoring division behind
+   `vec_frac16` stopped after eight quotient bits.
+6. **Perspective scale.** `k = 32768 / C.x`, exactly: `vec_fracn(64, C.x, 9)`. Model
    offsets are in eighths of a metre and `C.x` in quarters, so
    `px = 256·(O/8)/(C.x/4) = O·k/256`. Then **clamp**: `k = min(k, kMax)`
    — see §4.
@@ -592,23 +596,45 @@ indices 0–2, which leaves four.
 
 ### Budget
 
-Estimates, except the buffers:
+The design, estimated for an all-assembly renderer, against what the C port
+in `planedemo.prg` measures (§11):
 
-| Item | Bytes |
-| :--- | ---: |
-| Sprite buffers and the dot, `$CCC0–$CEFF` | 576 |
-| Time-shared with the title aircraft, `$CF00–$CFFF` | (256) |
-| Edge masks (8 + 8) and the reciprocal table (42 × 2) | 100 |
-| Per-plane state — latches, up to 30 cached vertices and the `k` and axes they came from — 2 planes | ~310 |
-| Model data | ~60 |
-| Rasteriser code: edge trace and span fill | ~400 |
-| Pipeline code: projection, fuselage, level, layout, slide | ~700 |
-| **Total** | **~2.1 KB** |
+| Item | Design | C port |
+| :--- | ---: | ---: |
+| Sprite buffers and the dot, `$CCC0–$CEFF` | 576 | 576 |
+| Time-shared with the title aircraft, `$CF00–$CFFF` | (256) | (256) |
+| Edge masks (8 + 8), byte offsets (6), the reciprocal table (42 × 2) | 100 | 106 |
+| Model data and layout tables | ~60 | ~110 |
+| Per-plane state — latches, up to 30 cached vertices and the `k` and axes they came from — 2 planes | ~150 | 184 |
+| Per-frame scratch: vertices, products, row extents | — | 355 |
+| Rasteriser code: edge trace and span fill | ~400 | 753 |
+| Pipeline code: projection, fuselage, level, layout, slide, caches | ~700 | 2,888 |
+| **Total** | **~2.0 KB** | **~5.0 KB** |
 
 Against the stroke design's ~1.5 KB. The difference is mostly code — the
 fuselage, the layout and the slide — and the caches. The buffers cost only 64 bytes more than
 the old plan's 512, because half of the new ones are the title aircraft's, and
 the rasteriser's tables shrank from 144 bytes to 100.
+
+The C port is 2.5 times the design, and `ppilot.prg` has 2,798 bytes free
+(`make -C c64o ram`) — of which the buffers above take 576 — so it does not
+fit as it stands. Everything it shares with `ppilot` is already there and
+costs nothing: `vec_fastmul8p8` and its byte multiply `vec_mul8`, `vec_fracn`
+behind `vec_frac16`, the quarter-square tables. Adding it needs, besides the
+table's ~5.0 KB, the glue this demo does not have — camera-space position and
+axes through the existing `vec_transform_inv` and `vec_transform3_inv`, the
+sprite stack's 2-wide and Y-expanded entries (§5), the block-set flip —
+estimated at 300–450 bytes: **~5.4 KB against ~2.8 KB free.** The ways to
+close the gap, in order of size:
+
+- Write `planes_render()`'s layout and caches, and `_project()`, in assembly
+  as the fill and the products already are: the pipeline code is where the
+  port is furthest from the design, and oscar64's C runs about three times
+  the size of the equivalent assembly there. Perhaps 1.2–1.5 KB.
+- Share the per-frame scratch with `poly.cc`'s row buffers in `bss2`: the
+  terrain and the traffic are drawn one after the other, never at once.
+  355 bytes.
+- Find the rest elsewhere in `ppilot`.
 
 ---
 
@@ -734,7 +760,10 @@ settles in one frame. All that is left is where the buffer goes, kept as its
 offset from the centre. The slide can still change the bitmap, since it
 depends on where the centre is; a frame that slides differently projects as
 usual. It costs 20 bytes per plane in C and turns a still frame's ~37,000
-cycles into ~3,000 (§11). `lib/planes.py` has no such check: its only effect is
+cycles into ~3,000 (§11). The cached vertices themselves are bytes: x is
+inside the buffer, and y is too until a slide pushes it down, so y is kept
+modulo 256 with the slide's 128-line band beside it — within a band no two
+rows share a byte. `lib/planes.py` has no such check: its only effect is
 to skip work whose result would be the same, and `test/planes_test.cc` holds
 the C port's cache hits to the reference's, frame by frame, over runs that
 drift across the screen and through the DMA cut.
@@ -869,46 +898,66 @@ transformed. Everything else roughly doubled. The last row is a near-collision
 with two aircraft at once — momentary, and not worth designing around. The
 fourth is the case to hold in mind.
 
-**Measured, in plain C.** `planedemo.prg` times the whole `planes_render()`
-call on the C64, and `planedemo_prof.prg` each step of it. The first port cost
-about six times the model; this one has the flat-surface vertices and the axis
-products written out as straight-line code (`c64o/planeproj.h`), keeps the
-magnitudes × `k` while `k` holds, compares vertices in place rather than
-through a key, and skips the projection for a frame with the last one's `k`
-and axes (§7):
+**Measured on the C64.** `planedemo.prg` times the whole `planes_render()`
+call, and `planedemo_prof.prg` each step of it. The first port was plain C
+and cost about six times the model. The second wrote the projection out as
+straight-line code, which bought ~14,000 cycles for 1.4 KB. The third, this
+one, went back to loops and took the bytes back, and bought much more:
 
-| Frame | First port | Now |
-| :--- | ---: | ---: |
-| Same `k` and axes as the last, 150 m | 37,111 | **2,975** |
-| — 60 m, banked, 2 × 2 | 39,109 | 3,347 |
-| Axes changed, same pixels (a vertex cache hit), 300 m | 36,912 | 19,988 |
-| Axes changed, redrawn, 150 m | 69,591 | 55,888 |
-| — 60 m, banked, 2 × 2 | 121,287 | 108,359 |
-| Closing, redrawn, ~120 m | 62,000–65,000 | ~53,000 |
+- It works in bytes. The size cap keeps every vertex within about 41 px of
+  the centre, so the products and the vertices relative to the centre are
+  bytes (offset by 128, so that they compare unsigned), and so are the
+  vertices once placed in the buffer and the vertex cache's key. oscar64's C
+  on bytes is several times smaller and faster than on `int16_t`.
+- It relies on the cap for the silhouette fitting its layout, which
+  `lib/planes.py` only guards against and `TestSizeClamp` shows never
+  happens: it anchors on the box alone and fills without clipping to the
+  buffer's sides.
+- The products (`_pair_products`) and the fill (`_fill_poly`) are
+  assembly. Both multiply through `vec_mul8`, the quarter-square step
+  `vec_fastmul8p8` is built from, now callable on its own; `test/target_test.cc`
+  holds them to the reference over 513 frames on an emulated 6510, and the
+  C each follows step for step is what the host test holds over 5,848.
+- The divisions are `vec_fracn`: `vec_frac16`'s exact restoring division
+  stopped after the 8 or 9 quotient bits each needs. No runtime divide or
+  multiply is linked (`tools/check_mul_div.py`), as `ppilot` requires.
+- It keeps the magnitudes × `k` while `k` holds, and skips the projection
+  for a frame with the last one's `k` and axes (§7).
+
+| Frame | First port | Straight-line | Now |
+| :--- | ---: | ---: | ---: |
+| Same `k` and axes as the last, 150 m | 37,111 | 2,975 | **2,918** |
+| — 60 m, banked, 2 × 2 | 39,109 | 3,347 | 2,781 |
+| Axes changed, same pixels (a vertex cache hit), 300 m | 36,912 | 19,988 | 14,813 |
+| Axes changed, redrawn, 150 m | 69,591 | 55,888 | **29,122** |
+| — 60 m, banked, 2 × 2 | 121,287 | 108,359 | 46,371 |
+| Closing, redrawn, ~120 m | 62,000–65,000 | ~53,000 | 28,569 |
+| Renderer code, bytes | 4,938 + 370 of runtime division | 6,306 + 370 | **3,641** |
 
 And by step, the redrawn frame at 150 m, one sprite:
 
 | Step | First port | Now | Estimate |
 | :--- | ---: | ---: | ---: |
-| Centre and `k` (exact divisions) | 1,371 | 1,376 | ~940 with the transform |
-| Magnitudes × `k`, 16 multiplies | 4,341 | 128 while `k` holds | 720 |
-| Axis products, 30 multiplies | 6,100 | 5,343 | 1,350 |
-| Flat-surface vertices, no multiplies | 7,137 | 1,190 | — |
-| Fuselage | 5,006 | 4,802 | ~600 |
-| Layout, and what the next frame compares | 4,152 | 4,989 | — |
-| Local coordinates and the vertex cache | 5,843 + compare and copy | 4,315 | ~250 |
-| Fill | 32,298 | 32,858 | ~5,800 |
+| Centre and `k` (exact divisions) | 1,371 | 1,757 | ~940 with the transform |
+| Magnitudes × `k`, 16 multiplies | 4,341 | 2,950; 85 while `k` holds | 720 |
+| Axis products, 30 multiplies | 6,100 | 4,465 | 1,350 |
+| Flat-surface vertices, no multiplies | 7,137 | 1,503 | — |
+| Fuselage | 5,006 | 3,329 | ~600 |
+| Layout, and what the next frame compares | 4,152 | 2,472 | — |
+| Local coordinates and the vertex cache | 5,843 + compare and copy | 3,628 | ~250 |
+| Clear and fill | 32,298 | 11,839 | ~5,800 |
 
 The timings are CIA timer differences, so they include the cycles the VIC
 steals, and the same frame measures a few per cent differently from build to
-build. The multiplies and the fill are now most of it. `vec_fastmul8p8` costs
-150–200 cycles a call from C rather than 45, so the 30 axis products alone cost
-twice what the whole projection was estimated at, and writing them out saved
-only the loop around them. The per-operation constants above are the target an
-assembly rasteriser and projection would have to meet; the C port is the
-reference for what they must produce, not for what they may cost. Straight-line
-code costs memory too: the renderer is 6.3 KB of code in `planedemo.prg`, 1.4 KB
-more than with loops.
+build; the profiling build also compiles `planes_render()` out of line, where
+the plain one inlines it, so its steps add up to more than the whole. What is
+left is mostly the fill's per-edge work — at 150 m a redraw traces 23 edges
+but only 66 rows, so the end points, the slope's two multiplies and the first
+and last rows cost more than the rows between — and the multiplies:
+`vec_mul8` is ~55 cycles with its call, where the model assumed 45 for a
+whole multiply. The per-operation constants above are the target an
+assembly renderer would have to meet; the C port is the reference for what
+it must produce, not for what it may cost.
 
 The levers, cheapest first:
 

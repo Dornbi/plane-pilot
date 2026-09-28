@@ -717,7 +717,11 @@ def render(state: State, cam: Mat3, target: Mat3, rel_pos_m: Vec3,
 
     if c[0] <= MIN_CAM_X:
         return Result(visible=False, reason="behind camera", cam=c)
-    if c[0] > MAX_CAM_X:
+    # Too far, or more than 45 degrees off the view axis: far outside any
+    # viewport, and where the centre's division stops being a fraction of one
+    # -- the C64's exact divide (vec_frac16) needs |y| < x. vec_project culls
+    # there too.
+    if c[0] > MAX_CAM_X or abs(c[1]) >= c[0] or abs(c[2]) >= c[0]:
         return Result(visible=False, reason="out of range", cam=c)
 
     # 5. centre, 6. perspective scale: px = 256 * (O/8) / (C.x/4) = O * k / 256
