@@ -121,7 +121,7 @@ CPU_TEST_HDRS = ../cpu.h ../cpu.cc ../cia.h
 # Python reference for every build rather than checked in: four thousand of
 # them, a third of a megabyte, and they must follow lib/planes.py anyway.
 PLANES_TEST_SRC = planes_test.cc ../planes.cc
-PLANES_TEST_HDRS = ../planes.h ../planedef.h ../vec.h planes_cases.h
+PLANES_TEST_HDRS = ../planes.h ../planes_asm.h ../planedef.h ../vec.h planes_cases.h
 
 all: test
 
@@ -180,7 +180,8 @@ planes_target_cases.h: ../../tools/generate_planes.py ../../lib/planes.py
 	python3 ../../tools/generate_planes.py --target planes_target_cases.h
 
 target_test.prg: target_test.cc int16.h ../vec.h ../vec.cc ../vec_lut.cc \
-		../planes.h ../planes.cc ../planedef.h planes_target_cases.h
+		../planes.h ../planes.cc ../planes_asm.h ../planes_asm.cc ../planedef.h \
+		planes_target_cases.h
 	$(OSCAR64) $(TARGET_CFLAGS) -o=target_test.prg target_test.cc
 
 target-test:

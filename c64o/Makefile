@@ -187,6 +187,8 @@ PLANEDEMO_SRC = benchmark.h \
 		planedef.h \
 		planes.h \
 		planes.cc \
+		planes_asm.h \
+		planes_asm.cc \
 		print.h \
 		print.cc \
 		vec.h \
@@ -306,18 +308,18 @@ $(VECTEST_PROGRAM).prg: $(VECTEST_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ vectest.cc
 	@$(ZPCHECK) $(VECTEST_PROGRAM).asm
 
-# No MATHCHECK, yet: planes.cc divides exactly -- k, the projected centre and
-# the fuselage normal, five a frame -- because lib/planes.py does. vec_div8p8
-# rounds differently, so moving to it means moving the reference with it; that
-# is part of putting planes.cc into ppilot, and the check goes on then. Every
-# multiply is already a shift, a table or vec_fastmul8p8.
+# planes.cc divides exactly, as lib/planes.py does, through vec_fracn rather
+# than the runtime's divide, and multiplies through vec_mul8x8 and
+# vec_fastmul8p8: MATHCHECK holds it to what ppilot will need.
 $(PLANEDEMO_PROGRAM).prg: $(PLANEDEMO_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ planedemo.cc
 	@$(ZPCHECK) $(PLANEDEMO_PROGRAM).asm
+	@$(MATHCHECK) $(PLANEDEMO_PROGRAM).asm
 
 # The same, timing each step of planes_render() onto the screen.
 planedemo_prof.prg: $(PLANEDEMO_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ -D__PLANES_PROFILE__ -o=planedemo_prof.prg planedemo.cc
+	@$(MATHCHECK) planedemo_prof.asm
 
 # Re-run the checks on whatever is already built, without provoking a build.
 zpcheck:
@@ -328,7 +330,7 @@ zpcheck:
 
 mathcheck:
 	$(MATHCHECK) $(PPILOT_PROGRAM).asm $(PPILOTA_PROGRAM).asm \
-		$(POLYDEMO_PROGRAM).asm $(VECDEMO_PROGRAM).asm
+		$(POLYDEMO_PROGRAM).asm $(VECDEMO_PROGRAM).asm $(PLANEDEMO_PROGRAM).asm
 
 romcheck:
 	$(ROMCHECK) $(PPILOT_PROGRAM).asm $(PPILOTA_PROGRAM).asm \

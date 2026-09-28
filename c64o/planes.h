@@ -108,5 +108,6 @@ static const uint8_t kPlaneDotX = 12;
 static const uint8_t kPlaneDotY = 19;
 
 #pragma compile("planes.cc")
+#pragma compile("planes_asm.cc")
 
 #endif

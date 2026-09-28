@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "planedef.h"
+#include "planes_asm.h"
 
 // Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
 #pragma optimize(push, nooutline)
@@ -32,13 +33,17 @@ static const char kProfBody[] = SCREEN_STR("body ");
 // port's own (docs/planes.md section 11):
 //
 // - It works in bytes. The size cap keeps every vertex within about 41 px of
-//   the centre, so the products and the vertices relative to the centre are
-//   signed bytes, and once placed in the buffer they are unsigned ones.
+//   the centre, so the products are signed bytes, the vertices relative to
+//   the centre unsigned ones offset by 128, and once placed in the buffer
+//   plain unsigned ones.
 // - It relies on the cap for the silhouette fitting its layout -- which
 //   lib/planes.py only guards against, and tests/test_planes.py
 //   (TestSizeClamp) shows never happens -- so it anchors on the box alone,
 //   and fills without clipping to the buffer's sides.
 // - A frame with the last one's scale and axes skips the projection.
+//
+// On the C64 the axis products and the fill are assembly, in planes_asm.cc;
+// the C for them here is the host's (planes_asm.h).
 
 static const uint8_t kCols = 24;
 static const uint8_t kRows = 21;
@@ -57,15 +62,13 @@ static uint8_t _vert_count;
 // Magnitudes times k, and each pair's; _px_k is the k they hold, 0 for none.
 // They depend on nothing else, so they are kept while the distance holds.
 static uint8_t _px[kPlaneMagCount];
-static uint8_t _pv[16];
 static uint16_t _px_k;
 
-// Each pair's screen offset, x from the axis's y and y from its z: negated at
-// p, as is at 16 + p, and zero at 0 -- the terms kPlaneVert* index.
-static int8_t _tx[32], _ty[32];
-
-// This frame's vertices in buffer coordinates, for the fill.
-static uint8_t _lx[kPlaneVertMax], _ly[kPlaneVertMax];
+// planes_asm.h's: the pairs' magnitudes times k and their products, and the
+// vertices in buffer coordinates.
+uint8_t _planes_pv[16];
+int8_t _planes_tx[32], _planes_ty[32];
+uint8_t _planes_lx[kPlaneVertMax], _planes_ly[kPlaneVertMax];
 
 // The largest extent a layout holds: xs * (24 * cols - 1) and
 // ys * (21 * rows - 1), by [expansion - 1][count - 1]. Tables rather than
@@ -105,95 +108,115 @@ static uint8_t _norm2(int8_t x, int8_t y) {
   return n > hi ? n : hi;
 }
 
+#ifndef __OSCAR64__
+// ---------------------------------------------------------------------------
+// planes_asm.h in C, for the host: what planes_asm.cc does on the C64, step
+// for step.
+
+void _planes_axis_products(const vec3_t *a, uint8_t first, uint8_t end) {
+  for (uint8_t p = first; p < end; ++p) {
+    int8_t ox = (int8_t)vec_fastmul8p8(a->y, _planes_pv[p]);
+    int8_t oy = (int8_t)vec_fastmul8p8(a->z, _planes_pv[p]);
+    _planes_tx[p] = (int8_t)-ox;
+    _planes_tx[16 + p] = ox;
+    _planes_ty[p] = (int8_t)-oy;
+    _planes_ty[16 + p] = oy;
+  }
+}
+
+static uint8_t *_blk;               // the back buffer's first block
+static uint8_t _buf_h, _buf_w1;     // height, and width - 1
+static uint8_t _bottom;             // offset of the lower row of blocks
+static uint8_t _lo[2 * kRows], _hi[2 * kRows];
+
+void _planes_fill_begin(uint8_t *back, uint8_t cols, uint8_t height) {
+  _blk = back;
+  _buf_h = height;
+  _buf_w1 = (uint8_t)((kCols << (cols - 1)) - 1);
+  _bottom = (uint8_t)(cols << 6);
+}
+
+// Widen row y's extent to take pixels a..b, in either order.
+static void _put(uint8_t y, uint8_t a, uint8_t b) {
+  if (y >= _buf_h) {
+    return;
+  }
+  uint8_t l = a < b ? a : b, h = a < b ? b : a;
+  if (l < _lo[y]) _lo[y] = l;
+  if (h > _hi[y]) _hi[y] = h;
+}
+
+// OR pixels a..b of row y; a <= b <= width - 1.
+static void _fill_span(uint8_t y, uint8_t a, uint8_t b) {
+  uint8_t base = y < kRows ? (uint8_t)(y * 3) : (uint8_t)(_bottom + (y - kRows) * 3);
+  uint8_t ja = a >> 3, jb = b >> 3;
+  uint8_t lm = kPlaneLeftMask[a & 7], rm = kPlaneRightMask[b & 7];
+  if (ja == jb) {
+    _blk[base + kPlaneByteOffset[ja]] |= (uint8_t)(lm & rm);
+    return;
+  }
+  _blk[base + kPlaneByteOffset[ja]] |= lm;
+  for (uint8_t j = (uint8_t)(ja + 1); j < jb; ++j) {
+    _blk[base + kPlaneByteOffset[j]] = 0xFF;
+  }
+  _blk[base + kPlaneByteOffset[jb]] |= rm;
+}
+
+void _planes_fill_poly(uint8_t s, uint8_t n) {
+  uint8_t min_y = 255, max_y = 0;
+  for (uint8_t i = 0; i < n; ++i) {
+    uint8_t y = _planes_ly[s + i];
+    if (y < min_y) min_y = y;
+    if (y > max_y) max_y = y;
+  }
+  if (min_y >= _buf_h) {
+    return;
+  }
+  uint8_t y1 = max_y < _buf_h ? max_y : (uint8_t)(_buf_h - 1);
+  for (uint8_t y = min_y; y <= y1; ++y) {
+    _lo[y] = 255;
+    _hi[y] = 0;
+  }
+  for (uint8_t i = 0; i < n; ++i) {
+    uint8_t a = (uint8_t)(s + i), b = (uint8_t)(i + 1 == n ? s : s + i + 1);
+    uint8_t top = _planes_ly[b] < _planes_ly[a] ? b : a, bot = _planes_ly[b] < _planes_ly[a] ? a : b;
+    uint8_t xt = _planes_lx[top], yt = _planes_ly[top], xe = _planes_lx[bot], ye = _planes_ly[bot];
+    if (yt == ye) {
+      _put(yt, xt, xe);
+      continue;
+    }
+    uint8_t dy = (uint8_t)(ye - yt);
+    int16_t dx = (int16_t)xe - (int16_t)xt;
+    int16_t slope = (int16_t)((uint16_t)dx << 7), half;
+    if (dy == 1) {
+      half = slope;
+    } else {
+      if (dy > 2) {
+        slope = vec_fastmul8p8(dx, (int16_t)kPlaneRecip[dy]);
+      }
+      half = (int16_t)(slope >> 1);
+    }
+    uint16_t xb = (uint16_t)((xt << 8) + 128 + half);
+    uint8_t y = yt;
+    _put(y, xt, (uint8_t)(xb >> 8));
+    for (uint8_t r = 1; r < dy; ++r) {
+      uint8_t prev = (uint8_t)(xb >> 8);
+      xb = (uint16_t)(xb + slope);
+      _put(++y, prev, (uint8_t)(xb >> 8));
+    }
+    _put(ye, (uint8_t)(xb >> 8), xe);
+  }
+  for (uint8_t y = min_y; y <= y1; ++y) {
+    uint8_t a = _lo[y], b = _hi[y];
+    if (a <= b) {
+      _fill_span(y, a < _buf_w1 ? a : _buf_w1, b < _buf_w1 ? b : _buf_w1);
+    }
+  }
+}
+#endif
+
 // ---------------------------------------------------------------------------
 // Projection.
-
-#ifdef __OSCAR64__
-// One axis's pairs, for _axis_products(): the loop bounds, and each screen
-// component's magnitude split into a low byte and a 256, with a mask that is
-// $00 for a negative component and $FF for a positive one.
-static uint8_t _ap, _ap_end;
-static uint8_t _ay_lo, _ay_hi, _ay_m, _az_lo, _az_hi, _az_m;
-
-// For p in _ap .. _ap_end - 1, with v = _pv[p]: r = hi(lo * v), plus v if the
-// component reached 256, is trunc(|c| * v / 256), and s = (r ^ m) - m is
-// -r for a positive component and r for a negative -- the negated product.
-static void _pair_products(void) {
-  // clang-format off
-  __asm {
-        ldy _ap;
-    L_pair:
-        sty _ap;
-        lda _pv, y;
-        sta vec_mul8_b;
-
-        lda _ay_lo;
-        jsr vec_mul8;
-        ldx _ay_hi;
-        beq L_x_lo;
-        clc;
-        adc vec_mul8_b;
-    L_x_lo:
-        ldy _ap;
-        eor _ay_m;
-        sec;
-        sbc _ay_m;
-        sta _tx, y;
-        eor #$ff;
-        clc;
-        adc #1;
-        sta _tx + 16, y;
-
-        lda _az_lo;
-        jsr vec_mul8;
-        ldx _az_hi;
-        beq L_y_lo;
-        clc;
-        adc vec_mul8_b;
-    L_y_lo:
-        ldy _ap;
-        eor _az_m;
-        sec;
-        sbc _az_m;
-        sta _ty, y;
-        eor #$ff;
-        clc;
-        adc #1;
-        sta _ty + 16, y;
-
-        iny;
-        cpy _ap_end;
-        bne L_pair;
-  }
-  // clang-format on
-}
-#endif
-
-// The products of one axis's pairs, each trunc(component * v / 256) as
-// vec_fastmul8p8 truncates: _tx from the axis's y, _ty from its z.
-static void _axis_products(const vec3_t *a, uint8_t first, uint8_t end) {
-#ifdef __OSCAR64__
-  uint16_t my = (uint16_t)_abs16(a->y), mz = (uint16_t)_abs16(a->z);
-  _ay_lo = (uint8_t)my;
-  _ay_hi = (uint8_t)(my >> 8);
-  _ay_m = a->y < 0 ? 0x00 : 0xFF;
-  _az_lo = (uint8_t)mz;
-  _az_hi = (uint8_t)(mz >> 8);
-  _az_m = a->z < 0 ? 0x00 : 0xFF;
-  _ap = first;
-  _ap_end = end;
-  _pair_products();
-#else
-  for (uint8_t p = first; p < end; ++p) {
-    int8_t ox = (int8_t)vec_fastmul8p8(a->y, _pv[p]);
-    int8_t oy = (int8_t)vec_fastmul8p8(a->z, _pv[p]);
-    _tx[p] = (int8_t)-ox;
-    _tx[16 + p] = ox;
-    _ty[p] = (int8_t)-oy;
-    _ty[16 + p] = oy;
-  }
-#endif
-}
 
 static void _add_vertex(uint8_t x, uint8_t y) {
   _vx[_vert_count] = x;
@@ -216,21 +239,21 @@ static void _project(uint16_t k, const mat3_t *axes) {
       _px[m] = (uint8_t)(((vec_mul8x8((uint8_t)(kPlaneMags[m] << 1), (uint8_t)k) >> 8) + 1) >> 1);
     }
     for (uint8_t p = 1; p < 16; ++p) {
-      _pv[p] = _px[kPlanePairMag[p]];
+      _planes_pv[p] = _px[kPlanePairMag[p]];
     }
     _px_k = k;
   }
   PROFILE_END(8, kProfMags);
   PROFILE_START();
-  _axis_products(&axes->front, kPlaneAxisPairs[0], kPlaneAxisPairs[1]);
-  _axis_products(&axes->left, kPlaneAxisPairs[1], kPlaneAxisPairs[2]);
-  _axis_products(&axes->up, kPlaneAxisPairs[2], kPlaneAxisPairs[3]);
+  _planes_axis_products(&axes->front, kPlaneAxisPairs[0], kPlaneAxisPairs[1]);
+  _planes_axis_products(&axes->left, kPlaneAxisPairs[1], kPlaneAxisPairs[2]);
+  _planes_axis_products(&axes->up, kPlaneAxisPairs[2], kPlaneAxisPairs[3]);
   PROFILE_END(9, kProfPairs);
   PROFILE_START();
   for (uint8_t i = 0; i < kPlaneVertCount; ++i) {
     uint8_t f = kPlaneVertFore[i], l = kPlaneVertLeft[i], u = kPlaneVertUp[i];
-    _vx[i] = (uint8_t)(kBias + _tx[f] + _tx[l] + _tx[u]);
-    _vy[i] = (uint8_t)(kBias + _ty[f] + _ty[l] + _ty[u]);
+    _vx[i] = (uint8_t)(kBias + _planes_tx[f] + _planes_tx[l] + _planes_tx[u]);
+    _vy[i] = (uint8_t)(kBias + _planes_ty[f] + _planes_ty[l] + _planes_ty[u]);
   }
   for (uint8_t p = 0; p < 4; ++p) {
     _poly_start[p] = kPlanePolyStart[p];
@@ -244,8 +267,8 @@ static void _project(uint16_t k, const mat3_t *axes) {
   uint8_t sr[kPlaneBodyCount];
   uint8_t widest = 0;
   for (uint8_t i = 0; i < kPlaneBodyCount; ++i) {
-    sx[i] = (uint8_t)(kBias + _tx[kPlaneBodyFore[i]]);
-    sy[i] = (uint8_t)(kBias + _ty[kPlaneBodyFore[i]]);
+    sx[i] = (uint8_t)(kBias + _planes_tx[kPlaneBodyFore[i]]);
+    sy[i] = (uint8_t)(kBias + _planes_ty[kPlaneBodyFore[i]]);
     sr[i] = _px[kPlaneBodyRadius[i]];
     if (sr[i] > sr[widest]) {
       widest = i;
@@ -292,564 +315,6 @@ static void _project(uint16_t k, const mat3_t *axes) {
   }
   PROFILE_END(11, kProfBody);
 }
-
-// ---------------------------------------------------------------------------
-// The rasteriser: convex polygons into up to four sprite blocks 64 bytes
-// apart. Vertices are bytes in buffer coordinates -- x inside the buffer, y
-// possibly below it -- and a row at or below the buffer's height is skipped.
-// Written twice: in C for the host, where test/planes_test.cc holds it to
-// lib/planes.py, and in assembly for the C64, which test/target_test.cc holds
-// to the same reference. The two follow each other step for step.
-
-static __zeropage uint8_t *_blk;    // the back buffer's first block
-static uint8_t _buf_h, _buf_w1;     // height, and width - 1
-static uint8_t _bottom;             // offset of the lower row of blocks
-static uint8_t _lo[2 * kRows], _hi[2 * kRows];
-static uint8_t _fs, _fn;            // the polygon: first vertex, count
-
-static const uint8_t kLeftMask[8] = {0xFF, 0x7F, 0x3F, 0x1F, 0x0F, 0x07, 0x03, 0x01};
-static const uint8_t kRightMask[8] = {0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xFE, 0xFF};
-// Byte j of a row: 0-2 in the left block, 3-5 in the one 64 bytes on.
-static const uint8_t kByteOffset[6] = {0, 1, 2, 64, 65, 66};
-
-#ifdef __OSCAR64__
-static uint8_t _y0, _y1, _fi, _xt, _yt, _xe, _ye, _dy, _cnt, _row;
-static uint8_t _dxl, _dxh, _sl, _sh, _hl, _hh, _xbl, _xbh;
-static uint8_t _pa, _pb, _t, _base, _jb;
-
-// Edge-inclusive convex fill with vertices at pixel centres (lib/planes.py
-// fill_poly()): vertices _fs .. _fs + _fn - 1 of _lx, _ly.
-static void _fill_poly(void) {
-  // clang-format off
-  __asm {
-        // The polygon's rows, y0 .. y1; none if it starts below the buffer.
-        ldx _fs;
-        lda #$ff;
-        sta _y0;
-        lda #0;
-        sta _y1;
-        ldy _fn;
-    L_rows:
-        lda _ly, x;
-        cmp _y0;
-        bcs L_not_min;
-        sta _y0;
-    L_not_min:
-        cmp _y1;
-        bcc L_not_max;
-        sta _y1;
-    L_not_max:
-        inx;
-        dey;
-        bne L_rows;
-        lda _y0;
-        cmp _buf_h;
-        bcc L_visible;
-        rts;
-    L_visible:
-        lda _y1;
-        cmp _buf_h;
-        bcc L_y1_in;
-        ldx _buf_h;
-        dex;
-        stx _y1;
-    L_y1_in:
-        ldx _y0;
-    L_init:
-        lda #$ff;
-        sta _lo, x;
-        lda #0;
-        sta _hi, x;
-        cpx _y1;
-        inx;
-        bcc L_init;
-
-        // Each edge: top and bottom end points, no swap.
-        lda #0;
-        sta _fi;
-    L_edge:
-        lda _fi;
-        clc;
-        adc _fs;
-        tax;
-        ldy _fi;
-        iny;
-        cpy _fn;
-        bne L_b_next;
-        ldy #0;
-    L_b_next:
-        tya;
-        clc;
-        adc _fs;
-        tay;
-        lda _ly, y;
-        cmp _ly, x;
-        bcs L_a_top;
-        lda _lx, y;
-        sta _xt;
-        lda _ly, y;
-        sta _yt;
-        lda _lx, x;
-        sta _xe;
-        lda _ly, x;
-        sta _ye;
-        jmp L_ends;
-    L_a_top:
-        lda _lx, x;
-        sta _xt;
-        lda _ly, x;
-        sta _yt;
-        lda _lx, y;
-        sta _xe;
-        lda _ly, y;
-        sta _ye;
-    L_ends:
-        lda _ye;
-        sec;
-        sbc _yt;
-        sta _dy;
-        bne L_slanted;
-        // Level: one row, end to end.
-        lda _yt;
-        sta _row;
-        lda _xt;
-        sta _pa;
-        lda _xe;
-        sta _pb;
-        jsr L_put;
-        jmp L_next;
-
-    L_slanted:
-        // dx = xe - xt, and dx * 128 into the slope as the first guess.
-        lda _xe;
-        sec;
-        sbc _xt;
-        sta _dxl;
-        lda #0;
-        sbc #0;
-        sta _dxh;
-        cmp #$80;
-        ror;
-        lda _dxl;
-        ror;
-        sta _sh;
-        lda #0;
-        ror;
-        sta _sl;
-        lda _dy;
-        cmp #1;
-        bne L_not_one;
-        // dy 1: no middle row, and the first row's half step is dx * 128.
-        lda _sl;
-        sta _hl;
-        lda _sh;
-        sta _hh;
-        jmp L_first;
-    L_not_one:
-        cmp #2;
-        beq L_halve;
-        // dy 3 and on: slope = trunc(dx * 65536 / dy / 256) from the
-        // reciprocal table, |dx| * hi + hi(|dx| * lo), the sign last.
-        lda _dxl;
-        ldx _dxh;
-        bpl L_dx_pos;
-        eor #$ff;
-        clc;
-        adc #1;
-    L_dx_pos:
-        sta _t;
-        lda _dy;
-        asl;
-        tay;
-        lda kPlaneRecip + 1, y;
-        sta vec_mul8_b;
-        lda kPlaneRecip, y;
-        sta _pa;
-        lda _t;
-        jsr vec_mul8;
-        sta _sh;
-        lda vec_mul8_lo;
-        sta _sl;
-        lda _pa;
-        sta vec_mul8_b;
-        lda _t;
-        jsr vec_mul8;
-        clc;
-        adc _sl;
-        sta _sl;
-        lda _sh;
-        adc #0;
-        sta _sh;
-        lda _dxh;
-        bpl L_halve;
-        sec;
-        lda #0;
-        sbc _sl;
-        sta _sl;
-        lda #0;
-        sbc _sh;
-        sta _sh;
-    L_halve:
-        lda _sh;
-        cmp #$80;
-        ror;
-        sta _hh;
-        lda _sl;
-        ror;
-        sta _hl;
-
-    L_first:
-        // The top row takes half a step, from xt * 256 + 128. dx's sign says
-        // which end of every row is the left one; rows only go down, so the
-        // first at or below the buffer ends the edge.
-        ldx _yt;
-        cpx _buf_h;
-        bcc L_first_in;
-        jmp L_next;
-    L_first_in:
-        lda #128;
-        clc;
-        adc _hl;
-        sta _xbl;
-        lda _xt;
-        adc _hh;
-        sta _xbh;
-        bit _dxh;
-        bmi L_first_neg;
-        lda _xt;
-        cmp _lo, x;
-        bcs L_fp_hi;
-        sta _lo, x;
-    L_fp_hi:
-        lda _xbh;
-        cmp _hi, x;
-        bcc L_middle;
-        sta _hi, x;
-        jmp L_middle;
-    L_first_neg:
-        lda _xbh;
-        cmp _lo, x;
-        bcs L_fn_hi;
-        sta _lo, x;
-    L_fn_hi:
-        lda _xt;
-        cmp _hi, x;
-        bcc L_middle;
-        sta _hi, x;
-
-        // The middle rows a whole step each, from the last row's end.
-    L_middle:
-        ldy _dy;
-        dey;
-        beq L_last;
-        bit _dxh;
-        bmi L_mid_neg;
-    L_mid_pos:
-        inx;
-        cpx _buf_h;
-        bcs L_mid_out;
-        lda _xbh;
-        cmp _lo, x;
-        bcs L_mp_step;
-        sta _lo, x;
-    L_mp_step:
-        clc;
-        lda _xbl;
-        adc _sl;
-        sta _xbl;
-        lda _xbh;
-        adc _sh;
-        sta _xbh;
-        cmp _hi, x;
-        bcc L_mp_next;
-        sta _hi, x;
-    L_mp_next:
-        dey;
-        bne L_mid_pos;
-        jmp L_last;
-    L_mid_out:
-        jmp L_next;
-    L_mid_neg:
-        inx;
-        cpx _buf_h;
-        bcs L_mid_out;
-        lda _xbh;
-        cmp _hi, x;
-        bcc L_mn_step;
-        sta _hi, x;
-    L_mn_step:
-        clc;
-        lda _xbl;
-        adc _sl;
-        sta _xbl;
-        lda _xbh;
-        adc _sh;
-        sta _xbh;
-        cmp _lo, x;
-        bcs L_mn_next;
-        sta _lo, x;
-    L_mn_next:
-        dey;
-        bne L_mid_neg;
-
-        // The bottom row ends on the end point.
-    L_last:
-        ldx _ye;
-        cpx _buf_h;
-        bcs L_next;
-        bit _dxh;
-        bmi L_last_neg;
-        lda _xbh;
-        cmp _lo, x;
-        bcs L_lp_hi;
-        sta _lo, x;
-    L_lp_hi:
-        lda _xe;
-        cmp _hi, x;
-        bcc L_next;
-        sta _hi, x;
-        jmp L_next;
-    L_last_neg:
-        lda _xe;
-        cmp _lo, x;
-        bcs L_ln_hi;
-        sta _lo, x;
-    L_ln_hi:
-        lda _xbh;
-        cmp _hi, x;
-        bcc L_next;
-        sta _hi, x;
-    L_next:
-        inc _fi;
-        lda _fi;
-        cmp _fn;
-        beq L_spans;
-        jmp L_edge;
-
-        // Each row from its leftmost pixel to its rightmost.
-    L_spans:
-        ldx _y0;
-    L_span_row:
-        stx _row;
-        lda _hi, x;
-        cmp _lo, x;
-        bcs L_span;
-        jmp L_span_next;
-    L_span:
-        lda _lo, x;
-        cmp _buf_w1;
-        bcc L_a_in;
-        lda _buf_w1;
-    L_a_in:
-        sta _pa;
-        lda _hi, x;
-        cmp _buf_w1;
-        bcc L_b_in;
-        lda _buf_w1;
-    L_b_in:
-        sta _pb;
-        // The row's first byte: 3 * row in the upper blocks, _bottom on in
-        // the lower.
-        txa;
-        cmp #21;
-        bcc L_upper;
-        sbc #21;
-        sta _t;
-        asl;
-        adc _t;
-        adc _bottom;
-        jmp L_based;
-    L_upper:
-        sta _t;
-        asl;
-        adc _t;
-    L_based:
-        sta _base;
-        lda _pa;
-        lsr;
-        lsr;
-        lsr;
-        tax;
-        lda _pb;
-        lsr;
-        lsr;
-        lsr;
-        sta _jb;
-        cpx _jb;
-        bne L_bytes;
-        // Most spans are inside one byte: both masks on it.
-        lda _pa;
-        and #7;
-        tay;
-        lda kLeftMask, y;
-        sta _t;
-        lda _pb;
-        and #7;
-        tay;
-        lda kRightMask, y;
-        and _t;
-        jsr L_or;
-        jmp L_span_next;
-    L_bytes:
-        lda _pa;
-        and #7;
-        tay;
-        lda kLeftMask, y;
-        jsr L_or;
-        inx;
-    L_full:
-        cpx _jb;
-        beq L_right;
-        lda kByteOffset, x;
-        clc;
-        adc _base;
-        tay;
-        lda #$ff;
-        sta (_blk), y;
-        inx;
-        jmp L_full;
-    L_right:
-        lda _pb;
-        and #7;
-        tay;
-        lda kRightMask, y;
-        jsr L_or;
-    L_span_next:
-        ldx _row;
-        cpx _y1;
-        inx;
-        bcs L_done;
-        jmp L_span_row;
-    L_done:
-        rts;
-
-        // OR A into byte X of the row at _base. Keeps X.
-    L_or:
-        sta _t;
-        lda kByteOffset, x;
-        clc;
-        adc _base;
-        tay;
-        lda (_blk), y;
-        ora _t;
-        sta (_blk), y;
-        rts;
-
-        // Widen row _row's extent to take pixels _pa and _pb, in either
-        // order, if the row is inside the buffer.
-    L_put:
-        ldx _row;
-        cpx _buf_h;
-        bcs L_put_done;
-        lda _pa;
-        cmp _pb;
-        bcc L_put_ab;
-        lda _pb;
-        cmp _lo, x;
-        bcs L_put_ba_hi;
-        sta _lo, x;
-    L_put_ba_hi:
-        lda _pa;
-        cmp _hi, x;
-        bcc L_put_done;
-        sta _hi, x;
-        rts;
-    L_put_ab:
-        cmp _lo, x;
-        bcs L_put_ab_hi;
-        sta _lo, x;
-    L_put_ab_hi:
-        lda _pb;
-        cmp _hi, x;
-        bcc L_put_done;
-        sta _hi, x;
-    L_put_done:
-        rts;
-  }
-  // clang-format on
-}
-#else
-// Widen row y's extent to take pixels a..b, in either order.
-static void _put(uint8_t y, uint8_t a, uint8_t b) {
-  if (y >= _buf_h) {
-    return;
-  }
-  uint8_t l = a < b ? a : b, h = a < b ? b : a;
-  if (l < _lo[y]) _lo[y] = l;
-  if (h > _hi[y]) _hi[y] = h;
-}
-
-// OR pixels a..b of row y; a <= b <= width - 1.
-static void _fill_span(uint8_t y, uint8_t a, uint8_t b) {
-  uint8_t base = y < kRows ? (uint8_t)(y * 3) : (uint8_t)(_bottom + (y - kRows) * 3);
-  uint8_t ja = a >> 3, jb = b >> 3;
-  uint8_t lm = kLeftMask[a & 7], rm = kRightMask[b & 7];
-  if (ja == jb) {
-    _blk[base + kByteOffset[ja]] |= (uint8_t)(lm & rm);
-    return;
-  }
-  _blk[base + kByteOffset[ja]] |= lm;
-  for (uint8_t j = (uint8_t)(ja + 1); j < jb; ++j) {
-    _blk[base + kByteOffset[j]] = 0xFF;
-  }
-  _blk[base + kByteOffset[jb]] |= rm;
-}
-
-// Edge-inclusive convex fill with vertices at pixel centres (lib/planes.py
-// fill_poly()): vertices _fs .. _fs + _fn - 1 of _lx, _ly.
-static void _fill_poly(void) {
-  uint8_t s = _fs, n = _fn;
-  uint8_t min_y = 255, max_y = 0;
-  for (uint8_t i = 0; i < n; ++i) {
-    uint8_t y = _ly[s + i];
-    if (y < min_y) min_y = y;
-    if (y > max_y) max_y = y;
-  }
-  if (min_y >= _buf_h) {
-    return;
-  }
-  uint8_t y1 = max_y < _buf_h ? max_y : (uint8_t)(_buf_h - 1);
-  for (uint8_t y = min_y; y <= y1; ++y) {
-    _lo[y] = 255;
-    _hi[y] = 0;
-  }
-  for (uint8_t i = 0; i < n; ++i) {
-    uint8_t a = (uint8_t)(s + i), b = (uint8_t)(i + 1 == n ? s : s + i + 1);
-    uint8_t top = _ly[b] < _ly[a] ? b : a, bot = _ly[b] < _ly[a] ? a : b;
-    uint8_t xt = _lx[top], yt = _ly[top], xe = _lx[bot], ye = _ly[bot];
-    if (yt == ye) {
-      _put(yt, xt, xe);
-      continue;
-    }
-    uint8_t dy = (uint8_t)(ye - yt);
-    int16_t dx = (int16_t)xe - (int16_t)xt;
-    int16_t slope = (int16_t)((uint16_t)dx << 7), half;
-    if (dy == 1) {
-      half = slope;
-    } else {
-      if (dy > 2) {
-        slope = vec_fastmul8p8(dx, (int16_t)kPlaneRecip[dy]);
-      }
-      half = (int16_t)(slope >> 1);
-    }
-    uint16_t xb = (uint16_t)((xt << 8) + 128 + half);
-    uint8_t y = yt;
-    _put(y, xt, (uint8_t)(xb >> 8));
-    for (uint8_t r = 1; r < dy; ++r) {
-      uint8_t prev = (uint8_t)(xb >> 8);
-      xb = (uint16_t)(xb + slope);
-      _put(++y, prev, (uint8_t)(xb >> 8));
-    }
-    _put(ye, (uint8_t)(xb >> 8), xe);
-  }
-  for (uint8_t y = min_y; y <= y1; ++y) {
-    uint8_t a = _lo[y], b = _hi[y];
-    if (a <= b) {
-      _fill_span(y, a < _buf_w1 ? a : _buf_w1, b < _buf_w1 ? b : _buf_w1);
-    }
-  }
-}
-#endif
 
 // ---------------------------------------------------------------------------
 // Level and layout.
@@ -1056,8 +521,8 @@ void planes_render(planes_state_t *state, const planes_view_t *view,
     } else {
       y = (uint8_t)u;
     }
-    _lx[i] = x;
-    _ly[i] = y;
+    _planes_lx[i] = x;
+    _planes_ly[i] = y;
     if (x != kx[i] || y != ky[i]) {
       kx[i] = x;
       ky[i] = y;
@@ -1078,15 +543,12 @@ void planes_render(planes_state_t *state, const planes_view_t *view,
   PROFILE_START();
   uint8_t blocks = (uint8_t)(rows << (cols - 1));
   memset(back, 0, (uint16_t)blocks << 6);
-  _buf_h = (uint8_t)(kRows << (rows - 1));
-  if ((uint16_t)slid >> (ys - 1) < _buf_h) {
-    _blk = back;
-    _buf_w1 = (uint8_t)((kCols << (cols - 1)) - 1);
-    _bottom = (uint8_t)(cols << 6);
+  uint8_t height = (uint8_t)(kRows << (rows - 1));
+  if ((uint16_t)slid >> (ys - 1) < height) {
+    _planes_fill_begin(back, cols, height);
     for (uint8_t p = 0; p < _poly_count; ++p) {
-      _fs = _poly_start[p];
-      _fn = (uint8_t)(_poly_start[p + 1] - _fs);
-      _fill_poly();
+      uint8_t first = _poly_start[p];
+      _planes_fill_poly(first, (uint8_t)(_poly_start[p + 1] - first));
     }
   }
   PROFILE_END(6, kProfFill);

@@ -608,7 +608,7 @@ in `planedemo.prg` measures (§11):
 | Per-plane state — latches, up to 30 cached vertices and the `k` and axes they came from — 2 planes | ~150 | 184 |
 | Per-frame scratch: vertices, products, row extents | — | 355 |
 | Rasteriser code: edge trace and span fill | ~400 | 753 |
-| Pipeline code: projection, fuselage, level, layout, slide, caches | ~700 | 2,888 |
+| Pipeline code: projection, fuselage, level, layout, slide, caches | ~700 | 2,916 |
 | **Total** | **~2.0 KB** | **~5.0 KB** |
 
 Against the stroke design's ~1.5 KB. The difference is mostly code — the
@@ -913,8 +913,7 @@ one, went back to loops and took the bytes back, and bought much more:
   `lib/planes.py` only guards against and `TestSizeClamp` shows never
   happens: it anchors on the box alone and fills without clipping to the
   buffer's sides.
-- The products (`_pair_products`) and the fill (`_fill_poly`) are
-  assembly. Both multiply through `vec_mul8`, the quarter-square step
+- The products and the fill are assembly, in `c64o/planes_asm.cc`. Both multiply through `vec_mul8`, the quarter-square step
   `vec_fastmul8p8` is built from, now callable on its own; `test/target_test.cc`
   holds them to the reference over 513 frames on an emulated 6510, and the
   C each follows step for step is what the host test holds over 5,848.
@@ -932,7 +931,7 @@ one, went back to loops and took the bytes back, and bought much more:
 | Axes changed, redrawn, 150 m | 69,591 | 55,888 | **29,122** |
 | — 60 m, banked, 2 × 2 | 121,287 | 108,359 | 46,371 |
 | Closing, redrawn, ~120 m | 62,000–65,000 | ~53,000 | 28,569 |
-| Renderer code, bytes | 4,938 + 370 of runtime division | 6,306 + 370 | **3,641** |
+| Renderer code, bytes | 4,938 + 370 of runtime division | 6,306 + 370 | **3,669** |
 
 And by step, the redrawn frame at 150 m, one sprite:
 
