@@ -1,8 +1,12 @@
 #include "title.h"
 
 #ifdef __OSCAR64__
+#include <c64/memmap.h>
 #include <oscar.h>
 #else
+#define MMAP_NO_ROM 0x35
+#define MMAP_RAM 0x30
+static char mmap_set(char pla) { return pla; }
 static const char *oscar_expand_lzo(char *dp, const char *sp) { return sp; }
 #endif
 
@@ -245,9 +249,13 @@ static void _title_program(void) {
 }
 
 void title_arm(void) {
-  // $CF00 is plain RAM under nothing at all, so unlike the $D400 blob this
-  // needs no banking and no sei - see mem.h.
+  // $D000 is RAM under I/O, so it is banked out for the expansion and back in
+  // before the first VIC register below. No sei: the menu has the split masked
+  // anyway, and the raster interrupt's entry would bank I/O in for itself if it
+  // did not (mem.h, gfx.cc _gfx_isr).
+  mmap_set(MMAP_RAM);
   oscar_expand_lzo((char *)kTitleSpriteData, kTitleDataCompressed);
+  mmap_set(MMAP_NO_ROM);
 
   // The menu page is always the main buffer (screen_enter_static_mccm calls
   // mem_use_main_buffer), but going through mem_screen_ram keeps that a fact

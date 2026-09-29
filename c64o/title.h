@@ -17,8 +17,9 @@
 // simulation's own claim on those indices is over by the time menu_run() is
 // reached, and sprites_init() takes them back on the way out.
 //
-// The bitmaps live at $CF00 (mem.h kTitleSpriteData), which is not part of the
-// $D400 sprite blob and is expanded separately by title_arm().
+// The bitmaps live at $D000 (mem.h kTitleSpriteData), under I/O and shared with
+// the map view's screen RAM. They are not part of the $D400 sprite blob and are
+// expanded separately by title_arm(), every time the menu is painted.
 
 // Expands the bitmaps, programs everything about the four sprites that does
 // not change per frame, and arms the timer with the flyby switched off.

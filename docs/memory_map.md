@@ -5,7 +5,7 @@ A breakdown of RAM usage by feature area and segment for **Plane Pilot
 
 Every number below is generated from the compiled link map
 (`c64o/ppilot.map`) by `tools/analyze_ram.py`, and last refreshed on
-**30 August 2026**. Regenerate the tables with:
+**29 September 2026**. Regenerate the tables with:
 
 ```bash
 python3 tools/analyze_ram.py --markdown
@@ -54,18 +54,18 @@ Segments:
 
 | Feature Area | Code | Data | BSS | ZP | VRAM | **Total Footprint** |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **1. Horizon Graphics** | 3,685 B | 9,338 B | 398 B | 37 B | 4,048 B | **17,506 B (17.1 KB)** |
-| **2. Polygon Graphics** | 5,450 B | 1,260 B | 335 B | 20 B | 0 B | **7,065 B (6.9 KB)** |
-| **3. World Model** | 6,519 B | 357 B | 337 B | 59 B | 0 B | **7,272 B (7.1 KB)** |
-| **4. Instrument Panel** | 2,913 B | 1,373 B | 366 B | 1 B | 6,992 B | **11,645 B (11.4 KB)** |
-| **5. Menu & Missions** | 3,182 B | 3,379 B | 2 B | 5 B | 1,280 B | **7,848 B (7.7 KB)** |
+| **1. Horizon Graphics** | 3,685 B | 9,338 B | 398 B | 37 B | 4,176 B | **17,634 B (17.2 KB)** |
+| **2. Polygon Graphics** | 5,451 B | 1,260 B | 335 B | 20 B | 0 B | **7,066 B (6.9 KB)** |
+| **3. World Model** | 6,541 B | 357 B | 337 B | 59 B | 0 B | **7,294 B (7.1 KB)** |
+| **4. Instrument Panel** | 3,255 B | 1,381 B | 368 B | 2 B | 6,992 B | **11,998 B (11.7 KB)** |
+| **5. Menu & Missions** | 3,225 B | 3,381 B | 2 B | 5 B | 1,024 B | **7,637 B (7.5 KB)** |
 | **6. Message System** | 475 B | 13 B | 0 B | 2 B | 0 B | **490 B (0.5 KB)** |
 | **7. Sound Effects** | 1,093 B | 92 B | 30 B | 6 B | 0 B | **1,221 B (1.2 KB)** |
 | **8. Music** | 884 B | 791 B | 2 B | 11 B | 0 B | **1,688 B (1.6 KB)** |
-| **9. Debug Messages & Overlay** | 972 B | 0 B | 0 B | 5 B | 0 B | **977 B (1.0 KB)** |
+| **9. Debug Messages & Overlay** | 956 B | 0 B | 0 B | 5 B | 0 B | **961 B (0.9 KB)** |
 | **10. Benchmarks & Timing** | 331 B | 0 B | 8 B | 0 B | 0 B | **339 B (0.3 KB)** |
-| **11. Core System & Drivers** | 4,961 B | 375 B | 216 B | 14 B | 0 B | **5,566 B (5.4 KB)** |
-| **TOTAL** | **30,465 B** | **16,978 B** | **1,694 B** | **160 B** | **12,320 B** | **61,617 B (60.2 KB)** |
+| **11. Core System & Drivers** | 5,080 B | 375 B | 217 B | 13 B | 0 B | **5,685 B (5.6 KB)** |
+| **TOTAL** | **30,976 B** | **16,988 B** | **1,697 B** | **160 B** | **12,192 B** | **62,013 B (60.6 KB)** |
 
 Color RAM is deliberately absent from the VRAM column. It is a separate
 1000 x 4 bit array inside the I/O block, not part of the 64 KB of DRAM - the
@@ -111,18 +111,15 @@ are not equally reachable:
 | `$0800-$0800` | 1 | used | BASIC link byte |
 | `$0801-$0852` | 82 | used | linker-allocated: code, data, bss, zero page, stack frames |
 | `$0853-$085F` | 13 | free | free, inside a linker region |
-| `$0860-$7E82` | 30,243 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$7E83-$7E95` | 19 | free | free, inside a linker region |
-| `$7E96-$C0FC` | 16,999 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$C0FD-$C0FF` | 3 | free | free, inside a linker region |
-| `$C100-$C1F9` | 250 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$C1FA-$C1FF` | 6 | free | free, inside a linker region |
-| `$C200-$C2FE` | 255 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$C2FF-$C2FF` | 1 | free | free, inside a linker region |
-| `$C300-$C35F` | 96 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$C360-$CEFF` | 2,976 | free | free, inside a linker region |
-| `$CF00-$CFFF` | 256 | used | title screen aircraft, 4 sprite blocks (mem.h kTitleSpriteData) |
-| `$D000-$D3FF` | 1,024 | used | map view screen RAM, under I/O (map.cc kMapScreenRam) |
+| `$0860-$C2F9` | 47,770 | used | linker-allocated: code, data, bss, zero page, stack frames |
+| `$C2FA-$C2FF` | 6 | free | free, inside a linker region |
+| `$C300-$C3F5` | 246 | used | linker-allocated: code, data, bss, zero page, stack frames |
+| `$C3F6-$C3FF` | 10 | free | free, inside a linker region |
+| `$C400-$C4FE` | 255 | used | linker-allocated: code, data, bss, zero page, stack frames |
+| `$C4FF-$C4FF` | 1 | free | free, inside a linker region |
+| `$C500-$C55F` | 96 | used | linker-allocated: code, data, bss, zero page, stack frames |
+| `$C560-$CFFF` | 2,720 | free | free, inside a linker region |
+| `$D000-$D3FF` | 1,024 | used | map view screen RAM, time-shared with the title aircraft's 4 sprite blocks, under I/O (map.cc kMapScreenRam, mem.h kTitleSpriteData) |
 | `$D400-$DFFF` | 3,072 | used | sprite bitmaps, 48 blocks (mem.cc kSpriteData) |
 | `$E000-$E7FF` | 2,048 | used | character RAM, 256 chars (mem.h kCharRam) |
 | `$E800-$EBE7` | 1,000 | used | main screen RAM (mem.h kScreenRamMain) |
@@ -132,65 +129,66 @@ are not equally reachable:
 | `$EFE8-$EFF7` | 16 | free (orphan) | free, but outside every linker region |
 | `$EFF8-$EFFF` | 8 | used | alt screen sprite pointers |
 | `$F000-$FF3F` | 3,904 | used | panel bitmap, incl. the four heading strips at $F000 (view.cc, gfx.cc) |
-| `$FF40-$FFF9` | 186 | free (orphan) | free, but outside every linker region |
+| `$FF40-$FFBF` | 128 | used | back view's tail fin, 2 sprite blocks (mem.h kFinSpriteData) |
+| `$FFC0-$FFF9` | 58 | free (orphan) | free, but outside every linker region |
 | `$FFFA-$FFFF` | 6 | used | NMI / RESET / IRQ vectors |
 
 ```
-Used                       61,934 B   94.5%
-Free, allocatable           3,308 B   largest run 2,976 B at $C360
+Used                       62,330 B   95.1%
+Free, allocatable           3,040 B   largest run 2,720 B at $C560
 Free, stack headroom           76 B   reachable by lowering #pragma stacksize
-Free, orphan fragments        218 B   only reachable by hand-placing
-Free, total                 3,602 B   5.5%
+Free, orphan fragments         90 B   only reachable by hand-placing
+Free, total                 3,206 B   4.9%
 ```
 
 ```
-Feature table total        61,617 B
+Feature table total        62,013 B
 + machine-owned ranges        359 B   processor port, runtime ZP, hardware stack, BASIC link
 - addresses counted twice      42 B   oscar64 overlays call frames that cannot be live together
-= address space, used      61,934 B
+= address space, used      62,330 B
 ```
 
 ---
 
 ## Detail by feature area
 
-### 1. Horizon Graphics (17,506 B)
+### 1. Horizon Graphics (17,634 B)
 
 * **Code (3,685 B)**: viewport horizon rendering, cell filling, box generation, slot drawing (`render.cc`, `box.cc`, `roll.cc`, `roll_asm.cc`).
 * **Data (9,338 B)**: box definitions (`boxdefs`), character definitions (`chardefs`), roll multiply and slope tables, compressed charset (`kGfxCharsCompressed`).
 * **BSS (398 B)**: per-slot frame arrays (`_box_chars`, `_box_colors`).
 * **ZP (37 B)**: roll and render registers (`roll_dx`, `roll_dy`, `roll_period`, `render_cx_pixels`, ...).
-* **VRAM (4,048 B)**: character RAM `$E000-$E7FF`, main screen `$E800`, alt screen `$EC00` - the two double-buffered VIC screens.
+* **VRAM (4,176 B)**: character RAM `$E000-$E7FF`, main screen `$E800`, alt screen `$EC00` - the two double-buffered VIC screens - and the back view's tail fin at `$FF40-$FFBF`, the two sprite blocks that fit between the panel bitmap and the vectors.
 
-### 2. Polygon Graphics (7,065 B)
+### 2. Polygon Graphics (7,066 B)
 
-* **Code (5,450 B)**: polygon pipeline, edge scan conversion, near and screen clipping, fixed-point vector math (`poly.cc`, `vec.cc`, `vec_asm.cc`, `fmath.cc`).
+* **Code (5,451 B)**: polygon pipeline, edge scan conversion, near and screen clipping, fixed-point vector math (`poly.cc`, `vec.cc`, `vec_asm.cc`, `fmath.cc`).
 * **Data (1,260 B)**: sine and cosine tables, inverse-Z LUT, the quarter-square multiply tables (`vec_sqr_lo`, `vec_sqr_hi`).
 * **BSS (335 B)**: scratch vertex buffers (`poly_verts`, `clip3_buf`, `proj_buf`, `clip2_buf1/2`, `final_verts`).
 * **ZP (20 B)**: vector registers (`vec_v`, `vec_sx`, `vec_sy`).
 
-### 3. World Model (7,272 B)
+### 3. World Model (7,294 B)
 
-* **Code (6,519 B)**: flight dynamics, physics integration, waypoint checking, terrain grid rendering (`flight.cc`, `world.cc`, `sim.cc`, `world_map.cc`, `clouds.cc`).
+* **Code (6,541 B)**: flight dynamics, physics integration, waypoint checking, terrain grid rendering (`flight.cc`, `world.cc`, `sim.cc`, `world_map.cc`, `clouds.cc`).
 * **Data (357 B)**: orientation matrices (`mat3_rot`, `kHeadingLut`), the world map, cloud hash and ladder tables.
 * **BSS (337 B)**: flight path history (`flight_path_px/py`), delta transform vectors (`_world_dx4`, `_world_dy4`), camera state.
 * **ZP (59 B)**: flight state (`flight_eye_x/y/z`, `flight_speed`, `flight_throttle`, `flight_fuel`, `flight_vspeed`).
 
-### 4. Instrument Panel (11,645 B)
+### 4. Instrument Panel (11,998 B)
 
-* **Code (2,913 B)**: viewport split raster handlers, gauge updates, the sprite stack and hardware controller (`view.cc`, `panel.cc`, `sprites.cc`, `spritedef.cc`).
-* **Data (1,373 B)**: compressed panel image and sprite bitmaps, character and color LUTs.
-* **BSS (366 B)**: raster IRQ split structures, the sprite candidate stack and the two committed sprite frames.
-* **ZP (1 B)**: sprite index and pointers.
+* **Code (3,255 B)**: viewport split raster handlers, gauge updates, the sprite stack and hardware controller (`view.cc`, `panel.cc`, `sprites.cc`, `spritedef.cc`).
+* **Data (1,381 B)**: compressed panel image and sprite bitmaps, character and color LUTs.
+* **BSS (368 B)**: raster IRQ split structures, the sprite candidate stack and the two committed sprite frames.
+* **ZP (2 B)**: sprite index and pointers.
 * **VRAM (6,992 B)**: sprite bitmaps `$D400-$DFFF`, panel bitmap `$F000-$FF3F` (the four heading strips live in its off-screen head at `$F000-$F17F`), and both screens' sprite pointers.
 
-### 5. Menu & Missions (7,848 B)
+### 5. Menu & Missions (7,637 B)
 
-* **Code (3,182 B)**: menu loop, mission cursor, help screen, map view, title screen flyby (`menu.cc`, `mission.cc`, `help.cc`, `map.cc`, `title.cc`).
-* **Data (3,379 B)**: menu and mission text, mission definitions, help text, map tiles, the compressed title aircraft bitmaps.
+* **Code (3,225 B)**: menu loop, mission cursor, help screen, map view, title screen flyby (`menu.cc`, `mission.cc`, `help.cc`, `map.cc`, `title.cc`).
+* **Data (3,381 B)**: menu and mission text, mission definitions, help text, map tiles, the compressed title aircraft bitmaps.
 * **BSS (2 B)**: the flyby timer.
 * **ZP (5 B)**: flyby position and state.
-* **VRAM (1,280 B)**: title aircraft sprite blocks at `$CF00-$CFFF`, and map view screen RAM at `$D000-$D3FF`, RAM under I/O, live only while the map is open.
+* **VRAM (1,024 B)**: `$D000-$D3FF`, RAM under I/O, time-shared: the map view's screen RAM while the map is open, the title aircraft's four sprite blocks while the menu is.
 
 ### 6. Message System (490 B)
 
@@ -213,9 +211,9 @@ Feature table total        61,617 B
 * **BSS (2 B)**: voice-3 sweep step.
 * **ZP (11 B)**: row, bar and frame counters, arpeggio index, voice-3 ownership.
 
-### 9. Debug Messages & Overlay (977 B)
+### 9. Debug Messages & Overlay (961 B)
 
-* **Code (972 B)**: the `D` view: camera basis, eye position, CPU probe and flight readouts (`panel.cc`, `print.cc`).
+* **Code (956 B)**: the `D` view: camera basis, eye position, CPU probe and flight readouts (`panel.cc`, `print.cc`).
 * **ZP (5 B)**.
 
 ### 10. Benchmarks & Timing (339 B)
@@ -223,12 +221,12 @@ Feature table total        61,617 B
 * **Code (331 B)**: CIA2 stage counters behind the `D` view (`benchmark.cc`).
 * **BSS (8 B)**.
 
-### 11. Core System & Drivers (5,566 B)
+### 11. Core System & Drivers (5,685 B)
 
-* **Code (4,961 B)**: entry point, VIC setup, raster IRQ core, LZO decompressor, keyboard, CPU speed probe, oscar64 runtime (`ppilot.cc`, `mem.cc`, `gfx.cc`, `screen.cc`, `keys.cc`, `cpu.cc`, `bcd.cc`, `print.cc`).
+* **Code (5,080 B)**: entry point, VIC setup, raster IRQ core, LZO decompressor, keyboard, CPU speed probe, oscar64 runtime (`ppilot.cc`, `mem.cc`, `gfx.cc`, `screen.cc`, `keys.cc`, `cpu.cc`, `bcd.cc`, `print.cc`).
 * **Data (375 B)**: startup header, screen row pointer tables, fill patterns.
-* **BSS (216 B)**: raster IRQ lists, keyboard matrix, CPU probe results.
-* **ZP (14 B)**: compiler temporaries and kernel flags.
+* **BSS (217 B)**: raster IRQ lists, keyboard matrix, CPU probe results.
+* **ZP (13 B)**: compiler temporaries and kernel flags.
 * **Off budget (1,000 B)**: color RAM $D800-$DBE7: 1000 x 4 bits inside the I/O block, not DRAM.
 
 The map view also borrows `$E000-$FF3F` for its bitmap, on top of character

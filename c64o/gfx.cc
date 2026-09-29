@@ -23,7 +23,7 @@ typedef struct RIRQCode {
   uint8_t code[RIRQ_SIZE];
 } RIRQCode;
 
-static void rirq_init(bool kernalIRQ) {}
+static void _gfx_rirq_init(void) {}
 static void rirq_build(RIRQCode *ic, uint8_t size) {}
 static void rirq_call(RIRQCode *ic, uint8_t n, void *addr) {}
 static void rirq_write(RIRQCode *ic, uint8_t n, void *addr, uint8_t data) {}
@@ -185,6 +185,132 @@ static void _gfx_switch_to_terrain() {
   sound_blit();
 }
 
+#ifdef __OSCAR64__
+// The interrupt entry: oscar64's rirq_isr_ram_io from c64/rasterirq.c, copied
+// so that it can bank I/O in for the handlers and put $01 back afterwards.
+//
+// The library's entry assumes I/O is already visible, so the main line could
+// only bank it out - to reach the RAM under $D000-$DFFF - with interrupts
+// masked, and a masked split is a torn panel. This one saves whatever the
+// interrupted code left in $01, runs the handlers with $35 (I/O in, both ROMs
+// out, which is what mem_init() sets) and restores the saved value before the
+// RTI. So a main line that wants the RAM under I/O just writes $01 and carries
+// on: an interrupt in the middle sees I/O, and hands the RAM back when it is
+// done. That is what lets the title aircraft live at $D000 (mem.h), and it is
+// the premise of the traffic sprites' buffers in docs/planes.md §5.
+//
+// It moves no handler, which is not obvious and matters for the panel-top
+// padding above. The dispatcher arms each interrupt a line early, and every
+// RIRQCode that rirq_build() generates opens with a `cmp $d012 / bcs` loop that
+// spins until its own line starts - so what the entry costs comes out of that
+// spin, and the handler still starts on the same cycle of the same line. The
+// four added instructions are twelve cycles ahead of the dispatch, and a nop
+// makes them fourteen: the loop is seven cycles, and a whole number of turns of
+// it keeps the phase it is entered at, and with it the cycle it exits on.
+// Measured on the panel split's `sta $d018` over 400 frames, before and after:
+// x64sc lands on cycles 53 to 58 of line 162 either way, and xscpu64 on cycle
+// 55 every time. Without the nop, x64sc's late edge was a cycle later.
+//
+// So the main line pays only for the five cycles on the way out, a handful of
+// interrupts a frame. Nothing else differs from the library's, down to the
+// order it reads its tables in.
+//
+// The tables and nextIRQ are rasterirq.c's own globals: not in its header, but
+// not static either, and neither is rirq_init_tables().
+extern byte rasterIRQIndex[];
+extern byte rasterIRQNext[];
+extern byte rasterIRQLow[];
+extern byte rasterIRQHigh[];
+extern volatile byte nextIRQ;
+void rirq_init_tables(void);
+
+// clang-format off
+__asm _gfx_isr
+{
+	sta plra + 1
+	lda $01
+	sta pl01 + 1
+	lda #$35
+	sta $01
+	// Twelve cycles to here, fourteen with this: two turns of the RIRQCode's
+	// seven-cycle spin. See above.
+	nop
+	stx plrx + 1
+	sty plry + 1
+
+	ldx nextIRQ
+	bmi exi
+l1:
+	lda rasterIRQNext, x
+	ldy rasterIRQIndex + 1, x
+	ldx rasterIRQLow, y
+	stx ji + 1
+	ldx rasterIRQHigh, y
+	stx ji + 2
+
+ji:
+	jsr $0000
+
+	inc nextIRQ
+	ldx nextIRQ
+
+	ldy rasterIRQNext, x
+
+	asl $d019
+
+	cpy #$ff
+	beq e2
+
+	dey
+	sty $d012
+	dey
+	cpy $d012
+	bcc l1
+
+plry:
+	ldy #0
+pl01:
+	lda #$35
+	sta $01
+plra:
+	lda #0
+plrx:
+	ldx #0
+	rti
+
+	// A spurious entry. Unlike the library's, A and Y are already saved and $01
+	// already switched, so it leaves the same way as everything else.
+exi:
+	asl $d019
+	jmp plry
+
+	// No more interrupts to service this frame.
+e2:
+	inc rirq_count
+
+	ldy rasterIRQNext
+	dey
+	sty $d012
+	ldx #0
+	stx nextIRQ
+	beq plry
+}
+// clang-format on
+
+// rirq_init(false), which is rirq_init_io(), with the entry above in place of
+// the library's.
+static void _gfx_rirq_init(void) {
+  rirq_init_tables();
+  __asm {
+    sei
+  }
+  *(void **)0xfffe = _gfx_isr;
+  vic.intr_enable = 1;
+  vic.ctrl1 &= 0x7f;
+  vic.raster = 255;
+}
+#endif
+
 #pragma optimize(pop)
 
 // Main bss, not bss2 with the other three: bss2 is full, and this one is
@@ -210,7 +336,7 @@ void gfx_init_raster_irqs(void) {
   // agreeing with what the hardware is about to be told.
   mem_den = 0x10;
 
-  rirq_init(/*kernalIRQ=*/false);
+  _gfx_rirq_init();
 
   // Sprite DMA off, kSpritesOffLead lines above the split. This one is a bare
   // write rather than a call: the raster IRQ executes it inline, so it costs

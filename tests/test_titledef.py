@@ -142,9 +142,9 @@ class TestReadingOrder(unittest.TestCase):
         )
 
     def test_the_base_block_is_the_page_mem_h_places(self):
-        # ($CF00 - $C000) / 64. Spelled out rather than imported, so that this
+        # ($D000 - $C000) / 64. Spelled out rather than imported, so that this
         # fails if either end moves; c64o/title.cc has the same assertion in C.
-        self.assertEqual(BASE, (0xCF00 - 0xC000) // 64)
+        self.assertEqual(BASE, (0xD000 - 0xC000) // 64)
 
 
 class TestGeneratorReproducesCheckedInData(unittest.TestCase):

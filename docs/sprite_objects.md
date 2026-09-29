@@ -311,13 +311,14 @@ shimmers by whole world pixels as the camera rotates. Fade in by stepping up
 the ladder rather than popping the sprite on at full size.
 
 **Where the bitmaps live.** `$D400–$D7BF` — 15 free sprite blocks, pointers
-80–94. That region is RAM under the SID, so writing it needs `$01` banked and
-interrupts off, which rules it out for anything written per frame
-([planes.md](planes.md) §5). Cloud bitmaps are written **once at startup**,
-exactly like the instrument needles already there, so the restriction costs
-nothing. The division of labour is clean: static art under I/O at `$D400`,
-dynamic aircraft buffers in plain RAM at `$CCC0–$CFFF`, the top page shared with
-the title screen's aeroplane ([planes.md](planes.md) §5).
+80–94. That region is RAM under the SID, so writing it needs `$01` banked.
+Cloud bitmaps are written **once at startup**, exactly like the instrument
+needles already there. Writing under I/O once needed interrupts off as well,
+which is why this section used to put the dynamic aircraft buffers in plain
+RAM; the raster interrupt's entry now banks I/O in for itself (`gfx.cc`
+`_gfx_isr`), so the plan for those buffers is under I/O too, in the 1 KB at
+`$D000` that the map view and the title screen already share
+([planes.md](planes.md) §5).
 
 ### 6.2. Other aircraft
 

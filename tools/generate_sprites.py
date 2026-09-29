@@ -581,10 +581,10 @@ def main():
     parser.add_argument(
         "--title_base_offset",
         type=int,
-        default=60,
+        default=64,
         help="First VIC sprite block of the title aircraft, which lives in "
-             "its own 256 bytes at $CF00 rather than in the blob at $D400 "
-             "(default: 60)",
+             "its own 256 bytes at $D000 rather than in the blob at $D400 "
+             "(default: 64)",
     )
     args = parser.parse_args()
 
@@ -886,8 +886,8 @@ def main():
     # Separate from spritedef.bin because it is expanded somewhere else: the
     # blob above goes to $D400 as one contiguous 3072 bytes, and there is no
     # room in front of it for four more blocks - $D000..$D3FF is the map view's
-    # screen RAM. These four live at $CF00, just below I/O, and are expanded by
-    # title.cc when the menu opens. See c64o/mem.h.
+    # screen RAM. These four share that 1 KB with it, at $D000, and are expanded
+    # by title.cc every time the menu opens. See c64o/mem.h.
     title_data, title_meta, title_bits = generate_title_sprites(title_base)
 
     title_bin_path = os.path.join(REPO_ROOT, "c64o", "titledef.bin")

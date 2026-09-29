@@ -27,11 +27,10 @@
 // but it overlaps with VIC control registers so we would have to
 // switch back and forth.
 //
-// The end is 0xCF00 rather than 0xD000 because the last page below I/O is
-// kTitleSpriteData - see below. The linker never sees that page, so it has to
-// be taken off the region by hand, exactly the way the ranges above 0xD000
-// are.
-#pragma region( main, 0x0860, 0xCF00, , , {code, data, data_box, data_compr, bss, heap} )
+// All the way to 0xD000. The last page below I/O used to be the title
+// aircraft's and was taken off the region by hand; it lives under I/O now, with
+// the map view's screen RAM (kTitleSpriteData below).
+#pragma region( main, 0x0860, 0xD000, , , {code, data, data_box, data_compr, bss, heap} )
 #endif
 // Zero page. Wider than oscar64's 0x80..0xFF default, in both directions.
 //
@@ -78,29 +77,33 @@ static const uint16_t kViewportEndYPixels = kViewportEndY * 8;
 static uint8_t *const kCharRam = (uint8_t *)0xE000;
 
 // The title screen aircraft's four sprite blocks, expanded here by title.cc
-// when the menu opens (c64o/title.cc). One page, and the only spare one in
-// the VIC bank: the blob at $D400 runs to $DFFF exactly, and the 1 KB in
-// front of it is the map view's screen RAM, which the VIC can only read from
-// a 1 KB boundary and so cannot be nudged aside to make room.
+// when the menu opens (c64o/title.cc). RAM under I/O, and time-shared: the
+// same 1 KB at $D000 is the map view's screen RAM while the map is open (map.cc
+// kMapScreenRam), and the two never meet - the title is only on screen in the
+// menu, and title_arm() expands it afresh every time the menu is painted, so
+// whatever the map left there is written over before it can be seen. The VIC
+// in bank 3 reads the RAM here, not the I/O chips.
 //
-// Below I/O rather than under it, which is what makes this page cheaper to
-// use than the ones above it: no banking, no masked interrupts, just a store.
-// It costs 256 bytes off the top of the main region above.
-static uint8_t *const kTitleSpriteData = (uint8_t *)0xCF00;
+// Under I/O, so the expansion banks it out around itself. That needs no sei:
+// the raster interrupt's entry saves $01 and banks I/O back in for the length
+// of the handlers (gfx.cc _gfx_isr). This page used to sit at $CF00, below
+// I/O, and cost the main region above its last 256 bytes.
+static uint8_t *const kTitleSpriteData = (uint8_t *)0xD000;
 // The tail fin's two sprite bitmaps (sprites.h), in the 186 bytes between the
 // end of the panel bitmap at $FF3F and the hardware vectors at $FFFA.
 //
 // That run is the only place they could go. The blob at $D400 is 48 blocks and
-// reaches $DFFF exactly, with nothing spare; $CF00 is the title aircraft's;
-// and everything else free in the bank is inside a linker region, which is to
-// say at no address the VIC can be pointed at from a constant. Two blocks fit
-// here and $FFC0 would be the third, which is the page the vectors are in.
+// reaches $DFFF exactly, with nothing spare; the map view's screen RAM at $D000
+// would overwrite them; and everything else free in the bank is inside a linker
+// region, which is to say at no address the VIC can be pointed at from a
+// constant. Two blocks fit here and $FFC0 would be the third, which is the page
+// the vectors are in.
 //
 // Two is enough because the fin is three sprites drawn from two bitmaps - a
 // tapered tip and a straight shaft, the shaft used twice.
 //
 // Nothing else in the program writes here: the map view borrows $E000-$FF3F
-// and stops short of it, and the linker's own regions end at $CEFF.
+// and stops short of it, and the linker's own regions end at $CFFF.
 static const uint8_t kFinSpriteBlock = (0xFF40 - 0xC000) / 64;
 #ifdef __OSCAR64__
 static uint8_t *const kFinSpriteData = (uint8_t *)0xFF40;
@@ -111,7 +114,7 @@ extern uint8_t *kFinSpriteData;
 // The same address as a VIC sprite block number - bank 3 starts at $C000 and
 // a block is 64 bytes. title.cc checks this against the generated
 // kTitleDefBitmapBase, which is what the sprite pointers are written from.
-static const uint8_t kTitleSpriteBlock = (0xCF00 - 0xC000) / 64;
+static const uint8_t kTitleSpriteBlock = (0xD000 - 0xC000) / 64;
 static const uint8_t kRasterScreenYStart = 50;
 
 // Sprites are switched off this many raster lines above the panel split, so

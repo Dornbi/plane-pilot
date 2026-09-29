@@ -50,10 +50,9 @@ FIXED = [
      'oscar64 runtime zero page (reserved; headroom checked by check_zeropage.py)'),
     (0x0100, 0x0200, None, '6502 hardware stack'),
     (0x0800, 0x0801, None, 'BASIC link byte'),
-    (0xCF00, 0xD000, 'Menu & Missions',
-     'title screen aircraft, 4 sprite blocks (mem.h kTitleSpriteData)'),
     (0xD000, 0xD400, 'Menu & Missions',
-     'map view screen RAM, under I/O (map.cc kMapScreenRam)'),
+     'map view screen RAM, time-shared with the title aircraft\'s 4 sprite '
+     'blocks, under I/O (map.cc kMapScreenRam, mem.h kTitleSpriteData)'),
     (0xD400, 0xE000, 'Instrument Panel',
      'sprite bitmaps, 48 blocks (mem.cc kSpriteData)'),
     (0xE000, 0xE800, 'Horizon Graphics',
@@ -141,9 +140,9 @@ DESCRIPTIONS = {
                 'map tiles, the compressed title aircraft bitmaps',
         'BSS': 'the flyby timer',
         'ZP': 'flyby position and state',
-        'VRAM': 'title aircraft sprite blocks at `$CF00-$CFFF`, and map view '
-                'screen RAM at `$D000-$D3FF`, RAM under I/O, live only while '
-                'the map is open',
+        'VRAM': '`$D000-$D3FF`, RAM under I/O, time-shared: the map view\'s '
+                'screen RAM while the map is open, the title aircraft\'s four '
+                'sprite blocks while the menu is',
     },
     'Message System': {
         'Code': 'status message timer, line formatter, clear and restore '
@@ -402,9 +401,9 @@ def parse_map(map_path):
     # one from mem.h. Pointed at vecdemo or vectest - built without it, and
     # without a VIC to speak of - every address above $D000 below would be
     # invented. Say so rather than printing a confident wrong number.
-    if not any(start == 0x0860 and end == 0xCF00 for start, end, _n in regions):
+    if not any(start == 0x0860 and end == 0xD000 for start, end, _n in regions):
         print(f"warning: {map_path} is not a __MAX_RAM__ build "
-              f"(no $0860-$CF00 main region); the fixed allocations below "
+              f"(no $0860-$D000 main region); the fixed allocations below "
               f"describe ppilot and do not apply.\n", file=sys.stderr)
 
 

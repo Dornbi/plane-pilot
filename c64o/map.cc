@@ -45,6 +45,11 @@ bool map_mode = false;
 // there to $DFFF exactly. Screen RAM needs 1000 of those 1024 bytes and
 // fits with 24 to spare -- there is no room here for a second buffer, and
 // anything larger dropped at $D000 would eat sprite blocks 80 and up.
+//
+// Free while the map is up, that is, not free outright: the title aircraft's
+// four sprite blocks live at $D000 as well (mem.h kTitleSpriteData). The map
+// may write over them because nothing shows them outside the menu, and
+// title_arm() expands them again every time the menu is painted.
 static uint8_t *const kMapBitmap = (uint8_t *)0xE000;
 static uint8_t *const kMapScreenRam = (uint8_t *)0xD000;
 static const uint16_t kMapBitmapSize = 8000;

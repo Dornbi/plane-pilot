@@ -51,10 +51,9 @@ program (`__MAX_RAM__`).
 | `$0060–$00FF` | zero page (oscar64 `zeropage` region)                      |
 | `$0200–$0280` | CPU stack (`#pragma stacksize(0x80)`)                      |
 | `$0280–$0800` | `bss2`, a second BSS region — full to the byte             |
-| `$0860–$CEFF` | code, data, bss, heap                                      |
-| `$CF00–$CFFF` | title screen aircraft, expanded from `titledef.bin`        |
+| `$0860–$CFFF` | code, data, bss, heap                                      |
 | `$D000–$DFFF` | I/O (`MMAP_NO_ROM`)                                        |
-| `$D000–$D3FF` | map view screen RAM, live only while the map is open       |
+| `$D000–$D3FF` | map view screen RAM while the map is open; the title screen aircraft, expanded from `titledef.bin`, while the menu is |
 | `$D400`       | sprite bitmaps, expanded from `spritedef.bin` at startup   |
 | `$D800`       | color RAM                                                  |
 | `$DA30`       | panel color rows (= `$D800 + 14*40`)                       |
@@ -607,7 +606,7 @@ The aeroplane goes off the left edge column by column with nothing snapping.
 4 × 8 pixel tile per map cell drawn from `mapdefs.cc`, then an overlay layer
 carrying the navpoint digits, the flight path and a compass, then two hardware
 sprites crossed into an aircraft marker. Screen RAM for it goes at `$D000`,
-under I/O, which is dead space in every other mode; the bitmap borrows
+under I/O, which only the title screen's aeroplane uses otherwise; the bitmap borrows
 `$E000–$FF3F` — character RAM, both screen buffers and the panel — and
 `screen_restore_simulation()` rebuilds all of it on the way out.
 
@@ -798,9 +797,9 @@ C64; `make -C c64o test` runs those.
   character viewport; the C64 uses 40 × 14. The Python renderer is a design
   tool, not a mirror of the shipped renderer.
 - **There is no traffic.** [planes.md](planes.md) specifies aircraft sprites in
-  full and nothing of it is written. Its §5 memory plan shares `$CF00–$CFFF`
-  with the title screen's aeroplane, which `title_arm()` re-expands on every
-  menu paint, and takes `$CCC0–$CEFF` from the top of the free run.
+  full and nothing of it is written. Its §5 memory plan puts the sprite
+  buffers under I/O at `$D000`, time-shared with the map view's screen RAM
+  and the title screen's aeroplane, so they cost the main region nothing.
 - **A single polygon can cost more than the rest of the frame.** On the runway
   it is 43,064 cycles, a third of everything measured. See
   [framerate.md](framerate.md).

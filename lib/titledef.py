@@ -3,16 +3,16 @@
 NUM_BITMAPS = 4
 COLS = 2
 ROWS = 2
-BITMAP_BASE = 60
+BITMAP_BASE = 64
 COLOR_MC0 = 2
 COLOR_MAIN = 10
 COLOR_MC1 = 15
 
 META = [
-    {'bitmap_idx': 60, 'label': 'Title aircraft top left'},
-    {'bitmap_idx': 61, 'label': 'Title aircraft top right'},
-    {'bitmap_idx': 62, 'label': 'Title aircraft bottom left'},
-    {'bitmap_idx': 63, 'label': 'Title aircraft bottom right'},
+    {'bitmap_idx': 64, 'label': 'Title aircraft top left'},
+    {'bitmap_idx': 65, 'label': 'Title aircraft top right'},
+    {'bitmap_idx': 66, 'label': 'Title aircraft bottom left'},
+    {'bitmap_idx': 67, 'label': 'Title aircraft bottom right'},
 ]
 
 PATTERNS = [

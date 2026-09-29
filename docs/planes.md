@@ -518,45 +518,53 @@ the roll.
 
 ## 5. Memory and sprite allocation
 
-### Sprite buffers must not live under I/O
+### Sprite buffers live under I/O, time-shared with the map
 
-`$D400–$DFFF` is all allocated — cloud art in 81–94, the orientation mark in
-80 — and would be the wrong place for dynamic buffers anyway: it is RAM under
-the SID, so every write needs `$01` switched to `MMAP_RAM`, which means
-interrupts off. Blocking the raster IRQ for the ~600 cycles of a 63-byte block
-would delay the panel split by ten raster lines and glitch the screen edge
-every frame. That region is fine for data written once at startup and wrong
-for anything written per frame.
+`$D000–$D3FF` is RAM under I/O that the VIC in bank 3 can read, and in
+flight nobody uses it. It is the map view's screen RAM while the map is open
+(`map.cc` `kMapScreenRam`) and the title aircraft's four blocks, pointers
+64–67, while the menu is (`mem.h` `kTitleSpriteData`). Traffic takes it for
+the rest of the time, which costs the main region nothing.
 
-Instead, carve the buffers out of the top of the main region, which is plain
-RAM inside VIC bank 3 and needs no banking at all.
+This section used to rule that out. Writing under I/O means switching `$01`
+to `MMAP_RAM`, and with oscar64's stock interrupt entry that meant interrupts
+off: blocking the raster IRQ for the ~600 cycles of a 63-byte block delays the
+panel split by ten raster lines and glitches the screen edge every frame. So
+the first plan carved 576 bytes out of the top of the main region instead, and
+time-shared a fourth page with the title aircraft, which then sat at `$CF00`.
 
-### The title aircraft's page is free in flight
-
-`$CF00–$CFFF` holds the title screen's aeroplane (`mem.h` `kTitleSpriteData`,
-pointers 60–63). It is not permanent: `title_arm()` expands it there from its
-compressed copy every time the menu is painted (`menu.cc`, `title.cc`), and
-nothing in flight reads it. So traffic can **time-share** it — the first
-version of this document assumed the page was lost and planned around 256
-bytes less. Phase 1 has to confirm that no screen reachable from flight shows
-the title sprites without going through `title_arm()`.
+The premise is gone. `gfx.cc`'s `_gfx_isr` is the library's entry with `$01`
+saved on the way in, `$35` for the handlers and the saved value put back on
+the way out, so the main line can bank I/O out with interrupts running. The
+renderer brackets its clear and fill with two `$01` writes, ten cycles a
+frame, and the split does not notice. That is measured rather than argued:
+`sta $d018` in the panel switch lands on the same cycles it always did, and a
+flight loop that banks I/O out for a PAL frame's worth of writes to `$D000`
+every frame renders pixel-identically. Through the library's entry the same
+loop locks the machine up.
 
 | Region | Blocks | Pointers | For |
 | :--- | :---: | :--- | :--- |
-| `$CCC0–$CCFF` | 1 | 51 | the static dot |
-| `$CD00–$CDFF` | 4 | 52–55 | the second-nearest plane: 2 sprites, double buffered |
-| `$CE00–$CEFF` | 4 | 56–59 | the nearest plane, with `$CF00`: 4 sprites, double buffered |
-| `$CF00–$CFFF` | 4 | 60–63 | time-shared with the title aircraft |
+| `$D000–$D03F` | 1 | 64 | the static dot |
+| `$D040–$D13F` | 4 | 65–68 | the second-nearest plane: 2 sprites, double buffered |
+| `$D140–$D33F` | 8 | 69–76 | the nearest plane: 4 sprites, double buffered |
+| `$D340–$D3FF` | 3 | 77–79 | spare |
 
-```c
-#pragma section(sprbuf, 0, , , bss)
-#pragma region( sprbuf, 0xCCC0, 0xCF00, , , {sprbuf} )
-#pragma region( main,   0x0860, 0xCCC0, , , {code, data, data_box, data_compr, bss, heap} )
-```
+No linker region: like `kTitleSpriteData`, these are addresses the linker
+never sees, and the main region keeps running to `$D000`.
 
-That is 576 bytes out of the free run at `$C360–$CEFF` (2,976 B, of 3,308 B
-free in all — [memory_map.md](memory_map.md)). The dot is written into its
-block once at startup, which is cheap here because `$CCC0` is plain RAM.
+Time-sharing costs two things, both on screen transitions rather than per
+frame:
+
+- `map_enter()` writes over all 1 KB, so `map_exit()` has to make the traffic
+  redraw — its caches invalidated, the dot rewritten — which is what
+  `box_invalidate()` and `view_invalidate_bitmap()` already do for theirs.
+- The menu writes the title into `$D000–$D0FF`, so the dot is written on every
+  entry to the simulation rather than once at startup.
+
+Neither transition leaves anything to check in the other direction:
+`title_arm()` re-expands the title on every menu paint, whatever flight or
+the map left there.
 
 **Block sets go by rank, not by plane.** The nearest aircraft gets the
 eight-block set and may use all four sprites; the second gets the four-block
@@ -601,31 +609,29 @@ in `planedemo.prg` measures (§11):
 
 | Item | Design | C port |
 | :--- | ---: | ---: |
-| Sprite buffers and the dot, `$CCC0–$CEFF` | 576 | 576 |
-| Time-shared with the title aircraft, `$CF00–$CFFF` | (256) | (256) |
+| Sprite buffers and the dot, 13 blocks at `$D000–$D33F`, under I/O | (832) | (832) |
 | Edge masks (8 + 8), byte offsets (6), the reciprocal table (42 × 2) | 100 | 106 |
 | Model data and layout tables | ~60 | ~110 |
 | Per-plane state — latches, up to 30 cached vertices and the `k` and axes they came from — 2 planes | ~150 | 184 |
 | Per-frame scratch: vertices, products, row extents | — | 355 |
 | Rasteriser code: edge trace and span fill | ~400 | 753 |
 | Pipeline code: projection, fuselage, level, layout, slide, caches | ~700 | 2,916 |
-| **Total** | **~2.0 KB** | **~5.0 KB** |
+| **Total, main RAM** | **~1.4 KB** | **~4.4 KB** |
 
-Against the stroke design's ~1.5 KB. The difference is mostly code — the
-fuselage, the layout and the slide — and the caches. The buffers cost only 64 bytes more than
-the old plan's 512, because half of the new ones are the title aircraft's, and
+Against the stroke design's ~1.5 KB, which counted 512 bytes of buffers in
+plain RAM. The difference is mostly code — the fuselage, the layout and the
+slide — and the caches; the buffers have left the main region altogether, and
 the rasteriser's tables shrank from 144 bytes to 100.
 
-The C port is 2.5 times the design, and `ppilot.prg` has 2,798 bytes free
-(`make -C c64o ram`) — of which the buffers above take 576 — so it does not
-fit as it stands. Everything it shares with `ppilot` is already there and
-costs nothing: `vec_fastmul8p8` and its byte multiply `vec_mul8`, `vec_fracn`
-behind `vec_frac16`, the quarter-square tables. Adding it needs, besides the
-table's ~5.0 KB, the glue this demo does not have — camera-space position and
-axes through the existing `vec_transform_inv` and `vec_transform3_inv`, the
-sprite stack's 2-wide and Y-expanded entries (§5), the block-set flip —
-estimated at 300–450 bytes: **~5.4 KB against ~2.8 KB free.** The ways to
-close the gap, in order of size:
+The C port is about three times the design, and `ppilot.prg` has 3,040 bytes
+free (`make -C c64o ram`), so it does not fit as it stands. Everything it
+shares with `ppilot` is already there and costs nothing: `vec_fastmul8p8` and
+its byte multiply `vec_mul8`, `vec_fracn` behind `vec_frac16`, the
+quarter-square tables. Adding it needs, besides the table's ~4.4 KB, the glue
+this demo does not have — camera-space position and axes through the existing
+`vec_transform_inv` and `vec_transform3_inv`, the sprite stack's 2-wide and
+Y-expanded entries (§5), the block-set flip — estimated at 300–450 bytes:
+**~4.8 KB against ~3.0 KB free.** The ways to close the gap, in order of size:
 
 - Write `planes_render()`'s layout and caches, and `_project()`, in assembly
   as the fill and the products already are: the pipeline code is where the
@@ -973,7 +979,7 @@ The levers, cheapest first:
 
 | # | Work | Notes |
 | --- | --- | --- |
-| 1 | `sprbuf` region, block sets, pointer flipping; time-share `$CF00` with the title | Verify VIC reads `$CCC0–$CFFF` correctly, and that no path from flight shows the title sprites without `title_arm()` |
+| 1 | Block sets at `$D000–$D33F`, pointer flipping, `$01` banked around the clear and the fill | The interrupt side is done (`gfx.cc` `_gfx_isr`). Redraw after `map_exit()`, which writes over all 1 KB, and rewrite the dot on entering the simulation |
 | 2 | Span fill across blocks, edge trace with the reciprocal table, convex fill, driven by hardcoded vertices | Check against `lib/planes.py`'s golden silhouettes |
 | 3 | Projection pipeline for one plane at a fixed world position, fuselage tube included | Fly around a parked aircraft and check the silhouette |
 | 4 | Levels, layouts, hysteresis, size clamp, slide; the stack's 2-wide and Y-expanded entries | The level comes from `d`, the layout from the box (§4) |

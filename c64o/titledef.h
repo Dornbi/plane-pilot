@@ -14,7 +14,7 @@ static const uint8_t kTitleDefRows = 2;
 static const uint8_t kTitleDefBitmapCount = 4;
 // First VIC sprite block; the four are consecutive. c64o/mem.h places
 // the bitmaps and asserts that its address agrees with this.
-static const uint8_t kTitleDefBitmapBase = 60;
+static const uint8_t kTitleDefBitmapBase = 64;
 
 // Bit pair 01 and 11 are the two screen-wide sprite multicolour
 // registers; bit pair 10 is each sprite's own colour, and all four
