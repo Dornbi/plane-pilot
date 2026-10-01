@@ -624,7 +624,7 @@ slide — and the caches; the buffers have left the main region altogether, and
 the rasteriser's tables shrank from 144 bytes to 100.
 
 The C port is about three times the design, and `ppilot.prg` has 3,040 bytes
-free (`make -C c64o ram`), so it does not fit as it stands. Everything it
+free (`make -C c64o pram`), so it does not fit as it stands. Everything it
 shares with `ppilot` is already there and costs nothing: `vec_fastmul8p8` and
 its byte multiply `vec_mul8`, `vec_fracn` behind `vec_frac16`, the
 quarter-square tables. Adding it needs, besides the table's ~4.4 KB, the glue

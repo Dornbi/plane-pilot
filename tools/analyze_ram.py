@@ -134,7 +134,7 @@ DESCRIPTIONS = {
     },
     'Menu & Missions': {
         'Code': 'menu loop, mission cursor, help screen, map view, title '
-                'screen flyby (`menu.cc`, `mission.cc`, `help.cc`, `map.cc`, '
+                'screen flyby (`menu.cc`, `pmission.cc`, `help.cc`, `map.cc`, '
                 '`title.cc`)',
         'Data': 'menu and mission text, mission definitions, help text, '
                 'map tiles, the compressed title aircraft bitmaps',

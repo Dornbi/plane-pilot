@@ -184,7 +184,7 @@ Feature table total        62,013 B
 
 ### 5. Menu & Missions (7,637 B)
 
-* **Code (3,225 B)**: menu loop, mission cursor, help screen, map view, title screen flyby (`menu.cc`, `mission.cc`, `help.cc`, `map.cc`, `title.cc`).
+* **Code (3,225 B)**: menu loop, mission cursor, help screen, map view, title screen flyby (`menu.cc`, `pmission.cc`, `help.cc`, `map.cc`, `title.cc`).
 * **Data (3,381 B)**: menu and mission text, mission definitions, help text, map tiles, the compressed title aircraft bitmaps.
 * **BSS (2 B)**: the flyby timer.
 * **ZP (5 B)**: flyby position and state.
@@ -284,7 +284,7 @@ global.** Pass the value in a register, or move the work after `mem_init()`.
 Both binaries, which is what the build runs:
 
 ```bash
-make ram
+make pram
 ```
 
 One map:

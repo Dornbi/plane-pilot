@@ -66,7 +66,11 @@ static void _menu_render_items(uint8_t scroll_offset) {
 static void _menu_enter(uint8_t scroll_offset) {
   screen_begin_text_page();
 
+#ifdef __FPILOT__
+  print_str(0, 13, STRL("FIGHTER PILOT"));
+#else
   print_str(0, 14, STRL("PLANE PILOT"));
+#endif
   print_str(3, 12, STRL("SELECT MISSION:"));
 
   _menu_render_items(scroll_offset);

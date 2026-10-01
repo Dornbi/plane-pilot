@@ -11,7 +11,7 @@ HOST_CC = g++
 HOST_CFLAGS = -O2 -std=c++17 -Wall -Wno-unknown-pragmas -I.. -D__FLIGHT_AOA__
 
 PROTO_SRC = aoa_proto.cc aoa.cc \
-		../flight.cc ../mission.cc ../world_map.cc ../vec.cc ../vec_lut.cc \
+		../flight.cc ../pmission.cc ../world_map.cc ../vec.cc ../vec_lut.cc \
 		../fmath.cc ../msg.cc
 PROTO_HDRS = aoa.h ../flight.h ../mission.h ../vec.h ../fmath.h ../msg.h
 

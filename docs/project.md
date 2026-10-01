@@ -617,7 +617,7 @@ The tile art is `gfx/ppilot_map_tiles.png`, which is the source of truth:
 sprite blob (`sprites.h`), cleared when a mission starts. [map.md](map.md) has
 the format, the colour budget and the coordinate conventions.
 
-### `mission.cc`
+### `pmission.cc`
 
 Ten missions (`kMissionCount`), from "01 AIRBORNE" through "10 FUEL
 CHALLENGE". There is no per-mission struct: everything is held in parallel
@@ -763,7 +763,7 @@ and generates the tables the C64 code compiles in.
 | `png2koa.py`            | `make panel`      | a `.koa` image from a 320×200 PNG — `c64o/panel.koa` from the panel art  |
 | `render_map_preview.py` | `make map-preview`| `out/map_preview.png` — the tiles composited over `kWorldMap`            |
 | `render_cloud_preview.py` | `make cloud-preview` | `out/cloud_preview.png` plus the density and slot-demand tables     |
-| `analyze_ram.py`        | `make ram`        | the RAM breakdown in [memory_map.md](memory_map.md)                     |
+| `analyze_ram.py`        | `make pram`       | the RAM breakdown in [memory_map.md](memory_map.md)                     |
 
 `make data` runs the six generator targets together; `make panel` is separate,
 because the panel art changes rarely and its optimizer takes a while. The

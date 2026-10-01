@@ -18,9 +18,9 @@ PANEL_FLAGS = --bg-color 0 --optimize-slots \
 
 # The programs c64o/Makefile builds. `make release` publishes these from
 # c64o/ (build output, gitignored) to bin/ (checked in, what README links to).
-PROGRAMS = ppilot ppilota polydemo vecdemo vectest
+PROGRAMS = ppilot ppilota fpilot polydemo vecdemo vectest
 
-.PHONY: help data chardefs gfx-chars sprites clouds planes map-tiles map-tiles-draft panel music map-preview cloud-preview render demo prg ram release test clean
+.PHONY: help data chardefs gfx-chars sprites clouds planes map-tiles map-tiles-draft panel music map-preview cloud-preview render demo prg pram fram release test clean
 
 help:
 	@echo "Data generation:"
@@ -41,8 +41,9 @@ help:
 	@echo "  make render      - render all roll angles to out/rendered_frames"
 	@echo "  make demo        - interactive roll/pitch demo (needs pygame)"
 	@echo "  make prg         - build the C64 binaries via c64o/Makefile (needs oscar64),"
-	@echo "                     then report the ppilot.prg and ppilota.prg sizes"
-	@echo "  make ram         - report RAM usage breakdown by feature from c64o/ppilot.map"
+	@echo "                     then report the ppilot.prg, ppilota.prg and fpilot.prg sizes"
+	@echo "  make pram        - report RAM usage breakdown by feature from c64o/ppilot.map"
+	@echo "  make fram        - the same for c64o/fpilot.map"
 	@echo "  make release     - build, then publish the .prg files to bin/"
 	@echo ""
 	@echo "  make test        - run the Python test suite"
@@ -116,8 +117,11 @@ demo:
 prg:
 	$(MAKE) -C c64o
 
-ram:
+pram:
 	$(PYTHON) tools/analyze_ram.py c64o/ppilot.map
+
+fram:
+	$(PYTHON) tools/analyze_ram.py c64o/fpilot.map
 
 # Publish the freshly built binaries. bin/ is the only copy anyone downloads,
 # so this is the step that keeps it from drifting behind c64o/.

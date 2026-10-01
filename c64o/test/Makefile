@@ -66,14 +66,14 @@ OSCAR64_INCLUDE ?= ../../../../oscar64-main/include
 # flags that only make sense for a program with a display.
 TARGET_CFLAGS = -ii=$(OSCAR64_INCLUDE) -D__OSCAR64__ -g -O2 -Oz $(FLIGHT_MODEL)
 
-FLIGHT_TEST_SRC = flight_test.cc host_vec.cc ../flight.cc ../mission.cc ../world_map.cc ../vec.cc \
+FLIGHT_TEST_SRC = flight_test.cc host_vec.cc ../flight.cc ../pmission.cc ../world_map.cc ../vec.cc \
 		../vec_lut.cc ../fmath.cc ../msg.cc
 FLIGHT_TEST_HDRS = ../flight.h ../mission.h ../vec.h ../fmath.h ../msg.h
 
 MSG_TEST_SRC = msg_test.cc ../msg.cc
 MSG_TEST_HDRS = ../msg.h
 
-MAP_TEST_SRC = map_test.cc ../mission.cc ../world_map.cc
+MAP_TEST_SRC = map_test.cc ../pmission.cc ../world_map.cc
 MAP_TEST_HDRS = ../mission.h ../world.h
 
 # sound_test links sound.cc alone. The flight globals it reads are defined in

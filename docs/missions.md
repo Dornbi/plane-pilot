@@ -1,7 +1,7 @@
 # Missions (`missions.md`)
 
 What each of the ten missions asks for, and what it costs to fly. The data
-itself is in [`mission.cc`](../c64o/mission.cc); the checks that read it are
+itself is in [`pmission.cc`](../c64o/pmission.cc); the checks that read it are
 `_flight_check_mission_waypoints()` in [`flight.cc`](../c64o/flight.cc).
 
 See [project.md](project.md) for the surrounding architecture and

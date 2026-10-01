@@ -42,6 +42,7 @@ Alternatively, download the binary and upload it to any of the online or offline
 
 - [ppilot.prg](bin/ppilot.prg) — the whole game: sound effects, music, and the debug view behind `D`
 - [ppilota.prg](bin/ppilota.prg) — the same game with the angle-of-attack flight model (see the 2026-09-12 note below)
+- [fpilot.prg](bin/fpilot.prg) — Fighter Pilot, a combat variant in the making; for now the same aircraft with one mission of its own
 
 Emulators:
 

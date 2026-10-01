@@ -197,7 +197,7 @@ Set the pair into the overlay layer with
 
 Unpacked parallel arrays, not a struct. A 10-byte struct would need a
 multiply by 10 on every access, which the 6510 has no addressing mode for.
-This also matches how `mission.cc`, `boxdefs.cc` and `world_map.cc` already
+This also matches how `pmission.cc`, `boxdefs.cc` and `world_map.cc` already
 store their tables.
 
 ```c

@@ -24,6 +24,10 @@ make prg
 If everything goes well it builds these executables into `c64o/`:
 
 - `ppilot.prg`: The game. Sound, music and the debug view behind `D`.
+- `ppilota.prg`: The same game with the angle-of-attack flight model.
+- `fpilot.prg`: Fighter Pilot, the combat variant. Built from the same
+  `ppilot.cc` with `-D__FPILOT__`; for now that only swaps the mission table
+  for the one in `fmission.cc` (one mission) and renames the menu.
 - `polydemo.prg`: Polygon rendering prototype.
 - `vecdemo.prg`: Simple character mode prototype of the dots on the ground.
 - `vectest.prg`: Correctness test and cycle count for 3D vector operations.
@@ -207,7 +211,8 @@ make map-preview   # render out/map_preview.png from the current tiles
 make cloud-preview # render out/cloud_preview.png and report the cloud density
 make render        # render all roll angles to out/
 make prg           # build the C64 binaries via c64o/Makefile
-make ram           # RAM breakdown by feature from c64o/ppilot.map
+make pram          # RAM breakdown by feature from c64o/ppilot.map
+make fram          # the same for c64o/fpilot.map
 make help          # list everything
 ```
 

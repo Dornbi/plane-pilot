@@ -25,6 +25,11 @@ PPILOT_PROGRAM = ppilot
 # sources, one define, and its own name so both can exist at once and be flown
 # against each other.
 PPILOTA_PROGRAM = ppilota
+# Fighter Pilot: a different game on the same engine, with air-to-air combat
+# and missions of its own. Also built from ppilot.cc, with -D__FPILOT__, which
+# for now does no more than swap pmission.cc for fmission.cc (mission.h)
+# and put its own name on the menu. Arcade flight model, as ppilot.
+FPILOT_PROGRAM = fpilot
 PPILOT_SRC = \
 		bcd.cc \
 		bcd.h \
@@ -65,7 +70,8 @@ PPILOT_SRC = \
 		flight.h \
 		flight.cc \
 		mission.h \
-		mission.cc \
+		pmission.cc \
+		fmission.cc \
 		music.h \
 		music.cc \
 		musicdef.h \
@@ -260,19 +266,24 @@ define prg_size
 		"$(1)" "$$bytes" "$$image" "$$start" "$$end"
 endef
 
-all: $(PPILOT_PROGRAM).prg $(PPILOTA_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg $(PLANEDEMO_PROGRAM).prg test
+all: $(PPILOT_PROGRAM).prg $(PPILOTA_PROGRAM).prg $(FPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg $(PLANEDEMO_PROGRAM).prg test
 	@echo ""
 	$(call prg_size,$(PPILOT_PROGRAM).prg)
 	$(call prg_size,$(PPILOTA_PROGRAM).prg)
+	$(call prg_size,$(FPILOT_PROGRAM).prg)
 
 # Standalone, so the size can be checked without provoking a build. Reports
 # whatever is on disk now; run `make` first if that might be stale.
 size:
 	$(call prg_size,$(PPILOT_PROGRAM).prg)
 	$(call prg_size,$(PPILOTA_PROGRAM).prg)
+	$(call prg_size,$(FPILOT_PROGRAM).prg)
 
-ram:
+pram:
 	$(RAMANALYSIS) $(PPILOT_PROGRAM).map
+
+fram:
+	$(RAMANALYSIS) $(FPILOT_PROGRAM).map
 
 $(PPILOT_PROGRAM).prg: $(PPILOT_SRC) $(FLIGHT_STAMP)
 	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(DEBUG) $(CLOUDS) $(FLIGHT_MODEL) -D__MAX_RAM__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
@@ -291,6 +302,15 @@ $(PPILOTA_PROGRAM).prg: $(PPILOT_SRC)
 	@$(IRQCHECK) $(PPILOTA_PROGRAM).asm
 	@$(MATHCHECK) $(PPILOTA_PROGRAM).asm
 	@$(ROMCHECK) $(PPILOTA_PROGRAM).asm
+
+# Not on FLIGHT_STAMP either, for the same reason: its model does not follow
+# FLIGHT_AOA.
+$(FPILOT_PROGRAM).prg: $(PPILOT_SRC)
+	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(DEBUG) $(CLOUDS) -D__FPILOT__ -D__MAX_RAM__ -o=$(FPILOT_PROGRAM).prg ppilot.cc
+	@$(ZPCHECK) $(FPILOT_PROGRAM).asm
+	@$(IRQCHECK) $(FPILOT_PROGRAM).asm
+	@$(MATHCHECK) $(FPILOT_PROGRAM).asm
+	@$(ROMCHECK) $(FPILOT_PROGRAM).asm
 
 $(POLYDEMO_PROGRAM).prg: $(POLYDEMO_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) -D__DEBUG_CYCLES__ -D__DEBUG_POLY__ -D__MAX_RAM__ polydemo.cc
@@ -323,27 +343,27 @@ planedemo_prof.prg: $(PLANEDEMO_SRC)
 
 # Re-run the checks on whatever is already built, without provoking a build.
 zpcheck:
-	$(ZPCHECK) $(PPILOT_PROGRAM).asm $(PPILOTA_PROGRAM).asm \
+	$(ZPCHECK) $(PPILOT_PROGRAM).asm $(PPILOTA_PROGRAM).asm $(FPILOT_PROGRAM).asm \
 		$(POLYDEMO_PROGRAM).asm $(VECDEMO_PROGRAM).asm $(VECTEST_PROGRAM).asm
-	$(IRQCHECK) $(PPILOT_PROGRAM).asm $(PPILOTA_PROGRAM).asm \
+	$(IRQCHECK) $(PPILOT_PROGRAM).asm $(PPILOTA_PROGRAM).asm $(FPILOT_PROGRAM).asm \
 		$(POLYDEMO_PROGRAM).asm
 
 mathcheck:
-	$(MATHCHECK) $(PPILOT_PROGRAM).asm $(PPILOTA_PROGRAM).asm \
+	$(MATHCHECK) $(PPILOT_PROGRAM).asm $(PPILOTA_PROGRAM).asm $(FPILOT_PROGRAM).asm \
 		$(POLYDEMO_PROGRAM).asm $(VECDEMO_PROGRAM).asm $(PLANEDEMO_PROGRAM).asm
 
 romcheck:
-	$(ROMCHECK) $(PPILOT_PROGRAM).asm $(PPILOTA_PROGRAM).asm \
+	$(ROMCHECK) $(PPILOT_PROGRAM).asm $(PPILOTA_PROGRAM).asm $(FPILOT_PROGRAM).asm \
 		$(POLYDEMO_PROGRAM).asm
 
 test flight_test msg_test:
 	$(MAKE) -C test $@
 
 clean:
-	rm -rf $(PPILOT_PROGRAM).prg $(PPILOTA_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg $(PLANEDEMO_PROGRAM).prg planedemo_prof.prg *.asm *.dbj *.int *.lbl *.map $(FLIGHT_STAMP)
+	rm -rf $(PPILOT_PROGRAM).prg $(PPILOTA_PROGRAM).prg $(FPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg $(PLANEDEMO_PROGRAM).prg planedemo_prof.prg *.asm *.dbj *.int *.lbl *.map $(FLIGHT_STAMP)
 	$(MAKE) -C test clean
 
-.PHONY: all size ram zpcheck mathcheck romcheck test flight_test msg_test clean
+.PHONY: all size pram fram zpcheck mathcheck romcheck test flight_test msg_test clean
 
 # ZPCHECK runs after the link, so a program that fails it already exists on
 # disk. Without this, the next make would find the .prg newer than its sources,
