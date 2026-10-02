@@ -40,7 +40,7 @@ const uint8_t kCloudHashB[32] = {
 //   rung 7: 17 x2 world px, out to   723 units ( 1446 m)
 //   rung 8: 19 x2 world px, out to   647 units ( 1294 m)
 //   rung 9: 21 x2 world px, out to   585 units ( 1170 m)
-const int16_t kCloudRungDepth[kCloudRungCount] = {
+__striped const int16_t kCloudRungDepth[kCloudRungCount] = {
     4096, 2458, 1755, 1365, 1117,
     945, 819, 723, 647, 585,
 };

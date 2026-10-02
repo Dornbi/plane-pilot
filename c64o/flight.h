@@ -155,8 +155,8 @@ static const uint8_t kMaxNavPoints = 4;
 // Navpoint positions in world coordinates, high byte = world unit. Read by
 // the map view to place the navpoint digits; flight_num_nav_points is how
 // many of the arrays are live.
-extern uint16_t flight_nav_point_x[kMaxNavPoints];
-extern uint16_t flight_nav_point_y[kMaxNavPoints];
+extern __striped uint16_t flight_nav_point_x[kMaxNavPoints];
+extern __striped uint16_t flight_nav_point_y[kMaxNavPoints];
 extern uint8_t flight_num_nav_points;
 
 // Recent flight path, in the map view's pixel space: 0..127 on both axes over

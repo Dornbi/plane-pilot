@@ -51,7 +51,7 @@ extern const uint8_t kCloudHashX[8];
 extern const uint8_t kCloudHashY[16];
 extern const uint8_t kCloudHashA[32];
 extern const uint8_t kCloudHashB[32];
-extern const int16_t kCloudRungDepth[kCloudRungCount];
+extern __striped const int16_t kCloudRungDepth[kCloudRungCount];
 extern const int8_t kCloudGroupOffset[kCloudPatternCount][kCloudBlobsPerGroup][3];
 
 #pragma compile("clouddef.cc")

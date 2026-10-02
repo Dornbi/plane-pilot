@@ -35,9 +35,9 @@ mat3_t world_cam;
 
 static vec3_t _world_dx4[9];
 static vec3_t _world_dy4[9];
-static int16_t _world_mitch_x[16];
-static int16_t _world_mitch_y[16];
-static int16_t _world_mitch_z[16];
+__striped static int16_t _world_mitch_x[16];
+__striped static int16_t _world_mitch_y[16];
+__striped static int16_t _world_mitch_z[16];
 
 // Mitchell's Best-Candidate algorithm to maximize distance between points
 // while maintaining an organic, non-linear distribution.

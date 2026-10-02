@@ -527,7 +527,7 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
     # RollAngle is 0..59 (calculated in roll_angle.py)
     # We should generate tables main_boxes[60] and alt_boxes[60]
     
-    content += "const boxdef_t* const main_boxes[60] = {\n"
+    content += "__striped const boxdef_t* const main_boxes[60] = {\n"
     for r_idx in range(60):
         # Find box name for this roll index (main)
         # Roll names are like R8, R16U1...
@@ -543,7 +543,7 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
             content += "    NULL,\n"
     content += "};\n\n"
 
-    content += "const boxdef_t* const alt_boxes[60] = {\n"
+    content += "__striped const boxdef_t* const alt_boxes[60] = {\n"
     for r_idx in range(60):
         from . import roll_angle
         roll = roll_angle.RollAngle(r_idx)

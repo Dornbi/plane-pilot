@@ -46,7 +46,7 @@ static const uint8_t kBlockDot = kBlockSets + 8; // 40
 
 // print.cc and benchmark.cc find the screen through these.
 uint8_t *mem_screen_ram;
-uint8_t *mem_screen_row_ptrs[25];
+__striped uint8_t *mem_screen_row_ptrs[25];
 bool mem_debug_enabled = true;
 
 // The whole screen is the viewport: the aircraft is centred on it, and there

@@ -181,8 +181,8 @@ static __noinline int16_t _flight_step_s(int16_t v) {
 // in two different index spaces: flight_waypoint_nav is indexed by
 // waypoint-within-mission and flight_nav_point_* by navpoint. Four is the
 // cap on both -- see kMaxNavPoints in flight.h.
-uint16_t flight_nav_point_x[kMaxNavPoints];
-uint16_t flight_nav_point_y[kMaxNavPoints];
+__striped uint16_t flight_nav_point_x[kMaxNavPoints];
+__striped uint16_t flight_nav_point_y[kMaxNavPoints];
 static uint8_t flight_waypoint_nav[kMaxNavPoints];
 uint8_t flight_num_nav_points = 0;
 

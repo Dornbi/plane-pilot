@@ -7,7 +7,7 @@
 
 // Declare these as external dependency instead
 extern uint8_t *mem_screen_ram;
-extern uint8_t *mem_screen_row_ptrs[25];
+extern __striped uint8_t *mem_screen_row_ptrs[25];
 
 // Only reached on screen transitions and in the debug view, never from the
 // per-frame render path, so the outliner's size-for-a-JSR trade is free here.

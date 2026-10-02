@@ -9,6 +9,7 @@
 #define __memmap
 #define __noinline
 #define __zeropage
+#define __striped
 #endif
 
 // We barely use the stack, make it smaller than the default.
@@ -220,12 +221,12 @@ extern uint8_t *kColorRam;
 // Current screen ram.
 extern uint8_t *mem_screen_ram;
 // Multiply by 40 for screen row offset for the viewport.
-extern uint8_t *mem_screen_row_ptrs[kScreenHeight];
+extern __striped uint8_t *mem_screen_row_ptrs[kScreenHeight];
 
 // Color buffer. Unlike the screen ram, this is fixed.
 // extern uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
 extern uint8_t *const mem_color_buffer;
-extern uint8_t *const mem_color_row_ptrs[kViewportHeight];
+extern __striped uint8_t *const mem_color_row_ptrs[kViewportHeight];
 
 // The starting character for the box characters.
 extern uint8_t mem_box_char_start;

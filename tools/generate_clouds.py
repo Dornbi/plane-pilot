@@ -500,7 +500,7 @@ def write_header(path, seed):
         f.write("extern const uint8_t kCloudHashY[%d];\n" % CELLS_Y)
         f.write("extern const uint8_t kCloudHashA[32];\n")
         f.write("extern const uint8_t kCloudHashB[32];\n")
-        f.write("extern const int16_t kCloudRungDepth[kCloudRungCount];\n")
+        f.write("extern __striped const int16_t kCloudRungDepth[kCloudRungCount];\n")
         f.write("extern const int8_t "
                 "kCloudGroupOffset[kCloudPatternCount][kCloudBlobsPerGroup][3];"
                 "\n\n")
@@ -528,7 +528,7 @@ def write_source(path, tables):
             w = 3 + 2 * i
             f.write("//   rung %d: %2d x2 world px, out to %5d units (%5d m)\n"
                     % (i, w, d, d * 2))
-        f.write("const int16_t kCloudRungDepth[kCloudRungCount] = {\n%s\n};\n\n"
+        f.write("__striped const int16_t kCloudRungDepth[kCloudRungCount] = {\n%s\n};\n\n"
                 % _rows(depths, 5))
 
         f.write("// Group layout (§2.5), in halves of kCloudOffsetU along the\n"

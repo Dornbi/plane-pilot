@@ -101,6 +101,7 @@ def generate_c64_headers():
         # was declared returning `unsigned char` and defined returning `bool`.
         # That built on Linux/gcc and failed on macOS/clang.
         f.write("#include <stdint.h>\n\n")
+        f.write("#ifndef __OSCAR64__\n#define __striped\n#endif\n\n")
         f.write("// The tune is behind __ENABLE_SOUND__, which ppilot.prg\n")
         f.write("// defines and polydemo does not - none of the tables in\n")
         f.write("// musicdef.cc should reach a build without it. See\n")
@@ -131,7 +132,7 @@ def generate_c64_headers():
         f.write("    uint16_t freq_step;\n")
         f.write("};\n\n")
         rows = t1['total_rows']
-        f.write("extern const uint16_t kMusicNoteTable[12];\n\n")
+        f.write("extern __striped const uint16_t kMusicNoteTable[12];\n\n")
 
         f.write("// Master volume per bar, low nibble of $D418. Composed with\n")
         f.write("// sound_volume through the 3 x 16 table in music.cc, never\n")
@@ -242,7 +243,7 @@ def generate_c64_source():
         f.write("// Do not edit; run `make music`.\n\n")
         f.write("#ifdef __ENABLE_SOUND__\n\n")
         f.write("// Octave-6 note table (12 entries)\n")
-        f.write("const uint16_t kMusicNoteTable[12] = {\n    ")
+        f.write("__striped const uint16_t kMusicNoteTable[12] = {\n    ")
         f.write(", ".join(str(v) for v in music.NOTE6))
         f.write("\n};\n\n")
 

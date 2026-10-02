@@ -47,7 +47,7 @@ static const uint8_t kMasterVolume[kSoundVolumeSteps] = {0, 7, 15};
 // Values are f * 16777216 / 985248, the PAL conversion. On NTSC the same
 // numbers come out about 3.8% sharp, which for an engine drone with no
 // reference pitch is not perceptible and does not justify a second table.
-static const uint16_t kSoundEngineFreq[kMaxThrottle + 1] = {
+__striped static const uint16_t kSoundEngineFreq[kMaxThrottle + 1] = {
     0x0353, 0x036E, 0x038A, 0x03A6, 0x03C3, //  0.. 4   50.0 ..  56.6 Hz
     0x03E2, 0x0401, 0x0421, 0x0442, 0x0465, //  5.. 9   58.4 ..  66.0 Hz
     0x0488, 0x04AC, 0x04D2, 0x04F9, 0x0521, // 10..14   68.1 ..  77.1 Hz
@@ -109,7 +109,7 @@ static uint8_t _sound_pwm_phase;
 static const uint8_t kSoundWindSpeedShift = 8;
 static const uint8_t kSoundWindSteps = (kMaxSpeed >> kSoundWindSpeedShift) + 1;
 
-static const uint16_t kSoundWindFreq[kSoundWindSteps] = {
+__striped static const uint16_t kSoundWindFreq[kSoundWindSteps] = {
     0x0600, 0x0695, 0x0738, 0x07EB, //  0.. 3  1443 .. 1905 shifts/sec
     0x08AF, 0x0986, 0x0A72, 0x0B75, //  4.. 7  2089 .. 2756
     0x0C91, 0x0DC9, 0x0F1E, 0x1095, //  8..11  3023 .. 3989

@@ -36,7 +36,7 @@ const int8_t kRollDy[kRollMax] = _VALUES_FOR_ANGLES;
 // Could not get this to work with a macro. Should be something like:
 #define _VALUE(x, y) (x) * 16 / (y)
 #define _VALUE0(x, y) 0
-const int kRollDxDivDy[kRollMax] = _VALUES_FOR_ANGLES;
+__striped const int kRollDxDivDy[kRollMax] = _VALUES_FOR_ANGLES;
 #undef _VALUE
 #undef _VALUE0
 

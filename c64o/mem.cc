@@ -39,7 +39,7 @@ bool mem_using_alt_buffer;
 // value this must never power up holding.
 volatile uint8_t mem_den = 0x10;
 
-static uint8_t *const kScreenRowPtrsMain[kScreenHeight] = {
+__striped static uint8_t *const kScreenRowPtrsMain[kScreenHeight] = {
     kScreenRamMain + kScreenWidth * 0,  kScreenRamMain + kScreenWidth * 1,
     kScreenRamMain + kScreenWidth * 2,  kScreenRamMain + kScreenWidth * 3,
     kScreenRamMain + kScreenWidth * 4,  kScreenRamMain + kScreenWidth * 5,
@@ -54,7 +54,7 @@ static uint8_t *const kScreenRowPtrsMain[kScreenHeight] = {
     kScreenRamMain + kScreenWidth * 22, kScreenRamMain + kScreenWidth * 23,
     kScreenRamMain + kScreenWidth * 24};
 
-static uint8_t *const kScreenRowPtrsAlt[kScreenHeight] = {
+__striped static uint8_t *const kScreenRowPtrsAlt[kScreenHeight] = {
     kScreenRamAlt + kScreenWidth * 0,  kScreenRamAlt + kScreenWidth * 1,
     kScreenRamAlt + kScreenWidth * 2,  kScreenRamAlt + kScreenWidth * 3,
     kScreenRamAlt + kScreenWidth * 4,  kScreenRamAlt + kScreenWidth * 5,
@@ -70,12 +70,12 @@ static uint8_t *const kScreenRowPtrsAlt[kScreenHeight] = {
     kScreenRamAlt + kScreenWidth * 24};
 
 uint8_t *mem_screen_ram;
-uint8_t *mem_screen_row_ptrs[kScreenHeight];
+__striped uint8_t *mem_screen_row_ptrs[kScreenHeight];
 
 // uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
 // Reuse kSpriteDsataCompressed.
 uint8_t *const mem_color_buffer = (uint8_t *const)kSpriteDataCompressed;
-uint8_t *const mem_color_row_ptrs[kViewportHeight] = {
+__striped uint8_t *const mem_color_row_ptrs[kViewportHeight] = {
     kSpriteDataCompressed + kViewportWidth * 0,
     kSpriteDataCompressed + kViewportWidth * 1,
     kSpriteDataCompressed + kViewportWidth * 2,

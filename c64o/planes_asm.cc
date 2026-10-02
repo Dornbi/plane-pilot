@@ -99,6 +99,11 @@ static uint8_t _y0, _y1, _fi, _xt, _yt, _xe, _ye, _dy, _cnt, _row;
 static uint8_t _dxl, _dxh, _sl, _sh, _hl, _hh, _xbl, _xbh;
 static uint8_t _pa, _pb, _t, _base, _jb;
 
+// kPlaneRecip is striped, its high bytes kPlaneRecipCount after the low ones,
+// and the inline assembler takes only a literal offset - so the fill spells
+// it 42, and this holds the generator to it.
+static_assert(kPlaneRecipCount == 42, "update kPlaneRecip + 42 in the fill");
+
 // _planes_fill_poly() on _fs and _fn.
 static void _fill_poly(void) {
   // clang-format off
@@ -239,10 +244,8 @@ static void _fill_poly(void) {
         adc #1;
     L_dx_pos:
         sta _t;
-        lda _dy;
-        asl;
-        tay;
-        lda kPlaneRecip + 1, y;
+        ldy _dy;
+        lda kPlaneRecip + 42, y;  // striped: the high bytes, see below
         sta vec_mul8_b;
         lda kPlaneRecip, y;
         sta _pa;

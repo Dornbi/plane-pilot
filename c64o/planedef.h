@@ -5,6 +5,10 @@
 
 #include <stdint.h>
 
+#ifndef __OSCAR64__
+#define __striped
+#endif
+
 // The model, in eighths of a metre at the exaggeration, as shared products:
 // every distinct magnitude is multiplied by k once, and every (axis,
 // magnitude) pair by the two screen components of its axis once.
@@ -44,7 +48,10 @@ static const uint8_t kPlaneColsHold[3] = {0, 20, 40};  // by xs
 static const uint8_t kPlaneRowsHold[3] = {0, 17, 34};  // by ys
 
 // 65536 / dy for every edge height; entries 0 to 2 are never read (dy 1
-// and 2 are shifts, and 32768 would not fit a signed multiplier).
-static const uint16_t kPlaneRecip[42] = {0, 0, 0, 21845, 16384, 13107, 10922, 9362, 8192, 7281, 6553, 5957, 5461, 5041, 4681, 4369, 4096, 3855, 3640, 3449, 3276, 3120, 2978, 2849, 2730, 2621, 2520, 2427, 2340, 2259, 2184, 2114, 2048, 1985, 1927, 1872, 1820, 1771, 1724, 1680, 1638, 1598};
+// and 2 are shifts, and 32768 would not fit a signed multiplier). Striped:
+// all the low bytes, then all the high ones, so planes_asm.cc indexes both
+// halves with dy itself.
+static const uint8_t kPlaneRecipCount = 42;
+__striped static const uint16_t kPlaneRecip[kPlaneRecipCount] = {0, 0, 0, 21845, 16384, 13107, 10922, 9362, 8192, 7281, 6553, 5957, 5461, 5041, 4681, 4369, 4096, 3855, 3640, 3449, 3276, 3120, 2978, 2849, 2730, 2621, 2520, 2427, 2340, 2259, 2184, 2114, 2048, 1985, 1927, 1872, 1820, 1771, 1724, 1680, 1638, 1598};
 
 #endif

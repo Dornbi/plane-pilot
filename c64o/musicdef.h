@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifndef __OSCAR64__
+#define __striped
+#endif
+
 // The tune is behind __ENABLE_SOUND__, which ppilot.prg
 // defines and polydemo does not - none of the tables in
 // musicdef.cc should reach a build without it. See
@@ -36,7 +40,7 @@ struct music_instrument_t {
     uint16_t freq_step;
 };
 
-extern const uint16_t kMusicNoteTable[12];
+extern __striped const uint16_t kMusicNoteTable[12];
 
 // Master volume per bar, low nibble of $D418. Composed with
 // sound_volume through the 3 x 16 table in music.cc, never

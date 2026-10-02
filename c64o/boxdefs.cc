@@ -1170,7 +1170,7 @@ static const boxdef_t box_u8_alt_def = {
     box_u8_alt_chars // box_chars
 };
 
-const boxdef_t* const main_boxes[60] = {
+__striped const boxdef_t* const main_boxes[60] = {
     &box_r8_def, // 0: BOX_R8
     &box_r16u1_def, // 1: BOX_R16U1
     &box_r8u1_def, // 2: BOX_R8U1
@@ -1233,7 +1233,7 @@ const boxdef_t* const main_boxes[60] = {
     &box_r16d1_def, // 59: BOX_R16D1
 };
 
-const boxdef_t* const alt_boxes[60] = {
+__striped const boxdef_t* const alt_boxes[60] = {
     &box_r8_alt_def, // 0: BOX_R8_ALT
     NULL,
     NULL,

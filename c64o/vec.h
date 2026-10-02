@@ -21,6 +21,7 @@
 #define __noinline
 #endif
 #define __zeropage
+#define __striped
 // Multiplies vec_mul_a and b (16-bit signed integers). Interprets b as 8.8
 // fixed point, and returns the middle 16-bits of the 32-bit result. Note:
 // optimized for |b| <= 256.

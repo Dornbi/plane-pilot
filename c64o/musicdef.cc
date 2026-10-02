@@ -6,7 +6,7 @@
 #ifdef __ENABLE_SOUND__
 
 // Octave-6 note table (12 entries)
-const uint16_t kMusicNoteTable[12] = {
+__striped const uint16_t kMusicNoteTable[12] = {
     17820, 18880, 20003, 21192, 22452, 23787, 25202, 26700, 28288, 29970, 31752, 33640
 };
 

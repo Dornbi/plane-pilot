@@ -100,6 +100,10 @@ def write_def(model):
     w("")
     w("#include <stdint.h>")
     w("")
+    w("#ifndef __OSCAR64__")
+    w("#define __striped")
+    w("#endif")
+    w("")
     w("// The model, in eighths of a metre at the exaggeration, as shared products:")
     w("// every distinct magnitude is multiplied by k once, and every (axis,")
     w("// magnitude) pair by the two screen components of its axis once.")
@@ -142,9 +146,12 @@ def write_def(model):
         floor_of(h * 1 * (planes.ROWS - 1)), floor_of(h * 2 * (planes.ROWS - 1))))
     w("")
     w("// 65536 / dy for every edge height; entries 0 to 2 are never read (dy 1")
-    w("// and 2 are shifts, and 32768 would not fit a signed multiplier).")
-    w("static const uint16_t kPlaneRecip[%d] = {%s};" % (
-        len(planes.RECIP), ", ".join(str(v if i > 2 else 0) for i, v in enumerate(planes.RECIP))))
+    w("// and 2 are shifts, and 32768 would not fit a signed multiplier). Striped:")
+    w("// all the low bytes, then all the high ones, so planes_asm.cc indexes both")
+    w("// halves with dy itself.")
+    w("static const uint8_t kPlaneRecipCount = %d;" % len(planes.RECIP))
+    w("__striped static const uint16_t kPlaneRecip[kPlaneRecipCount] = {%s};" % (
+        ", ".join(str(v if i > 2 else 0) for i, v in enumerate(planes.RECIP))))
     w("")
     w("#endif")
     with open(DEF_PATH, "w") as f:
