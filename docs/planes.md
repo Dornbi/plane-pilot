@@ -623,7 +623,7 @@ plain RAM. The difference is mostly code — the fuselage, the layout and the
 slide — and the caches; the buffers have left the main region altogether, and
 the rasteriser's tables shrank from 144 bytes to 100.
 
-The C port is about three times the design, and `ppilot.prg` has 3,796 bytes
+The C port is about three times the design, and `ppilot.prg` has 3,849 bytes
 free (`make -C c64o pram`), so it does not fit as it stands. Everything it
 shares with `ppilot` is already there and costs nothing: `vec_fastmul8p8` and
 its byte multiply `vec_mul8`, `vec_fracn` behind `vec_frac16`, the
@@ -632,7 +632,7 @@ this demo does not have — camera-space position and axes through the existing
 `vec_transform_inv` and `vec_transform3_inv`, the sprite stack's 2-wide and
 Y-expanded entries (§5), the block-set flip — estimated at 300–450 bytes:
 **~4.8 KB against ~3.8 KB free.** `fpilot.prg`, the game traffic is for, has
-4,976 (`make -C c64o fram`): the port would just about fit there, with nothing
+5,029 (`make -C c64o fram`): the port would just about fit there, with nothing
 left for the enemy aircraft's own logic. The ways to close the gap, in order of
 size:
 

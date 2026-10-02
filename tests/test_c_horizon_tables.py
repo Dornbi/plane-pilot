@@ -2,7 +2,8 @@
 
 c64o/chardefs.cc stores each character once per vertical flip, and
 c64o/boxdefs.cc refers to it by index, with a per-box run of local characters
-that box_prepare() copies upside down (lib/find_boxes.py build_c_charset() and
+that box_prepare() copies upside down, packed into one byte around
+grad1_color_start (lib/find_boxes.py build_c_charset() and
 compute_box_layout()). The generator checks its own output when it runs; this
 checks the files as committed, without running it, and from the other end: it
 decodes every box the way box.cc does and compares what each cell would show
@@ -37,14 +38,17 @@ def _parse_boxdefs_c():
         fields = [f.strip() for f in re.sub(r"//.*", "", m.group(2)).split(",")
                   if f.strip()]
         name = m.group(1)
+        grad1_start, flip_around = int(fields[7]), int(fields[9], 0)
         boxes[name] = {
             "w": int(fields[0]), "h": int(fields[1]),
             "total_size": int(fields[2]),
             "step_x": int(fields[3]), "step_y": int(fields[4]),
             "rel_x": int(fields[5]), "rel_y": int(fields[6]),
-            "grad1_start": int(fields[7]), "char_count": int(fields[8]),
-            "flip_start": int(fields[9]), "flip_end": int(fields[10]),
-            "char_idx": arrays[fields[11]], "box_chars": arrays[fields[12]],
+            "grad1_start": grad1_start, "char_count": int(fields[8]),
+            # box_prepare()'s decoding of flip_around.
+            "flip_start": grad1_start - (flip_around & 0x0F),
+            "flip_end": grad1_start + (flip_around >> 4),
+            "char_idx": arrays[fields[10]], "box_chars": arrays[fields[11]],
         }
     return boxes
 
@@ -108,6 +112,7 @@ class TestCHorizonTables(unittest.TestCase):
     def test_flip_range_is_inside_the_box(self):
         for name, box in self.boxes.items():
             with self.subTest(box=name):
+                self.assertLessEqual(0, box["flip_start"])
                 self.assertLessEqual(box["flip_start"], box["flip_end"])
                 self.assertLessEqual(box["flip_end"], box["char_count"])
 

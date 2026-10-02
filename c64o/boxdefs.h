@@ -32,12 +32,13 @@ struct boxdef_t {
   uint8_t grad1_color_start;
   // Number of unique characters used by this box (excluding solid 0,1)
   uint8_t char_count;
-  // Local characters flip_start .. flip_end - 1 are their chardefs
-  // entry upside down, and box_prepare copies them backwards. The
-  // generator orders each box so the flipped ones are one run; equal
-  // when there are none.
-  uint8_t flip_start;
-  uint8_t flip_end;
+  // Which local characters are their chardefs entry upside down, for
+  // box_prepare to copy backwards. The generator orders each box so
+  // they are one run that touches grad1_color_start: the low nibble
+  // is how many of them lie below it, the high nibble how many from it
+  // up, so the run is grad1_color_start - low .. grad1_color_start +
+  // high - 1, and zero means none.
+  uint8_t flip_around;
   // chardefs index of each character.
   const uint8_t *char_idx;
   // Index of each character in the local char_idx array.

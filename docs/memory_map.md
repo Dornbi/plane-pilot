@@ -54,7 +54,7 @@ Segments:
 
 | Feature Area | Code | Data | BSS | ZP | VRAM | **Total Footprint** |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **1. Horizon Graphics** | 3,728 B | 8,538 B | 399 B | 37 B | 4,176 B | **16,878 B (16.5 KB)** |
+| **1. Horizon Graphics** | 3,744 B | 8,470 B | 398 B | 37 B | 4,176 B | **16,825 B (16.4 KB)** |
 | **2. Polygon Graphics** | 5,451 B | 1,260 B | 335 B | 20 B | 0 B | **7,066 B (6.9 KB)** |
 | **3. World Model** | 6,541 B | 357 B | 337 B | 59 B | 0 B | **7,294 B (7.1 KB)** |
 | **4. Instrument Panel** | 3,255 B | 1,381 B | 368 B | 2 B | 6,992 B | **11,998 B (11.7 KB)** |
@@ -65,7 +65,7 @@ Segments:
 | **9. Debug Messages & Overlay** | 956 B | 0 B | 0 B | 5 B | 0 B | **961 B (0.9 KB)** |
 | **10. Benchmarks & Timing** | 331 B | 0 B | 8 B | 0 B | 0 B | **339 B (0.3 KB)** |
 | **11. Core System & Drivers** | 5,080 B | 375 B | 217 B | 13 B | 0 B | **5,685 B (5.6 KB)** |
-| **TOTAL** | **31,019 B** | **16,188 B** | **1,698 B** | **160 B** | **12,192 B** | **61,257 B (59.8 KB)** |
+| **TOTAL** | **31,035 B** | **16,120 B** | **1,697 B** | **160 B** | **12,192 B** | **61,204 B (59.8 KB)** |
 
 Color RAM is deliberately absent from the VRAM column. It is a separate
 1000 x 4 bit array inside the I/O block, not part of the 64 KB of DRAM - the
@@ -111,10 +111,12 @@ are not equally reachable:
 | `$0800-$0800` | 1 | used | BASIC link byte |
 | `$0801-$0852` | 82 | used | linker-allocated: code, data, bss, zero page, stack frames |
 | `$0853-$085F` | 13 | free | free, inside a linker region |
-| `$0860-$C0FA` | 47,259 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$C0FB-$C0FF` | 5 | free | free, inside a linker region |
-| `$C100-$C25F` | 352 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$C260-$CFFF` | 3,488 | free | free, inside a linker region |
+| `$0860-$C0F9` | 47,258 | used | linker-allocated: code, data, bss, zero page, stack frames |
+| `$C0FA-$C0FF` | 6 | free | free, inside a linker region |
+| `$C100-$C1FB` | 252 | used | linker-allocated: code, data, bss, zero page, stack frames |
+| `$C1FC-$C1FF` | 4 | free | free, inside a linker region |
+| `$C200-$C22F` | 48 | used | linker-allocated: code, data, bss, zero page, stack frames |
+| `$C230-$CFFF` | 3,536 | free | free, inside a linker region |
 | `$D000-$D3FF` | 1,024 | used | map view screen RAM, time-shared with the title aircraft's 4 sprite blocks, under I/O (map.cc kMapScreenRam, mem.h kTitleSpriteData) |
 | `$D400-$DFFF` | 3,072 | used | sprite bitmaps, 48 blocks (mem.cc kSpriteData) |
 | `$E000-$E7FF` | 2,048 | used | character RAM, 256 chars (mem.h kCharRam) |
@@ -130,29 +132,29 @@ are not equally reachable:
 | `$FFFA-$FFFF` | 6 | used | NMI / RESET / IRQ vectors |
 
 ```
-Used                       61,574 B   94.0%
-Free, allocatable           3,796 B   largest run 3,488 B at $C260
+Used                       61,521 B   93.9%
+Free, allocatable           3,849 B   largest run 3,536 B at $C230
 Free, stack headroom           76 B   reachable by lowering #pragma stacksize
 Free, orphan fragments         90 B   only reachable by hand-placing
-Free, total                 3,962 B   6.0%
+Free, total                 4,015 B   6.1%
 ```
 
 ```
-Feature table total        61,257 B
+Feature table total        61,204 B
 + machine-owned ranges        359 B   processor port, runtime ZP, hardware stack, BASIC link
 - addresses counted twice      42 B   oscar64 overlays call frames that cannot be live together
-= address space, used      61,574 B
+= address space, used      61,521 B
 ```
 
 ---
 
 ## Detail by feature area
 
-### 1. Horizon Graphics (16,878 B)
+### 1. Horizon Graphics (16,825 B)
 
-* **Code (3,728 B)**: viewport horizon rendering, cell filling, box generation, slot drawing (`render.cc`, `box.cc`, `roll.cc`, `roll_asm.cc`).
-* **Data (8,538 B)**: box definitions (`boxdefs`), character definitions (`chardefs`), roll multiply and slope tables, compressed charset (`kGfxCharsCompressed`).
-* **BSS (399 B)**: per-slot frame arrays (`_box_chars`, `_box_colors`).
+* **Code (3,744 B)**: viewport horizon rendering, cell filling, box generation, slot drawing (`render.cc`, `box.cc`, `roll.cc`, `roll_asm.cc`).
+* **Data (8,470 B)**: box definitions (`boxdefs`), character definitions (`chardefs`), roll multiply and slope tables, compressed charset (`kGfxCharsCompressed`).
+* **BSS (398 B)**: per-slot frame arrays (`_box_chars`, `_box_colors`).
 * **ZP (37 B)**: roll and render registers (`roll_dx`, `roll_dy`, `roll_period`, `render_cx_pixels`, ...).
 * **VRAM (4,176 B)**: character RAM `$E000-$E7FF`, main screen `$E800`, alt screen `$EC00` - the two double-buffered VIC screens - and the back view's tail fin at `$FF40-$FFBF`, the two sprite blocks that fit between the panel bitmap and the vectors.
 

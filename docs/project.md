@@ -222,12 +222,17 @@ are another one of them reversed. With the solid ground and sky left out, which
 `build_c_charset()`). That is 872 bytes less, and few enough that a tile's
 characters are one byte each, a plain index into `chardefs`. Each tile's local
 characters are ordered so the ones it needs upside down form a single run,
-`flip_start` to `flip_end`, inside its colour split, and `box_prepare()` copies
-those bottom row first. A backwards copy costs a few cycles more per character
-than a forwards one, and dropping the old `char_offset` (an add and a wrap per
-character, back when the indices were relative to a per-tile base because 333
-did not fit a byte) costs fewer: measured over all 240 calls the game can make,
-every one is faster, by 30 to 613 cycles. `tests/test_c_horizon_tables.py`
+and `box_prepare()` copies those bottom row first. The tile's characters are
+sky-coloured first and Grad1-coloured after (`grad1_color_start`), and the run
+is placed across that boundary, so one byte, `flip_around`, says where it is:
+how far it reaches below the boundary in the low nibble, how far from it up in
+the high one. One boundary of its own would not do, as six tiles have upright
+characters of both colours on either side of the run. A backwards copy costs a
+few cycles more per character than a forwards one, and dropping the old
+`char_offset` (an add and a wrap per character, back when the indices were
+relative to a per-tile base because 333 did not fit a byte) costs fewer:
+measured over all 240 calls the game can make, every one is faster than before
+the change, by 30 to 572 cycles. `tests/test_c_horizon_tables.py`
 decodes the checked-in tables the same way and compares every cell with the
 Python model.
 

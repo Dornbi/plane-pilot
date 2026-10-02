@@ -377,9 +377,12 @@ def compute_box_layout(name: str,
 
     Within each colour the order is otherwise free, so it is chosen to make the
     flipped characters one run: sky unflipped, sky flipped, Grad1 flipped,
-    Grad1 unflipped. Then two bytes per box, flip_start and flip_end, say which
-    characters box_prepare() copies backwards, and the index bytes stay plain
-    indices.
+    Grad1 unflipped. The run always touches grad1_start, so one byte per box
+    says which characters box_prepare() copies backwards - how many of the
+    run lie below grad1_start in its low nibble, how many from it up in its
+    high one - and the index bytes stay plain indices. One boundary would not
+    do: some boxes have unflipped characters of both colours either side of a
+    run that has both colours in it.
 
     Returns a dict with:
         grid          local char index per cell (0..2 are the solid chars)
@@ -387,6 +390,9 @@ def compute_box_layout(name: str,
         char_ids      the corresponding global character ids
         flip_start    first local index that is copied upside down
         flip_end      one past the last; equal to flip_start if none is
+        flip_around   the same run as boxdefs.cc stores it: the number of
+                      its characters below grad1_start, plus 16 times the
+                      number from grad1_start up
         char_count    number of unique characters
         grad1_start   first local index that uses the Grad1 colour
     """
@@ -446,6 +452,11 @@ def compute_box_layout(name: str,
         flip_start = flip_end = grad1_start
     if flips != [flip_start <= i < flip_end for i in range(char_count)]:
         raise ValueError(f"Box {name}: the flipped characters are not one run.")
+    below, above = grad1_start - flip_start, flip_end - grad1_start
+    if not (0 <= below <= 15 and 0 <= above <= 15):
+        raise ValueError(
+            f"Box {name}: the flipped run reaches {below} below and {above} "
+            f"above grad1_color_start; flip_around holds at most 15 each way.")
 
     return {
         'grid': mapped_grid,
@@ -453,6 +464,7 @@ def compute_box_layout(name: str,
         'char_ids': dynamic_ids,
         'flip_start': flip_start,
         'flip_end': flip_end,
+        'flip_around': below | (above << 4),
         'char_count': char_count,
         'grad1_start': grad1_start,
     }
@@ -499,8 +511,13 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
         content += f"    {data['rel_y']}, // rel_y\n"
         content += f"    {layout['grad1_start']}, // grad1_color_start\n"
         content += f"    {layout['char_count']}, // char_count\n"
-        content += f"    {layout['flip_start']}, // flip_start\n"
-        content += f"    {layout['flip_end']}, // flip_end\n"
+        if layout['flip_start'] == layout['flip_end']:
+            flipped = "none flipped"
+        else:
+            flipped = (f"chars {layout['flip_start']}..{layout['flip_end'] - 1} "
+                       f"flipped")
+        content += (f"    0x{layout['flip_around']:02x}, // flip_around: "
+                    f"{flipped}\n")
         content += f"    {cname}_idx, // char_idx\n"
         content += f"    {cname}_chars // box_chars\n"
         content += "};\n\n"
@@ -594,12 +611,13 @@ def generate_boxdefs_h_content(max_total_size: int,
     content += "  uint8_t grad1_color_start;\n"
     content += "  // Number of unique characters used by this box (excluding solid 0,1)\n"
     content += "  uint8_t char_count;\n"
-    content += "  // Local characters flip_start .. flip_end - 1 are their chardefs\n"
-    content += "  // entry upside down, and box_prepare copies them backwards. The\n"
-    content += "  // generator orders each box so the flipped ones are one run; equal\n"
-    content += "  // when there are none.\n"
-    content += "  uint8_t flip_start;\n"
-    content += "  uint8_t flip_end;\n"
+    content += "  // Which local characters are their chardefs entry upside down, for\n"
+    content += "  // box_prepare to copy backwards. The generator orders each box so\n"
+    content += "  // they are one run that touches grad1_color_start: the low nibble\n"
+    content += "  // is how many of them lie below it, the high nibble how many from it\n"
+    content += "  // up, so the run is grad1_color_start - low .. grad1_color_start +\n"
+    content += "  // high - 1, and zero means none.\n"
+    content += "  uint8_t flip_around;\n"
     content += "  // chardefs index of each character.\n"
     content += "  const uint8_t *char_idx;\n"
     content += "  // Index of each character in the local char_idx array.\n"

@@ -26,8 +26,7 @@ static const boxdef_t box_d8_def = {
     0, // rel_y
     2, // grad1_color_start
     4, // char_count
-    2, // flip_start
-    2, // flip_end
+    0x00, // flip_around: none flipped
     box_d8_idx, // char_idx
     box_d8_chars // box_chars
 };
@@ -44,8 +43,7 @@ static const boxdef_t box_d8_alt_def = {
     0, // rel_y
     2, // grad1_color_start
     5, // char_count
-    1, // flip_start
-    2, // flip_end
+    0x01, // flip_around: chars 1..1 flipped
     box_d8_alt_idx, // char_idx
     box_d8_alt_chars // box_chars
 };
@@ -62,8 +60,7 @@ static const boxdef_t box_l10d16_def = {
     0, // rel_y
     9, // grad1_color_start
     27, // char_count
-    7, // flip_start
-    9, // flip_end
+    0x02, // flip_around: chars 7..8 flipped
     box_l10d16_idx, // char_idx
     box_l10d16_chars // box_chars
 };
@@ -80,8 +77,7 @@ static const boxdef_t box_l10u16_def = {
     -7, // rel_y
     10, // grad1_color_start
     28, // char_count
-    10, // flip_start
-    18, // flip_end
+    0x80, // flip_around: chars 10..17 flipped
     box_l10u16_idx, // char_idx
     box_l10u16_chars // box_chars
 };
@@ -98,8 +94,7 @@ static const boxdef_t box_l16d1_def = {
     0, // rel_y
     8, // grad1_color_start
     25, // char_count
-    8, // flip_start
-    15, // flip_end
+    0x70, // flip_around: chars 8..14 flipped
     box_l16d1_idx, // char_idx
     box_l16d1_chars // box_chars
 };
@@ -116,8 +111,7 @@ static const boxdef_t box_l16u1_def = {
     -1, // rel_y
     9, // grad1_color_start
     25, // char_count
-    9, // flip_start
-    16, // flip_end
+    0x70, // flip_around: chars 9..15 flipped
     box_l16u1_idx, // char_idx
     box_l16u1_chars // box_chars
 };
@@ -134,8 +128,7 @@ static const boxdef_t box_l2d16_def = {
     0, // rel_y
     8, // grad1_color_start
     18, // char_count
-    6, // flip_start
-    8, // flip_end
+    0x02, // flip_around: chars 6..7 flipped
     box_l2d16_idx, // char_idx
     box_l2d16_chars // box_chars
 };
@@ -152,8 +145,7 @@ static const boxdef_t box_l2d8_def = {
     0, // rel_y
     6, // grad1_color_start
     16, // char_count
-    4, // flip_start
-    6, // flip_end
+    0x02, // flip_around: chars 4..5 flipped
     box_l2d8_idx, // char_idx
     box_l2d8_chars // box_chars
 };
@@ -170,8 +162,7 @@ static const boxdef_t box_l2u16_def = {
     -7, // rel_y
     7, // grad1_color_start
     18, // char_count
-    7, // flip_start
-    7, // flip_end
+    0x00, // flip_around: none flipped
     box_l2u16_idx, // char_idx
     box_l2u16_chars // box_chars
 };
@@ -188,8 +179,7 @@ static const boxdef_t box_l2u8_def = {
     -3, // rel_y
     7, // grad1_color_start
     17, // char_count
-    7, // flip_start
-    11, // flip_end
+    0x40, // flip_around: chars 7..10 flipped
     box_l2u8_idx, // char_idx
     box_l2u8_chars // box_chars
 };
@@ -206,8 +196,7 @@ static const boxdef_t box_l4d8_def = {
     0, // rel_y
     5, // grad1_color_start
     11, // char_count
-    3, // flip_start
-    5, // flip_end
+    0x02, // flip_around: chars 3..4 flipped
     box_l4d8_idx, // char_idx
     box_l4d8_chars // box_chars
 };
@@ -224,8 +213,7 @@ static const boxdef_t box_l4u8_def = {
     -3, // rel_y
     5, // grad1_color_start
     11, // char_count
-    5, // flip_start
-    7, // flip_end
+    0x20, // flip_around: chars 5..6 flipped
     box_l4u8_idx, // char_idx
     box_l4u8_chars // box_chars
 };
@@ -242,8 +230,7 @@ static const boxdef_t box_l6d16_def = {
     0, // rel_y
     9, // grad1_color_start
     23, // char_count
-    7, // flip_start
-    9, // flip_end
+    0x02, // flip_around: chars 7..8 flipped
     box_l6d16_idx, // char_idx
     box_l6d16_chars // box_chars
 };
@@ -260,8 +247,7 @@ static const boxdef_t box_l6d8_def = {
     0, // rel_y
     8, // grad1_color_start
     22, // char_count
-    6, // flip_start
-    8, // flip_end
+    0x02, // flip_around: chars 6..7 flipped
     box_l6d8_idx, // char_idx
     box_l6d8_chars // box_chars
 };
@@ -278,8 +264,7 @@ static const boxdef_t box_l6u16_def = {
     -7, // rel_y
     9, // grad1_color_start
     22, // char_count
-    9, // flip_start
-    15, // flip_end
+    0x60, // flip_around: chars 9..14 flipped
     box_l6u16_idx, // char_idx
     box_l6u16_chars // box_chars
 };
@@ -296,8 +281,7 @@ static const boxdef_t box_l6u8_def = {
     -3, // rel_y
     9, // grad1_color_start
     24, // char_count
-    9, // flip_start
-    15, // flip_end
+    0x60, // flip_around: chars 9..14 flipped
     box_l6u8_idx, // char_idx
     box_l6u8_chars // box_chars
 };
@@ -314,8 +298,7 @@ static const boxdef_t box_l8_def = {
     0, // rel_y
     2, // grad1_color_start
     4, // char_count
-    2, // flip_start
-    2, // flip_end
+    0x00, // flip_around: none flipped
     box_l8_idx, // char_idx
     box_l8_chars // box_chars
 };
@@ -332,8 +315,7 @@ static const boxdef_t box_l8d1_def = {
     -1, // rel_y
     8, // grad1_color_start
     25, // char_count
-    8, // flip_start
-    8, // flip_end
+    0x00, // flip_around: none flipped
     box_l8d1_idx, // char_idx
     box_l8d1_chars // box_chars
 };
@@ -350,8 +332,7 @@ static const boxdef_t box_l8d2_def = {
     -1, // rel_y
     5, // grad1_color_start
     16, // char_count
-    5, // flip_start
-    5, // flip_end
+    0x00, // flip_around: none flipped
     box_l8d2_idx, // char_idx
     box_l8d2_chars // box_chars
 };
@@ -368,8 +349,7 @@ static const boxdef_t box_l8d3_def = {
     -1, // rel_y
     7, // grad1_color_start
     26, // char_count
-    7, // flip_start
-    7, // flip_end
+    0x00, // flip_around: none flipped
     box_l8d3_idx, // char_idx
     box_l8d3_chars // box_chars
 };
@@ -386,8 +366,7 @@ static const boxdef_t box_l8d4_def = {
     -1, // rel_y
     4, // grad1_color_start
     11, // char_count
-    4, // flip_start
-    4, // flip_end
+    0x00, // flip_around: none flipped
     box_l8d4_idx, // char_idx
     box_l8d4_chars // box_chars
 };
@@ -404,8 +383,7 @@ static const boxdef_t box_l8d5_def = {
     -1, // rel_y
     9, // grad1_color_start
     26, // char_count
-    9, // flip_start
-    9, // flip_end
+    0x00, // flip_around: none flipped
     box_l8d5_idx, // char_idx
     box_l8d5_chars // box_chars
 };
@@ -422,8 +400,7 @@ static const boxdef_t box_l8d6_def = {
     -1, // rel_y
     8, // grad1_color_start
     21, // char_count
-    8, // flip_start
-    8, // flip_end
+    0x00, // flip_around: none flipped
     box_l8d6_idx, // char_idx
     box_l8d6_chars // box_chars
 };
@@ -440,8 +417,7 @@ static const boxdef_t box_l8d8_def = {
     -1, // rel_y
     3, // grad1_color_start
     7, // char_count
-    2, // flip_start
-    3, // flip_end
+    0x01, // flip_around: chars 2..2 flipped
     box_l8d8_idx, // char_idx
     box_l8d8_chars // box_chars
 };
@@ -458,8 +434,7 @@ static const boxdef_t box_l8d8_alt_def = {
     -1, // rel_y
     3, // grad1_color_start
     8, // char_count
-    3, // flip_start
-    3, // flip_end
+    0x00, // flip_around: none flipped
     box_l8d8_alt_idx, // char_idx
     box_l8d8_alt_chars // box_chars
 };
@@ -476,8 +451,7 @@ static const boxdef_t box_l8u1_def = {
     -1, // rel_y
     9, // grad1_color_start
     26, // char_count
-    9, // flip_start
-    17, // flip_end
+    0x80, // flip_around: chars 9..16 flipped
     box_l8u1_idx, // char_idx
     box_l8u1_chars // box_chars
 };
@@ -494,8 +468,7 @@ static const boxdef_t box_l8u2_def = {
     -1, // rel_y
     7, // grad1_color_start
     17, // char_count
-    7, // flip_start
-    11, // flip_end
+    0x40, // flip_around: chars 7..10 flipped
     box_l8u2_idx, // char_idx
     box_l8u2_chars // box_chars
 };
@@ -512,8 +485,7 @@ static const boxdef_t box_l8u3_def = {
     -3, // rel_y
     9, // grad1_color_start
     27, // char_count
-    9, // flip_start
-    19, // flip_end
+    0xa0, // flip_around: chars 9..18 flipped
     box_l8u3_idx, // char_idx
     box_l8u3_chars // box_chars
 };
@@ -530,8 +502,7 @@ static const boxdef_t box_l8u4_def = {
     -2, // rel_y
     4, // grad1_color_start
     11, // char_count
-    4, // flip_start
-    6, // flip_end
+    0x20, // flip_around: chars 4..5 flipped
     box_l8u4_idx, // char_idx
     box_l8u4_chars // box_chars
 };
@@ -548,8 +519,7 @@ static const boxdef_t box_l8u5_def = {
     -5, // rel_y
     7, // grad1_color_start
     24, // char_count
-    7, // flip_start
-    17, // flip_end
+    0xa0, // flip_around: chars 7..16 flipped
     box_l8u5_idx, // char_idx
     box_l8u5_chars // box_chars
 };
@@ -566,8 +536,7 @@ static const boxdef_t box_l8u6_def = {
     -3, // rel_y
     7, // grad1_color_start
     20, // char_count
-    7, // flip_start
-    13, // flip_end
+    0x60, // flip_around: chars 7..12 flipped
     box_l8u6_idx, // char_idx
     box_l8u6_chars // box_chars
 };
@@ -584,8 +553,7 @@ static const boxdef_t box_l8u8_def = {
     -3, // rel_y
     3, // grad1_color_start
     7, // char_count
-    3, // flip_start
-    4, // flip_end
+    0x10, // flip_around: chars 3..3 flipped
     box_l8u8_idx, // char_idx
     box_l8u8_chars // box_chars
 };
@@ -602,8 +570,7 @@ static const boxdef_t box_l8u8_alt_def = {
     -3, // rel_y
     3, // grad1_color_start
     8, // char_count
-    3, // flip_start
-    5, // flip_end
+    0x20, // flip_around: chars 3..4 flipped
     box_l8u8_alt_idx, // char_idx
     box_l8u8_alt_chars // box_chars
 };
@@ -620,8 +587,7 @@ static const boxdef_t box_l8_alt_def = {
     0, // rel_y
     3, // grad1_color_start
     6, // char_count
-    3, // flip_start
-    4, // flip_end
+    0x10, // flip_around: chars 3..3 flipped
     box_l8_alt_idx, // char_idx
     box_l8_alt_chars // box_chars
 };
@@ -638,8 +604,7 @@ static const boxdef_t box_r10d16_def = {
     0, // rel_y
     10, // grad1_color_start
     29, // char_count
-    7, // flip_start
-    18, // flip_end
+    0x83, // flip_around: chars 7..17 flipped
     box_r10d16_idx, // char_idx
     box_r10d16_chars // box_chars
 };
@@ -656,8 +621,7 @@ static const boxdef_t box_r10u16_def = {
     -7, // rel_y
     10, // grad1_color_start
     28, // char_count
-    10, // flip_start
-    10, // flip_end
+    0x00, // flip_around: none flipped
     box_r10u16_idx, // char_idx
     box_r10u16_chars // box_chars
 };
@@ -674,8 +638,7 @@ static const boxdef_t box_r16d1_def = {
     -5, // rel_y
     10, // grad1_color_start
     26, // char_count
-    10, // flip_start
-    10, // flip_end
+    0x00, // flip_around: none flipped
     box_r16d1_idx, // char_idx
     box_r16d1_chars // box_chars
 };
@@ -692,8 +655,7 @@ static const boxdef_t box_r16u1_def = {
     -6, // rel_y
     8, // grad1_color_start
     23, // char_count
-    8, // flip_start
-    8, // flip_end
+    0x00, // flip_around: none flipped
     box_r16u1_idx, // char_idx
     box_r16u1_chars // box_chars
 };
@@ -710,8 +672,7 @@ static const boxdef_t box_r2d16_def = {
     0, // rel_y
     10, // grad1_color_start
     20, // char_count
-    8, // flip_start
-    10, // flip_end
+    0x02, // flip_around: chars 8..9 flipped
     box_r2d16_idx, // char_idx
     box_r2d16_chars // box_chars
 };
@@ -728,8 +689,7 @@ static const boxdef_t box_r2d8_def = {
     0, // rel_y
     7, // grad1_color_start
     18, // char_count
-    5, // flip_start
-    11, // flip_end
+    0x42, // flip_around: chars 5..10 flipped
     box_r2d8_idx, // char_idx
     box_r2d8_chars // box_chars
 };
@@ -746,8 +706,7 @@ static const boxdef_t box_r2u16_def = {
     -7, // rel_y
     7, // grad1_color_start
     18, // char_count
-    7, // flip_start
-    7, // flip_end
+    0x00, // flip_around: none flipped
     box_r2u16_idx, // char_idx
     box_r2u16_chars // box_chars
 };
@@ -764,8 +723,7 @@ static const boxdef_t box_r2u8_def = {
     -3, // rel_y
     7, // grad1_color_start
     17, // char_count
-    7, // flip_start
-    7, // flip_end
+    0x00, // flip_around: none flipped
     box_r2u8_idx, // char_idx
     box_r2u8_chars // box_chars
 };
@@ -782,8 +740,7 @@ static const boxdef_t box_r4d8_def = {
     0, // rel_y
     4, // grad1_color_start
     10, // char_count
-    2, // flip_start
-    6, // flip_end
+    0x22, // flip_around: chars 2..5 flipped
     box_r4d8_idx, // char_idx
     box_r4d8_chars // box_chars
 };
@@ -800,8 +757,7 @@ static const boxdef_t box_r4u8_def = {
     -3, // rel_y
     5, // grad1_color_start
     11, // char_count
-    5, // flip_start
-    5, // flip_end
+    0x00, // flip_around: none flipped
     box_r4u8_idx, // char_idx
     box_r4u8_chars // box_chars
 };
@@ -818,8 +774,7 @@ static const boxdef_t box_r6d16_def = {
     0, // rel_y
     9, // grad1_color_start
     23, // char_count
-    6, // flip_start
-    15, // flip_end
+    0x63, // flip_around: chars 6..14 flipped
     box_r6d16_idx, // char_idx
     box_r6d16_chars // box_chars
 };
@@ -836,8 +791,7 @@ static const boxdef_t box_r6d8_def = {
     0, // rel_y
     9, // grad1_color_start
     22, // char_count
-    7, // flip_start
-    15, // flip_end
+    0x62, // flip_around: chars 7..14 flipped
     box_r6d8_idx, // char_idx
     box_r6d8_chars // box_chars
 };
@@ -854,8 +808,7 @@ static const boxdef_t box_r6u16_def = {
     -7, // rel_y
     9, // grad1_color_start
     22, // char_count
-    9, // flip_start
-    9, // flip_end
+    0x00, // flip_around: none flipped
     box_r6u16_idx, // char_idx
     box_r6u16_chars // box_chars
 };
@@ -872,8 +825,7 @@ static const boxdef_t box_r6u8_def = {
     -3, // rel_y
     9, // grad1_color_start
     22, // char_count
-    9, // flip_start
-    9, // flip_end
+    0x00, // flip_around: none flipped
     box_r6u8_idx, // char_idx
     box_r6u8_chars // box_chars
 };
@@ -890,8 +842,7 @@ static const boxdef_t box_r8_def = {
     -5, // rel_y
     2, // grad1_color_start
     4, // char_count
-    2, // flip_start
-    2, // flip_end
+    0x00, // flip_around: none flipped
     box_r8_idx, // char_idx
     box_r8_chars // box_chars
 };
@@ -908,8 +859,7 @@ static const boxdef_t box_r8d1_def = {
     -5, // rel_y
     10, // grad1_color_start
     27, // char_count
-    10, // flip_start
-    18, // flip_end
+    0x80, // flip_around: chars 10..17 flipped
     box_r8d1_idx, // char_idx
     box_r8d1_chars // box_chars
 };
@@ -926,8 +876,7 @@ static const boxdef_t box_r8d2_def = {
     -5, // rel_y
     7, // grad1_color_start
     18, // char_count
-    7, // flip_start
-    11, // flip_end
+    0x40, // flip_around: chars 7..10 flipped
     box_r8d2_idx, // char_idx
     box_r8d2_chars // box_chars
 };
@@ -944,8 +893,7 @@ static const boxdef_t box_r8d3_def = {
     -5, // rel_y
     8, // grad1_color_start
     26, // char_count
-    8, // flip_start
-    19, // flip_end
+    0xb0, // flip_around: chars 8..18 flipped
     box_r8d3_idx, // char_idx
     box_r8d3_chars // box_chars
 };
@@ -962,8 +910,7 @@ static const boxdef_t box_r8d4_def = {
     -5, // rel_y
     4, // grad1_color_start
     10, // char_count
-    4, // flip_start
-    6, // flip_end
+    0x20, // flip_around: chars 4..5 flipped
     box_r8d4_idx, // char_idx
     box_r8d4_chars // box_chars
 };
@@ -980,8 +927,7 @@ static const boxdef_t box_r8d5_def = {
     -6, // rel_y
     9, // grad1_color_start
     28, // char_count
-    9, // flip_start
-    19, // flip_end
+    0xa0, // flip_around: chars 9..18 flipped
     box_r8d5_idx, // char_idx
     box_r8d5_chars // box_chars
 };
@@ -998,8 +944,7 @@ static const boxdef_t box_r8d6_def = {
     -6, // rel_y
     7, // grad1_color_start
     21, // char_count
-    7, // flip_start
-    13, // flip_end
+    0x60, // flip_around: chars 7..12 flipped
     box_r8d6_idx, // char_idx
     box_r8d6_chars // box_chars
 };
@@ -1016,8 +961,7 @@ static const boxdef_t box_r8d8_def = {
     -7, // rel_y
     3, // grad1_color_start
     7, // char_count
-    2, // flip_start
-    4, // flip_end
+    0x11, // flip_around: chars 2..3 flipped
     box_r8d8_idx, // char_idx
     box_r8d8_chars // box_chars
 };
@@ -1034,8 +978,7 @@ static const boxdef_t box_r8d8_alt_def = {
     -6, // rel_y
     3, // grad1_color_start
     7, // char_count
-    3, // flip_start
-    5, // flip_end
+    0x20, // flip_around: chars 3..4 flipped
     box_r8d8_alt_idx, // char_idx
     box_r8d8_alt_chars // box_chars
 };
@@ -1052,8 +995,7 @@ static const boxdef_t box_r8u1_def = {
     -6, // rel_y
     8, // grad1_color_start
     23, // char_count
-    8, // flip_start
-    8, // flip_end
+    0x00, // flip_around: none flipped
     box_r8u1_idx, // char_idx
     box_r8u1_chars // box_chars
 };
@@ -1070,8 +1012,7 @@ static const boxdef_t box_r8u2_def = {
     -6, // rel_y
     4, // grad1_color_start
     15, // char_count
-    4, // flip_start
-    4, // flip_end
+    0x00, // flip_around: none flipped
     box_r8u2_idx, // char_idx
     box_r8u2_chars // box_chars
 };
@@ -1088,8 +1029,7 @@ static const boxdef_t box_r8u3_def = {
     -8, // rel_y
     8, // grad1_color_start
     25, // char_count
-    8, // flip_start
-    8, // flip_end
+    0x00, // flip_around: none flipped
     box_r8u3_idx, // char_idx
     box_r8u3_chars // box_chars
 };
@@ -1106,8 +1046,7 @@ static const boxdef_t box_r8u4_def = {
     -7, // rel_y
     5, // grad1_color_start
     11, // char_count
-    5, // flip_start
-    5, // flip_end
+    0x00, // flip_around: none flipped
     box_r8u4_idx, // char_idx
     box_r8u4_chars // box_chars
 };
@@ -1124,8 +1063,7 @@ static const boxdef_t box_r8u5_def = {
     -10, // rel_y
     8, // grad1_color_start
     26, // char_count
-    8, // flip_start
-    8, // flip_end
+    0x00, // flip_around: none flipped
     box_r8u5_idx, // char_idx
     box_r8u5_chars // box_chars
 };
@@ -1142,8 +1080,7 @@ static const boxdef_t box_r8u6_def = {
     -9, // rel_y
     8, // grad1_color_start
     21, // char_count
-    8, // flip_start
-    8, // flip_end
+    0x00, // flip_around: none flipped
     box_r8u6_idx, // char_idx
     box_r8u6_chars // box_chars
 };
@@ -1160,8 +1097,7 @@ static const boxdef_t box_r8u8_def = {
     -10, // rel_y
     2, // grad1_color_start
     6, // char_count
-    2, // flip_start
-    2, // flip_end
+    0x00, // flip_around: none flipped
     box_r8u8_idx, // char_idx
     box_r8u8_chars // box_chars
 };
@@ -1178,8 +1114,7 @@ static const boxdef_t box_r8u8_alt_def = {
     -10, // rel_y
     3, // grad1_color_start
     7, // char_count
-    3, // flip_start
-    3, // flip_end
+    0x00, // flip_around: none flipped
     box_r8u8_alt_idx, // char_idx
     box_r8u8_alt_chars // box_chars
 };
@@ -1196,8 +1131,7 @@ static const boxdef_t box_r8_alt_def = {
     -4, // rel_y
     2, // grad1_color_start
     4, // char_count
-    2, // flip_start
-    2, // flip_end
+    0x00, // flip_around: none flipped
     box_r8_alt_idx, // char_idx
     box_r8_alt_chars // box_chars
 };
@@ -1214,8 +1148,7 @@ static const boxdef_t box_u8_def = {
     -3, // rel_y
     2, // grad1_color_start
     4, // char_count
-    2, // flip_start
-    2, // flip_end
+    0x00, // flip_around: none flipped
     box_u8_idx, // char_idx
     box_u8_chars // box_chars
 };
@@ -1232,8 +1165,7 @@ static const boxdef_t box_u8_alt_def = {
     -3, // rel_y
     2, // grad1_color_start
     4, // char_count
-    2, // flip_start
-    2, // flip_end
+    0x00, // flip_around: none flipped
     box_u8_alt_idx, // char_idx
     box_u8_alt_chars // box_chars
 };

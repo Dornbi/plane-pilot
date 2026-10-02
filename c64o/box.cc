@@ -69,13 +69,16 @@ void box_prepare(void) {
 
   // Copy unique characters to kCharRam.
   // The definition stores one byte per character, its index into chardefs.
-  // chardefs holds each character once per vertical flip, so the local
-  // characters flip_start .. flip_end - 1 are their entry upside down, and
-  // are copied bottom row first (lib/find_boxes.py build_c_charset()).
+  // chardefs holds each character once per vertical flip, so some local
+  // characters are their entry upside down, and are copied bottom row first
+  // (lib/find_boxes.py build_c_charset()). They are one run around
+  // grad1_color_start, which flip_around holds as two nibbles: how far it
+  // reaches below, and how far from there up.
   uint8_t *dst_ram = kCharRam + ((uint16_t)mem_box_char_start << 3);
   const uint8_t *src_idx = boxdef.char_idx;
-  const uint8_t flip_start = boxdef.flip_start;
-  const uint8_t flip_end = boxdef.flip_end;
+  const uint8_t flip_start =
+      boxdef.grad1_color_start - (boxdef.flip_around & 0x0F);
+  const uint8_t flip_end = boxdef.grad1_color_start + (boxdef.flip_around >> 4);
 
   for (uint8_t i = 0;;) {
     const uint8_t *src = chardefs[src_idx[i]];

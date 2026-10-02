@@ -50,7 +50,7 @@ def verify_boxdefs_c(box_defs: Dict[str, Dict[str, Any]],
     Parses boxdefs.cc and verifies its contents against box_defs.
 
     The check decodes each box the way box_prepare() does - chardefs.cc row
-    char_idx[i], copied backwards when flip_start <= i < flip_end - and
+    char_idx[i], copied backwards inside the run flip_around describes - and
     requires the bytes that come out to be the global character the box
     actually needs, so it covers chardefs.cc and the flip encoding as well as
     the fields.
@@ -76,10 +76,9 @@ def verify_boxdefs_c(box_defs: Dict[str, Dict[str, Any]],
         body = re.sub(r"//.*", "", struct_match.group(1))
         clean_fields = [f.strip() for f in body.split(",") if f.strip()]
 
-        # w, h, total, sx, sy, rx, ry, g1_start, cnt, flip_start, flip_end,
-        # idx, chars
-        if len(clean_fields) != 13:
-            raise ValueError(f"Verification failed: {name} struct has {len(clean_fields)} fields, expected 13")
+        # w, h, total, sx, sy, rx, ry, g1_start, cnt, flip_around, idx, chars
+        if len(clean_fields) != 12:
+            raise ValueError(f"Verification failed: {name} struct has {len(clean_fields)} fields, expected 12")
 
         chars_match = re.search(rf"(?:static\s+)?(?:const\s+)?uint8_t\s+{cname}_chars\s*\[\s*\]\s*=\s*\{{(.*?)\}};", content)
         if not chars_match:
@@ -93,8 +92,9 @@ def verify_boxdefs_c(box_defs: Dict[str, Dict[str, Any]],
 
         grad1_start = int(clean_fields[7])
         char_count = int(clean_fields[8])
-        flip_start = int(clean_fields[9])
-        flip_end = int(clean_fields[10])
+        flip_around = int(clean_fields[9], 0)
+        flip_start = grad1_start - (flip_around & 0x0F)
+        flip_end = grad1_start + (flip_around >> 4)
 
         # What box_prepare() copies into character RAM, slot by slot.
         for i in range(char_count):
