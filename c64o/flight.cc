@@ -137,6 +137,11 @@ uint8_t flight_step_shift;
 uint8_t kFlightFramesPerStep = 8;
 uint8_t kFlightSubstepMask = 0;
 
+#ifdef __MAX_RAM__
+// Runs once, before anything else, and never again: in the boot region, which
+// is scratch from the moment main() is past it (mem.h).
+#pragma code(bootcode)
+#endif
 void flight_set_step_shift(uint8_t shift) {
   flight_step_shift = shift;
   kFlightFramesPerStep = (8 >> shift) ? (8 >> shift) : 1;
@@ -144,6 +149,9 @@ void flight_set_step_shift(uint8_t shift) {
   vec_set_rotation_shift(shift);
   model_substep = 0;
 }
+#ifdef __MAX_RAM__
+#pragma code(code)
+#endif
 
 // (v >> n) >> flight_step_shift, which is exactly v >> (n + shift) - a right
 // shift truncates, so splitting it changes nothing. Written as a loop because

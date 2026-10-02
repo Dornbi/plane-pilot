@@ -52,7 +52,8 @@ program (`__MAX_RAM__`).
 | `$0060–$00FF` | zero page (oscar64 `zeropage` region)                      |
 | `$0200–$0280` | CPU stack (`#pragma stacksize(0x80)`)                      |
 | `$0280–$0800` | `bss2`, a second BSS region — full to the byte             |
-| `$0860–$CFFF` | code, data, bss, heap                                      |
+| `$0860–$0A5F` | boot-only code (`_boot()`, `cpu_probe()`, `mem_init()`); once `main()` is past it, scratch for `box.cc`'s caches (`mem.h` `kBootScratch`) |
+| `$0A60–$CFFF` | code, data, bss, heap                                      |
 | `$D000–$DFFF` | I/O (`MMAP_NO_ROM`)                                        |
 | `$D000–$D3FF` | map view screen RAM while the map is open; the title screen aircraft, expanded from `titledef.bin`, while the menu is |
 | `$D400`       | sprite bitmaps, expanded from `spritedef.bin` at startup   |
@@ -720,12 +721,13 @@ About 3.3 KB of allocatable RAM is left ([memory_map.md](memory_map.md), and
 `OSCAR64_INCLUDE` at the top of the Makefile points at the oscar64 include
 directory and may need adjusting.
 
-Every link runs four checks, and each fails the build rather than warning:
+Every link runs five checks, and each fails the build rather than warning:
 `check_zeropage.py` (oscar64's spilled temporaries must not reach the zeropage
 region), `check_rom_window.py` (nothing before `mem_init()` may read a global
 out of the ROM windows), `check_irq_zp.py` (a raster handler must not touch the
-runtime zero page) and `check_mul_div.py` (no `divmod` routine may be linked
-in).
+runtime zero page), `check_mul_div.py` (no `divmod` routine may be linked
+in) and `check_boot_region.py` (nothing but `main()`'s start-up may call into
+the boot-only code, whose RAM is reused as scratch once it has run).
 
 ---
 

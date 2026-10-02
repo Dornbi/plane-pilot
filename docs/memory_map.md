@@ -54,18 +54,18 @@ Segments:
 
 | Feature Area | Code | Data | BSS | ZP | VRAM | **Total Footprint** |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **1. Horizon Graphics** | 3,744 B | 8,470 B | 398 B | 37 B | 4,176 B | **16,825 B (16.4 KB)** |
+| **1. Horizon Graphics** | 3,728 B | 8,470 B | 14 B | 37 B | 4,176 B | **16,425 B (16.0 KB)** |
 | **2. Polygon Graphics** | 5,451 B | 1,260 B | 335 B | 20 B | 0 B | **7,066 B (6.9 KB)** |
-| **3. World Model** | 6,541 B | 357 B | 337 B | 59 B | 0 B | **7,294 B (7.1 KB)** |
-| **4. Instrument Panel** | 3,255 B | 1,381 B | 368 B | 2 B | 6,992 B | **11,998 B (11.7 KB)** |
+| **3. World Model** | 6,394 B | 357 B | 337 B | 59 B | 0 B | **7,147 B (7.0 KB)** |
+| **4. Instrument Panel** | 3,252 B | 1,381 B | 298 B | 2 B | 6,992 B | **11,925 B (11.6 KB)** |
 | **5. Menu & Missions** | 3,225 B | 3,381 B | 2 B | 5 B | 1,024 B | **7,637 B (7.5 KB)** |
 | **6. Message System** | 475 B | 13 B | 0 B | 2 B | 0 B | **490 B (0.5 KB)** |
 | **7. Sound Effects** | 1,093 B | 92 B | 30 B | 6 B | 0 B | **1,221 B (1.2 KB)** |
 | **8. Music** | 884 B | 791 B | 2 B | 11 B | 0 B | **1,688 B (1.6 KB)** |
 | **9. Debug Messages & Overlay** | 956 B | 0 B | 0 B | 5 B | 0 B | **961 B (0.9 KB)** |
 | **10. Benchmarks & Timing** | 331 B | 0 B | 8 B | 0 B | 0 B | **339 B (0.3 KB)** |
-| **11. Core System & Drivers** | 5,080 B | 375 B | 217 B | 13 B | 0 B | **5,685 B (5.6 KB)** |
-| **TOTAL** | **31,035 B** | **16,120 B** | **1,697 B** | **160 B** | **12,192 B** | **61,204 B (59.8 KB)** |
+| **11. Core System & Drivers** | 5,225 B | 375 B | 217 B | 13 B | 0 B | **5,830 B (5.7 KB)** |
+| **TOTAL** | **31,014 B** | **16,120 B** | **1,243 B** | **160 B** | **12,192 B** | **60,729 B (59.3 KB)** |
 
 Color RAM is deliberately absent from the VRAM column. It is a separate
 1000 x 4 bit array inside the I/O block, not part of the 64 KB of DRAM - the
@@ -100,19 +100,21 @@ are not equally reachable:
 | `$0200-$024B` | 76 | stack headroom | software stack headroom (see #pragma stacksize in mem.h) |
 | `$024C-$02F9` | 174 | used | linker-allocated: code, data, bss, zero page, stack frames |
 | `$02FA-$02FF` | 6 | free | free, inside a linker region |
-| `$0300-$03F7` | 248 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$03F8-$03FF` | 8 | free | free, inside a linker region |
-| `$0400-$04F5` | 246 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$04F6-$04FF` | 10 | free | free, inside a linker region |
-| `$0500-$05F5` | 246 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$05F6-$05FF` | 10 | free | free, inside a linker region |
-| `$0600-$06FF` | 256 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$0700-$07FF` | 256 | free | free, inside a linker region |
+| `$0300-$03FD` | 254 | used | linker-allocated: code, data, bss, zero page, stack frames |
+| `$03FE-$03FF` | 2 | free | free, inside a linker region |
+| `$0400-$04E7` | 232 | used | linker-allocated: code, data, bss, zero page, stack frames |
+| `$04E8-$04FF` | 24 | free | free, inside a linker region |
+| `$0500-$0537` | 56 | used | linker-allocated: code, data, bss, zero page, stack frames |
+| `$0538-$07FF` | 712 | free | free, inside a linker region |
 | `$0800-$0800` | 1 | used | BASIC link byte |
 | `$0801-$0852` | 82 | used | linker-allocated: code, data, bss, zero page, stack frames |
 | `$0853-$085F` | 13 | free | free, inside a linker region |
-| `$0860-$C0F9` | 47,258 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$C0FA-$C0FF` | 6 | free | free, inside a linker region |
+| `$0860-$0A50` | 497 | used | boot-only code (mem.h boot region), reused once main() is past it as kBootScratch |
+| `$0A51-$0A5F` | 15 | boot headroom | boot region headroom, for boot-only code (mem.h MEM_BOOT_END) |
+| `$0A60-$BFFD` | 46,494 | used | linker-allocated: code, data, bss, zero page, stack frames |
+| `$BFFE-$BFFF` | 2 | free | free, inside a linker region |
+| `$C000-$C0F5` | 246 | used | linker-allocated: code, data, bss, zero page, stack frames |
+| `$C0F6-$C0FF` | 10 | free | free, inside a linker region |
 | `$C100-$C1FB` | 252 | used | linker-allocated: code, data, bss, zero page, stack frames |
 | `$C1FC-$C1FF` | 4 | free | free, inside a linker region |
 | `$C200-$C22F` | 48 | used | linker-allocated: code, data, bss, zero page, stack frames |
@@ -132,29 +134,30 @@ are not equally reachable:
 | `$FFFA-$FFFF` | 6 | used | NMI / RESET / IRQ vectors |
 
 ```
-Used                       61,521 B   93.9%
-Free, allocatable           3,849 B   largest run 3,536 B at $C230
+Used                       61,046 B   93.1%
+Free, allocatable           4,309 B   largest run 3,536 B at $C230
 Free, stack headroom           76 B   reachable by lowering #pragma stacksize
 Free, orphan fragments         90 B   only reachable by hand-placing
-Free, total                 4,015 B   6.1%
+Free, boot headroom            15 B   only for boot-only code (mem.h MEM_BOOT_END)
+Free, total                 4,490 B   6.9%
 ```
 
 ```
-Feature table total        61,204 B
+Feature table total        60,729 B
 + machine-owned ranges        359 B   processor port, runtime ZP, hardware stack, BASIC link
 - addresses counted twice      42 B   oscar64 overlays call frames that cannot be live together
-= address space, used      61,521 B
+= address space, used      61,046 B
 ```
 
 ---
 
 ## Detail by feature area
 
-### 1. Horizon Graphics (16,825 B)
+### 1. Horizon Graphics (16,425 B)
 
-* **Code (3,744 B)**: viewport horizon rendering, cell filling, box generation, slot drawing (`render.cc`, `box.cc`, `roll.cc`, `roll_asm.cc`).
+* **Code (3,728 B)**: viewport horizon rendering, cell filling, box generation, slot drawing (`render.cc`, `box.cc`, `roll.cc`, `roll_asm.cc`).
 * **Data (8,470 B)**: box definitions (`boxdefs`), character definitions (`chardefs`), roll multiply and slope tables, compressed charset (`kGfxCharsCompressed`).
-* **BSS (398 B)**: per-slot frame arrays (`_box_chars`, `_box_colors`).
+* **BSS (14 B)**: which box each charset slot holds (`_slot_def`); the per-slot caches themselves live in the boot region (`mem.h` `kBootScratch`) and are not counted here.
 * **ZP (37 B)**: roll and render registers (`roll_dx`, `roll_dy`, `roll_period`, `render_cx_pixels`, ...).
 * **VRAM (4,176 B)**: character RAM `$E000-$E7FF`, main screen `$E800`, alt screen `$EC00` - the two double-buffered VIC screens - and the back view's tail fin at `$FF40-$FFBF`, the two sprite blocks that fit between the panel bitmap and the vectors.
 
@@ -165,18 +168,18 @@ Feature table total        61,204 B
 * **BSS (335 B)**: scratch vertex buffers (`poly_verts`, `clip3_buf`, `proj_buf`, `clip2_buf1/2`, `final_verts`).
 * **ZP (20 B)**: vector registers (`vec_v`, `vec_sx`, `vec_sy`).
 
-### 3. World Model (7,294 B)
+### 3. World Model (7,147 B)
 
-* **Code (6,541 B)**: flight dynamics, physics integration, waypoint checking, terrain grid rendering (`flight.cc`, `world.cc`, `sim.cc`, `world_map.cc`, `clouds.cc`).
+* **Code (6,394 B)**: flight dynamics, physics integration, waypoint checking, terrain grid rendering (`flight.cc`, `world.cc`, `sim.cc`, `world_map.cc`, `clouds.cc`).
 * **Data (357 B)**: orientation matrices (`mat3_rot`, `kHeadingLut`), the world map, cloud hash and ladder tables.
 * **BSS (337 B)**: flight path history (`flight_path_px/py`), delta transform vectors (`_world_dx4`, `_world_dy4`), camera state.
 * **ZP (59 B)**: flight state (`flight_eye_x/y/z`, `flight_speed`, `flight_throttle`, `flight_fuel`, `flight_vspeed`).
 
-### 4. Instrument Panel (11,998 B)
+### 4. Instrument Panel (11,925 B)
 
-* **Code (3,255 B)**: viewport split raster handlers, gauge updates, the sprite stack and hardware controller (`view.cc`, `panel.cc`, `sprites.cc`, `spritedef.cc`).
+* **Code (3,252 B)**: viewport split raster handlers, gauge updates, the sprite stack and hardware controller (`view.cc`, `panel.cc`, `sprites.cc`, `spritedef.cc`).
 * **Data (1,381 B)**: compressed panel image and sprite bitmaps, character and color LUTs.
-* **BSS (368 B)**: raster IRQ split structures, the sprite candidate stack and the two committed sprite frames.
+* **BSS (298 B)**: raster IRQ split structures, the sprite candidate stack and the two committed sprite frames.
 * **ZP (2 B)**: sprite index and pointers.
 * **VRAM (6,992 B)**: sprite bitmaps `$D400-$DFFF`, panel bitmap `$F000-$FF3F` (the four heading strips live in its off-screen head at `$F000-$F17F`), and both screens' sprite pointers.
 
@@ -219,9 +222,9 @@ Feature table total        61,204 B
 * **Code (331 B)**: CIA2 stage counters behind the `D` view (`benchmark.cc`).
 * **BSS (8 B)**.
 
-### 11. Core System & Drivers (5,685 B)
+### 11. Core System & Drivers (5,830 B)
 
-* **Code (5,080 B)**: entry point, VIC setup, raster IRQ core, LZO decompressor, keyboard, CPU speed probe, oscar64 runtime (`ppilot.cc`, `mem.cc`, `gfx.cc`, `screen.cc`, `keys.cc`, `cpu.cc`, `bcd.cc`, `print.cc`).
+* **Code (5,225 B)**: entry point, VIC setup, raster IRQ core, LZO decompressor, keyboard, CPU speed probe, oscar64 runtime (`ppilot.cc`, `mem.cc`, `gfx.cc`, `screen.cc`, `keys.cc`, `cpu.cc`, `bcd.cc`, `print.cc`); the boot-only part of it is the boot region at `$0860`, which is `box.cc`'s cache space once it has run.
 * **Data (375 B)**: startup header, screen row pointer tables, fill patterns.
 * **BSS (217 B)**: raster IRQ lists, keyboard matrix, CPU probe results.
 * **ZP (13 B)**: compiler temporaries and kernel flags.
@@ -235,8 +238,8 @@ only `$D000-$D3FF` is charged to it above.
 
 ## The ROM window, before mem_init()
 
-The main region is `$0860-$D000`, and the linker places globals anywhere in
-it. But the C64 powers on with **BASIC ROM at `$A000-$BFFF`** and KERNAL at
+The main region is `$0A60-$D000`, above the boot region at `$0860`, and the
+linker places globals anywhere in it. But the C64 powers on with **BASIC ROM at `$A000-$BFFF`** and KERNAL at
 `$E000-$FFFF` banked in, and `mem_init()` is what calls
 `mmap_set(MMAP_NO_ROM)` to make those addresses plain RAM.
 

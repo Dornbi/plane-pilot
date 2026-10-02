@@ -18,10 +18,24 @@
 
 // The two screen buffers use distinct charset slots (mem_box_char_start
 // 0x01 / 0x61), so everything box_prepare produces is cached per slot and
-// only rebuilt when that slot's box definition changes. 384 bytes of bss2,
-// its two largest tenants by some way.
-static uint8_t _box_chars[2][kMaxBoxTotalSize];
-static uint8_t _box_colors[2][kMaxBoxTotalSize];
+// only rebuilt when that slot's box definition changes. 384 bytes, and with
+// the two tables below 454, in the boot region rather than in bss2 (mem.h
+// kBootScratch): every byte of them is written before it is read - the caches
+// once _slot_def says the slot is empty, which is how it starts, and the
+// tables on every rebuild - so they need neither bss's zeroing nor anything
+// to survive from before _boot() returned.
+//
+// Laid out by hand so that none of them crosses a page, which in bss2 none
+// did either: box_draw() reads the caches through a pointer every frame, and a
+// (zp),y read that crosses a page costs a cycle. The 512 bytes from $0860
+// hold four 96-byte caches 160 apart, with the tables in two of the gaps:
+//
+//   $0860  chars, slot 0       $08C0  _char_lut
+//   $0900  chars, slot 1       $0960  colours, slot 0
+//   $09C0  _color_lut          $0A00  colours, slot 1
+static const uint8_t kBoxSlotStride = 0xA0;
+static uint8_t *const kBoxChars = kBootScratch;
+static uint8_t *const kBoxColors = kBootScratch + 0x100;
 // Which definition each charset slot currently holds.
 static const boxdef_t *_slot_def[2];
 // The current slot's buffers, for box_draw.
@@ -31,8 +45,27 @@ static const uint8_t *_cur_box_colors;
 // Indices 0..2 are the three solid characters (ground, sky, 11); the tile's
 // own characters follow at 3..char_count+2. kMaxBoxCharCount counts only the
 // latter, so the tables need three extra slots.
-static uint8_t _char_lut[kMaxBoxCharCount + 3];
-static uint8_t _color_lut[kMaxBoxCharCount + 3];
+static uint8_t *const _char_lut = kBootScratch + 0x60;
+static uint8_t *const _color_lut = kBootScratch + 0x160;
+
+// The layout above, checked: everything inside the region, nothing on top of
+// anything else, nothing across a page.
+#define BOX_IN_PAGE(off, len) \
+  ((((MEM_BOOT_START + (off)) & 0xFF) + (len)) <= 0x100)
+static_assert(0x100 + kBoxSlotStride + kMaxBoxTotalSize <= kBootScratchSize,
+              "box.cc's caches outgrow the boot region (mem.h kBootScratch)");
+static_assert(kMaxBoxTotalSize <= 0x60 &&
+                  0x60 + kMaxBoxCharCount + 3 <= kBoxSlotStride &&
+                  0x160 + kMaxBoxCharCount + 3 <= 0x100 + kBoxSlotStride,
+              "box.cc's caches and tables overlap");
+static_assert(BOX_IN_PAGE(0x000, kMaxBoxTotalSize) &&
+                  BOX_IN_PAGE(kBoxSlotStride, kMaxBoxTotalSize) &&
+                  BOX_IN_PAGE(0x100, kMaxBoxTotalSize) &&
+                  BOX_IN_PAGE(0x100 + kBoxSlotStride, kMaxBoxTotalSize) &&
+                  BOX_IN_PAGE(0x060, kMaxBoxCharCount + 3) &&
+                  BOX_IN_PAGE(0x160, kMaxBoxCharCount + 3),
+              "a box.cc cache or table crosses a page");
+#undef BOX_IN_PAGE
 
 void box_invalidate(void) {
   _slot_def[0] = NULL;
@@ -53,8 +86,9 @@ void box_prepare(void) {
   }
 
   const uint8_t slot = mem_box_char_start != 0x01;
-  _cur_box_chars = _box_chars[slot];
-  _cur_box_colors = _box_colors[slot];
+  const uint8_t slot_offset = slot ? kBoxSlotStride : 0;
+  _cur_box_chars = kBoxChars + slot_offset;
+  _cur_box_colors = kBoxColors + slot_offset;
 
   if (src_def != NULL && src_def == _slot_def[slot]) {
     // This slot already holds this definition (typical when flying
@@ -109,20 +143,24 @@ void box_prepare(void) {
   _char_lut[2] = kCharSolid11;
   _color_lut[2] = kColorGrad1 | 0x08;
 
-  for (int8_t i = boxdef.char_count - 1;;) {
-    _char_lut[i + 3] = mem_box_char_start + i;
-    _color_lut[i + 3] = (i >= boxdef.grad1_color_start) ? (kColorGrad1 | 0x08)
+  // A byte counter and a base three entries in, not `_char_lut[i + 3]` with an
+  // int8_t: the tables are behind a pointer now (kBootScratch), and with a
+  // signed index oscar64 builds a 16-bit address for every store, ~20 cycles a
+  // character, where this is a plain absolute,x. Every box has characters, so
+  // nothing is lost by the loop no longer running once for an empty one.
+  uint8_t *const char_lut_tile = _char_lut + 3;
+  uint8_t *const color_lut_tile = _color_lut + 3;
+  for (uint8_t i = boxdef.char_count; i-- != 0;) {
+    char_lut_tile[i] = mem_box_char_start + i;
+    color_lut_tile[i] = (i >= boxdef.grad1_color_start) ? (kColorGrad1 | 0x08)
                                                         : (kColorSky | 0x08);
-    if (--i < 0) {
-      break;
-    }
   }
 
   // Fill box_chars and box_colors with the box definition.
   if (boxdef.total_size > 0) {
     const uint8_t *src = boxdef.box_chars;
-    uint8_t *dst_chars = _box_chars[slot];
-    uint8_t *dst_colors = _box_colors[slot];
+    uint8_t *dst_chars = kBoxChars + slot_offset;
+    uint8_t *dst_colors = kBoxColors + slot_offset;
     for (int8_t i = boxdef.total_size - 1;;) {
       const uint8_t idx = src[i];
       dst_chars[i] = _char_lut[idx];

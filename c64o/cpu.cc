@@ -1,6 +1,7 @@
 #include "cpu.h"
 
 #include "cia.h"
+#include "mem.h"
 
 volatile uint16_t cpu_probe_us;
 volatile uint8_t cpu_step_shift;
@@ -43,6 +44,11 @@ uint8_t cpu_shift_for_us(uint16_t us) {
   return shift;
 }
 
+#ifdef __MAX_RAM__
+// Runs once, before anything else, and never again: in the boot region, which
+// is scratch from the moment main() is past it (mem.h).
+#pragma code(bootcode)
+#endif
 void cpu_probe(void) {
   // Timer A free running off the 1 MHz bus clock, which is the one thing on
   // this machine that an accelerator does not speed up - that is the whole
@@ -81,3 +87,6 @@ void cpu_probe(void) {
   cpu_probe_us = us;
   cpu_step_shift = cpu_shift_for_us(us);
 }
+#ifdef __MAX_RAM__
+#pragma code(code)
+#endif

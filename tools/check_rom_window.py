@@ -83,9 +83,15 @@ def rom_window(addr):
 
 
 def scan(funcs, name, stop_at, seen, depth=0):
-    """Reads from a ROM window in `name`, and in everything it calls."""
+    """Reads from a ROM window in `name`, and in everything it calls, up to the
+    first call to stop_at - and whether that call was reached.
+
+    The second half is what lets mem_init() be called from somewhere other than
+    main() itself (ppilot.cc's _boot()): once a callee has reached it, the rest
+    of its caller runs after it too, so the caller stops there as well rather
+    than carrying on into code that only ever runs with the ROM banked out."""
     if name in seen or depth > 6 or name not in funcs:
-        return []
+        return [], False
     seen.add(name)
     out = []
     for line in funcs[name]:
@@ -101,9 +107,12 @@ def scan(funcs, name, stop_at, seen, depth=0):
         if j:
             callee = j.group(1)
             if callee.startswith(stop_at):
-                return out          # reached mem_init: everything after is safe
-            out += scan(funcs, callee, stop_at, seen, depth + 1)
-    return out
+                return out, True    # reached mem_init: everything after is safe
+            sub, reached = scan(funcs, callee, stop_at, seen, depth + 1)
+            out += sub
+            if reached:
+                return out, True
+    return out, False
 
 
 def check(path):
@@ -112,15 +121,14 @@ def check(path):
         print(f"{path}: no main() in the listing", file=sys.stderr)
         return 1
 
-    # Only the part of main() before it calls mem_init(), plus everything that
-    # part calls. After mem_init() the ROM is gone and the whole map is RAM.
-    if not any(JSR.match(l.strip()) and JSR.match(l.strip()).group(1).startswith('mem_init')
-               for l in funcs['main']):
-        print(f"{path}: main() never calls mem_init() - check the assumption",
+    # Only what main() runs before mem_init(), however deep the call to it is,
+    # plus everything that part calls. After mem_init() the ROM is gone and the
+    # whole map is RAM.
+    bad, reached = scan(funcs, 'main', 'mem_init', set())
+    if not reached:
+        print(f"{path}: main() never reaches mem_init() - check the assumption",
               file=sys.stderr)
         return 1
-
-    bad = scan(funcs, 'main', 'mem_init', set())
     label = path.split('/')[-1].replace('.asm', '')
     if not bad:
         print(f"{label:<9} ok: nothing before mem_init() reads a ROM window")

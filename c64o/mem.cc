@@ -123,6 +123,11 @@ static const uint8_t kVicMemScreenAlt = 0xB8;
 // Startup and mode-switch helpers; none of these run per frame.
 #pragma optimize(push, outline)
 
+#ifdef __MAX_RAM__
+// Runs once, before anything else, and never again: in the boot region, which
+// is scratch from the moment main() is past it (mem.h).
+#pragma code(bootcode)
+#endif
 void mem_init(void) {
   mmap_trampoline();
 
@@ -166,6 +171,9 @@ void mem_init(void) {
   mem_debug_enabled = false;
 #endif
 }
+#ifdef __MAX_RAM__
+#pragma code(code)
+#endif
 
 #pragma optimize(pop)
 

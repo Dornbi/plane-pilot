@@ -7,7 +7,14 @@
 #include "menu.h"
 #include "sim.h"
 
-int main(void) {
+#ifdef __MAX_RAM__
+// Everything that runs once at power on. It lives in the boot region with the
+// other boot-only code (mem.h), so the RAM it takes is scratch from the moment
+// it returns - which is also why main() itself is not in there: the loop below
+// has to outlive it.
+#pragma code(bootcode)
+#endif
+static __noinline void _boot(void) {
   cia_init();
   // Before bm_init(), which takes CIA2's timers for itself, and before any
   // raster interrupt is armed: the probe is timed and would count a handler.
@@ -42,6 +49,13 @@ int main(void) {
   mem_clear_screen();
 
   gfx_init_chars();
+}
+#ifdef __MAX_RAM__
+#pragma code(code)
+#endif
+
+int main(void) {
+  _boot();
 
   while (1) {
     uint8_t selected_mission = menu_run();

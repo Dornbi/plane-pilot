@@ -30,7 +30,26 @@
 // All the way to 0xD000. The last page below I/O used to be the title
 // aircraft's and was taken off the region by hand; it lives under I/O now, with
 // the map view's screen RAM (kTitleSpriteData below).
-#pragma region( main, 0x0860, 0xD000, , , {code, data, data_box, data_compr, bss, heap} )
+//
+// The bottom of it is the boot region: the code that runs once at power on -
+// ppilot.cc's _boot(), cpu_probe(), mem_init() and whatever they inline - in
+// a region of its own, so that the moment _boot() returns those bytes are
+// dead and can be reused (kBootScratch below). Each such function is wrapped
+// in `#pragma code(bootcode)` / `#pragma code(code)`.
+//
+// The end is the code's size plus a little headroom, and it is the one number
+// here that has to be moved by hand: if the boot code outgrows it, the link
+// fails with "Could not place object", and the fix is to raise it. It cannot
+// shrink below kBootScratch's largest tenant (box.cc's static_assert).
+//
+// Nothing outside the region may call into it, since after boot it is
+// whatever the scratch's users last wrote there. tools/check_boot_region.py
+// fails the build otherwise; main()'s one call to _boot() is the exception.
+#define MEM_BOOT_START 0x0860
+#define MEM_BOOT_END 0x0A60
+#pragma section(bootcode, 0)
+#pragma region( boot, MEM_BOOT_START, MEM_BOOT_END, , , {bootcode} )
+#pragma region( main, MEM_BOOT_END, 0xD000, , , {code, data, data_box, data_compr, bss, heap} )
 #endif
 // Zero page. Wider than oscar64's 0x80..0xFF default, in both directions.
 //
@@ -75,6 +94,20 @@ static const uint16_t kViewportStartYPixels = kViewportStartY * 8;
 static const uint16_t kViewportEndYPixels = kViewportEndY * 8;
 
 static uint8_t *const kCharRam = (uint8_t *)0xE000;
+
+#ifdef __MAX_RAM__
+// The boot region once _boot() has returned: RAM no code will ever run from
+// again, for data that is always written before it is read. Not bss, and that
+// is the point - the startup code clears bss before main() runs, which would
+// wipe the boot code before it ever ran, so tenants are placed here by hand,
+// the way kSpriteDataCompressed's are, and must not count on starting at zero.
+// Nothing may be written here before _boot() returns.
+//
+// Tenants: box.cc's caches and tables, 454 bytes spread over all 512 so that
+// none of them crosses a page (box.cc has the layout).
+static uint8_t *const kBootScratch = (uint8_t *)MEM_BOOT_START;
+static const uint16_t kBootScratchSize = MEM_BOOT_END - MEM_BOOT_START;
+#endif
 
 // The title screen aircraft's four sprite blocks, expanded here by title.cc
 // when the menu opens (c64o/title.cc). RAM under I/O, and time-shared: the

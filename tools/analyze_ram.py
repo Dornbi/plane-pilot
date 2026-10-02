@@ -88,7 +88,9 @@ DESCRIPTIONS = {
         'Data': 'box definitions (`boxdefs`), character definitions '
                 '(`chardefs`), roll multiply and slope tables, compressed '
                 'charset (`kGfxCharsCompressed`)',
-        'BSS': 'per-slot frame arrays (`_box_chars`, `_box_colors`)',
+        'BSS': 'which box each charset slot holds (`_slot_def`); the per-slot '
+               'caches themselves live in the boot region (`mem.h` '
+               '`kBootScratch`) and are not counted here',
         'ZP': 'roll and render registers (`roll_dx`, `roll_dy`, `roll_period`, '
               '`render_cx_pixels`, ...)',
         'VRAM': 'character RAM `$E000-$E7FF`, main screen `$E800`, '
@@ -183,7 +185,9 @@ DESCRIPTIONS = {
         'Code': 'entry point, VIC setup, raster IRQ core, LZO decompressor, '
                 'keyboard, CPU speed probe, oscar64 runtime (`ppilot.cc`, '
                 '`mem.cc`, `gfx.cc`, `screen.cc`, `keys.cc`, `cpu.cc`, '
-                '`bcd.cc`, `print.cc`)',
+                '`bcd.cc`, `print.cc`); the boot-only part of it is the boot '
+                'region at `$0860`, which is `box.cc`\'s cache space once it '
+                'has run',
         'Data': 'startup header, screen row pointer tables, fill patterns',
         'BSS': 'raster IRQ lists, keyboard matrix, CPU probe results',
         'ZP': 'compiler temporaries and kernel flags',
@@ -322,7 +326,7 @@ def walk_address_space(objects, regions, stack_free):
     once and in the right place. Whatever is left over is free, classified by
     whether the linker could still reach it.
     """
-    USED, FREE_ALLOC, FREE_STACK, FREE_ORPHAN = 1, 2, 3, 4
+    USED, FREE_ALLOC, FREE_STACK, FREE_ORPHAN, FREE_BOOT = 1, 2, 3, 4, 5
 
     kind = bytearray(0x10000)  # 0 = not yet decided
     # Which FIXED entry owns each byte, 1-based; 0 means the linker placed it.
@@ -351,6 +355,15 @@ def walk_address_space(objects, regions, stack_free):
         for a in range(start, end):
             in_region[a] = 1
 
+    # The boot region (mem.h) only ever takes code wrapped in
+    # `#pragma code(bootcode)`, so its unused tail is headroom for that code
+    # and nothing else - not free for the program at large.
+    boot = next(((s, e) for s, e, n in regions if n == 'boot'), None)
+    if boot:
+        for a in range(*boot):
+            if kind[a] == 0:
+                kind[a] = FREE_BOOT
+
     if stack_free:
         for a in range(stack_free[0], stack_free[1]):
             if kind[a] == 0:
@@ -371,7 +384,8 @@ def walk_address_space(objects, regions, stack_free):
         runs.append((a, b, kind[a], owner[a]))
         a = b
 
-    totals = {USED: 0, FREE_ALLOC: 0, FREE_STACK: 0, FREE_ORPHAN: 0}
+    totals = {USED: 0, FREE_ALLOC: 0, FREE_STACK: 0, FREE_ORPHAN: 0,
+              FREE_BOOT: 0}
     for start, end, k, _o in runs:
         totals[k] += end - start
     assert sum(totals.values()) == 0x10000, 'address space walk does not reconcile'
@@ -388,9 +402,10 @@ def walk_address_space(objects, regions, stack_free):
         'sum_fixed_sizes': sum(e - s for s, e, _o, _l in FIXED),
         'unowned_fixed': sum(e - s for s, e, o, _l in FIXED if o is None),
         'names': {USED: 'used', FREE_ALLOC: 'free', FREE_STACK: 'stack headroom',
-                  FREE_ORPHAN: 'free (orphan)'},
+                  FREE_ORPHAN: 'free (orphan)', FREE_BOOT: 'boot headroom'},
         'USED': USED, 'FREE_ALLOC': FREE_ALLOC,
         'FREE_STACK': FREE_STACK, 'FREE_ORPHAN': FREE_ORPHAN,
+        'FREE_BOOT': FREE_BOOT, 'boot': boot,
     }
 
 
@@ -401,9 +416,9 @@ def parse_map(map_path):
     # one from mem.h. Pointed at vecdemo or vectest - built without it, and
     # without a VIC to speak of - every address above $D000 below would be
     # invented. Say so rather than printing a confident wrong number.
-    if not any(start == 0x0860 and end == 0xD000 for start, end, _n in regions):
+    if not any(name == 'main' and end == 0xD000 for _s, end, name in regions):
         print(f"warning: {map_path} is not a __MAX_RAM__ build "
-              f"(no $0860-$D000 main region); the fixed allocations below "
+              f"(no main region up to $D000); the fixed allocations below "
               f"describe ppilot and do not apply.\n", file=sys.stderr)
 
 
@@ -457,18 +472,24 @@ def _fmt_span(start, end):
 
 def print_walk(walk, markdown=False):
     U, FA, FS, FO = walk['USED'], walk['FREE_ALLOC'], walk['FREE_STACK'], walk['FREE_ORPHAN']
+    FB, boot = walk['FREE_BOOT'], walk['boot']
     names = walk['names']
 
     rows = []
     for start, end, kind, owner in walk['runs']:
         if owner:
             text = FIXED[owner - 1][3]
+        elif kind == U and boot and boot[0] <= start and end <= boot[1]:
+            text = ('boot-only code (mem.h boot region), reused once main() '
+                    'is past it as kBootScratch')
         elif kind == U:
             text = 'linker-allocated: code, data, bss, zero page, stack frames'
         elif kind == FA:
             text = 'free, inside a linker region'
         elif kind == FS:
             text = 'software stack headroom (see #pragma stacksize in mem.h)'
+        elif kind == FB:
+            text = 'boot region headroom, for boot-only code (mem.h MEM_BOOT_END)'
         else:
             text = 'free, but outside every linker region'
         rows.append((start, end, names[kind], text))
@@ -482,7 +503,8 @@ def print_walk(walk, markdown=False):
         for start, end, kind, text in rows:
             print(f"  {_fmt_span(start, end):>11}  {end - start:>6}  {kind:<14}  {text}")
 
-    free = walk['totals'][FA] + walk['totals'][FS] + walk['totals'][FO]
+    free = (walk['totals'][FA] + walk['totals'][FS] + walk['totals'][FO] +
+            walk['totals'][FB])
     used = walk['totals'][U]
     biggest = max((e - s, s) for s, e, k, _o in walk["runs"] if k == FA)
 
@@ -494,6 +516,8 @@ def print_walk(walk, markdown=False):
         f"reachable by lowering #pragma stacksize",
         f"Free, orphan fragments     {walk['totals'][FO]:>6,} B   "
         f"only reachable by hand-placing",
+        f"Free, boot headroom        {walk['totals'][FB]:>6,} B   "
+        f"only for boot-only code (mem.h MEM_BOOT_END)",
         f"Free, total                {free:>6,} B   {free / 655.36:.1f}%",
     ]
     if markdown:
