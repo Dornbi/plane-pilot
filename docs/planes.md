@@ -632,8 +632,8 @@ this demo does not have — camera-space position and axes through the existing
 `vec_transform_inv` and `vec_transform3_inv`, the sprite stack's 2-wide and
 Y-expanded entries (§5), the block-set flip — estimated at 300–450 bytes:
 **~4.8 KB against ~4.3 KB free.** `fpilot.prg`, the game traffic is for, has
-5,486 (`make -C c64o fram`): the port would fit there, with about 0.7 KB left
-for the enemy aircraft's own logic. The ways to close the gap, in order of
+7,397 (`make -C c64o fram`), having left the debug view out: the port would
+fit there, with about 2.6 KB left for the enemy aircraft's own logic. The ways to close the gap, in order of
 size:
 
 - Write `planes_render()`'s layout and caches, and `_project()`, in assembly

@@ -115,10 +115,18 @@ static void _gfx_switch_to_panel_top() {
     return;
   }
 #else
+  // Stands in for the test above, which is `lda zp / bne` not taken: five
+  // cycles, so that the writes land where they do in a debug build, which is
+  // where GFX_PANEL_NOPS was measured. Three NOPs were six, and put them a
+  // cycle late - measured on the split's `sta $d018`, 53..58 of line 162 on
+  // x64sc became 54..59, and 55 on xscpu64 became 56. The jmp to the next
+  // instruction is the three: it reads nothing and sets no flags, where any
+  // three-cycle read would be a zero page one, which check_irq_zp.py rightly
+  // refuses in a handler.
   __asm {
     nop;
-    nop;
-    nop;
+    jmp next;
+  next:
   }
 #endif
 #assign num_nop GFX_PANEL_NOPS
@@ -142,10 +150,11 @@ static void _gfx_switch_to_panel_top_fast() {
     return;
   }
 #else
+  // Five cycles, as above.
   __asm {
     nop;
-    nop;
-    nop;
+    jmp next;
+  next:
   }
 #endif
 #assign num_nop GFX_PANEL_NOPS_FAST

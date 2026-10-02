@@ -27,7 +27,8 @@ If everything goes well it builds these executables into `c64o/`:
 - `ppilota.prg`: The same game with the angle-of-attack flight model.
 - `fpilot.prg`: Fighter Pilot, the combat variant. Built from the same
   `ppilot.cc` with `-D__FPILOT__`; for now that only swaps the mission table
-  for the one in `fmission.cc` (one mission) and renames the menu.
+  for the one in `fmission.cc` (one mission) and renames the menu. It has no
+  debug view: the build leaves out `-D__ENABLE_DEBUG__`, for the RAM.
 - `polydemo.prg`: Polygon rendering prototype.
 - `vecdemo.prg`: Simple character mode prototype of the dots on the ground.
 - `vectest.prg`: Correctness test and cycle count for 3D vector operations.

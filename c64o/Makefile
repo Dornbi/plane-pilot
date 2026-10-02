@@ -29,6 +29,10 @@ PPILOTA_PROGRAM = ppilota
 # and missions of its own. Also built from ppilot.cc, with -D__FPILOT__, which
 # for now does no more than swap pmission.cc for fmission.cc (mission.h)
 # and put its own name on the menu. Arcade flight model, as ppilot.
+#
+# No debug view: it is built without $(DEBUG) whatever that is set to, so the
+# D key, the stage counters behind it and the code that prints them are not
+# in it. That is about 1.9 KB, which traffic and combat need more.
 FPILOT_PROGRAM = fpilot
 PPILOT_SRC = \
 		bcd.cc \
@@ -223,7 +227,7 @@ CLOUDS ?= -D__ENABLE_CLOUDS__
 # while - the debug build was the one with the room for the benchmark counters -
 # and the flags stayed because the merged build still has to fit. Build with
 # SOUND= or DEBUG= to leave one out and measure what it costs, the same dial
-# CLOUDS= is.
+# CLOUDS= is. fpilot never has the debug view; see FPILOT_PROGRAM.
 SOUND ?= -D__ENABLE_SOUND__
 DEBUG ?= -D__ENABLE_DEBUG__
 
@@ -312,7 +316,7 @@ $(PPILOTA_PROGRAM).prg: $(PPILOT_SRC)
 # Not on FLIGHT_STAMP either, for the same reason: its model does not follow
 # FLIGHT_AOA.
 $(FPILOT_PROGRAM).prg: $(PPILOT_SRC)
-	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(DEBUG) $(CLOUDS) -D__FPILOT__ -D__MAX_RAM__ -o=$(FPILOT_PROGRAM).prg ppilot.cc
+	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(CLOUDS) -D__FPILOT__ -D__MAX_RAM__ -o=$(FPILOT_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(FPILOT_PROGRAM).asm
 	@$(IRQCHECK) $(FPILOT_PROGRAM).asm
 	@$(MATHCHECK) $(FPILOT_PROGRAM).asm
