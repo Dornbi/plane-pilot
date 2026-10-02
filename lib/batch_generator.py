@@ -318,26 +318,28 @@ def generate_chardefs_content(global_chars: Dict[bytes, Dict[str, Any]], special
     return content
 
 
-def generate_chardefs_c_content(global_chars: Dict[bytes, Dict[str, Any]]) -> str:
+def generate_chardefs_c_content(stored: List[Any], char_map: Dict[int, Any]) -> str:
     """
-    Generates the C source code for chardefs.c.
+    Generates the C source code for chardefs.cc.
+
+    stored is find_boxes.build_c_charset()'s: the characters the boxes use,
+    each once per vertical flip. The comment on each row names the global
+    character ids it serves, and which of them are it upside down.
     """
-    sorted_chars = sorted(global_chars.items(), key=lambda item: item[1]['id'])
-    
     content = banner.c_banner("lib/batch_generator.py")
     content += '#include "chardefs.h"\n\n'
-    content += f"const uint8_t chardefs[kTotalChars][8] = {{\n"
-    
-    items = sorted(global_chars.items(), key=lambda item: item[1]['id'])
-    for char_bytes, info in items:
-        cid = info['id']
+    content += "const uint8_t chardefs[kCharDefCount][8] = {\n"
+    for i, (char_bytes, ids) in enumerate(stored):
         byte_vals = [f"0x{b:02x}" for b in char_bytes]
-        content += f"    {{ {', '.join(byte_vals)} }}, // {cid}\n"
-        
+        served = ", ".join(f"{cid} flipped" if char_map[cid][1] else str(cid)
+                           for cid in ids)
+        content += f"    {{ {', '.join(byte_vals)} }}, // {i}: {served}\n"
     content += "};\n"
     return content
 
-def generate_chardefs_h_content(global_chars: Dict[bytes, Dict[str, Any]], special_ids: Dict[str, int]) -> str:
+def generate_chardefs_h_content(global_chars: Dict[bytes, Dict[str, Any]],
+                                special_ids: Dict[str, int],
+                                stored: List[Any]) -> str:
     """
     Generates the C header code for chardefs.h.
     """
@@ -345,7 +347,14 @@ def generate_chardefs_h_content(global_chars: Dict[bytes, Dict[str, Any]], speci
     content += "#ifndef CHARDEFS_H\n"
     content += "#define CHARDEFS_H\n\n"
     content += "#include <stdint.h>\n\n"
-    content += f"static const uint16_t kTotalChars = {len(global_chars)};\n\n"
+    content += (f"// {len(global_chars)} characters in the global set, of which "
+                f"chardefs holds\n"
+                f"// {len(stored)}: the ones the boxes reference, each stored "
+                f"once per vertical\n"
+                f"// flip (lib/find_boxes.py build_c_charset()). Fewer than 256, "
+                f"so a byte\n"
+                f"// indexes them.\n")
+    content += f"static const uint16_t kCharDefCount = {len(stored)};\n\n"
     
     content += "static const uint8_t kCharSolidGround = 128;\n"
     content += "static const uint8_t kCharSolidSky = 0;\n"
@@ -355,7 +364,7 @@ def generate_chardefs_h_content(global_chars: Dict[bytes, Dict[str, Any]], speci
     #for name, cid in special_ids.items():
     #    content += f"static const uint8_t {_to_k_camel_case(name)} = {cid};\n"
         
-    content += "\nextern const uint8_t chardefs[kTotalChars][8];\n\n"
+    content += "\nextern const uint8_t chardefs[kCharDefCount][8];\n\n"
     content += "#pragma compile(\"chardefs.cc\")\n\n"
     content += "#endif\n"
     return content

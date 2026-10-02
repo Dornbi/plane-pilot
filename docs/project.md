@@ -33,10 +33,11 @@ the horizon is never drawn — it is _looked up_.
    stamping the tile repeatedly along the horizon line.
 
 The cost of a frame is therefore roughly independent of the roll angle. The
-price is a large static data set: **333 unique gradient characters**
-(`kTotalChars`) across **68 tile definitions** — more characters than the VIC-II
-can address at once, so the ~30 characters a tile needs are copied into
-character RAM each time the tile changes.
+price is a large static data set: **333 unique gradient characters** across
+**68 tile definitions** — more characters than the VIC-II can address at once,
+so the ~30 characters a tile needs are copied into character RAM each time the
+tile changes. The C64 stores 224 of them (`kCharDefCount`): the rest are one of
+those upside down, and are copied backwards.
 
 ---
 
@@ -214,12 +215,21 @@ array. `boxdefs.cc` holds 68 definitions — 60 main (one per angle) and 8 alt �
 looked up through `main_boxes[]` / `alt_boxes[]`. Both files are generated;
 edit the generators under `lib/` and re-run `make chardefs`.
 
-A tile's characters are stored as one byte each, relative to the tile's own
-`char_offset`, rather than as pointers into `chardefs`: the characters a single
-tile uses are clustered, so `char_offset` is placed at the start of the largest
-gap in the (circular) character id space and every relative index then fits in
-a byte. That halves the tables, at the cost of one add and one conditional
-subtract per character in `box_prepare()`.
+`chardefs.cc` stores each character once per vertical flip: a multicolour
+character upside down is its eight bytes in reverse order, and 107 of the 333
+are another one of them reversed. With the solid ground and sky left out, which
+`box_prepare()` never copies, it holds 224 (`lib/find_boxes.py`
+`build_c_charset()`). That is 872 bytes less, and few enough that a tile's
+characters are one byte each, a plain index into `chardefs`. Each tile's local
+characters are ordered so the ones it needs upside down form a single run,
+`flip_start` to `flip_end`, inside its colour split, and `box_prepare()` copies
+those bottom row first. A backwards copy costs a few cycles more per character
+than a forwards one, and dropping the old `char_offset` (an add and a wrap per
+character, back when the indices were relative to a per-tile base because 333
+did not fit a byte) costs fewer: measured over all 240 calls the game can make,
+every one is faster, by 30 to 613 cycles. `tests/test_c_horizon_tables.py`
+decodes the checked-in tables the same way and compares every cell with the
+Python model.
 
 `box_prepare()` copies the tile's unique characters into the current buffer's
 character slot and builds parallel character/color arrays. It caches per slot:

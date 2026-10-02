@@ -132,21 +132,25 @@ def main():
         if not os.path.exists(c64_dir):
             os.makedirs(c64_dir)
             
-        total_chars = len(global_chars)
-        
+        # The characters chardefs.cc stores - each once per vertical flip -
+        # and, for every global id a box uses, where it is and which way up.
+        stored, char_map = lib.find_boxes.build_c_charset(global_chars, box_defs)
+        print(f"Characters stored for the C64: {len(stored)} "
+              f"of {len(global_chars)}")
+
         # Calculate max stats for boxdefs.h
         max_box_total_size = sorted_boxes[0][1]['area'] if sorted_boxes else 0
         max_box_char_count = sorted_box_counts[0][1] if sorted_box_counts else 0
         
         # 1. Chardefs C and H
-        chardefs_c = lib.batch_generator.generate_chardefs_c_content(global_chars)
+        chardefs_c = lib.batch_generator.generate_chardefs_c_content(stored, char_map)
         chardefs_c_path = os.path.join(c64_dir, "chardefs.cc")
         with open(chardefs_c_path, "w") as f:
             f.write(chardefs_c)
             
         print(f"Generated {chardefs_c_path}")
 
-        chardefs_h = lib.batch_generator.generate_chardefs_h_content(global_chars, special_ids)
+        chardefs_h = lib.batch_generator.generate_chardefs_h_content(global_chars, special_ids, stored)
         chardefs_h_path = os.path.join(c64_dir, "chardefs.h")
         with open(chardefs_h_path, "w") as f:
             f.write(chardefs_h)
@@ -154,7 +158,7 @@ def main():
         print(f"Generated {chardefs_h_path}")
         
         # 2. Boxdefs C and H
-        boxdefs_c = lib.find_boxes.generate_boxdefs_c_content(box_defs, total_chars)
+        boxdefs_c = lib.find_boxes.generate_boxdefs_c_content(box_defs, char_map)
         boxdefs_c_path = os.path.join(c64_dir, "boxdefs.cc")
         with open(boxdefs_c_path, "w") as f:
             f.write(boxdefs_c)
@@ -171,8 +175,9 @@ def main():
         
         # --- Verification ---
         print("\nVerifying C files...")
-        lib.verify_defs.verify_chardefs_c(global_chars, chardefs_c_path)
-        lib.verify_defs.verify_boxdefs_c(box_defs, boxdefs_c_path, total_chars)
+        lib.verify_defs.verify_chardefs_c(stored, chardefs_c_path)
+        lib.verify_defs.verify_boxdefs_c(box_defs, boxdefs_c_path, chardefs_c_path,
+                                         global_chars, char_map)
         print("C Export Verification PASSED.")
 
     except Exception as e:

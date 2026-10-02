@@ -307,40 +307,96 @@ def generate_boxdefs_content(box_defs: Dict[str, Dict[str, Any]]) -> str:
     return content
 
 
+def _box_entries(data: Dict[str, Any]):
+    """(char_id, is_grad1) for every cell of a box, in cell order."""
+    for entry in data['chars']:
+        yield entry if isinstance(entry, tuple) else (entry, False)
+
+
+def build_c_charset(global_chars: Dict[bytes, Dict[str, Any]],
+                    box_defs: Dict[str, Dict[str, Any]]):
+    """
+    The characters chardefs.cc holds, each one once per vertical flip.
+
+    A multicolour character turned upside down is its eight bytes in reverse
+    order, and box_prepare() copies characters into character RAM one at a
+    time anyway, so it can copy a stored character backwards for no more than
+    it costs to copy it forwards. About a third of the global character set
+    turns out to be another member's vertical flip - 107 pairs of 333 - so each
+    such pair is stored once and referenced as stored or flipped.
+
+    Only the characters a box references dynamically are stored: 0 and 1 are
+    the solid ground and sky, which box_prepare() never copies.
+
+    The member of a pair with the lower global id is the stored one, and the
+    stored characters are in global id order, so chardefs.cc still reads in
+    the order the generator found them.
+
+    Returns (stored, char_map):
+        stored    [(bytes, [global ids it serves])], in chardefs.cc order
+        char_map  global id -> (index into stored, flipped)
+    """
+    by_id = {info['id']: char_bytes for char_bytes, info in global_chars.items()}
+    referenced = sorted({char_id
+                         for data in box_defs.values()
+                         for char_id, _ in _box_entries(data)
+                         if char_id not in (0, 1)})
+    stored = []
+    slot_of = {}
+    char_map = {}
+    for char_id in referenced:
+        char_bytes = by_id[char_id]
+        flipped = bytes(reversed(char_bytes))
+        if flipped in slot_of:
+            slot = slot_of[flipped]
+            char_map[char_id] = (slot, True)
+        else:
+            slot = len(stored)
+            slot_of[char_bytes] = slot
+            stored.append((char_bytes, []))
+            char_map[char_id] = (slot, False)
+        stored[slot][1].append(char_id)
+    if len(stored) > 256:
+        raise ValueError(
+            f"{len(stored)} characters to store: box_prepare() indexes "
+            f"chardefs with a byte, so at most 256 fit.")
+    return stored, char_map
+
+
 def compute_box_layout(name: str,
                        data: Dict[str, Any],
-                       total_chars: int) -> Dict[str, Any]:
+                       char_map: Dict[int, Any]) -> Dict[str, Any]:
     """
     Reduces one box definition to the form boxdefs.cc needs.
 
     The box's unique characters are collected in the order the C code copies
-    them into character RAM (sky-coloured ones first, then Grad1-coloured),
-    and each is stored as a single byte relative to the box's char_offset,
-    modulo total_chars. Choosing char_offset at the start of the largest gap
-    in the (circular) character id space keeps every relative index inside a
-    byte, which is what lets boxdefs.cc hold indices instead of 2-byte
-    pointers. box_prepare folds char_offset + index back with one compare and
-    subtract.
+    them into character RAM: sky-coloured ones first, then Grad1-coloured, as
+    box_prepare() colours them by that split. Each is stored as a single byte,
+    its index into chardefs.cc (see build_c_charset()), and some are that
+    entry upside down.
+
+    Within each colour the order is otherwise free, so it is chosen to make the
+    flipped characters one run: sky unflipped, sky flipped, Grad1 flipped,
+    Grad1 unflipped. Then two bytes per box, flip_start and flip_end, say which
+    characters box_prepare() copies backwards, and the index bytes stay plain
+    indices.
 
     Returns a dict with:
         grid          local char index per cell (0..2 are the solid chars)
-        char_idx      relative index per unique character
-        char_ids      the corresponding global chardefs ids
-        char_offset   base the relative indices are measured from
+        char_idx      chardefs.cc index per unique character
+        char_ids      the corresponding global character ids
+        flip_start    first local index that is copied upside down
+        flip_end      one past the last; equal to flip_start if none is
         char_count    number of unique characters
         grad1_start   first local index that uses the Grad1 colour
     """
-    raw_entries = data['chars'] # List of (char_id, is_grad1)
-
-    # Separate entries by color usage
     # unique_entries: (char_id, is_grad1) -> local_index
     dynamic_entries = [] # List of (char_id, is_grad1)
     seen_entries = {}
 
     # Build raw grid using (global_id, is_grad1)
     grid = []
-    for entry in raw_entries:
-        char_id, is_grad1 = entry if isinstance(entry, tuple) else (entry, False)
+    for char_id, is_grad1 in _box_entries(data):
         if char_id == 0:
             grid.append(0)  # Ground
         elif char_id == 1 and not is_grad1:
@@ -353,8 +409,14 @@ def compute_box_layout(name: str,
                  dynamic_entries.append((char_id, is_grad1))
              grid.append(3 + seen_entries[(char_id, is_grad1)])
 
-    # Now sort dynamic_entries so Sky (False) comes first
-    sorted_dynamic = sorted(dynamic_entries, key=lambda x: x[1])
+    # Sky (False) first, and within each colour the flipped characters toward
+    # the boundary between the two, which makes them one run. sorted() is
+    # stable, so the order the cells first used them survives otherwise.
+    def order(entry):
+        char_id, is_grad1 = entry
+        flipped = char_map[char_id][1]
+        return (is_grad1, flipped != is_grad1)
+    sorted_dynamic = sorted(dynamic_entries, key=order)
     grad1_start = 0
     while grad1_start < len(sorted_dynamic) and not sorted_dynamic[grad1_start][1]:
         grad1_start += 1
@@ -374,47 +436,30 @@ def compute_box_layout(name: str,
     if char_count > 254:
         raise ValueError(f"Box {name} uses {char_count} dynamic characters, which exceeds limit of 254.")
 
-    # Determine char_offset: find largest gap in circular space
     dynamic_ids = [e[0] for e in sorted_dynamic]
-    if not dynamic_ids:
-        char_offset = 0
+    char_idx = [char_map[cid][0] for cid in dynamic_ids]
+    flips = [char_map[cid][1] for cid in dynamic_ids]
+    if any(flips):
+        flip_start = flips.index(True)
+        flip_end = len(flips) - flips[::-1].index(True)
     else:
-        sorted_unique = sorted(list(set(dynamic_ids)))
-        n_unique = len(sorted_unique)
-        max_gap = -1
-        best_start = sorted_unique[0]
-
-        for i in range(n_unique):
-            c1 = sorted_unique[i]
-            c2 = sorted_unique[(i + 1) % n_unique]
-            gap = (c2 - c1) % total_chars
-            if gap > max_gap:
-                max_gap = gap
-                best_start = c2
-        # char_offset is a uint8_t in boxdef_t; a clamped offset only costs a
-        # larger relative index, which the check below still enforces.
-        char_offset = min(best_start, 255)
-
-    char_idx = []
-    for cid in dynamic_ids:
-        # (cid - char_offset) % total_chars
-        rel = (cid - char_offset) % total_chars
-        if rel > 255:
-             raise ValueError(f"Box {name} has character ID {cid} that cannot be mapped with char_offset {char_offset} into uint8_t relative jump.")
-        char_idx.append(rel)
+        flip_start = flip_end = grad1_start
+    if flips != [flip_start <= i < flip_end for i in range(char_count)]:
+        raise ValueError(f"Box {name}: the flipped characters are not one run.")
 
     return {
         'grid': mapped_grid,
         'char_idx': char_idx,
         'char_ids': dynamic_ids,
-        'char_offset': char_offset,
+        'flip_start': flip_start,
+        'flip_end': flip_end,
         'char_count': char_count,
         'grad1_start': grad1_start,
     }
 
 
 def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
-                               total_chars: int) -> str:
+                               char_map: Dict[int, Any]) -> str:
     """
     Generates boxdefs.cc content with preprocessed boxdef_t structures.
     """
@@ -434,7 +479,7 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
     # Pre-process each box to generate static arrays
     for name in box_names:
         data = box_defs[name]
-        layout = compute_box_layout(name, data, total_chars)
+        layout = compute_box_layout(name, data, char_map)
 
         # Write static arrays
         cname = clean_name(name)
@@ -454,7 +499,8 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
         content += f"    {data['rel_y']}, // rel_y\n"
         content += f"    {layout['grad1_start']}, // grad1_color_start\n"
         content += f"    {layout['char_count']}, // char_count\n"
-        content += f"    {layout['char_offset']}, // char_offset\n"
+        content += f"    {layout['flip_start']}, // flip_start\n"
+        content += f"    {layout['flip_end']}, // flip_end\n"
         content += f"    {cname}_idx, // char_idx\n"
         content += f"    {cname}_chars // box_chars\n"
         content += "};\n\n"
@@ -548,11 +594,13 @@ def generate_boxdefs_h_content(max_total_size: int,
     content += "  uint8_t grad1_color_start;\n"
     content += "  // Number of unique characters used by this box (excluding solid 0,1)\n"
     content += "  uint8_t char_count;\n"
-    content += "  // Base chardefs index the entries in char_idx are relative to.\n"
-    content += "  uint8_t char_offset;\n"
-    content += "  // chardefs index of each character, minus char_offset, modulo\n"
-    content += "  // kTotalChars. The character data is at\n"
-    content += "  // chardefs[char_offset + char_idx[i] (mod kTotalChars)].\n"
+    content += "  // Local characters flip_start .. flip_end - 1 are their chardefs\n"
+    content += "  // entry upside down, and box_prepare copies them backwards. The\n"
+    content += "  // generator orders each box so the flipped ones are one run; equal\n"
+    content += "  // when there are none.\n"
+    content += "  uint8_t flip_start;\n"
+    content += "  uint8_t flip_end;\n"
+    content += "  // chardefs index of each character.\n"
     content += "  const uint8_t *char_idx;\n"
     content += "  // Index of each character in the local char_idx array.\n"
     content += "  const uint8_t *box_chars;\n"

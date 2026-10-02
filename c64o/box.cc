@@ -68,20 +68,27 @@ void box_prepare(void) {
   _slot_def[slot] = src_def;
 
   // Copy unique characters to kCharRam.
-  // The definition stores one byte per character, relative to its own
-  // char_offset, so the sum wraps around the end of chardefs at most once.
+  // The definition stores one byte per character, its index into chardefs.
+  // chardefs holds each character once per vertical flip, so the local
+  // characters flip_start .. flip_end - 1 are their entry upside down, and
+  // are copied bottom row first (lib/find_boxes.py build_c_charset()).
   uint8_t *dst_ram = kCharRam + ((uint16_t)mem_box_char_start << 3);
   const uint8_t *src_idx = boxdef.char_idx;
-  const uint16_t char_offset = boxdef.char_offset;
+  const uint8_t flip_start = boxdef.flip_start;
+  const uint8_t flip_end = boxdef.flip_end;
 
-  for (int8_t i = boxdef.char_count - 1;;) {
-    uint16_t ch = char_offset + *src_idx++;
-    if (ch >= kTotalChars) {
-      ch -= kTotalChars;
+  for (uint8_t i = 0;;) {
+    const uint8_t *src = chardefs[src_idx[i]];
+    if (i >= flip_start && i < flip_end) {
+#pragma unroll(full)
+      for (uint8_t row = 0; row < 8; ++row) {
+        dst_ram[row] = src[7 - row];
+      }
+    } else {
+      memcpy(dst_ram, src, 8);
     }
-    memcpy(dst_ram, chardefs[ch], 8);
     dst_ram += 8;
-    if (--i < 0) {
+    if (++i >= boxdef.char_count) {
       break;
     }
   }

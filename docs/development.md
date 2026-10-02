@@ -313,6 +313,10 @@ characters, and each tile uses up to 32 unique characters. All in all:
 - They use 333 unique characters across all `boxdef`s. Since this is more than 256,
   the characters for the current `boxdef` are constantly being copied into the character RAM
   (up to 32 chars at a time).
+- 107 of those are another one turned upside down, so the C64 stores 224 of them
+  (`chardefs.cc`; the solid ground and sky are not copied at all) and copies the
+  flipped ones backwards. See `boxdefs.cc` / `box.cc`
+  in [project.md](project.md).
 
 Another consideration was the colors to use. In MCCM, 3 colors are fixed for the whole screen,
 and the fourth color can be customized using the color RAM. To achieve a reasonable gradient,
