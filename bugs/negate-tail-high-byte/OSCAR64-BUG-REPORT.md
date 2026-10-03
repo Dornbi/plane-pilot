@@ -96,6 +96,43 @@ On `9408778` both paths end with `STA ACCU + 1`:
 097a : 85 1c __ STA ACCU + 1
 ```
 
-## Workaround
+## Older compilers fail at `-O1` with other spellings
 
-None found in the source. Staying on a compiler before `1616138` avoids it.
+The same lost high byte shows up before `1616138` too, at `-O1` only, when the
+last line is spelled differently:
+
+```c
+if (a < 0) {
+  return (int16_t)-q;
+}
+return q;
+```
+
+or `if (a < 0) { q = (int16_t)-q; } return q;`. Both print
+`FAIL 128 128 0 0 1 255` at `-O1` on `9408778` and on `a7305f9`, and pass at
+`-O0`, `-O2`, `-O3` and `-Os` there. So the underlying defect seems older, and
+`1616138` exposed it at `-O2` and for the `?:` form.
+
+## Workarounds
+
+Each of these passes at `-O1`, `-O2` and `-O2 -Op -Oa -Oi -Oz -Oo` on
+`a7305f9`, `1616138` and `b86277f`:
+
+```c
+// Negate as ~q + 1.
+return a < 0 ? (int16_t)(~q + 1) : q;
+
+// Branchless sign flip.
+int16_t s = a >> 15;
+return (int16_t)((q ^ s) - s);
+
+// Call frac8 unconditionally, then override the 256 case.
+int16_t q = (int16_t)frac8(m, b);
+if (m == b) {
+  q = 256;
+}
+return a < 0 ? (int16_t)-q : q;
+```
+
+Writing the sign into a `bool` first, computing `q` as `uint16_t`, or negating
+as `0 - q` or `0u - (uint16_t)q` all still fail.

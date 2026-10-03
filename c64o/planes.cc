@@ -85,10 +85,14 @@ static inline int16_t _abs16(int16_t a) { return a < 0 ? (int16_t)-a : a; }
 // trunc(a * 256 / b) for 0 < b and |a| <= b: the centre, and the fuselage's
 // unit normal. vec_fracn's exact fraction to eight bits; a whole one
 // saturates there, so it is the one case taken aside.
+//
+// The sign goes back on branchlessly, s being 0 or -1: oscar64 from 1616138
+// on drops the high byte of `a < 0 ? -q : q` here (bugs/negate-tail-high-byte).
 static int16_t _div8p8(int16_t a, int16_t b) {
   int16_t m = _abs16(a);
   int16_t q = m == b ? 256 : (int16_t)vec_fracn(m, b, 8);
-  return a < 0 ? (int16_t)-q : q;
+  int16_t s = a >> 15;
+  return (int16_t)((q ^ s) - s);
 }
 
 // lib/planes.py smul(u, r) for a unit component u (|u| <= 256) and 0 <= r < 256:
