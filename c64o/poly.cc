@@ -30,20 +30,25 @@ static inline void _poly_clear_buffers(uint8_t start, uint8_t end) {
   }
 }
 
-static void _poly_trace_edge_dda(int8_t x1, uint8_t y1, int8_t x2, uint8_t y2) {
-  if (y1 == y2) {
+static void _poly_trace_edge_dda(int8_t xa, uint8_t ya, int8_t xb, uint8_t yb) {
+  if (ya == yb) {
     return; // Skip horizontal edges
   }
 
-  // Enforce top-to-bottom order to guarantee we always step Y positively
-  if (y1 > y2) {
-    int8_t tmp_x = x1;
-    x1 = x2;
-    x2 = tmp_x;
-
-    uint8_t tmp_y = y1;
-    y1 = y2;
-    y2 = tmp_y;
+  // Enforce top-to-bottom order to guarantee we always step Y positively.
+  // Picked, not swapped, as in _poly_trace_edge_bresenham below.
+  int8_t x1, x2;
+  uint8_t y1, y2;
+  if (ya > yb) {
+    x1 = xb;
+    y1 = yb;
+    x2 = xa;
+    y2 = ya;
+  } else {
+    x1 = xa;
+    y1 = ya;
+    x2 = xb;
+    y2 = yb;
   }
 
   uint8_t dy = y2 - y1;
@@ -83,21 +88,28 @@ static void _poly_trace_edge_dda(int8_t x1, uint8_t y1, int8_t x2, uint8_t y2) {
   }
 }
 
-static void _poly_trace_edge_bresenham(int8_t x1, uint8_t y1, int8_t x2,
-                                       uint8_t y2) {
-  if (y1 == y2) {
+static void _poly_trace_edge_bresenham(int8_t xa, uint8_t ya, int8_t xb,
+                                       uint8_t yb) {
+  if (ya == yb) {
     return; // Skip horizontal edges
   }
 
-  // Enforce top-to-bottom order to guarantee we always step Y positively
-  if (y1 > y2) {
-    int8_t tmp_x = x1;
-    x1 = x2;
-    x2 = tmp_x;
-
-    uint8_t tmp_y = y1;
-    y1 = y2;
-    y2 = tmp_y;
+  // Enforce top-to-bottom order to guarantee we always step Y positively.
+  // The end points are picked, not swapped: inlined into poly_fill's edge
+  // loop, oscar64 drops the second half of a swap through a temporary, and
+  // every upward edge collapses to a point (bugs/swap-temp-reuse).
+  int8_t x1, x2;
+  uint8_t y1, y2;
+  if (ya > yb) {
+    x1 = xb;
+    y1 = yb;
+    x2 = xa;
+    y2 = ya;
+  } else {
+    x1 = xa;
+    y1 = ya;
+    x2 = xb;
+    y2 = yb;
   }
 
   uint8_t dy = y2 - y1;
@@ -276,8 +288,14 @@ static inline void _poly_set_char2(uint8_t *dst, uint8_t fill_char_start_idx,
 
 // About 250 bytes more code, faster for large polygons.
 // Only processes char rows in [py_start, py_end] (inclusive).
-void _poly_scan_lines2(uint8_t fill_char_start_idx, uint8_t color,
-                       uint8_t py_start, uint8_t py_end) {
+//
+// Inline: poly_fill's one call site. Marking it also tips oscar64 into
+// inlining _poly_trace_edge_bresenham into poly_fill's edge loop, which is
+// safe only because that function picks its end points instead of swapping
+// them (see there).
+static inline void _poly_scan_lines2(uint8_t fill_char_start_idx,
+                                     uint8_t color, uint8_t py_start,
+                                     uint8_t py_end) {
   for (uint8_t py = py_start; py <= py_end; ++py) {
     uint8_t t_min, b_min, t_max, b_max;
     t_min = _min_x[py << 1];
