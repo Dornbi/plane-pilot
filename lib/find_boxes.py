@@ -527,9 +527,9 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
     # RollAngle is 0..59 (calculated in roll_angle.py)
     # We should generate tables main_boxes[60] and alt_boxes[60]
     
-    # Not __striped: oscar64 1.32.272 drops the high bytes of a striped table
-    # of object addresses (main_boxes linked with every high byte 0), and
-    # emits alt_boxes interleaved while the code indexes it striped.
+    # Not __striped: oscar64 emits an &object initializer in a striped table as
+    # a plain word at the low-byte slot, so main_boxes linked with every high
+    # byte 0. See bugs/striped-pointer-table.
     content += "const boxdef_t* const main_boxes[60] = {\n"
     for r_idx in range(60):
         # Find box name for this roll index (main)
