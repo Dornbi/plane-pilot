@@ -1,7 +1,8 @@
 # A `?:` guarding a biased index into a `const` array loses its guard
 
 **STATUS: OPEN** against `v1.32.272-117-ga7305f9`, which is the build that fixed
-the two reports beside this one.
+the two reports beside this one, and still against oscar64-main `b86277f`
+(1.32.273): its `fill()` loads `tb - 13` with no comparison in the loop.
 
 **Version:** oscar64 `v1.32.272-117-ga7305f9` (built from source, macOS arm64)
 **Severity:** silent wrong code — no diagnostic, and the bad read is in bounds
