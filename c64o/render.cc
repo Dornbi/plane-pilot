@@ -71,22 +71,39 @@ static_assert(kViewportStartY == 0, "the horizon term assumes it");
 
 // Finds a point (px, py) on the horizon line that is shifted by an
 // integer number of major axis steps to be close to the viewport center.
+//
+// The two axes are the same computation with x and y swapped, so they are
+// swapped into major/minor locals once rather than spelled out twice.
 static void _pull_to_center() {
-  int16_t dy = roll_shift_2chars ? 64 : 32;
+  int16_t c_maj, c_min, t;
+  int8_t d_maj, d_min;
   if (roll_x_is_major) {
-    int16_t dx = _render_rshift(160 - render_cx_pixels + dy);
-    render_px_pixels = render_cx_pixels + _render_lshift(dx);
-    if (roll_dx < 0) {
-      dx = -dx;
-    }
-    render_py_pixels = render_cy_pixels + (_render_mul(dx, roll_dy) << 3);
+    c_maj = render_cx_pixels;
+    c_min = render_cy_pixels;
+    t = 160;
+    d_maj = roll_dx;
+    d_min = roll_dy;
   } else {
-    int16_t dx = _render_rshift(64 - render_cy_pixels + dy);
-    render_py_pixels = render_cy_pixels + _render_lshift(dx);
-    if (roll_dy < 0) {
-      dx = -dx;
-    }
-    render_px_pixels = render_cx_pixels + (_render_mul(dx, roll_dx) << 3);
+    c_maj = render_cy_pixels;
+    c_min = render_cx_pixels;
+    t = 64;
+    d_maj = roll_dy;
+    d_min = roll_dx;
+  }
+  t += (roll_shift_2chars ? 64 : 32) - c_maj;
+  int16_t d = _render_rshift(t);
+  // _render_lshift(_render_rshift(t)), without the second shift chain.
+  int16_t p_maj = c_maj + (t & (roll_shift_2chars ? -128 : -64));
+  if (d_maj < 0) {
+    d = -d;
+  }
+  int16_t p_min = c_min + (_render_mul(d, d_min) << 3);
+  if (roll_x_is_major) {
+    render_px_pixels = p_maj;
+    render_py_pixels = p_min;
+  } else {
+    render_px_pixels = p_min;
+    render_py_pixels = p_maj;
   }
 }
 
