@@ -289,22 +289,17 @@ static bool _unused_vec_project(const vec3_t *v) {
 }
 #endif
 
-// PERF: inline -> cycles: ~0 bytes: -140
+// A loop over the three components rather than three copies of the test: 63
+// bytes instead of 166, for 44 cycles more a call, and it runs only when the
+// attitude changes.
 static void _limit_vec(vec3_t *v) {
-  if (v->x <= -255) {
-    v->x = -256;
-  } else if (v->x >= 255) {
-    v->x = 256;
-  }
-  if (v->y <= -255) {
-    v->y = -256;
-  } else if (v->y >= 255) {
-    v->y = 256;
-  }
-  if (v->z <= -255) {
-    v->z = -256;
-  } else if (v->z >= 255) {
-    v->z = 256;
+  int16_t *c = &v->x;
+  for (uint8_t i = 0; i < 3; ++i) {
+    if (c[i] <= -255) {
+      c[i] = -256;
+    } else if (c[i] >= 255) {
+      c[i] = 256;
+    }
   }
 }
 

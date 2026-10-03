@@ -164,11 +164,12 @@ void vec_negate(vec3_t *v);
 // @result vec_sx, vec_sy: screen coordinates
 // Returns true on success, false on failure.
 bool vec_project();
-// vec_project() out of line, for callers that run once a frame.
+// vec_project() out of line, for every caller but the per-point grid loop.
 bool vec_project_once();
 
 // Similar to vec_project, but does not cull based on the screen boundaries.
-// It will only return false if the point is behind the camera (x <= 8).
+// It will only return false if the point is behind the camera (x < 8). Inside
+// the view cone it is vec_project(), outside it exact vec_div8p8 divisions.
 bool vec_project_nocull();
 
 // Normalizes vector with 8.8 fixed point arithmetic.

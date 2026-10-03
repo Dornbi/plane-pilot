@@ -395,9 +395,12 @@ inline bool vec_project() {
     return false;
   }
 
+  // Compared unsigned: _abs16(-32768) is -32768, which a signed compare
+  // would let through as in range.
   project_mul_a = _abs16(vec_v.y);
   project_mul_b = _abs16(vec_v.z);
-  if (project_mul_a > vec_v.x || project_mul_b > vec_v.x) {
+  if ((uint16_t)project_mul_a > (uint16_t)vec_v.x ||
+      (uint16_t)project_mul_b > (uint16_t)vec_v.x) {
     return false;
   }
 
@@ -405,9 +408,9 @@ inline bool vec_project() {
   return true;
 }
 
-// One out-of-line copy for the once-a-frame callers (the horizon and the sun
-// in world.cc). The per-point and per-blob callers keep vec_project() inline;
-// each inlined copy is about 270 bytes.
+// One out-of-line copy for everything but the grid: the horizon and the sun in
+// world.cc, the cloud blobs, and vec_project_nocull. Only the grid points keep
+// vec_project() inline; each inlined copy is about 270 bytes.
 __noinline bool vec_project_once() { return vec_project(); }
 
 // Restoring division, one iteration per quotient bit. The dividend is
@@ -609,9 +612,16 @@ int16_t vec_mulfrac(uint16_t t, int16_t d) {
   return hi + (int16_t)((lo + 128) >> 8);
 }
 
+// A vertex inside the view cone goes through the reciprocal table like a grid
+// point, about 480 cycles; only one outside it, which the table cannot take,
+// pays for the two exact divisions, about 1,230. The table is within 2 of
+// trunc(256 * y / x), half a sub-pixel once poly.cc quarters it.
 bool vec_project_nocull() {
   if (vec_v.x < 8) {
     return false;
+  }
+  if (vec_project_once()) {
+    return true;
   }
 
   vec_sx = vec_div8p8(vec_v.y, vec_v.x);

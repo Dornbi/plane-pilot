@@ -49,11 +49,50 @@ uint8_t *const mem_color_row_ptrs[kViewportHeight] = {
     fake_color + 320, fake_color + 360, fake_color + 400, fake_color + 440,
     fake_color + 480, fake_color + 520};
 
-// vec_asm.cc is 6502 only. This is the C half of it, copied, and it is the
-// whole of vec_project_nocull.
+// vec_asm.cc is 6502 only, so vec_project_nocull is copied here, with the
+// reciprocal-table projection it now tries first spelled out in C, bit for
+// bit: x is shifted into 128..255 and |y|, |z| with it, then each becomes
+// v + v * R / 256 for R = vec_recip_lut[x - 128], the sign put back after.
+#include "../fmath.h"
+
+extern const uint8_t vec_recip_lut[];
+
+static int16_t _lut_project(uint8_t v, uint8_t r, int16_t sign_of) {
+  int16_t p = (int16_t)(v + ((v * r) >> 8));
+  return sign_of < 0 ? (int16_t)-p : p;
+}
+
+static bool _vec_project_table() {
+  if (vec_v.x <= 8) {
+    return false;
+  }
+  uint16_t a = (uint16_t)_abs16(vec_v.y), b = (uint16_t)_abs16(vec_v.z);
+  uint16_t x = (uint16_t)vec_v.x;
+  if (a > x || b > x) {
+    return false;
+  }
+  while (x > 255) {
+    x >>= 1;
+    a >>= 1;
+    b >>= 1;
+  }
+  while (x < 128) {
+    x <<= 1;
+    a <<= 1;
+    b <<= 1;
+  }
+  uint8_t r = vec_recip_lut[x - 128];
+  vec_sx = _lut_project((uint8_t)a, r, vec_v.y);
+  vec_sy = _lut_project((uint8_t)b, r, vec_v.z);
+  return true;
+}
+
 bool vec_project_nocull() {
   if (vec_v.x < 8) {
     return false;
+  }
+  if (_vec_project_table()) {
+    return true;
   }
   vec_sx = vec_div8p8(vec_v.y, vec_v.x);
   vec_sy = vec_div8p8(vec_v.z, vec_v.x);

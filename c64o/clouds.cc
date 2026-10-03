@@ -235,7 +235,9 @@ void clouds_add_candidates(void) {
         if (vec_v.x <= 8) {
           continue;
         }
-        if (!vec_project()) {
+        // The shared out-of-line copy: an inlined one is ~260 bytes, for about
+        // 15 cycles a blob.
+        if (!vec_project_once()) {
           continue;
         }
 
