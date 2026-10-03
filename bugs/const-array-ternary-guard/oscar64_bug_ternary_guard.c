@@ -2,26 +2,16 @@
 // array at a *negative-biased* index is discarded, and the biased load runs for
 // every index.
 //
-//   oscar64 -O2 -Op -Oa -Oi -Oz -Oo oscar64_bug_ternary_guard.c
+//   oscar64 -O2 -e oscar64_bug_ternary_guard.c
 //
-// Expected: "PASS"   Actual (-O1/-O2/-O3/-Os): "FAIL <i> ..." for i = 0..12
+// Expected: "PASS"   Actual (-O0 and -O2): "FAIL row <i>: ..." for rows below
+// 13; which ones depends on the bytes that happen to precede the table.
 //
 // `row` is a loop variable the compiler knows is 0..20, and the false arm is
 // only reachable for row >= 13, where `row - 13` is 0..7 and in bounds. The
 // generated code is a single unguarded `LDA tb-13,x`, so rows 0..12 read the
 // thirteen bytes in front of the table and `out[]` fills with whatever the
 // linker put there.
-//
-// This is the same corner as the two fixed reports beside it - a const array
-// read at a biased index - but the failure is the other way round: those folded
-// the *taken* arm away to a constant, this one keeps the untaken arm and throws
-// the condition out.
-//
-// Found in plane-pilot's c64o/sprites.cc, drawing the tail fin's sprite: the
-// rows above the taper came out as full-width bars instead of blank ones.
-// Written there as two passes over the rows - clear all of them, then paint
-// the taper over the ones that have it - so that both arrays are indexed from
-// zero and there is no bias to fold.
 #include <stdint.h>
 #include <stdio.h>
 
@@ -48,7 +38,7 @@ static const uint8_t before[16] = {0x18, 0x18, 0x18, 0x18, 0x18, 0x18,
                                    0x18, 0x18, 0x18, 0x18, 0x18, 0x18,
                                    0x18, 0x18, 0x18, 0x18};
 
-// The bitmap the real code builds: three bytes per row, a centred run of
+// A sprite bitmap: three bytes per row, a centred run of
 // `width` pixels. Kept whole rather than reduced to `*dst = width`, because a
 // store of the width alone lets the compiler precompute the whole loop into a
 // 21-byte table and copy that - which is correct, and hides the bug.
@@ -110,10 +100,5 @@ int main(void) {
     }
   }
   printf(bad ? "\n" : "PASS\n");
-#ifndef __GNUC__
-  // Something for VICE to stop on, and to keep the screen readable.
-  for (;;) {
-  }
-#endif
   return bad != 0;
 }
