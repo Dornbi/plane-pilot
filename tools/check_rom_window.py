@@ -58,7 +58,10 @@ LINE = re.compile(
     r'(\w{3})\s+\$([0-9a-f]{4})')
 JSR = re.compile(r'^[0-9a-f]{4} : 20 [0-9a-f]{2} [0-9a-f]{2} JSR '
                  r'\$[0-9a-f]{4} ; \((\w+)')
-LABEL = re.compile(r'^(\w+): ;')
+# `@` for oscar64's `foo@proxy` stubs, which would otherwise be read as part of
+# whatever function the linker put just before them. JSR above deliberately
+# stops at the `@`: a call to foo@proxy is scanned as foo, the real body.
+LABEL = re.compile(r'^([\w@]+): ;')
 
 
 def parse(path):

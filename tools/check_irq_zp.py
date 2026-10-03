@@ -64,7 +64,10 @@ DIRECT_ZP = re.compile(
     re.IGNORECASE,
 )
 
-FUNC_START = re.compile(r"^([A-Za-z_]\w*):\s*;")
+# oscar64 names its parameter-loading stubs `foo@proxy`, so `@` counts too. A
+# stub that the linker drops straight after a handler would otherwise read as
+# part of the handler's body.
+FUNC_START = re.compile(r"^([A-Za-z_][\w@]*):\s*;")
 
 
 def function_body(lines, name):

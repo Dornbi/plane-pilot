@@ -361,9 +361,8 @@ Roughly 40 bytes to fix, and worth landing first — see §9.
 ## 7. Flight path
 
 A ring buffer of 128 map-pixel positions, 2 bytes each (`px`, `py`), 256 bytes
-in `bss2` (`$0280–$0800`), at `$0300–$0400`. It did not fit there originally;
-`poly.cc`'s `clip2_buf1`, `clip2_buf2` and `final_verts` moved to `main`'s bss
-to make room, which leaves `bss2` with no free bytes at all. Cleared by
+in the tail of the compressed sprite blob, which is scrap once `mem_init()` has
+expanded it (`flight.cc`, `sprites.h` `kSpriteScratchPath`). Cleared by
 `flight_init_from_mission()`, so the trail is per-attempt and `R` wipes it.
 
 It lives in `flight.cc`, not `map.cc`. That is the one place that can clear it

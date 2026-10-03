@@ -238,7 +238,7 @@ only `$D000-$D3FF` is charged to it above.
 
 ## The ROM window, before mem_init()
 
-The main region is `$0A60-$D000`, above the boot region at `$0860`, and the
+The main region is `$0A70-$D000`, above the boot region at `$0860`, and the
 linker places globals anywhere in it. But the C64 powers on with **BASIC ROM at `$A000-$BFFF`** and KERNAL at
 `$E000-$FFFF` banked in, and `mem_init()` is what calls
 `mmap_set(MMAP_NO_ROM)` to make those addresses plain RAM.

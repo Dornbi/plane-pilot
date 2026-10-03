@@ -20,7 +20,18 @@ static const uint16_t kProbeIterations = 1000;
 // the CPU runs from its own fast SRAM but writes are mirrored back to the
 // C64's DRAM at bus speed. A register-only loop would report the CPU clock;
 // this reports the speed the program will actually see.
+//
+// In bss2, which is below both ROM windows wherever the linker puts it: the
+// loop reads it before mem_init() banks the ROM out, and in the main region it
+// once landed at $AA74, under BASIC. Its value is never used, so mem_init()
+// clearing bss2 afterwards costs nothing.
+#ifdef __MAX_RAM__
+#pragma bss(bss2)
+#endif
 static volatile uint8_t _probe_work;
+#ifdef __MAX_RAM__
+#pragma bss(bss)
+#endif
 
 uint8_t cpu_shift_for_us(uint16_t us) {
   // Guard the divide, and treat anything absurd as a plain C64 rather than

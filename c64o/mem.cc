@@ -35,8 +35,8 @@ bool mem_debug_enabled;
 bool mem_using_alt_buffer;
 
 // Initialized, so it lives in data rather than in the bss2 region above -
-// which is full, and which the startup code clears to zero anyway, the one
-// value this must never power up holding.
+// which mem_init() clears to zero, the one value this must never power up
+// holding.
 volatile uint8_t mem_den = 0x10;
 
 __striped static uint8_t *const kScreenRowPtrsMain[kScreenHeight] = {
@@ -148,6 +148,15 @@ void mem_init(void) {
 
   // I/O and COLOR RAM in $d000-$dfff block, rest is RAM
   mmap_set(MMAP_NO_ROM);
+
+  // bss2 (mem.h). Nothing written to it so far needs to survive - the only
+  // earlier tenant is cpu_probe()'s _probe_work - and the KERNAL vectors it
+  // overlaps at $0314/$0318 are only read by the trampolines on an IRQ or NMI;
+  // cia_init() has masked both CIAs and the VIC raster IRQ is not armed yet.
+#ifdef __MAX_RAM__
+  memset((uint8_t *)MEM_BSS2_START, 0, MEM_BSS2_END - MEM_BSS2_START);
+#endif
+
   __asm {
     cli;
   }

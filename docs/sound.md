@@ -53,7 +53,7 @@ of it and lets the dynamic stack grow down from there. Today:
 ```
 0200 - 025e : STACK,  stack      (dynamic stack, 94 bytes)
 025e - 0280 : SSTACK             (static frames, 34 bytes, fully allocated)
-0280 - 0800 : bss2               (full to the byte)
+0280 - 0800 : bss2               (about 1,000 of 1,408 bytes used)
 ```
 
 A new frame pushes `StackEnd` down and shrinks the dynamic stack. If that ever

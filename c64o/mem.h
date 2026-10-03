@@ -19,9 +19,14 @@
 // Since the screen ram is moved to 0xE800 and 0xEC00, we can
 // use the original location for stack.
 #pragma region( stack, 0x0200, 0x0280, , , {stack} )
-// Additional bss.
+// Additional bss, for zero-initialised globals only: the region is below the
+// load address, so nothing in the .prg can land here. The startup code only
+// clears the main bss section, and this RAM powers up holding the KERNAL's
+// variables and vectors and the default screen, so mem_init() clears it.
+#define MEM_BSS2_START 0x0280
+#define MEM_BSS2_END 0x0800
 #pragma section(bss2, 0, , , bss)
-#pragma region( bss2, 0x280, 0x800, , , {bss2} )
+#pragma region( bss2, MEM_BSS2_START, MEM_BSS2_END, , , {bss2} )
 #pragma section(data_box, 0, , , data)
 #pragma section(data_compr, 0, , , data)
 // Startup code is 0x0801 .. 0x0853, use everything before the VIC
@@ -48,7 +53,7 @@
 // whatever the scratch's users last wrote there. tools/check_boot_region.py
 // fails the build otherwise; main()'s one call to _boot() is the exception.
 #define MEM_BOOT_START 0x0860
-#define MEM_BOOT_END 0x0A60
+#define MEM_BOOT_END 0x0A70
 #pragma section(bootcode, 0)
 #pragma region( boot, MEM_BOOT_START, MEM_BOOT_END, , , {bootcode} )
 #pragma region( main, MEM_BOOT_END, 0xD000, , , {code, data, data_box, data_compr, bss, heap} )

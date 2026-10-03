@@ -65,12 +65,6 @@ struct sprite_xy_t {
   uint8_t y;
 };
 
-// The stack's storage stays in the main bss rather than in bss2. bss2 is the
-// 1.4 KB gap at $0280-$07FF and it is already full - poly.cc's scratch buffers
-// are what gets evicted if anything else moves in - while neither of these
-// needs to be anywhere in particular. Only the instrument arrays below stay
-// there, and only because they were there first.
-//
 // One offered object, before indices are handed out. Insertion-sorted by
 // ascending depth, so entry 0 is the nearest.
 struct sprite_cand_t {
@@ -113,6 +107,8 @@ struct sprite_frame_t {
 #define kVicSpritePos ((volatile uint8_t *)vic_host)
 #endif
 
+#pragma bss(bss2)
+
 static sprite_cand_t _sprites_cand[kSpriteStackSize];
 static uint8_t _sprites_cand_count;
 
@@ -149,8 +145,6 @@ static bool _sprites_fin_on;
 static volatile sprite_frame_t _sprites_frame_a;
 static volatile sprite_frame_t _sprites_frame_b;
 static volatile uint8_t _sprites_frame_shown;
-
-#pragma bss(bss2)
 
 static volatile sprite_xy_t _sprites_instrument_xy[8];
 static volatile uint8_t _sprites_instrument_idx[8];

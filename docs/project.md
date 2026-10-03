@@ -51,9 +51,9 @@ program (`__MAX_RAM__`).
 | `$0002–$005A` | oscar64's own zero page: registers, parameters, temporaries |
 | `$0060–$00FF` | zero page (oscar64 `zeropage` region)                      |
 | `$0200–$0280` | CPU stack (`#pragma stacksize(0x80)`)                      |
-| `$0280–$0800` | `bss2`, a second BSS region — full to the byte             |
-| `$0860–$0A5F` | boot-only code (`_boot()`, `cpu_probe()`, `mem_init()`); once `main()` is past it, scratch for `box.cc`'s caches (`mem.h` `kBootScratch`) |
-| `$0A60–$CFFF` | code, data, bss, heap                                      |
+| `$0280–$0800` | `bss2`, a second BSS region; cleared by `mem_init()`, not by the startup code |
+| `$0860–$0A6F` | boot-only code (`_boot()`, `cpu_probe()`, `mem_init()`); once `main()` is past it, scratch for `box.cc`'s caches (`mem.h` `kBootScratch`) |
+| `$0A70–$CFFF` | code, data, bss, heap                                      |
 | `$D000–$DFFF` | I/O (`MMAP_NO_ROM`)                                        |
 | `$D000–$D3FF` | map view screen RAM while the map is open; the title screen aircraft, expanded from `titledef.bin`, while the menu is |
 | `$D400`       | sprite bitmaps, expanded from `spritedef.bin` at startup   |

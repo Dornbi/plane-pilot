@@ -461,8 +461,7 @@ start-line test and is what made clouds vanish near the horizon. The cost of
 the fix is the pop, not any clipping: an object whose top would land in the
 last 23 lines of the viewport is not drawn at all, and one that is drawn is
 drawn whole, down to raster 160 — two lines above the panel.
-`_rirq_sprites_off` lives in main bss rather than `bss2` with the other three
-because `bss2` is full.
+`_rirq_sprites_off` lives in `bss2` with the other three.
 
 ### 1.9. Sprite 7 belongs to the vertical-speed needle
 
