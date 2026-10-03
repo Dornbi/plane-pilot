@@ -67,6 +67,16 @@ inline int16_t vec_mulfrac(uint16_t t, int16_t d) {
 // a * b for bytes, exactly: the quarter-square step vec_fastmul8p8 is built
 // from, for callers whose operands are already bytes.
 inline uint16_t vec_mul8x8(uint8_t a, uint8_t b) { return (uint16_t)(a * b); }
+
+// Host stand-in for vec_asm.cc's division, which is exact: see vec_div8p8
+// below.
+inline int16_t vec_div8p8(int16_t a, int16_t b) {
+  if (b == 0) {
+    return a == 0 ? 0 : (a < 0 ? -32767 : 32767);
+  }
+  int32_t q = ((int32_t)a * 256) / b; // C truncates toward zero
+  return (int16_t)(q > 32767 ? 32767 : q < -32767 ? -32767 : q);
+}
 #else
 int16_t vec_fastmul8p8(int16_t a, int16_t b);
 
@@ -84,8 +94,13 @@ void vec_mul8(void);
 // Both input and output use 8.8 fixed-point semantics.
 uint16_t vec_fastsqr8p8(int16_t a);
 
-// Divides a by b using 8.8 fixed point semantics. Equivalent to (a << 8) / b.
+// Divides a by b using 8.8 fixed point semantics: exactly (a << 8) / b,
+// truncated toward zero, saturating to +-32767 (and to the sign of a for
+// b == 0). One restoring-division step per quotient bit, eight for |a| < |b|:
+// about 520-580 cycles for those, rising to about 1,100 as |a / b| nears 128.
+#ifdef __OSCAR64__
 int16_t vec_div8p8(int16_t a, int16_t b);
+#endif
 
 // |a| / |b| as an unsigned 0.16 fraction, saturating at 0xFFFF.
 //

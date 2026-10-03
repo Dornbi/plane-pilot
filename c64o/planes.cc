@@ -77,23 +77,11 @@ static const uint8_t kFitW[2][2] = {{23, 47}, {46, 94}};
 static const uint8_t kFitH[2][2] = {{20, 41}, {40, 82}};
 
 // ---------------------------------------------------------------------------
-// Fixed point, as lib/planes.py spells it, on vec.h's byte multiply and exact
-// fraction.
+// Fixed point, as lib/planes.py spells it, on vec.h's byte multiply, exact
+// fraction and exact division. lib/planes.py's fdiv is vec_div8p8's
+// trunc(a * 256 / b): the centre, and the fuselage's unit normal.
 
 static inline int16_t _abs16(int16_t a) { return a < 0 ? (int16_t)-a : a; }
-
-// trunc(a * 256 / b) for 0 < b and |a| <= b: the centre, and the fuselage's
-// unit normal. vec_fracn's exact fraction to eight bits; a whole one
-// saturates there, so it is the one case taken aside.
-//
-// The sign goes back on branchlessly, s being 0 or -1: oscar64 from 1616138
-// on drops the high byte of `a < 0 ? -q : q` here (bugs/negate-tail-high-byte).
-static int16_t _div8p8(int16_t a, int16_t b) {
-  int16_t m = _abs16(a);
-  int16_t q = m == b ? 256 : (int16_t)vec_fracn(m, b, 8);
-  int16_t s = a >> 15;
-  return (int16_t)((q ^ s) - s);
-}
 
 // lib/planes.py smul(u, r) for a unit component u (|u| <= 256) and 0 <= r < 256:
 // u * r / 256 rounded, as the reference forms it from trunc(2|u| r / 256).
@@ -282,7 +270,7 @@ static void _project(uint16_t k, const mat3_t *axes) {
   int8_t fy = (int8_t)(sy[0] - sy[kPlaneBodyCount - 1]);
   uint8_t n = _norm2(fx, fy);
   if (n > 0) {
-    int16_t ux = _div8p8((int16_t)-fy, n), uy = _div8p8(fx, n);
+    int16_t ux = vec_div8p8((int16_t)-fy, n), uy = vec_div8p8(fx, n);
     int8_t ox[kPlaneBodyCount], oy[kPlaneBodyCount];
     for (uint8_t i = 0; i < kPlaneBodyCount; ++i) {
       ox[i] = _smul(ux, sr[i]);
@@ -380,8 +368,8 @@ void planes_render(planes_state_t *state, const planes_view_t *view,
 
   // 5. centre, 6. perspective scale, 6b. the size cap
   PROFILE_START();
-  int16_t cx = (int16_t)(view->cx0 - _div8p8(c->y, c->x));
-  int16_t cy = (int16_t)(view->cy0 - _div8p8(c->z, c->x));
+  int16_t cx = (int16_t)(view->cx0 - vec_div8p8(c->y, c->x));
+  int16_t cy = (int16_t)(view->cy0 - vec_div8p8(c->z, c->x));
   // 32768 / x: the fraction 64 / x to nine bits, exact as x > 64.
   uint16_t k = vec_fracn(64, c->x, 9);
   frame->clamped = k > kPlaneKMax;

@@ -419,6 +419,35 @@ __noinline bool vec_project_once() { return vec_project(); }
 static __zeropage uint8_t frac_q0, frac_q1, frac_r0, frac_r1;
 static __zeropage uint8_t frac_d0, frac_d1;
 
+// The loop itself, shared with vec_div8p8: X iterations of the dividend
+// frac_r:frac_q against frac_d, the quotient left in frac_q. JSR to it; not
+// callable from C.
+void vec_frac_loop(void) {
+  // clang-format off
+  __asm {
+    L_loop_fr:
+        asl frac_q0;
+        rol frac_q1;
+        rol frac_r0;
+        rol frac_r1;
+        lda frac_r0;
+        sec;
+        sbc frac_d0;
+        tay;
+        lda frac_r1;
+        sbc frac_d1;
+        bcc L_skip_fr;
+        sty frac_r0;
+        sta frac_r1;
+        inc frac_q0;
+    L_skip_fr:
+        dex;
+        bne L_loop_fr;
+        rts;
+  }
+  // clang-format on
+}
+
 uint16_t vec_fracn(int16_t a, int16_t b, uint8_t bits) {
   // clang-format off
   __asm {
@@ -454,27 +483,116 @@ uint16_t vec_fracn(int16_t a, int16_t b, uint8_t bits) {
         sta frac_q0;
         sta frac_q1;
         ldx bits;
-    L_loop_fr:
-        asl frac_q0;
-        rol frac_q1;
-        rol frac_r0;
-        rol frac_r1;
-        lda frac_r0;
-        sec;
-        sbc frac_d0;
-        tay;
-        lda frac_r1;
-        sbc frac_d1;
-        bcc L_skip_fr;
-        sty frac_r0;
-        sta frac_r1;
-        inc frac_q0;
-    L_skip_fr:
-        dex;
-        bne L_loop_fr;
+        jsr vec_frac_loop;
   }
   // clang-format on
   return ((uint16_t)frac_q1 << 8) | frac_q0;
+}
+
+// x / y in 8.8, exactly, on the same loop. The dividend is |a| << 8, and its
+// quotient has eight fraction bits plus however many integer ones |a| / |b|
+// needs. Those are found by moving |a|'s low bits from the remainder over
+// into the top of the quotient register, one per integer bit, until what is
+// left is below the divisor - which is vec_fracn's precondition, so the loop
+// then runs as is and shifts them back in. At most seven: an eighth integer
+// bit is a quotient of 128 or more, which saturates.
+//
+// The remainder never overflows: it stays below |b| <= 32768, so doubling it
+// fits sixteen bits. The sign goes on at the end, in here, where the C tail
+// that oscar64 from 1616138 on gets wrong (bugs/negate-tail-high-byte) cannot
+// reach it.
+int16_t vec_div8p8(int16_t a, int16_t b) {
+  // clang-format off
+  __asm {
+        lda a + 1;
+        eor b + 1;
+        sta tmp1;
+
+        lda a;
+        sta frac_r0;
+        lda a + 1;
+        sta frac_r1;
+        bpl L_a_pos_dv;
+        sec;
+        lda #0;
+        sbc frac_r0;
+        sta frac_r0;
+        lda #0;
+        sbc frac_r1;
+        sta frac_r1;
+    L_a_pos_dv:
+        lda b;
+        sta frac_d0;
+        lda b + 1;
+        sta frac_d1;
+        bpl L_b_pos_dv;
+        sec;
+        lda #0;
+        sbc frac_d0;
+        sta frac_d0;
+        lda #0;
+        sbc frac_d1;
+        sta frac_d1;
+    L_b_pos_dv:
+        lda #0;
+        sta frac_q0;
+        sta frac_q1;
+        ldx #8;
+
+        // |a| < |b|: a fraction, eight iterations.
+        lda frac_r0;
+        cmp frac_d0;
+        lda frac_r1;
+        sbc frac_d1;
+        bcc L_div_dv;
+
+        // b == 0: a saturates, and 0 / 0 is 0.
+        lda frac_d0;
+        ora frac_d1;
+        bne L_int_dv;
+        lda frac_r0;
+        ora frac_r1;
+        beq L_done_dv;
+        bne L_sat_dv;
+
+    L_int_dv:
+        lsr frac_r1;
+        ror frac_r0;
+        ror frac_q1;
+        ror frac_q0;
+        inx;
+        lda frac_r0;
+        cmp frac_d0;
+        lda frac_r1;
+        sbc frac_d1;
+        bcc L_div_dv;
+        cpx #15;
+        bcc L_int_dv;
+
+    L_sat_dv:
+        lda #$ff;
+        sta frac_q0;
+        lda #$7f;
+        sta frac_q1;
+        bne L_sign_dv;
+
+    L_div_dv:
+        jsr vec_frac_loop;
+
+    L_sign_dv:
+        bit tmp1;
+        bpl L_done_dv;
+        sec;
+        lda #0;
+        sbc frac_q0;
+        sta frac_q0;
+        lda #0;
+        sbc frac_q1;
+        sta frac_q1;
+    L_done_dv:
+  }
+  // clang-format on
+  return (int16_t)(((uint16_t)frac_q1 << 8) | frac_q0);
 }
 
 // t * d / 65536 = (t_hi * d) / 256 + (t_lo * d) / 65536, both halves through

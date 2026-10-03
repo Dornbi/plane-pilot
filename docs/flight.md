@@ -689,14 +689,17 @@ against 2,197 attitudes to keep it that way; vec.h records the three
 approximately hold.
 
 **What is left.** `vec_orthonormalize()` is now 58% of the step, and about
-4,000 of its cycles are six `vec_div8p8` calls at 554-729 each (`vectest`).
-Those three divisions inside each `vec_normalize()` share a divisor, so the
-divisor-side work could be hoisted and stay bit-exact, but it is worth only a
-few hundred cycles; anything bigger means a reciprocal-multiply, which changes
-the rounding - and the truncation behaviour of this routine is load bearing,
-since it is what the wing-levelling and nose-wheel comments above are guarding
-against. Building without the orthonormalize at all crashes the aircraft within
-seconds, so the numerical margin here is not large.
+4,000 of its cycles were six `vec_div8p8` calls at 554-729 each (`vectest`).
+In October 2026 `vec_div8p8` became an exact restoring division, about 520-580
+cycles for these fractions. That changed the rounding, and the rounding of this
+routine is load bearing: the old one was a reciprocal multiply that came out
+low (64 / 64 gave 255), and renormalizing every frame swallowed most of each
+small yaw step. Shallow banks barely turned - four roll steps held for 60
+frames turned 1/48 of a circle, and in the AOA model 0/48 - where exact
+division turns them at the rate the model's equations give (5/48 and 3/48). It
+still truncates, which is what the wing-levelling and nose-wheel comments above
+are guarding against. Building without the orthonormalize at all crashes the
+aircraft within seconds, so the numerical margin here is not large.
 
 The same "identity plus one antisymmetric pair" shape describes all six
 `kVec*` control matrices, so `vec_transform3()` on the input path has the

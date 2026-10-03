@@ -47,7 +47,6 @@ uint16_t _unused_vec_fastsqr8p8(int16_t a) {
 
 extern const uint8_t vec_sqr_lo[];
 extern const uint8_t vec_sqr_hi[];
-extern const uint8_t vec_recip_lut[];
 
 static inline uint16_t _get_sqr_div4(uint16_t x) {
   return ((uint16_t)vec_sqr_hi[x] << 8) | vec_sqr_lo[x];
@@ -227,72 +226,53 @@ int16_t _unused_vec_fastmul8p8(int16_t a, int16_t b) {
   return _vec_fastmul8p8(a, b);
 }
 
-int16_t vec_div8p8(int16_t a, int16_t b) {
-  if (a == 0)
-    return 0;
-
-  int8_t sign = 1;
-  uint16_t ua, ub;
-  if (a < 0) {
-    ua = -a;
-    sign = -sign;
+// The C reference for vec_asm.cc's vec_div8p8, with the same results: exact
+// (a << 8) / b, truncated toward zero, saturating to +-32767.
+// PERF: using this -> +115 bytes, +40-100 cycles per call.
+//
+// The integer part by shift and subtract, at most seven steps, and the
+// fraction of the remainder through vec_fracn, whose |a| < |b| precondition a
+// remainder always meets. The assembly folds the integer bits into vec_fracn's
+// own loop instead. The sign goes back on branchlessly, s being 0 or -1:
+// oscar64 from 1616138 on drops the high byte of `neg ? -q : q` after a call
+// (bugs/negate-tail-high-byte).
+int16_t _unused_vec_div8p8(int16_t a, int16_t b) {
+  uint16_t ua = a < 0 ? (uint16_t)-a : (uint16_t)a;
+  uint16_t ub = b < 0 ? (uint16_t)-b : (uint16_t)b;
+  uint16_t q;
+  if (ua < ub) {
+    q = vec_fracn((int16_t)ua, (int16_t)ub, 8);
+  } else if (ub == 0) {
+    q = a == 0 ? 0 : 32767;
   } else {
-    ua = a;
-  }
-  if (b < 0) {
-    ub = -b;
-    sign = -sign;
-  } else {
-    ub = b;
-  }
-
-  while (ub > 255) {
-    ua >>= 1;
-    ub >>= 1;
-  }
-
-  if (ub == 0)
-    return sign > 0 ? 32767 : -32767;
-
-  // Normalize ub to [128, 255], scaling ua by the same amount. If ua
-  // overflows 16 bits here, the exact quotient is always > 32767 (ub is
-  // still < 128 when it happens), so saturating is the exact result.
-  while (ub < 128) {
-    ub <<= 1;
-    if (ua & 0x8000) {
-      return sign > 0 ? 32767 : -32767;
+    // d = ub << k with d <= ua < 2d, k being the integer part's top bit.
+    uint16_t d = ub;
+    uint8_t k = 0;
+    while (k < 7 && d <= (ua >> 1)) {
+      d <<= 1;
+      ++k;
     }
-    ua <<= 1;
-  }
-
-  uint16_t b_recip = 0x100 + vec_recip_lut[ub - 128];
-
-  // Scale ua down to prevent internal overflow in vec_fastmul8p8
-  // Max safe value for ua to prevent sum overflow (ua + b_recip < 4096) is:
-  // since b_recip is up to 512, ua must be < 3584. We use 3072 for headroom.
-  uint8_t scale = 0;
-  while (ua >= 3072) {
-    ua >>= 1;
-    scale++;
-  }
-
-  int16_t res = vec_fastmul8p8(ua, b_recip);
-
-  uint32_t final_val = (uint32_t)res;
-  if (scale > 0) {
-    // Check for overflow before shifting left
-    if (final_val > (32767 >> scale)) {
-      return sign > 0 ? 32767 : -32767;
+    if (k == 7) {
+      q = 32767; // an integer part of 128 or more
+    } else {
+      uint8_t qi = 0;
+      for (;;) {
+        qi <<= 1;
+        if (ua >= d) {
+          ua -= d;
+          qi |= 1;
+        }
+        if (k == 0) {
+          break;
+        }
+        --k;
+        d >>= 1;
+      }
+      q = (uint16_t)(((uint16_t)qi << 8) | vec_fracn((int16_t)ua, (int16_t)ub, 8));
     }
-    final_val <<= scale;
   }
-
-  if (final_val > 32767) {
-    return sign > 0 ? 32767 : -32767;
-  }
-
-  int16_t final_res = (int16_t)final_val;
-  return sign > 0 ? final_res : -final_res;
+  int16_t s = (int16_t)(a ^ b) >> 15;
+  return (int16_t)(((int16_t)q ^ s) - s);
 }
 
 #ifdef __OSCAR64__

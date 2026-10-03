@@ -192,9 +192,9 @@ static bool _same_heading(int16_t fx, int16_t fy) {
 // where the point is that the attitude is one the game can actually reach;
 // use the `roll` argument of _arm_touchdown where an exact left.z is needed.
 // Steps from wings level, one kVecRollRight each:
-//    1 -> left.z  31 (just inside kMaxLandingRoll)
-//    4 -> left.z 119 (well past it)
-//   26 -> up.z -256, left.z -11 (inverted, and inside the bank limit,
+//    1 -> left.z  32 (exactly kMaxLandingRoll, which still lands)
+//    4 -> left.z 121 (well past it)
+//   26 -> up.z -256, left.z -12 (inverted, and inside the bank limit,
 //         which is exactly the blind spot trigger 6 exists to cover)
 static void _roll_by(int steps) {
   for (int i = 0; i < steps; ++i) {
@@ -2742,9 +2742,12 @@ static void test_turn_rate_scales_with_lift_over_speed() {
   assert(medium_y != 0);
   assert(medium_x > 0); // Still inside the first quarter turn
 
-  _turn_over(10, 1800, 60);
+  // Eight steps, not ten: ten turns a hair past the quarter in these 60
+  // frames now that vec_orthonormalize keeps the small yaw steps it used to
+  // round away.
+  _turn_over(8, 1800, 60);
   int16_t steep_y = _abs16(flight_cam.front.y);
-  printf("  10 steps   -> front=(%4d,%4d) heading %2d/%d\n", flight_cam.front.x,
+  printf("  8 steps    -> front=(%4d,%4d) heading %2d/%d\n", flight_cam.front.x,
          flight_cam.front.y, _heading(), kHeadingMax);
   assert(flight_cam.front.x > 0);
   assert(steep_y > medium_y);
@@ -2781,7 +2784,7 @@ static void test_banked_turn_loses_altitude() {
   assert(_level_trim(0x18, 256, 0, &trim_pitch));
 
   int32_t dz[3];
-  const int roll_steps[3] = {0, 6, 10}; // Level, ~left.z 169, ~left.z 239
+  const int roll_steps[3] = {0, 6, 10}; // Level, ~left.z 173, ~left.z 242
   for (int i = 0; i < 3; ++i) {
     flight_init();
     flight_eye_z = 0x040000;
@@ -2807,7 +2810,11 @@ static void test_banked_turn_loses_altitude() {
            flight_speed, flight_alpha());
   }
 
-  assert(dz[0] >= 0);    // Wings level at its own trim: holds altitude
+  // Wings level at its own trim: holds altitude. To within a tenth of what
+  // the 45 degree bank loses rather than to the unit, because the trim is
+  // found over a settled 600 frames and flown here from a standing start at
+  // another speed, so it lands a little either side of level.
+  assert(dz[0] > dz[1] / 10);
   assert(dz[1] < 0);     // 45 deg bank: descends
   assert(dz[2] < dz[1]); // 70 deg bank: descends faster
 
@@ -2822,7 +2829,7 @@ static void test_banked_turn_loses_altitude() {
   printf("Running test_banked_turn_loses_altitude...\n");
 
   int32_t dz[3];
-  const int roll_steps[3] = {0, 6, 10}; // Level, ~left.z 169, ~left.z 239
+  const int roll_steps[3] = {0, 6, 10}; // Level, ~left.z 173, ~left.z 242
   for (int i = 0; i < 3; ++i) {
     flight_init();
     flight_eye_z = 0x040000;
