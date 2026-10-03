@@ -725,7 +725,7 @@ static const char *_flight_join(const char *prefix, const char *suffix) {
   return _flight_status_text;
 }
 
-const char *flight_status_text(enum FlightStatus status, bool crashed) {
+__forceinline const char *flight_status_text(enum FlightStatus status, bool crashed) {
   if (status == FLIGHT_MISSION_COMPLETED) {
     return "MISSION COMPLETE!";
   }

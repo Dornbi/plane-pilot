@@ -162,7 +162,7 @@ static void _write_ctrl(uint8_t voice, uint8_t ctrl) {
 // cannot happen here - but because the SID latches sustain on the gate edge,
 // so a gate raised before its envelope registers are in place latches whatever
 // was there before.
-static void _set_voice(uint8_t voice, uint16_t freq, uint16_t pw, uint8_t ctrl,
+static inline void _set_voice(uint8_t voice, uint16_t freq, uint16_t pw, uint8_t ctrl,
                        uint8_t attdec, uint8_t susrel) {
   const uint8_t base = voice * kVoiceRegs;
   SID_REGS[base + kSoundVoiceFreqLo] = (uint8_t)freq;

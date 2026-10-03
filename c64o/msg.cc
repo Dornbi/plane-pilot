@@ -66,7 +66,7 @@ void msg_update(void) {
   }
 }
 
-void msg_restore_color(void) {
+__forceinline void msg_restore_color(void) {
   if (msg_color_len != 0) {
     memset(mem_color_buffer + msg_color_col, kColorSky | 0x08, msg_color_len);
     msg_color_len = 0;

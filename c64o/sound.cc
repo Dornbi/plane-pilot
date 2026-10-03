@@ -388,7 +388,7 @@ static void _sound_poke(uint8_t idx, uint8_t val) {
 // The host build compiles the rolled loop correctly, so sound_test.cc cannot
 // see any of this; it is a target-only defect and the .asm is the only place
 // it shows. Worth re-reading $13xx in ppilot.asm after an oscar64 upgrade.
-static void _sound_write_through(void) {
+static inline void _sound_write_through(void) {
 #ifdef __OSCAR64__
 #pragma unroll(full)
 #endif
@@ -417,7 +417,7 @@ static void _sound_write_through(void) {
 // Writing the control register last means a torn read sees either the old
 // gate with the new envelope, or the new gate with the new envelope. It can
 // never see a gate turned on ahead of the sustain that gate is going to latch.
-static void _sound_set_voice(uint8_t base, uint16_t freq, uint16_t pw,
+static inline void _sound_set_voice(uint8_t base, uint16_t freq, uint16_t pw,
                              uint8_t ctrl, uint8_t attdec, uint8_t susrel) {
   _sound_poke(base + kSoundVoiceFreqLo, (uint8_t)freq);
   _sound_poke(base + kSoundVoiceFreqHi, (uint8_t)(freq >> 8));
@@ -494,7 +494,7 @@ uint16_t sound_engine_base_freq(uint8_t throttle) {
   return kSoundEngineFreq[throttle];
 }
 
-uint16_t sound_wind_freq(int16_t speed) {
+__forceinline uint16_t sound_wind_freq(int16_t speed) {
   if (speed < 0) {
     speed = 0;
   }

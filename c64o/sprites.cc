@@ -193,7 +193,7 @@ inline void sprites_init(void) {
   _sprites_draw_fin();
 }
 
-static void _sprites_set_instrument_sprite(uint8_t idx,
+static inline void _sprites_set_instrument_sprite(uint8_t idx,
                                            const sprite_meta_t *meta_array,
                                            uint8_t dir, uint8_t pivot_x,
                                            uint8_t pivot_y) {

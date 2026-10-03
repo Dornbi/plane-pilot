@@ -405,6 +405,11 @@ inline bool vec_project() {
   return true;
 }
 
+// One out-of-line copy for the once-a-frame callers (the horizon and the sun
+// in world.cc). The per-point and per-blob callers keep vec_project() inline;
+// each inlined copy is about 270 bytes.
+__noinline bool vec_project_once() { return vec_project(); }
+
 // Restoring division, one iteration per quotient bit. The dividend is
 // |a| << bits, so its high half starts as the remainder and the quotient grows
 // into the low half as the whole thing shifts left. |a| <= |b| is what keeps

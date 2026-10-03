@@ -87,7 +87,7 @@ static void _menu_enter(uint8_t scroll_offset) {
   title_arm();
 }
 
-static void _menu_draw_mission_cursor(uint8_t selected_mission,
+static inline void _menu_draw_mission_cursor(uint8_t selected_mission,
                                       uint8_t scroll_offset, bool draw) {
   uint8_t visible_slot = selected_mission - scroll_offset;
   mem_screen_row_ptrs[kMissionRowStart + visible_slot * kMissionRowStep][0] =

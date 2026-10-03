@@ -246,7 +246,7 @@ inline void mem_set_mccm_mode(void) {
   vic.ctrl2 = 0xd8;
 }
 
-void mem_init_mccm(void) {
+__forceinline void mem_init_mccm(void) {
   vic.color_border = kColorBg;
   vic.color_back = kColorGrad2;
   vic.color_back1 = kColorGround;

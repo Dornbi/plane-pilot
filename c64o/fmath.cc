@@ -3,7 +3,7 @@
 // Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
 #pragma optimize(push, nooutline)
 
-uint8_t _get_msb(uint16_t n) {
+__forceinline uint8_t _get_msb(uint16_t n) {
   if (n == 0) {
     return 0;
   }

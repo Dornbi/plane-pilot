@@ -8,6 +8,7 @@
 #ifndef __OSCAR64__
 #define __memmap
 #define __noinline
+#define __forceinline
 #define __zeropage
 #define __striped
 #endif

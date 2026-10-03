@@ -65,7 +65,7 @@ static const uint8_t kMapExitKeyCount =
     sizeof(kMapExitKeys) / sizeof(kMapExitKeys[0]);
 
 // Closes the map if one of those keys is down, and reports whether it did.
-static bool _map_poll_exit(void) {
+static inline bool _map_poll_exit(void) {
   for (uint8_t i = 0; i < kMapExitKeyCount; ++i) {
     if (key_pressed(kMapExitKeys[i])) {
       map_exit();

@@ -395,7 +395,8 @@ inline void gfx_stop_raster_irqs(void) {
   rirq_stop();
 }
 
-inline void gfx_wait_vsync(void) {
+// __noinline: four call sites, and a busy wait has no cycles to save.
+__noinline void gfx_wait_vsync(void) {
   while (vic.raster != 255)
     ;
   while (vic.raster == 255)

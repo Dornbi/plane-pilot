@@ -3,6 +3,13 @@
 
 #include <stdint.h>
 
+#ifndef __OSCAR64__
+// Host stand-in for fmath.cc, which reaches neither mem.h nor vec.h.
+#ifndef __forceinline
+#define __forceinline
+#endif
+#endif
+
 inline int8_t _abs8(int8_t a) { return a > 0 ? a : -a; }
 inline int16_t _abs16(int16_t a) { return a > 0 ? a : -a; }
 

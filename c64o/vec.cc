@@ -65,13 +65,14 @@ inline void vec_sub(vec3_t *dest, const vec3_t *src) {
   dest->z -= src->z;
 }
 
-inline void vec_negate(vec3_t *v) {
+// __noinline: six call sites, all once a frame; inlined it cost 221 bytes.
+__noinline void vec_negate(vec3_t *v) {
   v->x = -v->x;
   v->y = -v->y;
   v->z = -v->z;
 }
 
-uint16_t vec_fastsqr8p8u(uint16_t a) {
+__forceinline uint16_t vec_fastsqr8p8u(uint16_t a) {
   uint8_t h = _hibyte(a);
   uint8_t l = _lobyte(a);
 
@@ -504,7 +505,7 @@ static void _turn_xy(int16_t s, vec3_t *v) {
   v->y = y - vec_fastmul8p8(s, x);
 }
 
-void vec_turn3_xy(int16_t s, mat3_t *m) {
+__forceinline void vec_turn3_xy(int16_t s, mat3_t *m) {
   _turn_xy(s, &m->front);
   _turn_xy(s, &m->left);
   _turn_xy(s, &m->up);

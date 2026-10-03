@@ -234,7 +234,9 @@ static void _draw_one_box(int8_t cx, int8_t cy) {
   }
 }
 
-static inline bool _out_of_bounds(int8_t cx, int8_t cy, bool reverse) {
+// __noinline: two call sites, run once per box repetition; inlined it cost
+// about 60 bytes.
+static __noinline bool _out_of_bounds(int8_t cx, int8_t cy, bool reverse) {
   bool step_x_increasing = reverse ? boxdef.step_x < 0 : boxdef.step_x > 0;
   bool step_y_increasing = reverse ? boxdef.step_y < 0 : boxdef.step_y > 0;
   if (step_x_increasing) {
@@ -258,7 +260,7 @@ static inline bool _out_of_bounds(int8_t cx, int8_t cy, bool reverse) {
   return false;
 }
 
-void box_draw(void) {
+__forceinline void box_draw(void) {
   bm_view_start();
   // cx and cy are now relative to the viewport not the screen.
   const int8_t base_cx = render_cx_chars - kViewportStartX + boxdef.rel_x;

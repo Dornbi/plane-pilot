@@ -20,6 +20,9 @@
 #ifndef __noinline
 #define __noinline
 #endif
+#ifndef __forceinline
+#define __forceinline
+#endif
 #define __zeropage
 #define __striped
 // Multiplies vec_mul_a and b (16-bit signed integers). Interprets b as 8.8
@@ -146,6 +149,8 @@ void vec_negate(vec3_t *v);
 // @result vec_sx, vec_sy: screen coordinates
 // Returns true on success, false on failure.
 bool vec_project();
+// vec_project() out of line, for callers that run once a frame.
+bool vec_project_once();
 
 // Similar to vec_project, but does not cull based on the screen boundaries.
 // It will only return false if the point is behind the camera (x <= 8).

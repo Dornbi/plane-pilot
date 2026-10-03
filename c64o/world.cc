@@ -268,7 +268,7 @@ void world_update_roll_state() {
     v.x <<= 6;
     v.y <<= 6;
     vec_transform_inv(&world_cam, &v, &vec_v);
-    if (vec_project()) {
+    if (vec_project_once()) {
       render_cx_pixels = (int16_t)kScreenWidthPixels / 2 - vec_sx;
       render_cy_pixels = (int16_t)kViewportEndYPixels / 2 - vec_sy;
       roll_angle = _get_roll_angle(world_cam.up.z, world_cam.left.z);
@@ -295,7 +295,7 @@ static const vec3_t kSunDirWorld = {0, 256, 64};
 // goes through the stack as an ordinary entry rather than owning a fixed sprite
 // index: an "infinite" depth sorts it behind everything, which is where it
 // belongs. Clouds (clouds.md) and traffic (planes.md) add themselves here too.
-void world_update_objects() {
+__forceinline void world_update_objects() {
   sprites_stack_reset();
 #ifdef __ENABLE_CLOUDS__
   bm_sub_start();
@@ -303,7 +303,7 @@ void world_update_objects() {
   bm_sub_end(BM_SUB_CLOUDS);
 #endif
   vec_transform_inv(&world_cam, &kSunDirWorld, &vec_v);
-  if (vec_project()) {
+  if (vec_project_once()) {
     sprites_stack_add(0x7FFF, kScreenWidthPixels / 2 - vec_sx,
                       kViewportEndYPixels / 2 - vec_sy, kSpriteDefSun.pivot_x,
                       kSpriteDefSun.pivot_y, kSpriteDefSun.bitmap_idx,

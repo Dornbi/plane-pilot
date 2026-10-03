@@ -229,7 +229,7 @@ static const uint16_t kMapSprPtrOffset = 1016;
 
 // Positions one sprite, handling the $D010 MSB. The map spans sprite x
 // 44..298, so both sprites cross 255.
-static void _map_set_sprite_pos(uint8_t idx, int16_t x, uint8_t y) {
+static inline void _map_set_sprite_pos(uint8_t idx, int16_t x, uint8_t y) {
   vic.spr_pos[idx].x = (uint8_t)x;
   vic.spr_pos[idx].y = y;
   if (x > 255) {
@@ -263,7 +263,7 @@ static uint8_t _map_tile_index(uint8_t cell, uint8_t row, uint8_t col) {
 //
 // Pass A -- the object layer. I/O is banked in, so color RAM is writable and
 // the bitmap at $E000 is plain RAM either way.
-static void _map_draw_object_layer(void) {
+static inline void _map_draw_object_layer(void) {
   uint8_t *bm = kMapBitmap + kMapCharOffset * 8;
   uint8_t *cr = kColorRam + kMapCharOffset;
   for (uint8_t row = kWorldMapHeight; row-- != 0;) {

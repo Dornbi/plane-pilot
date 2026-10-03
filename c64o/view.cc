@@ -135,7 +135,7 @@ static void _view_blackout_panel(void) {
 // and the color half below it, used to be one loop; they are two so that the
 // slow half can run while the panel is blacked out and the fast half can run
 // at the end, where it is the frame the finished panel appears in.
-static void _view_shift_bitmap(bool is_left_view) {
+static inline void _view_shift_bitmap(bool is_left_view) {
   char *bmp_src = kViewBitmapPanel;
   char *bmp_dst = bmp_src;
   char *bmp_fill = bmp_src;
@@ -153,7 +153,7 @@ static void _view_shift_bitmap(bool is_left_view) {
   _view_fill_bitmap(bmp_fill, kFillWidthChars);
 }
 
-static void _view_shift_colors(bool is_left_view) {
+static inline void _view_shift_colors(bool is_left_view) {
   char *screen_src = (char *)kViewScreenDst;
   char *screen_dst = screen_src;
   char *screen_fill = screen_src;

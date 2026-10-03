@@ -17,7 +17,8 @@ inline void print_label(uint16_t pos, const char *label) {
   memcpy(mem_screen_ram + pos, label, strlen(label));
 }
 
-inline void print_str(uint8_t row, uint8_t col, const char *label,
+// __noinline: ten call sites, none of them per frame.
+__noinline void print_str(uint8_t row, uint8_t col, const char *label,
                       uint8_t num_chars) {
   memcpy(mem_screen_row_ptrs[row] + col, label, num_chars);
 }
