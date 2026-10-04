@@ -25,7 +25,8 @@ int8_t render_alt_shift_x;
 int8_t render_alt_shift_y;
 
 // Skip so many lines, which will be filled by tiles.
-// PERF: 4 -> cycles: -1000 bytes: +260
+// PERF: 4 -> cycles: -1000. Bytes: +260 with the old per-case fill loops; the
+// span fill handles any value with the same code.
 static const int8_t kSkipLines = 4;
 
 static inline int16_t _render_lshift(int16_t x) {
@@ -183,231 +184,150 @@ static void _fill_line(uint8_t *dst, uint8_t val) {
   }
 }
 
-static void _fill_lines(uint8_t *dst, uint8_t *dst_color, uint8_t val,
-                        uint8_t val_color, int8_t cnt) {
-  for (int8_t i = cnt - 1; i >= 0; --i) {
-    dst[i] = val;
-    dst_color[i] = val_color;
-  }
-}
+// The row _fill_span writes to, in the screen and in the colour buffer.
+static uint8_t *_row_dst, *_row_color;
 
-static inline void _fill_sky_ground_with_skip() {
-  uint8_t *dst = (uint8_t *)(mem_screen_ram + kViewportStartX +
-                             kViewportStartY * kScreenWidth);
-  uint8_t *dst_color =
-      (uint8_t *)(mem_color_buffer + kViewportStartY * kViewportWidth);
-
-  if (roll_dy == 0) {
-    int8_t cy = render_cy_chars;
-    if (cy < 0) {
-      cy = 0;
-    } else if (cy > kViewportHeight) {
-      cy = kViewportHeight;
-    }
-
-    if (roll_dx > 0) {
-      for (int8_t y = 0; y < cy; ++y) {
-        if (y < render_cy_chars - kSkipLines) {
-          _fill_line(dst, kCharSolid11);
-          _fill_line(dst_color, kColorSky | 0x08);
-        }
-        dst += kScreenWidth;
-        dst_color += kViewportWidth;
-      }
-      for (int8_t y = cy; y < kViewportHeight; ++y) {
-        _fill_line(dst, kCharSolidGround);
-        dst += kScreenWidth;
-      }
+// Fills cells [from, to) of the current row, from < to: sky sets the colour
+// cell too, ground leaves it alone. A whole row goes through the unrolled
+// _fill_line.
+static inline void _fill_span(uint8_t from, uint8_t to, bool sky) {
+  uint8_t n = to - from;
+  if (n == kViewportWidth) {
+    if (sky) {
+      _fill_line(_row_dst, kCharSolid11);
+      _fill_line(_row_color, kColorSky | 0x08);
     } else {
-      for (int8_t y = 0; y < cy; ++y) {
-        _fill_line(dst, kCharSolidGround);
-        dst += kScreenWidth;
-        dst_color += kViewportWidth;
-      }
-      for (int8_t y = cy; y < kViewportHeight; ++y) {
-        if (y >= render_cy_chars + kSkipLines) {
-          _fill_line(dst, kCharSolid11);
-          _fill_line(dst_color, kColorSky | 0x08);
-        }
-        dst += kScreenWidth;
-        dst_color += kViewportWidth;
-      };
+      _fill_line(_row_dst, kCharSolidGround);
     }
+    return;
+  }
+  uint8_t *dst = _row_dst + from;
+  if (sky) {
+    uint8_t *dst_color = _row_color + from;
+    do {
+      --n;
+      dst[n] = kCharSolid11;
+      dst_color[n] = kColorSky | 0x08;
+    } while (n);
   } else {
-    // 12.4 fixpoint representation of the divider x between sky and ground.
-    //
-    // render_cy_chars is a truncating int8_t cast of a horizon that can sit far
-    // off screen, so it really does reach -128 and the old product really did
-    // overflow there. Negating the result rather than the operand keeps both
-    // cases identical to the mul16 version; see the note on _mul.
-    int16_t dx = -_render_mul(roll_dx_div_dy, render_cy_chars) +
-                 ((render_cx_chars - kViewportStartX) << 4);
-    if (roll_dx_div_dy > 0) {
-      // Hack to make sure the boxes always cover the horizon.
-      dx += 8;
-    }
-    if (render_alt_box) {
-      if (render_alt_shift_x) {
-        dx += 8;
-      }
-      if (render_alt_shift_y) {
-        dx -= (roll_dx_div_dy >> 1);
-      }
-    }
-
-    if (roll_dy < 0) {
-      int16_t dx_left = dx - _abs16(roll_dx_div_dy) * kSkipLines;
-      for (uint8_t y = 0; y < kViewportHeight; ++y) {
-        if (dx < 0x0f) {
-          _fill_line(dst, kCharSolidGround);
-        } else if (dx_left >= (kViewportWidth << 4)) {
-          _fill_line(dst, kCharSolid11);
-          _fill_line(dst_color, kColorSky | 0x08);
-        } else {
-          if (dx_left >= 0x10) {
-            _fill_lines(dst, dst_color, kCharSolid11, kColorSky | 0x08,
-                        dx_left >> 4);
-          }
-          if (dx < (kViewportWidth << 4)) {
-            uint8_t x = dx >> 4;
-            memset(dst + x, kCharSolidGround, kViewportWidth - x);
-          }
-        }
-        dst += kScreenWidth;
-        dst_color += kViewportWidth;
-        dx += roll_dx_div_dy;
-        dx_left += roll_dx_div_dy;
-      }
-    } else {
-      int16_t dx_right = dx + _abs16(roll_dx_div_dy) * kSkipLines;
-      for (uint8_t y = 0; y < kViewportHeight; ++y) {
-        if (dx_right < 0x0f) {
-          _fill_line(dst, kCharSolid11);
-          _fill_line(dst_color, kColorSky | 0x08);
-        } else if (dx >= (kViewportWidth << 4)) {
-          _fill_line(dst, kCharSolidGround);
-        } else {
-          if (dx >= 0x10) {
-            memset(dst, kCharSolidGround, dx >> 4);
-          }
-          if (dx_right < (kViewportWidth << 4)) {
-            uint8_t x = dx_right >> 4;
-            _fill_lines(dst + x, dst_color + x, kCharSolid11, kColorSky | 0x08,
-                        kViewportWidth - x);
-          }
-        }
-        dst += kScreenWidth;
-        dst_color += kViewportWidth;
-        dx += roll_dx_div_dy;
-        dx_right += roll_dx_div_dy;
-      }
-    }
+    do {
+      dst[--n] = kCharSolidGround;
+    } while (n);
   }
 }
 
-static inline void _fill_sky_ground_no_skip() {
-  uint8_t *dst = (uint8_t *)(mem_screen_ram + kViewportStartX +
-                             kViewportStartY * kScreenWidth);
-  uint8_t *dst_color =
-      (uint8_t *)(mem_color_buffer + kViewportStartY * kViewportWidth);
-
-  if (roll_dy == 0) {
-    int8_t cy = render_cy_chars;
-    if (cy < 0) {
-      cy = 0;
-    } else if (cy > kViewportHeight) {
-      cy = kViewportHeight;
-    }
-
-    if (roll_dx > 0) {
-      for (int8_t y = 0; y < cy; ++y) {
-        _fill_line(dst, kCharSolid11);
-        _fill_line(dst_color, kColorSky | 0x08);
-        dst += kScreenWidth;
-        dst_color += kViewportWidth;
-      }
-      for (int8_t y = cy; y < kViewportHeight; ++y) {
-        _fill_line(dst, kCharSolidGround);
-        dst += kScreenWidth;
-      }
-    } else {
-      for (int8_t y = 0; y < cy; ++y) {
-        _fill_line(dst, kCharSolidGround);
-        dst += kScreenWidth;
-        dst_color += kViewportWidth;
-      }
-      for (int8_t y = cy; y < kViewportHeight; ++y) {
-        _fill_line(dst, kCharSolid11);
-        _fill_line(dst_color, kColorSky | 0x08);
-        dst += kScreenWidth;
-        dst_color += kViewportWidth;
-      };
-    }
-  } else {
-    // 12.4 fixpoint representation of the divider x between sky and ground.
-    //
-    // render_cy_chars is a truncating int8_t cast of a horizon that can sit far
-    // off screen, so it really does reach -128 and the old product really did
-    // overflow there. Negating the result rather than the operand keeps both
-    // cases identical to the mul16 version; see the note on _mul.
-    int16_t dx = -_render_mul(roll_dx_div_dy, render_cy_chars) +
-                 ((render_cx_chars - kViewportStartX) << 4);
-    if (roll_dx_div_dy > 0) {
-      // Hack to make sure the boxes always cover the horizon.
-      dx += 8;
-    }
-    if (render_alt_box) {
-      if (render_alt_shift_x) {
-        dx += 8;
-      }
-      if (render_alt_shift_y) {
-        dx -= (roll_dx_div_dy >> 1);
-      }
-    }
-
-    if (roll_dy < 0) {
-      for (uint8_t y = 0; y < kViewportHeight; ++y) {
-        if (dx < 0x0f) {
-          _fill_line(dst, kCharSolidGround);
-        } else if (dx >= (kViewportWidth << 4)) {
-          _fill_line(dst, kCharSolid11);
-          _fill_line(dst_color, kColorSky | 0x08);
-        } else {
-          uint8_t x = dx >> 4;
-          _fill_lines(dst, dst_color, kCharSolid11, kColorSky | 0x08, x);
-          memset(dst + x, kCharSolidGround, kViewportWidth - x);
-        }
-        dst += kScreenWidth;
-        dst_color += kViewportWidth;
-        dx += roll_dx_div_dy;
-      }
-    } else {
-      for (uint8_t y = 0; y < kViewportHeight; ++y) {
-        if (dx < 0x0f) {
-          _fill_line(dst, kCharSolid11);
-          _fill_line(dst_color, kColorSky | 0x08);
-        } else if (dx >= (kViewportWidth << 4)) {
-          _fill_line(dst, kCharSolidGround);
-        } else {
-          uint8_t x = dx >> 4;
-          memset(dst, kCharSolidGround, x);
-          _fill_lines(dst + x, dst_color + x, kCharSolid11, kColorSky | 0x08,
-                      kViewportWidth - x);
-        }
-        dst += kScreenWidth;
-        dst_color += kViewportWidth;
-        dx += roll_dx_div_dy;
-      }
-    }
+// Clamps a row number into [0, kViewportHeight].
+static inline uint8_t _clamp_rows(int16_t row) {
+  if (row < 0) {
+    return 0;
   }
+  if (row > kViewportHeight) {
+    return kViewportHeight;
+  }
+  return row;
 }
 
+// One 12.4 position past the right edge of the viewport.
+static const int16_t kFull = kViewportWidth << 4;
+
+// Every row is a left span [0, l) and a right span [r, kViewportWidth), sky on
+// one side and ground on the other, and the cells between them are left for
+// the tiles. For a tilted horizon the spans come from two 12.4 positions per
+// row, lo and hi = lo + w, where w is the kSkipLines band and lo walks by
+// roll_dx_div_dy a row:
+//
+//   hi < 0x0f    the whole row is the right side's
+//   lo >= kFull  the whole row is the left side's
+//   otherwise    l = lo >> 4 (0 below 0x10), r = hi >> 4 (the edge at kFull)
+//
+// The left span is always filled before the right one, the order the old
+// per-case loops used, so even a wrapped lo/hi pair, where the spans overlap,
+// writes the same cells.
 void render_fill_sky_ground() {
   bm_view_start();
-  if (kSkipLines > 0) {
-    _fill_sky_ground_with_skip();
+  _row_dst = (uint8_t *)(mem_screen_ram + kViewportStartX +
+                         kViewportStartY * kScreenWidth);
+  _row_color = (uint8_t *)(mem_color_buffer + kViewportStartY * kViewportWidth);
+
+  if (roll_dy == 0) {
+    // Level: whole rows only. Rows above e are the left side's, rows from
+    // e + kSkipLines on the right side's, and the ones between are skipped.
+    // The sky side's rows stop kSkipLines short of the horizon row, the
+    // ground side's run up to it.
+    bool sky_left = roll_dx > 0;
+    int16_t e = render_cy_chars;
+    if (sky_left) {
+      e -= kSkipLines;
+    }
+    // Its own loop rather than the span logic below, which costs about 90
+    // cycles a row more, and level flight is the common case.
+    uint8_t row_l = _clamp_rows(e);
+    uint8_t row_r = _clamp_rows(e + kSkipLines);
+    for (uint8_t y = 0; y < kViewportHeight; ++y) {
+      if (y < row_l || y >= row_r) {
+        bool sky = (y < row_l) == sky_left;
+        _fill_line(_row_dst, sky ? kCharSolid11 : kCharSolidGround);
+        if (sky) {
+          _fill_line(_row_color, kColorSky | 0x08);
+        }
+      }
+      _row_dst += kScreenWidth;
+      _row_color += kViewportWidth;
+    }
   } else {
-    _fill_sky_ground_no_skip();
+    bool sky_left = roll_dy < 0;
+    // 12.4 fixpoint representation of the divider x between sky and ground.
+    //
+    // render_cy_chars is a truncating int8_t cast of a horizon that can sit far
+    // off screen, so it really does reach -128 and the old product really did
+    // overflow there. Negating the result rather than the operand keeps both
+    // cases identical to the mul16 version; see the note on _mul.
+    int16_t lo = -_render_mul(roll_dx_div_dy, render_cy_chars) +
+                 ((render_cx_chars - kViewportStartX) << 4);
+    if (roll_dx_div_dy > 0) {
+      // Hack to make sure the boxes always cover the horizon.
+      lo += 8;
+    }
+    if (render_alt_box) {
+      if (render_alt_shift_x) {
+        lo += 8;
+      }
+      if (render_alt_shift_y) {
+        lo -= (roll_dx_div_dy >> 1);
+      }
+    }
+    int16_t w = _abs16(roll_dx_div_dy) * kSkipLines;
+    // The divider is the ground side's edge of the band: hi when the sky is
+    // on the left, lo when it is on the right.
+    if (sky_left) {
+      lo -= w;
+    }
+
+    for (uint8_t y = 0; y < kViewportHeight; ++y) {
+      uint8_t l = 0, r = kViewportWidth;
+      int16_t hi = lo + w;
+      if (hi < 0x0f) {
+        r = 0;
+      } else if (lo >= kFull) {
+        l = kViewportWidth;
+      } else {
+        if (lo >= 0x10) {
+          l = lo >> 4;
+        }
+        if (hi < kFull) {
+          r = hi >> 4;
+        }
+      }
+      if (l) {
+        _fill_span(0, l, sky_left);
+      }
+      if (r < kViewportWidth) {
+        _fill_span(r, kViewportWidth, !sky_left);
+      }
+      _row_dst += kScreenWidth;
+      _row_color += kViewportWidth;
+      lo += roll_dx_div_dy;
+    }
   }
 
   bm_view_end(710, "BGR:");

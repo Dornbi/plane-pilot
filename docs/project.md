@@ -204,9 +204,11 @@ with period 1 there are exactly two candidates — the main lattice and an
 "alt" lattice shifted half a character — and the winner sets `render_alt_box`.
 
 `render_fill_sky_ground()` then fills the viewport with solid sky and solid
-ground, walking `roll_dx_div_dy` down the rows. It deliberately leaves
-`kSkipLines` (4) rows either side of the horizon unfilled, because the tiles
-are about to overwrite them anyway — worth about 1000 cycles for 260 bytes.
+ground, walking `roll_dx_div_dy` down the rows. Each row is a sky span on one
+side and a ground span on the other, so one loop covers every bank angle; a
+level horizon, whole rows only, has a cheaper loop of its own. It deliberately
+leaves `kSkipLines` (4) rows either side of the horizon unfilled, because the
+tiles are about to overwrite them anyway — worth about 1000 cycles.
 
 ### `boxdefs.cc` / `box.cc` — tiles
 
