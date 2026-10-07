@@ -102,9 +102,45 @@ static const uint8_t kNumPoints3[] = {8, 4, 2, 1};
 static const uint8_t kNumPoints4[] = {4, 2, 2, 1, 1};
 static const uint8_t *_num_points_per_radius;
 
+// One axis of the grid, 0 for x and 1 for y. Sets the axis' step vector, its
+// split table, and which way and from which cell the walk goes, and returns
+// the start point's coordinate along the axis, in the world frame. Shared
+// rather than written out per axis, and it takes the axis rather than its
+// operands, because passing those twice cost more than the code it shares.
+static __noinline int16_t _world_init_axis(uint8_t axis, int16_t grid_spacing) {
+  // The camera's front, left and up components along the axis.
+  const int16_t *cam = &world_cam.front.x + axis;
+  vec3_t *dvec = axis ? &_world_dy_vec : &_world_dx_vec;
+  // The order is such that when _vec_v.x becomes < 0, we can break the loop
+  // along both axes.
+  dvec->x = cam[0];
+  dvec->y = cam[3];
+  dvec->z = cam[6];
+  _world_split_vec(dvec, axis ? _world_dy4 : _world_dx4);
+  uint16_t m = _down_shift(axis ? flight_eye_y : flight_eye_x);
+  uint8_t grid = (uint8_t)((m + 512) >> 10);
+  int16_t p = grid_spacing;
+  int8_t step = -1;
+  uint8_t start = grid + _world_grid_radius;
+  if (cam[0] > 0) {
+    vec_negate(dvec);
+  } else {
+    p = -p;
+    step = 1;
+    start = grid - _world_grid_radius;
+  }
+  if (axis) {
+    _world_step_y = step;
+    _world_start_cy = start;
+  } else {
+    _world_step_x = step;
+    _world_start_cx = start;
+  }
+  return p - (int16_t)(m - ((uint16_t)grid << 10));
+}
+
 void _world_init_start_dx_dy() {
   static const uint16_t kGridSpacing = 0x400;
-  static const uint16_t kGridMask = 0x3FF;
   // kMinHeight (  ~32m) = 0x002000  5 --> 2
   // default    ( ~128m) = 0x008000  7 --> 3
   //            ( ~512m) = 0x020000  9 --> 4
@@ -123,31 +159,13 @@ void _world_init_start_dx_dy() {
     _num_points_per_radius = kNumPoints4;
   }
   int16_t grid_spacing = kGridSpacing * _world_grid_radius;
-  vec3_t p_start_world;
 
-  // Pre-calculate delta vectors for step in X and step in Y
-  // The order is such that when _vec_v.x becomes < 0, we can break the loop
-  // along both axes.
-  _world_dx_vec.x = world_cam.front.x;
-  _world_dx_vec.y = world_cam.left.x;
-  _world_dx_vec.z = world_cam.up.x;
-  _world_split_vec(&_world_dx_vec, _world_dx4);
-  if (world_cam.front.x > 0) {
-    vec_negate(&_world_dx_vec);
-    p_start_world.x = grid_spacing;
-  } else {
-    p_start_world.x = -grid_spacing;
-  }
-  _world_dy_vec.x = world_cam.front.y;
-  _world_dy_vec.y = world_cam.left.y;
-  _world_dy_vec.z = world_cam.up.y;
-  _world_split_vec(&_world_dy_vec, _world_dy4);
-  if (world_cam.front.y > 0) {
-    vec_negate(&_world_dy_vec);
-    p_start_world.y = grid_spacing;
-  } else {
-    p_start_world.y = -grid_spacing;
-  }
+  // Pre-calculate delta vectors for step in X and step in Y, and the start
+  // point relative to the eye.
+  vec3_t p_start_world;
+  p_start_world.x = _world_init_axis(0, grid_spacing);
+  p_start_world.y = _world_init_axis(1, grid_spacing);
+  p_start_world.z = -_down_shift(flight_eye_z);
 
   // Precompute Mitchell combinations
   for (uint8_t i = 0; i < 16; ++i) {
@@ -158,34 +176,11 @@ void _world_init_start_dx_dy() {
     _world_mitch_z[i] = _world_dx4[mx].z + _world_dy4[my].z;
   }
 
-  uint16_t mx = _down_shift(flight_eye_x);
-  uint16_t my = _down_shift(flight_eye_y);
-  uint8_t grid_x = (uint8_t)((mx + 512) >> 10);
-  uint8_t grid_y = (uint8_t)((my + 512) >> 10);
-  int16_t offset_x = (int16_t)(mx - ((uint16_t)grid_x << 10));
-  int16_t offset_y = (int16_t)(my - ((uint16_t)grid_y << 10));
-  p_start_world.x -= offset_x;
-  p_start_world.y -= offset_y;
-  p_start_world.z = -_down_shift(flight_eye_z);
   // The radius-4 start coords reach ~4600, which used to need a halving
   // workaround around the old quarter-square multiply (it overflowed once
   // |a| + |b| exceeded 4095). The assembly vec_fastmul8p8 is exact for all
   // int16 inputs, so the transform can run at full precision.
   vec_transform_inv(&world_cam, &p_start_world, &_world_p_start);
-
-  _world_step_x = 1;
-  _world_start_cx = grid_x - _world_grid_radius;
-  if (world_cam.front.x > 0) {
-    _world_step_x = -1;
-    _world_start_cx = grid_x + _world_grid_radius;
-  }
-
-  _world_step_y = 1;
-  _world_start_cy = grid_y - _world_grid_radius;
-  if (world_cam.front.y > 0) {
-    _world_step_y = -1;
-    _world_start_cy = grid_y + _world_grid_radius;
-  }
 }
 
 void _world_render_object(WorldMapType object_type) {

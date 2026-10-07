@@ -234,12 +234,11 @@ static void _draw_one_box(int8_t cx, int8_t cy) {
   }
 }
 
-// __noinline: two call sites, run once per box repetition; inlined it cost
-// about 60 bytes.
-static __noinline bool _out_of_bounds(int8_t cx, int8_t cy, bool reverse) {
-  bool step_x_increasing = reverse ? boxdef.step_x < 0 : boxdef.step_x > 0;
-  bool step_y_increasing = reverse ? boxdef.step_y < 0 : boxdef.step_y > 0;
-  if (step_x_increasing) {
+// __noinline: run once per box repetition; inlined it cost about 60 bytes.
+// (sx, sy) is the step being taken, so the test is on the side it moves to.
+static __noinline bool _out_of_bounds(int8_t cx, int8_t cy, int8_t sx,
+                                      int8_t sy) {
+  if (sx > 0) {
     if (cx >= kViewportWidth) {
       return true;
     }
@@ -248,7 +247,7 @@ static __noinline bool _out_of_bounds(int8_t cx, int8_t cy, bool reverse) {
       return true;
     }
   }
-  if (step_y_increasing) {
+  if (sy > 0) {
     if (cy >= kViewportHeight) {
       return true;
     }
@@ -266,28 +265,25 @@ __forceinline void box_draw(void) {
   const int8_t base_cx = render_cx_chars - kViewportStartX + boxdef.rel_x;
   const int8_t base_cy = render_cy_chars - kViewportStartY + boxdef.rel_y;
 
-  // Forward repetition
+  // Forward repetition from the base, then backward from one step behind it.
+  // The steps are a few characters, so negating them cannot overflow.
+  int8_t sx = boxdef.step_x;
+  int8_t sy = boxdef.step_y;
   int8_t cx = base_cx;
   int8_t cy = base_cy;
-  while (true) {
-    _draw_one_box(cx, cy);
-    cx += boxdef.step_x;
-    cy += boxdef.step_y;
-    if (_out_of_bounds(cx, cy, /*reverse=*/false)) {
+  for (uint8_t pass = 2;;) {
+    do {
+      _draw_one_box(cx, cy);
+      cx += sx;
+      cy += sy;
+    } while (!_out_of_bounds(cx, cy, sx, sy));
+    if (--pass == 0) {
       break;
     }
-  }
-
-  // Backward repetition
-  cx = base_cx - boxdef.step_x;
-  cy = base_cy - boxdef.step_y;
-  while (true) {
-    _draw_one_box(cx, cy);
-    cx -= boxdef.step_x;
-    cy -= boxdef.step_y;
-    if (_out_of_bounds(cx, cy, /*reverse=*/true)) {
-      break;
-    }
+    sx = -sx;
+    sy = -sy;
+    cx = base_cx + sx;
+    cy = base_cy + sy;
   }
 
   bm_view_end(790, "DRW:");
