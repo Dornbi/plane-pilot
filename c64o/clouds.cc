@@ -53,6 +53,13 @@ static void _clouds_build_basis(void) {
   _clouds_half_basis[2].z = vec_fastmul8p8(world_cam.up.z, k);
 }
 
+// v outside [-r, r], as one unsigned compare instead of two signed ones: v + r
+// maps the range onto [0, 2r] and everything else above it. Exact for any
+// int16_t v while 0 <= r <= 32767, so 2r still fits.
+static inline bool _clouds_outside(int16_t v, int16_t r) {
+  return (uint16_t)(v + r) > (uint16_t)(r << 1);
+}
+
 // The group pattern a collapsed group uses instead of its own (§3.5). One row,
 // because a collapsed group draws one blob, and all zeroes so that the three
 // _clouds_add_step() calls below stay unconditional: each returns on its first
@@ -141,8 +148,8 @@ void clouds_add_candidates(void) {
       // group drawn out there would appear and disappear as the eye crossed a
       // cell boundary rather than as it moved. Culling on the same box the
       // guarantee is stated in removes that entirely.
-      if (rel_x > kCloudCullU || rel_x < -kCloudCullU || rel_y > kCloudCullU ||
-          rel_y < -kCloudCullU) {
+      if (_clouds_outside(rel_x, kCloudCullU) ||
+          _clouds_outside(rel_y, kCloudCullU)) {
         continue;
       }
 
@@ -168,12 +175,15 @@ void clouds_add_candidates(void) {
       // The bounds here are looser than both - 0.625 x by two shifts, 0.25 x
       // vertically - plus 128 units of slack for the blob offsets (up to 54)
       // and a blob's own radius (48), so nothing that could draw is rejected.
+      //
+      // centre.x is in (8, kCloudRungDepth[0]] here, so both bounds are
+      // positive and well inside _clouds_outside()'s range.
       const int16_t lat = (centre.x >> 1) + (centre.x >> 3) + 128;
-      if (centre.y > lat || centre.y < -lat) {
+      if (_clouds_outside(centre.y, lat)) {
         continue;
       }
       const int16_t vert = (centre.x >> 2) + 128;
-      if (centre.z > vert || centre.z < -vert) {
+      if (_clouds_outside(centre.z, vert)) {
         continue;
       }
 

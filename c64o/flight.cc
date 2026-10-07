@@ -1103,12 +1103,14 @@ void flight_advance() {
 
     // Speed: Air resistance, gravity, throttle
     uint16_t speed_sqr = vec_fastsqr8p8(flight_speed);
-    flight_speed -= _flight_step_u(speed_sqr) >> 10;
+    // Scaled once for all three drag terms below.
+    const uint16_t drag = _flight_step_u(speed_sqr);
+    flight_speed -= drag >> 10;
     if (flight_gear) {
-      flight_speed -= _flight_step_u(speed_sqr) >> 12;
+      flight_speed -= drag >> 12;
     }
     if (flight_flap) {
-      flight_speed -= _flight_step_u(speed_sqr) >> 12;
+      flight_speed -= drag >> 12;
     }
     if (!model_on_ground) {
       flight_speed -= _flight_step_u(vec_fastsqr8p8(flight_cam.left.z)) >> 5;
