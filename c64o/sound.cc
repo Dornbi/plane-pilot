@@ -292,6 +292,33 @@ enum Voice3Effect {
   V3_FLAP,
 };
 
+// What each effect puts on voice 3, indexed by enum Voice3Effect. V3_NONE is
+// all zeros. The crash's frequency is a sweep computed in sound_update(); its
+// entry here is only a placeholder.
+__striped static const uint16_t kSoundV3Freq[V3_FLAP + 1] = {
+    0, kSoundStallFreq, 0, kSoundTouchdownFreq, kSoundGearFreq, kSoundFlapFreq};
+__striped static const uint16_t kSoundV3Pw[V3_FLAP + 1] = {0, kSoundStallPw, 0, 0, 0, 0};
+static const uint8_t kSoundV3Wave[] = {0,
+                                       SID_CTRL_RECT,
+                                       SID_CTRL_NOISE,
+                                       SID_CTRL_NOISE,
+                                       SID_CTRL_NOISE,
+                                       SID_CTRL_NOISE};
+static const uint8_t kSoundV3AttDec[] = {0,
+                                         kSoundStallAttDec,
+                                         kSoundCrashAttDec,
+                                         kSoundOneShotAttDec,
+                                         kSoundOneShotAttDec,
+                                         kSoundOneShotAttDec};
+static const uint8_t kSoundV3SusRel[] = {0,
+                                         kSoundStallSusRel,
+                                         kSoundCrashSusRel,
+                                         kSoundTouchdownSusRel,
+                                         kSoundGearSusRel,
+                                         kSoundFlapSusRel};
+static_assert(sizeof(kSoundV3SusRel) == V3_FLAP + 1,
+              "one voice 3 table entry per effect");
+
 static uint8_t _sound_v3_effect;   // enum Voice3Effect
 static uint8_t _sound_v3_frames;   // frames left before a one-shot releases
 static uint8_t _sound_stall_phase; // counts frames within one warble cycle
@@ -735,20 +762,9 @@ void sound_update(void) {
   }
 
   {
-    uint16_t v3_freq = 0;
-    uint16_t v3_pw = 0;
-    uint8_t v3_wave = 0;
-    uint8_t v3_attdec = 0;
-    uint8_t v3_susrel = 0;
-    switch (_sound_v3_effect) {
-    case V3_STALL:
-      v3_freq = kSoundStallFreq;
-      v3_pw = kSoundStallPw;
-      v3_wave = SID_CTRL_RECT;
-      v3_attdec = kSoundStallAttDec;
-      v3_susrel = kSoundStallSusRel;
-      break;
-    case V3_CRASH:
+    const uint8_t effect = _sound_v3_effect;
+    uint16_t v3_freq = kSoundV3Freq[effect];
+    if (effect == V3_CRASH) {
       // Sweeps down as the burst runs. _sound_v3_frames counts from
       // kSoundCrashFrames to zero, so this is a plain linear interpolation
       // across the span.
@@ -765,39 +781,16 @@ void sound_update(void) {
       // satisfying the identity.
       v3_freq = kSoundCrashFreqEnd + ((uint16_t)_sound_v3_frames << 8) -
                 ((uint16_t)_sound_v3_frames << 5);
-      v3_wave = SID_CTRL_NOISE;
-      v3_attdec = kSoundCrashAttDec;
-      v3_susrel = kSoundCrashSusRel;
-      break;
-    case V3_TOUCHDOWN:
-      v3_freq = kSoundTouchdownFreq;
-      v3_wave = SID_CTRL_NOISE;
-      v3_attdec = kSoundOneShotAttDec;
-      v3_susrel = kSoundTouchdownSusRel;
-      break;
-    case V3_GEAR:
-      v3_freq = kSoundGearFreq;
-      v3_wave = SID_CTRL_NOISE;
-      v3_attdec = kSoundOneShotAttDec;
-      v3_susrel = kSoundGearSusRel;
-      break;
-    case V3_FLAP:
-      v3_freq = kSoundFlapFreq;
-      v3_wave = SID_CTRL_NOISE;
-      v3_attdec = kSoundOneShotAttDec;
-      v3_susrel = kSoundFlapSusRel;
-      break;
-    default:
-      break;
     }
     // A one-shot sounds for the whole time it owns the voice; the stall only
     // sounds during the on-half of its warble.
     const bool gate_open = _sound_v3_effect == V3_STALL
                                ? stall_sounding
                                : _sound_v3_effect != V3_NONE;
-    _sound_set_voice(kSoundRegV3, v3_freq, v3_pw,
-                     gate_open ? (v3_wave | SID_CTRL_GATE) : v3_wave, v3_attdec,
-                     v3_susrel);
+    const uint8_t v3_wave = kSoundV3Wave[effect];
+    _sound_set_voice(kSoundRegV3, v3_freq, kSoundV3Pw[effect],
+                     gate_open ? (v3_wave | SID_CTRL_GATE) : v3_wave,
+                     kSoundV3AttDec[effect], kSoundV3SusRel[effect]);
   }
 
   // Voice 1: engine. Gate clear when inaudible rather than the whole voice

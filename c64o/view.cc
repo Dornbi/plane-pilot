@@ -154,34 +154,27 @@ static inline void _view_shift_bitmap(bool is_left_view) {
 }
 
 static inline void _view_shift_colors(bool is_left_view) {
-  char *screen_src = (char *)kViewScreenDst;
-  char *screen_dst = screen_src;
-  char *screen_fill = screen_src;
-  char *color_src = (char *)kViewColorDst;
-  char *color_dst = color_src;
-  char *color_fill = color_src;
-  if (is_left_view) {
-    screen_dst += kFillWidthChars;
-    color_dst += kFillWidthChars;
-  } else {
-    screen_src += kFillWidthChars;
-    screen_fill += kCopyWidthChars;
-    color_src += kFillWidthChars;
-    color_fill += kCopyWidthChars;
-  }
-  for (uint8_t row = 0; row < kScreenHeight - kViewportHeight; ++row) {
-    // The fill leaves color 01 black rather than picking something for it:
-    // kViewFillPattern uses only the 10 and 11 pairs, so 01 never appears.
-    memcpy(screen_dst, screen_src, kCopyWidthChars);
-    memset(screen_fill, kColorMedGray, kFillWidthChars);
-    memcpy(color_dst, color_src, kCopyWidthChars);
-    memset(color_fill, kColorLightGray, kFillWidthChars);
-    screen_dst += kScreenWidth;
-    screen_src += kScreenWidth;
-    screen_fill += kScreenWidth;
-    color_dst += kScreenWidth;
-    color_src += kScreenWidth;
-    color_fill += kScreenWidth;
+  // Screen and color RAM have the same layout, so it is one pass per plane.
+  for (uint8_t plane = 0; plane < 2; ++plane) {
+    char *src = plane ? (char *)kViewColorDst : (char *)kViewScreenDst;
+    const uint8_t fill_color = plane ? kColorLightGray : kColorMedGray;
+    char *dst = src;
+    char *fill = src;
+    if (is_left_view) {
+      dst += kFillWidthChars;
+    } else {
+      src += kFillWidthChars;
+      fill += kCopyWidthChars;
+    }
+    for (uint8_t row = 0; row < kScreenHeight - kViewportHeight; ++row) {
+      // The fill leaves color 01 black rather than picking something for it:
+      // kViewFillPattern uses only the 10 and 11 pairs, so 01 never appears.
+      memcpy(dst, src, kCopyWidthChars);
+      memset(fill, fill_color, kFillWidthChars);
+      dst += kScreenWidth;
+      src += kScreenWidth;
+      fill += kScreenWidth;
+    }
   }
 }
 

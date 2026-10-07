@@ -78,18 +78,29 @@ extern const uint8_t kMusicDrumBitsBar[24];
 #define MUSIC_IN_BAR(row)   ((row) & 15)
 
 // The MIDI note a lead or bass note starts on, or 0 for no new note.
+// Each lookup comes twice: by bar and row within it (the _IN form,
+// which is what the player keeps, so it never splits a 16-bit row),
+// and by absolute row.
+#define MUSIC_LEAD_START_IN(bar, r)  \
+    (kMusicLeadStartPat[kMusicLeadStartBar[bar]][r])
+#define MUSIC_BASS_START_IN(bar, r)  \
+    (kMusicBassStartPat[kMusicBassStartBar[bar]][r])
+#define MUSIC_LEAD_ON_IN(bar, r)  \
+    ((kMusicLeadOnBitsPat[kMusicLeadOnBitsBar[bar]][(r) >> 3] \
+      >> ((r) & 7)) & 1)
+// 0 = none, 1 = kick, 2 = snare, 3 = hat.
+#define MUSIC_DRUM_AT_IN(bar, r)  \
+    ((kMusicDrumBitsPat[kMusicDrumBitsBar[bar]][(r) >> 2] \
+      >> (((r) & 3) << 1)) & 3)
 #define MUSIC_LEAD_START(row)  \
-    (kMusicLeadStartPat[kMusicLeadStartBar[MUSIC_BAR_OF(row)]][MUSIC_IN_BAR(row)])
+    MUSIC_LEAD_START_IN(MUSIC_BAR_OF(row), MUSIC_IN_BAR(row))
 #define MUSIC_BASS_START(row)  \
-    (kMusicBassStartPat[kMusicBassStartBar[MUSIC_BAR_OF(row)]][MUSIC_IN_BAR(row)])
+    MUSIC_BASS_START_IN(MUSIC_BAR_OF(row), MUSIC_IN_BAR(row))
 #define MUSIC_CHORD(bar)    (kMusicChordPat[kMusicChordBar[bar]])
 #define MUSIC_LEAD_ON(row)  \
-    ((kMusicLeadOnBitsPat[kMusicLeadOnBitsBar[MUSIC_BAR_OF(row)]][MUSIC_IN_BAR(row) >> 3] \
-      >> ((row) & 7)) & 1)
-// 0 = none, 1 = kick, 2 = snare, 3 = hat.
+    MUSIC_LEAD_ON_IN(MUSIC_BAR_OF(row), MUSIC_IN_BAR(row))
 #define MUSIC_DRUM_AT(row)  \
-    ((kMusicDrumBitsPat[kMusicDrumBitsBar[MUSIC_BAR_OF(row)]][MUSIC_IN_BAR(row) >> 2] \
-      >> (((row) & 3) << 1)) & 3)
+    MUSIC_DRUM_AT_IN(MUSIC_BAR_OF(row), MUSIC_IN_BAR(row))
 #define MUSIC_BASS_ON(row)  (1)
 
 // The bass voice's pulse width. A per-instrument constant that does

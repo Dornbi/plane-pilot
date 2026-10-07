@@ -17,9 +17,15 @@ bool music_playing = false;
 // Counted rather than derived: the C64 has no divide, and this is the
 // innermost thing the player does. There is deliberately no frame counter -
 // nothing reads one, and unused state is what section 4 warns about.
-static uint16_t _music_row;      // 0 .. kMusicTotalRows-1
+//
+// The row is kept within its bar rather than as one 16-bit count, because
+// every lookup splits it into bar and row-in-bar anyway (musicdef.h's _IN
+// macros); together the two still count kMusicTotalRows rows.
+static uint8_t _music_row;       // 0 .. kMusicRowsPerBar-1, within the bar
 static uint8_t _music_row_frame; // 0 .. kMusicSpeed-1
 static uint8_t _music_bar;       // 0 .. kMusicBars-1
+static_assert(kMusicTotalRows == (uint16_t)kMusicBars * kMusicRowsPerBar,
+              "the row clock counts whole bars");
 
 // The pulse width sweep, a triangle over 0x800. The step is 8 because that
 // makes the cycle 256 frames, which divides the 2304-frame loop exactly nine
@@ -265,24 +271,30 @@ void music_tick(void) {
   }
 
   const bool last_frame_of_row = (_music_row_frame == kMusicSpeed - 1);
-  const uint16_t next_row =
-      (_music_row + 1 == kMusicTotalRows) ? 0 : (_music_row + 1);
+  uint8_t next_row = _music_row + 1;
+  uint8_t next_bar = _music_bar;
+  if (next_row == kMusicRowsPerBar) {
+    next_row = 0;
+    if (++next_bar == kMusicBars) {
+      next_bar = 0;
+    }
+  }
 
   // --- voice 1: lead ---
   //
   // Two independent conditions, not an if/else chain. They are mutually
   // exclusive only because kMusicSpeed is 6; writing them as alternatives
   // would quietly stop being correct at speed 1.
-  if (last_frame_of_row && MUSIC_LEAD_START(next_row) != 0) {
+  if (last_frame_of_row && MUSIC_LEAD_START_IN(next_bar, next_row) != 0) {
     _music_hard_restart_restart(kVoice1);
   }
   if (_music_row_frame == 0) {
-    const uint8_t note = MUSIC_LEAD_START(_music_row);
+    const uint8_t note = MUSIC_LEAD_START_IN(_music_bar, _music_row);
     if (note != 0) {
       _set_voice(kVoice1, music_note_freq(note), kMusicPwmBase,
                  kMusicInsLead.wave | SID_CTRL_GATE, kMusicInsLead.ad,
                  kMusicInsLead.sr);
-    } else if (!MUSIC_LEAD_ON(_music_row)) {
+    } else if (!MUSIC_LEAD_ON_IN(_music_bar, _music_row)) {
       _gate_off(kVoice1);
     }
   }
@@ -315,11 +327,11 @@ void music_tick(void) {
   // drop to single rows in the push bars, and a bass pickup whose envelope
   // starts halfway up is a note with no front edge - on the one voice whose
   // front edge *is* the rhythm.
-  if (last_frame_of_row && MUSIC_BASS_START(next_row) != 0) {
+  if (last_frame_of_row && MUSIC_BASS_START_IN(next_bar, next_row) != 0) {
     _music_hard_restart_restart(kVoice2);
   }
   if (_music_row_frame == 0) {
-    const uint8_t note = MUSIC_BASS_START(_music_row);
+    const uint8_t note = MUSIC_BASS_START_IN(_music_bar, _music_row);
     if (note != 0) {
       _set_voice(kVoice2, music_note_freq(note), kMusicBassPw,
                  kMusicInsBass.wave | SID_CTRL_GATE, kMusicInsBass.ad,
@@ -347,12 +359,12 @@ void music_tick(void) {
   // that takes longer than that to start never produces anything at all.
   bool v3_restarted = false;
   if (_music_row_frame >= kMusicSpeed - kMusicV3RestartFrames &&
-      MUSIC_DRUM_AT(next_row) != 0) {
+      MUSIC_DRUM_AT_IN(next_bar, next_row) != 0) {
     _music_hard_restart_restart(kVoice3);
     v3_restarted = true;
   }
 
-  const uint8_t hit = MUSIC_DRUM_AT(_music_row);
+  const uint8_t hit = MUSIC_DRUM_AT_IN(_music_bar, _music_row);
   if (_music_row_frame == 0 && hit != 0) {
     const music_instrument_t *d = &kMusicDrumIns[hit - 1];
     _music_v3_owner = hit;
@@ -425,8 +437,11 @@ void music_tick(void) {
   // --- advance the clock ---
   if (++_music_row_frame == kMusicSpeed) {
     _music_row_frame = 0;
-    if (++_music_row == kMusicTotalRows) {
+    if (++_music_row == kMusicRowsPerBar) {
       _music_row = 0;
+      ++_music_bar;
+    }
+    if (_music_bar == kMusicBars) {
       _music_bar = 0;
       // Reset with the row counter so the loop point is identical. 2304 is a
       // multiple of 3, so a free-running index would in fact land back on 0 -
@@ -444,8 +459,6 @@ void music_tick(void) {
       // _music_pwm_phase is deliberately not reset: kMusicPwmStep divides the
       // loop, so it is already back where it started. The test asserts that
       // rather than trusting it.
-    } else if ((_music_row % kMusicRowsPerBar) == 0) {
-      ++_music_bar;
     }
   }
 }
