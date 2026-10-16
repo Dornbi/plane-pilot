@@ -1,0 +1,112 @@
+# RAM optimisation loop
+
+`tools/ram_loop.sh` runs an unattended loop to free RAM in fpilot. Each pass
+starts a fresh Claude agent, which looks for **one** new saving and implements
+it. The script then rebuilds everything, runs every test, measures free RAM,
+takes the `make_shots` screenshots, and has a second agent review the diff
+against the rules below. A change is committed only if all of that passes.
+Otherwise it is reverted, and the attempt is logged here as a dead end so that
+later passes skip it.
+
+This file is the loop's memory. Every pass reads it first.
+
+## Goal and metric
+
+The metric is fpilot's **"Free, allocatable"** from `make fram`, after a full
+`make -C c64o all`. A change is kept only if this number goes up. ppilot and
+ppilota must still build and pass their tests. Their free RAM is logged but is
+not a gate.
+
+## Rules (binding for the worker and the reviewer)
+
+1. **Rendering stays as it is.** Small visual changes are allowed:
+   - The dot layout (ground dots, clouds and the like) may change, as long as
+     the visual density stays similar.
+   - Polygon rendering may change slightly, as long as each polygon stays
+     close to the original: an edge pixel here and there, not a different
+     shape.
+   - Nothing may disappear, flicker, tear or change colour. Panel, map, menu,
+     help and title screens stay pixel-identical, apart from timing-driven
+     differences such as the menu flyby being a frame ahead.
+2. **The flight model must behave similarly.** Loops, climbs, turns, takeoff
+   and landing must all still work and feel the same. Small numeric
+   differences are fine if every one of these stays supported.
+   - Changing a `c64o/test/flight_test.cc` expectation is a red flag. Do it
+     only for a tolerance-sized shift, and give the reason in the summary.
+     Never delete a test or weaken a test so that it no longer checks the
+     behaviour.
+3. **The frame rate must not drop noticeably.** Prefer savings that are
+   speed-neutral. Do not un-inline anything in the per-point or per-edge hot
+   paths (grid loop, `vec_project`, `vec_add`, the poly fill loops).
+4. **Keep every feature.** The debug view is already gone from fpilot. Nothing
+   else may be dropped: sound, music, the map, missions, clouds, traffic
+   sprites, menu and help.
+5. **All link checks and tests must pass:** zp, irq, math, rom and boot
+   checks, the host suites, target_test and `make test`.
+6. **One idea per pass,** small enough to review. No sweeping rewrites.
+7. **Code style:** match the surrounding code's comments, naming and idiom.
+   Update comments and docs that the change makes stale (for example
+   `docs/memory_map.md` and `docs/codesize.md`).
+
+## Known traps
+
+These come from earlier work (see the auto-memory notes `fpilot-ram-survey`,
+`inline-audit`, `oscar64-bugs` and `vec-div-exact`).
+
+- `__striped` on a table of `&object` pointers miscompiles: all high bytes
+  come out 0. Striped arrays of integers, and of `array + offset` entries,
+  work.
+- At -O1 and above, a `t = a; a = b; b = t;` swap inside a loop loses
+  `b = t`. Pick the endpoints instead of swapping.
+- Inlining `_project_vertices` pushes ppilot's zero-page spill to $5F, with no
+  headroom left. Inlining `box_prepare` together with other inlines fails
+  check_zeropage.
+- Inlining `_fill_line`, `vec_transform*`, `vec_div8p8` or `_clip_2d` costs
+  0.8-1.3 KB each.
+- oscar64 inline asm takes only literal offsets. Pin them with a
+  static_assert.
+- With tables behind a pointer constant, a signed int8 index makes oscar64
+  build 16-bit addresses. Use a uint8 counter and a base pointer.
+- crt.c zeroes only BSSStart..BSSEnd. bss2 is memset by `mem_init()`.
+- Main bss objects sit in holes of the page-aligned data. Moving an object
+  that fills a hole gains nothing.
+- check_irq_zp forbids zero page below $60 in IRQ handlers. Pad any ISR
+  prologue change to a multiple of 7 cycles.
+- oscar64 aborts silently on long paths. `make` in c64o/ works from the repo.
+  Scratch builds and `make_shots` need a short build dir under /tmp.
+
+## Measured dead ends (do not retry)
+
+- LZO-compressing the menu/help/music/title overlay: 4,074 → 3,568 B, not
+  worth it.
+- Mirror-dedupe of boxes: no box is an exact L/R or U/D mirror of another.
+- Edge-RLE on the box maps: only 364 B.
+- H-mirror char dedupe: needs a 256 B lookup table.
+- 7-bit relative char index with the flip in bit 7: 7 boxes span more than
+  128 slots.
+- Un-inlining `vec_add`: 41 B, but about 1k cycles a frame.
+- `vec_fastsqr8p8` → `fastmul(a,a)`: twice as slow; the user rejected it.
+- An asm square: −40 B, mixed speed.
+- `__striped` on `_sprites_cand` (−11 B), kFlightRecipV and
+  kMissionWpConstraint (0 B).
+
+## Open leads from earlier surveys (check status first)
+
+- The startup stub at `$0801` (96 B) is not reused yet. poly.cc's clip buffers
+  are the candidate, but they have an adjacency rule.
+- Main-screen rows 14-24 (`$EA30-$EBF7`, 456 B) may be dead in flight now
+  that the debug view is gone; they could hold per-frame scratch.
+- Orphan fragments: `$EBE8`, `$EFE8` (16 B each) and `$FFC0-$FFF9` (58 B).
+  They can only be reached by hand-placing data.
+- Stack headroom: 82 B, reachable by lowering `#pragma stacksize`.
+
+## Log
+
+Baseline on 2026-10-16 at 63e2950: fpilot 9,546 B free allocatable (largest
+run 8,970 B), ppilot 6,466 B.
+
+The script appends one row per pass. Δ is the change in free allocatable
+bytes.
+
+| Pass | Date | fpilot Δ | ppilot Δ | Result | Idea |
+|-----:|------|---------:|---------:|--------|------|
