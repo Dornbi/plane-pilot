@@ -1,21 +1,39 @@
-# RAM optimisation loop
+# RAM and cycle optimisation loop
 
-`tools/ram_loop.sh` runs an unattended loop to free RAM in fpilot. Each pass
-starts a fresh Claude agent, which looks for **one** new saving and implements
-it. The script then rebuilds everything, runs every test, measures free RAM,
-takes the `make_shots` screenshots, and has a second agent review the diff
+`tools/ram_loop.sh` runs an unattended loop that frees RAM in fpilot and saves
+cycles. RAM and cycles matter equally. Each pass starts a fresh Claude agent,
+which looks for **one** new saving and implements it. The script then rebuilds
+everything, runs every test, measures free RAM, times the render with
+`tools/bench.sh`, takes the `make_shots` screenshots, and has a second agent review the diff
 against the rules below. A change is committed only if all of that passes.
 Otherwise it is reverted, and the attempt is logged here as a dead end so that
 later passes skip it.
 
 This file is the loop's memory. Every pass reads it first.
 
-## Goal and metric
+## Goal and metrics
 
-The metric is fpilot's **"Free, allocatable"** from `make fram`, after a full
-`make -C c64o all`. A change is kept only if this number goes up. ppilot and
-ppilota must still build and pass their tests. Their free RAM is logged but is
-not a gate.
+- **RAM:** fpilot's "Free, allocatable" from `make fram`, after a full
+  `make -C c64o all`.
+- **Cycles:** `tools/bench.sh` gives the render work per frame (`bm_start()`
+  through `bm_total()` in `sim_run()`) in five frozen fpilot scenes: runway,
+  approach, cruise, town and lake. The emulator is cycle-exact and the scenes
+  hold still, so the numbers are deterministic. Only code changes move them.
+
+A change is kept only when all of these hold:
+
+- fpilot free RAM does not drop.
+- **Every scene stays within +2%** of the fixed baseline below. The baseline
+  does not move as passes are kept, so small slowdowns cannot add up past 2%.
+- It gains something: more free RAM, or at least 0.5% fewer total cycles than
+  the last kept state.
+
+ppilot and ppilota must still build and pass their tests. Their free RAM is
+logged but is not a gate.
+
+The script reads this line, so keep its format exactly:
+
+cycles-baseline: runway=131082 approach=122756 cruise=150020 town=152709 lake=138509
 
 ## Rules (binding for the worker and the reviewer)
 
@@ -35,9 +53,12 @@ not a gate.
      only for a tolerance-sized shift, and give the reason in the summary.
      Never delete a test or weaken a test so that it no longer checks the
      behaviour.
-3. **The frame rate must not drop noticeably.** Prefer savings that are
-   speed-neutral. Do not un-inline anything in the per-point or per-edge hot
-   paths (grid loop, `vec_project`, `vec_add`, the poly fill loops).
+3. **Cycles count as much as RAM.** Spend the 2% cycle budget only for a
+   RAM gain that is worth it, and prefer savings that are speed-neutral or
+   faster. Pure speed-ups are welcome too. Do not un-inline anything in the
+   per-point or per-edge hot paths (grid loop, `vec_project`, `vec_add`, the
+   poly fill loops). The bench covers the render only. Do not slow down the
+   flight model or the sound either, even though they are not timed.
 4. **Keep every feature.** The debug view is already gone from fpilot. Nothing
    else may be dropped: sound, music, the map, missions, clouds, traffic
    sprites, menu and help.
@@ -103,10 +124,12 @@ These come from earlier work (see the auto-memory notes `fpilot-ram-survey`,
 ## Log
 
 Baseline on 2026-10-16 at 63e2950: fpilot 9,546 B free allocatable (largest
-run 8,970 B), ppilot 6,466 B.
+run 8,970 B), ppilot 6,466 B. Render cycles per frame: runway 131,082,
+approach 122,756, cruise 150,020, town 152,709, lake 138,509; total 695,076.
 
-The script appends one row per pass. Δ is the change in free allocatable
-bytes.
+The script appends one row per pass. The fpilot and ppilot columns are the
+change in free allocatable bytes. The cycles column is the change in bench
+total against the last kept state.
 
-| Pass | Date | fpilot Δ | ppilot Δ | Result | Idea |
-|-----:|------|---------:|---------:|--------|------|
+| Pass | Date | fpilot Δ | ppilot Δ | Cycles Δ | Result | Idea |
+|-----:|------|---------:|---------:|---------:|--------|------|

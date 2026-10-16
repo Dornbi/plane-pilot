@@ -119,6 +119,15 @@ static const shot_step_t kShotScript[] = {
     {300, SHOT_IDLE},
     {1, KSCAN_M},
 };
+#elif __SHOT__ == 8
+// Parked at the start of the first mission, frozen there. Not a screenshot:
+// tools/bench.sh times it, because the runway filling the lower viewport is
+// the single most expensive polygon in the game (docs/framerate.md).
+static const shot_step_t kShotScript[] = {
+    {100, SHOT_IDLE},
+    {1, KSCAN_RETURN},
+    {1, SHOT_FREEZE},
+};
 #else
 
 // --- The posed scenes ------------------------------------------------------
@@ -287,7 +296,7 @@ void shot_poll(void) {
     keyb_matrix[key >> 3] &= ~(1 << (key & 7));
   } else if (key == SHOT_FREEZE) {
     flight_paused = true;
-#if __SHOT__ != 1 && __SHOT__ != 2 && __SHOT__ != 5
+#if __SHOT__ != 1 && __SHOT__ != 2 && __SHOT__ != 5 && __SHOT__ != 8
   } else if (key == SHOT_POSE) {
     _shot_apply_pose();
 #endif
