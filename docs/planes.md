@@ -633,8 +633,8 @@ this demo does not have — camera-space position and axes through the existing
 `vec_transform_inv` and `vec_transform3_inv`, the sprite stack's 2-wide and
 Y-expanded entries (§5), the block-set flip — estimated at 300–450 bytes:
 **~4.8 KB against ~4.3 KB free.** `fpilot.prg`, the game traffic is for, has
-9,165 (`make -C c64o fram`, at b1da21f), having left the debug view out: the
-port fits there, with about 4 KB left for the enemy aircraft's own logic —
+9,546 (`make -C c64o fram`, at 65ec1fd), having left the debug view out: the
+port fits there, with about 4.5 KB left for the enemy aircraft's own logic —
 §13 has the count. The ways to close the gap, in order of size:
 
 - Write `planes_render()`'s layout and caches, and `_project()`, in assembly
@@ -1010,7 +1010,7 @@ aircraft to fight. Everything below is fpilot-only unless it says otherwise.
 
 ### Where it starts
 
-RAM, against 9,165 bytes free in fpilot at b1da21f (largest run 8,714), with
+RAM, against 9,546 bytes free in fpilot at 65ec1fd (largest run 8,970), with
 the renderer's sizes read off `planedemo.map`:
 
 | Item | Bytes |
@@ -1022,7 +1022,7 @@ the renderer's sizes read off `planedemo.map`:
 | Glue: the stack's new entries, the enemy state, the per-frame calls (estimate) | 600–1,000 |
 | **Total** | **~5 KB** |
 
-That leaves about 4 KB for the enemy's behaviour, guns and hits. Most of the
+That leaves about 4.5 KB for the enemy's behaviour, guns and hits. Most of the
 vector maths is already linked — `vec_mul8`, `vec_fracn`, `vec_div8p8`,
 `vec_transform_inv` — but `vec_transform3_inv` is not; the body axes can come
 from three `vec_transform_inv` calls instead of linking it.
@@ -1042,7 +1042,8 @@ are about that.
    `__FPILOT__` or an `__ENABLE_TRAFFIC__` the fpilot rule passes. All the
    link checks have to pass as they stand. Watch the zero page:
    oscar64 put `_vy` there by itself in planedemo, and `check_zeropage.py`
-   has little headroom.
+   finds fpilot's runtime topping out at `$5B` against a region starting at
+   `$60`: four bytes of headroom.
 2. **Memory.** The block sets at `$D000–$D33F` as §5 lays them out. The
    plane states are re-initialised and the dot rewritten in
    `_enter_simulation()`, after `map_exit()` and after help, since the title
@@ -1133,7 +1134,7 @@ cycles); one slope for a quad's parallel edges (~300); no tailplane at 1:1
 They come **after steps 1–5 and 8, and before the half-rate silhouette and
 before the enemy's behaviour**:
 
-- RAM is not what blocks: ~5 KB against 9.1 KB free.
+- RAM is not what blocks: ~5 KB against 9.5 KB free.
 - Only the game shows which levers matter — how often the cache hits in real
   flight, and what share of a real frame a redraw is.
 - The assembly changes the costs a half-rate split would be balanced on, and
