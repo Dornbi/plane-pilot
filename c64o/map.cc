@@ -371,15 +371,22 @@ void map_enter() {
     rem -= 3;
     dir++;
   }
-  const sprite_meta_t *body = &kSpriteDefMetaLongArm[dir];
-  const sprite_meta_t *wing = &kSpriteDefMetaLongArm[(dir + 8) & 0x1F];
-  // pivot[d ^ 16] - centre is the fore vector at half the arm length, 7 px.
-  // Halving it again puts the wing a little ahead of the body, which is what
-  // makes the cross read as an aircraft rather than a plus sign -- and it
-  // needs no table of its own.
-  const sprite_meta_t *fore = &kSpriteDefMetaLongArm[dir ^ 16];
-  const int8_t fx = (fore->pivot_x - kMapSprCenterX) >> 1;
-  const int8_t fy = (fore->pivot_y - kMapSprCenterY) >> 1;
+  // A bitmap draws both directions of its arm, so the body is the arm's
+  // bitmap dir mod 16, and the wing the one a quarter turn on.
+  const uint8_t body_bitmap = kSpriteDefLongArmBitmap + (dir & 15);
+  const uint8_t wing_bitmap = kSpriteDefLongArmBitmap + ((dir + 8) & 15);
+  // centre - pivot[d] is the fore vector at half the arm length, 7 px; the
+  // table holds the first half-turn, and the second mirrors it. Halving it
+  // again puts the wing a little ahead of the body, which is what makes the
+  // cross read as an aircraft rather than a plus sign -- and it needs no
+  // table of its own.
+  const sprite_arm_t *arm = &kSpriteDefLongArm[dir & 15];
+  int8_t fx = (kMapSprCenterX - arm->pivot_x) >> 1;
+  int8_t fy = (kMapSprCenterY - arm->pivot_y) >> 1;
+  if (dir & 16) {
+    fx = (arm->pivot_x - kMapSprCenterX) >> 1;
+    fy = (arm->pivot_y - kMapSprCenterY) >> 1;
+  }
 
   const int16_t body_x = kMapSprOriginX + 2 * (int16_t)flight_map_px;
   const uint8_t body_y = kMapSprOriginY + flight_map_py;
@@ -393,8 +400,8 @@ void map_enter() {
   // Sprite pointers live past the 1000 bytes the memset covers, so only the
   // two in use are written; the other six are left as they are and stay
   // disabled.
-  kMapScreenRam[kMapSprPtrOffset + kMapSprBody] = body->bitmap_idx;
-  kMapScreenRam[kMapSprPtrOffset + kMapSprWing] = wing->bitmap_idx;
+  kMapScreenRam[kMapSprPtrOffset + kMapSprBody] = body_bitmap;
+  kMapScreenRam[kMapSprPtrOffset + kMapSprWing] = wing_bitmap;
   mmap_set(MMAP_NO_ROM);
 
   // I/O is back, so the VIC registers are reachable again. The simulation is

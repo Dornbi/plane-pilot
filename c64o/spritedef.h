@@ -14,6 +14,17 @@ struct sprite_meta_t {
     uint8_t bitmap_idx;
 };
 
+static const uint8_t kSpriteDefArmCount = 16;
+static const int8_t kSpriteDefArmCenterX = 12;
+static const int8_t kSpriteDefArmCenterY = 10;
+static const uint8_t kSpriteDefLongArmBitmap = 96;
+static const uint8_t kSpriteDefShortArmBitmap = 112;
+
+struct sprite_arm_t {
+    int8_t pivot_x;
+    int8_t pivot_y;
+};
+
 struct sprite_cloud1_meta_t {
     uint8_t width;
     uint8_t height;
@@ -43,8 +54,8 @@ struct sprite_cloud_rung_t {
 extern const sprite_cloud_rung_t kSpriteDefCloudRung[kSpriteDefCloudRungCount];
 extern const sprite_cloud1_meta_t kSpriteDefCloud1Sprite[kSpriteDefCloud1Count];
 extern const sprite_cloud2_meta_t kSpriteDefCloud2Sprite[kSpriteDefCloud2Count];
-extern const sprite_meta_t kSpriteDefMetaLongArm[kSpriteDefMetaCount];
-extern const sprite_meta_t kSpriteDefMetaShortArm[kSpriteDefMetaCount];
+extern const sprite_arm_t kSpriteDefLongArm[kSpriteDefArmCount];
+extern const sprite_arm_t kSpriteDefShortArm[kSpriteDefArmCount];
 extern const sprite_meta_t kSpriteDefSun;
 extern const sprite_meta_t kSpriteDefOrient;
 

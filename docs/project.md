@@ -515,9 +515,10 @@ oscar64 drops the guard, which is
 
 Eight sprites, reused twice per frame by the raster split: world objects over
 the terrain, and the instrument needles over the panel. Needle bitmaps are
-pre-rotated into 32 directions with per-direction pivot offsets
-(`kSpriteDefMetaLongArm`, `kSpriteDefMetaShortArm`), so setting an instrument
-is a table lookup plus two subtractions. Sprite pointers are written into both
+pre-rotated into 16 directions; the other 16 reuse them with the pivot
+mirrored through the sprite centre (`kSpriteDefLongArm`, `kSpriteDefShortArm`
+hold the first half-turn's pivots), so setting an instrument is a table lookup,
+an optional mirror and two subtractions. Sprite pointers are written into both
 screen buffers at offset 1016.
 
 **The sprite stack** is how the terrain band's sprites are handed out. VIC

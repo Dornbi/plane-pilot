@@ -335,9 +335,14 @@ def generate_cloud_sprites(cloud_base_offset):
     )
 
 
+# The point every arm turns about, in sprite pixels. kSpriteDefArmCenterX/Y.
+KSPRITE_ARM_CENTER_X = 12
+KSPRITE_ARM_CENTER_Y = 10
+
+
 def generate_arm_set(arm_length, bitmap_offset, angles_tot):
-    centered_x = 12.0
-    centered_y = 10.0
+    centered_x = float(KSPRITE_ARM_CENTER_X)
+    centered_y = float(KSPRITE_ARM_CENTER_Y)
     angles_step = 360.0 / angles_tot
     num_unique_bitmaps = angles_tot // 2
 
@@ -399,6 +404,28 @@ def generate_arm_set(arm_length, bitmap_offset, angles_tot):
         )
 
     return sprites_data, sprites_meta, sprites_bits
+
+
+def assert_arm_mirrored(label, metas):
+    """Direction i + n/2 must be direction i turned through half a circle.
+
+    The C64 keeps only the first half-turn of each arm (kSpriteDefLongArm,
+    kSpriteDefShortArm) and derives the rest: the same bitmap, and the pivot
+    mirrored through the sprite centre. A rounding that broke the mirror would
+    put that half of the needle a pixel off its hub, so refuse it here.
+    """
+    half = len(metas) // 2
+    for i in range(half):
+        a, b = metas[i], metas[i + half]
+        if (
+            b["bitmap_idx"] != a["bitmap_idx"]
+            or a["pivot_x"] + b["pivot_x"] != 2 * KSPRITE_ARM_CENTER_X
+            or a["pivot_y"] + b["pivot_y"] != 2 * KSPRITE_ARM_CENTER_Y
+        ):
+            raise SystemExit(
+                "generate_sprites: %s direction %d is not direction %d "
+                "mirrored through the centre" % (label, i + half, i)
+            )
 
 
 def generate_sun_sprite(bitmap_offset):
@@ -617,6 +644,8 @@ def main():
     data10, meta10, bits10 = generate_arm_set(
         10, base_offset + angles_tot // 2, angles_tot
     )
+    assert_arm_mirrored("Long arm", meta14)
+    assert_arm_mirrored("Short arm", meta10)
 
     all_data = (
         [data_orient] + cloud1_data + cloud2_data + [data_sun] + data14 + data10
@@ -651,6 +680,29 @@ def main():
         f.write("    int8_t pivot_x;\n")
         f.write("    int8_t pivot_y;\n")
         f.write("    uint8_t bitmap_idx;\n")
+        f.write("};\n\n")
+        # The instrument arms keep only their first half-turn. Direction
+        # d + n/2 reuses bitmap d and mirrors d's pivot through the centre,
+        # which assert_arm_mirrored() has checked; the bitmap of direction d
+        # is the arm's first block plus d mod n/2.
+        f.write(
+            f"static const uint8_t kSpriteDefArmCount = {angles_tot // 2};\n"
+        )
+        f.write(
+            f"static const int8_t kSpriteDefArmCenterX = {KSPRITE_ARM_CENTER_X};\n"
+        )
+        f.write(
+            f"static const int8_t kSpriteDefArmCenterY = {KSPRITE_ARM_CENTER_Y};\n"
+        )
+        f.write(
+            f"static const uint8_t kSpriteDefLongArmBitmap = {meta14[0]['bitmap_idx']};\n"
+        )
+        f.write(
+            f"static const uint8_t kSpriteDefShortArmBitmap = {meta10[0]['bitmap_idx']};\n\n"
+        )
+        f.write("struct sprite_arm_t {\n")
+        f.write("    int8_t pivot_x;\n")
+        f.write("    int8_t pivot_y;\n")
         f.write("};\n\n")
         f.write("struct sprite_cloud1_meta_t {\n")
         f.write("    uint8_t width;\n")
@@ -701,10 +753,10 @@ def main():
             "extern const sprite_cloud2_meta_t kSpriteDefCloud2Sprite[kSpriteDefCloud2Count];\n"
         )
         f.write(
-            "extern const sprite_meta_t kSpriteDefMetaLongArm[kSpriteDefMetaCount];\n"
+            "extern const sprite_arm_t kSpriteDefLongArm[kSpriteDefArmCount];\n"
         )
         f.write(
-            "extern const sprite_meta_t kSpriteDefMetaShortArm[kSpriteDefMetaCount];\n"
+            "extern const sprite_arm_t kSpriteDefShortArm[kSpriteDefArmCount];\n"
         )
         f.write("extern const sprite_meta_t kSpriteDefSun;\n")
         f.write("extern const sprite_meta_t kSpriteDefOrient;\n\n")
@@ -749,19 +801,19 @@ def main():
             )
         f.write("};\n\n")
         f.write(
-            "const sprite_meta_t kSpriteDefMetaLongArm[kSpriteDefMetaCount] = {\n"
+            "const sprite_arm_t kSpriteDefLongArm[kSpriteDefArmCount] = {\n"
         )
-        for m in meta14:
+        for m in meta14[: angles_tot // 2]:
             f.write(
-                f"    {{ {m['pivot_x']}, {m['pivot_y']}, {m['bitmap_idx']} }}, // {m['label']}\n"
+                f"    {{ {m['pivot_x']}, {m['pivot_y']} }}, // {m['label']}\n"
             )
         f.write("};\n\n")
         f.write(
-            "const sprite_meta_t kSpriteDefMetaShortArm[kSpriteDefMetaCount] = {\n"
+            "const sprite_arm_t kSpriteDefShortArm[kSpriteDefArmCount] = {\n"
         )
-        for m in meta10:
+        for m in meta10[: angles_tot // 2]:
             f.write(
-                f"    {{ {m['pivot_x']}, {m['pivot_y']}, {m['bitmap_idx']} }}, // {m['label']}\n"
+                f"    {{ {m['pivot_x']}, {m['pivot_y']} }}, // {m['label']}\n"
             )
         f.write("};\n\n")
         f.write(

@@ -529,7 +529,7 @@ white with no global colour negotiation.
 
 ### Two crossed long arms
 
-Both sprites use `kSpriteDefMetaLongArm` — a 14 px segment — placed **centred**
+Both sprites use the long arm (`kSpriteDefLongArm`) — a 14 px segment — placed **centred**
 rather than pivoted, so each renders as a full 14 px line rather than a
 half-length needle:
 
@@ -553,13 +553,20 @@ spr_x = plane_screen_x + 24 - 12;   // sprite regs position the top-left
 spr_y = plane_screen_y + 50 - 10;
 ```
 
-**The forward offset is also free.** `pivot[d ^ 16] - (12, 10)` is the fore
-vector at half the arm length, 7 px. Halving it gives the "little bit forward"
-offset without a new table:
+The C64 build leans on the same symmetry to halve the tables:
+`kSpriteDefLongArm` and `kSpriteDefShortArm` hold only directions 0..15, as
+pivots, and `d + 16` is bitmap `d` with the pivot mirrored to
+`(24, 20) - pivot[d]`. `generate_sprites.py` refuses to emit a table the mirror
+does not reproduce.
+
+**The forward offset is also free.** `pivot[d ^ 16] - (12, 10)`, which is
+`(12, 10) - pivot[d]`, is the fore vector at half the arm length, 7 px.
+Halving it gives the "little bit forward" offset without a new table:
 
 ```c
-fx = (kSpriteDefMetaLongArm[d ^ 16].pivot_x - 12) >> 1;   // ~3.5 px forward
-fy = (kSpriteDefMetaLongArm[d ^ 16].pivot_y - 10) >> 1;
+const sprite_arm_t *arm = &kSpriteDefLongArm[d & 15];
+fx = (12 - arm->pivot_x) >> 1;   // ~3.5 px forward; for d >= 16,
+fy = (10 - arm->pivot_y) >> 1;   // (pivot - centre) >> 1
 ```
 
 Wing position is the body position plus `(fx, fy)`. Two sprites, two table
