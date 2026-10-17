@@ -344,8 +344,15 @@ def walk_address_space(objects, regions, stack_free):
 
     # An object landing inside a hand-placed range would mean the two are
     # fighting over the same bytes; the union above would hide it, so say so.
+    # fpilot's scratch section (mem.h) is the one deliberate exception: it is
+    # a linker region over the main screen's rows 14-24, which flight never
+    # shows, so its tenants share those bytes with the screen on purpose.
     clashes = []
+    screen_scratch = 0
     for o in objects:
+        if o['type'].lower().endswith(':scratch'):
+            screen_scratch += o['size']
+            continue
         for start, end, _owner, label in FIXED:
             if o['start'] < end and start < o['end']:
                 clashes.append((o['name'], label))
@@ -401,6 +408,7 @@ def walk_address_space(objects, regions, stack_free):
         'sum_object_sizes': sum(o['size'] for o in objects),
         'sum_fixed_sizes': sum(e - s for s, e, _o, _l in FIXED),
         'unowned_fixed': sum(e - s for s, e, o, _l in FIXED if o is None),
+        'screen_scratch': screen_scratch,
         'names': {USED: 'used', FREE_ALLOC: 'free', FREE_STACK: 'stack headroom',
                   FREE_ORPHAN: 'free (orphan)', FREE_BOOT: 'boot headroom'},
         'USED': USED, 'FREE_ALLOC': FREE_ALLOC,
@@ -543,14 +551,18 @@ def print_reconciliation(walk, feature_total, markdown=False):
     from being read as slack."""
     used = walk['totals'][walk['USED']]
     overlap = (walk['sum_object_sizes'] + walk['sum_fixed_sizes']) - used
+    scratch = walk['screen_scratch']
     lines = [
         f"Feature table total        {feature_total:>6,} B",
         f"+ machine-owned ranges     {walk['unowned_fixed']:>6,} B   "
         f"processor port, runtime ZP, hardware stack, BASIC link",
-        f"- addresses counted twice  {overlap:>6,} B   "
+        f"- addresses counted twice  {overlap - scratch:>6,} B   "
         f"oscar64 overlays call frames that cannot be live together",
-        f"= address space, used      {used:>6,} B",
     ]
+    if scratch:
+        lines.append(f"- screen rows as scratch   {scratch:>6,} B   "
+                     f"mem.h scratch: main screen rows 14-24, dead in flight")
+    lines.append(f"= address space, used      {used:>6,} B")
     assert feature_total + walk['unowned_fixed'] - overlap == used, \
         'feature table and address space walk do not reconcile'
     if markdown:

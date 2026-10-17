@@ -33,8 +33,15 @@ __zeropage vec3_t _world_vec_v;
 #pragma bss(bss2)
 mat3_t world_cam;
 
+// Rebuilt at the start of every world_render_grid() and only read inside it,
+// so fpilot keeps them, and _world_render_object()'s poly_verts, in the main
+// screen's dead rows (mem.h scratch).
+#ifdef __FPILOT__
+#pragma bss(scratch)
+#endif
 static vec3_t _world_dx4[9];
 static vec3_t _world_dy4[9];
+#pragma bss(bss2)
 __striped static int16_t _world_mitch_x[16];
 __striped static int16_t _world_mitch_y[16];
 __striped static int16_t _world_mitch_z[16];
@@ -184,7 +191,11 @@ void _world_init_start_dx_dy() {
 }
 
 void _world_render_object(WorldMapType object_type) {
+#ifdef __FPILOT__
+#pragma bss(scratch)
+#endif
   static vec3_t poly_verts[kPolyMaxVertices];
+#pragma bss(bss2)
   uint8_t obj_idx = object_type - kWorldMapObjStart;
   uint8_t num_verts = kWorldObjNumVerts[obj_idx];
   for (uint8_t i = 0; i < num_verts; ++i) {

@@ -32,6 +32,18 @@
 #define MEM_BSS2_END 0x0800
 #pragma section(bss2, 0, , , bss)
 #pragma region( bss2, MEM_BSS2_START, MEM_BSS2_END, , , {bss2} )
+#ifdef __FPILOT__
+// fpilot's per-call scratch, in rows 14-24 of the main screen ($EA30-$EBE7).
+// In flight the VIC never fetches them: the panel split writes $d018 on line
+// 162 and row 14's first badline is 163 (gfx.cc), and the panel's colors come
+// from the alt screen. fpilot has no debug view, the only flight user those
+// rows had. Text pages, menu and map overwrite them, so tenants must write
+// every byte before they read it, within one call: nothing here is cleared or
+// survives a frame. Tenants: poly.cc's buffers and world.cc's _world_dx4,
+// _world_dy4 and poly_verts, 420 of the 440 bytes. ppilot keeps them in bss2.
+#pragma section(scratch, 0, , , bss)
+#pragma region( scratch, 0xEA30, 0xEBE8, , , {scratch} )
+#endif
 #pragma section(data_box, 0, , , data)
 #pragma section(data_compr, 0, , , data)
 // Startup code is 0x0801 .. 0x0853, use everything before the VIC

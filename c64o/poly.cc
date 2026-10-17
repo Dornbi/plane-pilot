@@ -16,7 +16,13 @@ struct vertex16_t {
   int16_t y;
 };
 
+// Every buffer here is per-call scratch, written before it is read, so fpilot
+// keeps them in the main screen's dead rows (mem.h scratch).
+#ifdef __FPILOT__
+#pragma bss(scratch)
+#else
 #pragma bss(bss2)
+#endif
 
 // Buffers to store the left-most and right-most X bounds for each scanline
 static uint8_t _min_x[2 * kViewportHeight];
