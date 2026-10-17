@@ -136,7 +136,7 @@ RAM has to be rewritten every frame — it cannot be double buffered, since
 `sim_run()` forever. The real loop is in `sim.cc`:
 
 ```
-keyb_poll() → edge-detect toggles → dispatch controls
+keys_poll() → edge-detect toggles → dispatch controls
 flight_advance(), msg_update()         MDL
 view_update_cam()
 world_update_roll_state()

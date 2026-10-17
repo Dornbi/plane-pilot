@@ -16,7 +16,7 @@
 // the menu and the help screen poll at 50 Hz, the flight loop at whatever it
 // renders at (~7 Hz). Two consequences worth knowing before editing one:
 //
-//   - keys_wait_release() deliberately keeps calling the plain keyb_poll(), so
+//   - keys_wait_release() deliberately keeps calling the plain keys_poll(), so
 //     a one-poll scripted press releases itself on the next iteration. That is
 //     what lets {1, KSCAN_M} open the map instead of opening it and having the
 //     still-held key close it again on the next pass.
@@ -281,7 +281,7 @@ static uint8_t shot_idx = 0;
 static uint16_t shot_left = 0;
 
 void shot_poll(void) {
-  keyb_poll();
+  keys_poll();
 
   if (shot_idx >= kShotSteps) {
     return;

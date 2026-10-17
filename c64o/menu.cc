@@ -123,7 +123,7 @@ uint8_t menu_run() {
     // See title.h.
     title_tick();
 
-    keyb_poll();
+    keys_poll();
 
     uint8_t menu_toggles = 0;
     {

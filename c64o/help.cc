@@ -64,7 +64,7 @@ void help_run(void) {
   uint8_t prev_help_toggles = 0;
 
   while (1) {
-    keyb_poll();
+    keys_poll();
     if (key_pressed(KSCAN_RETURN) || key_pressed(KSCAN_SPACE) ||
         key_pressed(KSCAN_Q) || key_pressed(KSCAN_H)) {
       break;
@@ -97,7 +97,7 @@ void help_run(void) {
   }
   while (key_pressed(KSCAN_RETURN) || key_pressed(KSCAN_SPACE) ||
          key_pressed(KSCAN_Q) || key_pressed(KSCAN_H)) {
-    keyb_poll();
+    keys_poll();
   }
 }
 

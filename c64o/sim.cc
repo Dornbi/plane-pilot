@@ -146,7 +146,7 @@ void sim_run(uint8_t selected_mission) {
   uint8_t prev_toggles = 0;
 
   while (1) {
-    keyb_poll();
+    keys_poll();
 
     // Simulation loop
     uint8_t toggles = 0;

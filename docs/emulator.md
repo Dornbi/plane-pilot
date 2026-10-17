@@ -191,7 +191,7 @@ middle of it. The map also wraps, every 16 cells of x and 32 of y.
 
 Three things that are load bearing, each of which cost an hour once:
 
-- **`keys_wait_release()` keeps the plain `keyb_poll()`.** A scripted press is
+- **`keys_wait_release()` keeps the plain `keys_poll()`.** A scripted press is
   one poll long and releases itself. Scripted through the wait loops as well,
   `M` opens the map and the key still being down closes it on the next pass.
 - **The freeze is not the P key.** A pseudo-key sets `flight_paused` directly,

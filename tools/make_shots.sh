@@ -80,7 +80,7 @@ ln -sfn "$OSCAR64_INCLUDE" "$BUILD/include"
 
 # Redirect the keyboard poll of the three screen loops - the menu, the help
 # screen and the flight loop - at the scripted one. Each is the poll at the top
-# of a loop that owns a screen; the other keyb_poll() calls in these files are
+# of a loop that owns a screen; the other keys_poll() calls in these files are
 # inside keys_wait_release() and its inline twin in help.cc, which have to keep
 # reading the real matrix so a one-poll scripted press releases itself.
 #
@@ -88,8 +88,8 @@ ln -sfn "$OSCAR64_INCLUDE" "$BUILD/include"
 # below: a silent miss here would produce a screenshot of the menu for every
 # scene, which is exactly the kind of wrong that looks plausible.
 cd "$BUILD/src"
-perl -0pi -e 's/(while \(1\) \{\n)    keyb_poll\(\);/$1    shot_poll();/' help.cc sim.cc
-perl -0pi -e 's/(title_tick\(\);\n\n)    keyb_poll\(\);/$1    shot_poll();/' menu.cc
+perl -0pi -e 's/(while \(1\) \{\n)    keys_poll\(\);/$1    shot_poll();/' help.cc sim.cc
+perl -0pi -e 's/(title_tick\(\);\n\n)    keys_poll\(\);/$1    shot_poll();/' menu.cc
 perl -0pi -e 's/^(#include "screen\.h")$/$1\n#include "shot.h"/m' menu.cc sim.cc help.cc
 for f in menu.cc help.cc sim.cc; do
   [ "$(grep -c 'shot_poll();' "$f")" = 1 ] ||

@@ -39,8 +39,17 @@ enum KeyScanCode {
 };
 
 inline void keyb_poll() {}
+inline void keys_poll() {}
 inline bool key_pressed(enum KeyScanCode key) { return false; }
 inline bool keys_pressed(enum KeyScanCode key) { return false; }
+#endif
+
+#ifdef __OSCAR64__
+// keyb_poll() without the parts nothing here reads: it fills keyb_matrix the
+// same way, but does not decode the last new key into keyb_key, which is most
+// of oscar64's routine. A joystick held in port 1 still leaves the matrix
+// alone, as there.
+void keys_poll(void);
 #endif
 
 #ifdef __OSCAR64__

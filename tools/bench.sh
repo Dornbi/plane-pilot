@@ -63,8 +63,8 @@ ln -sfn "$OSCAR64_INCLUDE" "$BUILD/include"
 # bench_end() after bm_total(). Every patch is checked: a silent miss would
 # time the wrong thing, or nothing, and still print a plausible number.
 cd "$BUILD/src"
-perl -0pi -e 's/(while \(1\) \{\n)    keyb_poll\(\);/$1    shot_poll();/' help.cc sim.cc
-perl -0pi -e 's/(title_tick\(\);\n\n)    keyb_poll\(\);/$1    shot_poll();/' menu.cc
+perl -0pi -e 's/(while \(1\) \{\n)    keys_poll\(\);/$1    shot_poll();/' help.cc sim.cc
+perl -0pi -e 's/(title_tick\(\);\n\n)    keys_poll\(\);/$1    shot_poll();/' menu.cc
 perl -0pi -e 's/^(#include "screen\.h")$/$1\n#include "shot.h"/m' menu.cc sim.cc help.cc
 perl -0pi -e 's/^(#include "screen\.h")$/$1\n#include "bench.h"/m' sim.cc
 perl -0pi -e 's/^(    )(bm_start\(\);\n    view_update_cam\(\);)/$1bench_begin();\n$1$2/m' sim.cc
