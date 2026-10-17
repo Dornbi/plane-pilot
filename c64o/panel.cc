@@ -8,17 +8,16 @@
 #include "sprites.h"
 #include "view.h"
 
+// Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
+#pragma optimize(push, nooutline)
+
 void panel_update_instruments() {
   sprites_set_speed(flight_speed >> 6);
   sprites_set_alt(flight_eye_z >> 8);
   sprites_set_vspeed(flight_vspeed);
-  if (view_state == VIEW_CENTER) {
-    // With centered view, we can reuse the roll angle from the view.
-    sprites_set_roll(roll_angle);
-  } else {
-    // Otherwise compute it from flight_cam.
-    sprites_set_roll(_get_roll_angle(flight_cam.up.z, flight_cam.left.z));
-  }
+  // Only the centered view draws the roll dial (sprites_show_panel_bottom_sprites),
+  // where roll_angle is already the aircraft's roll.
+  sprites_set_roll(roll_angle);
   sprites_set_pitch(flight_cam.front.z >> 2);
   sprites_set_throttle(flight_throttle);
   sprites_set_fuel(flight_fuel);
@@ -28,6 +27,8 @@ void panel_update_instruments() {
   gfx_update_flap(flight_flap);
   gfx_update_gear(flight_gear);
 }
+
+#pragma optimize(pop)
 
 void panel_maybe_print_debug() {
 #ifdef __ENABLE_DEBUG__

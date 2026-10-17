@@ -830,22 +830,24 @@ inline void sprites_show_panel_bottom_sprites() {
   // write every colour without a handshake with the panel code - which is why
   // the old kIdxThrottle == kIdxSun and kIdxFuel == kIdxSun special cases are
   // gone.
-#ifdef __OSCAR64__
-#pragma unroll(full)
-#endif
-  for (uint8_t i = 0; i < 8; i++) {
+  uint8_t i = 8;
+  do {
+    --i;
     vic.spr_color[i] = kColorInstrument;
-  }
+  } while (i != 0);
   if (view_state == VIEW_CENTER) {
-#ifdef __OSCAR64__
-#pragma unroll(full)
-#endif
-    for (uint8_t i = 0; i < 7; i++) {
-      vic.spr_pos[i].x = _sprites_instrument_xy[i].x;
-      vic.spr_pos[i].y = _sprites_instrument_xy[i].y;
-      *(kScreenRamMain + 1016 + i) = _sprites_instrument_idx[i];
-      *(kScreenRamAlt + 1016 + i) = _sprites_instrument_idx[i];
-    }
+    uint8_t j = 14;
+    do {
+      --j;
+      kVicSpritePos[j] = ((volatile uint8_t *)_sprites_instrument_xy)[j];
+    } while (j != 0);
+    uint8_t k = 7;
+    do {
+      --k;
+      uint8_t ptr = _sprites_instrument_idx[k];
+      *(kScreenRamMain + 1016 + k) = ptr;
+      *(kScreenRamAlt + 1016 + k) = ptr;
+    } while (k != 0);
     vic.spr_msbx = (1 << kSpriteIdxThrottle);
   } else if (view_state == VIEW_LEFT) {
     vic.spr_pos[kSpriteIdxFuel].x = _sprites_instrument_xy[kSpriteIdxFuel].x;
