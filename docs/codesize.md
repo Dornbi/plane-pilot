@@ -167,6 +167,10 @@ extracted sequences program-wide, so re-cutting them grows some of the existing
 `$outline` routines. That is why the file-level sweep in §4.4 does not decompose
 into its symbols either.
 
+> **Landed 2026-10-17** (ram-loop): +38 B free in fpilot, +41 B in ppilot, and
+> the render bench came out 0.1% faster (layout shift). The outlined range also
+> takes `_limit_vec()`, which only these three call.
+
 ### 3.3. One shift helper instead of two
 
 [flight.cc](../c64o/flight.cc) has `_flight_step_u(uint16_t)` and

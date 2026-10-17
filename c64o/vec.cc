@@ -289,6 +289,10 @@ static bool _unused_vec_project(const vec3_t *v) {
 }
 #endif
 
+// Left to the outliner (-Oo) down to vec_orthonormalize(): nothing in the
+// render reaches these, and the flight model calls them once per model step.
+#pragma optimize(push, outline)
+
 // A loop over the three components rather than three copies of the test: 63
 // bytes instead of 166, for 44 cycles more a call, and it runs only when the
 // attitude changes.
@@ -353,6 +357,8 @@ void vec_orthonormalize(mat3_t *mat) {
   vec_cross(&mat->front, &mat->left, &mat->up);
   _limit_vec(&mat->up);
 }
+
+#pragma optimize(pop)
 
 // One control step, as a small-angle rotation: the off-diagonal over 256 is the
 // angle in radians, so 32 is 7.2 degrees of roll, 16 is 3.6 of pitch and 8 is
