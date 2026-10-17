@@ -186,11 +186,12 @@ Map mode short-circuits the whole render path and just waits for vsync.
 
 ### `roll.cc` / `roll_asm.cc` — angle tables
 
-One macro list defines all 60 angles and expands into three parallel tables:
-`kRollDx`, `kRollDy` and `kRollDxDivDy` (a 12.4 fixed-point slope).
-`kRollPeriod` gives how many pixel steps along the line before it returns to a
-character-aligned position; the renderer caps it at 8. `roll_update_state()`
-also selects hand-written multiply-by-constant routines (`roll_mul_funcs`) for
+One macro list defines the first 30 of the 60 angles and expands into three
+parallel tables: `kRollDx`, `kRollDy` and `kRollDxDivDy` (a 12.4 fixed-point
+slope). `kRollPeriod` gives how many pixel steps along the line before it
+returns to a character-aligned position; the renderer caps it at 8. Angle
+a + 30 is angle a with `dx` and `dy` negated, so `roll_update_state()` folds
+the second half-turn onto the first. It also selects hand-written multiply-by-constant routines (`roll_mul_funcs`) for
 the current `dx`/`dy`.
 
 ### `render.cc` — snapping and background fill
