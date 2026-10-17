@@ -83,10 +83,12 @@ are not equally reachable:
   the number that matters when deciding whether a feature fits.
 - **stack headroom** - the unused part of the software stack region. oscar64's
   software stack grows _down_ from the end of its region, so the `sections`
-  line reports what was never reached: `$0200 - $0251` on a `$0200..$0280`
-  region means 47 bytes in use and 81 spare, not the other way round.
-  Convertible to bss2 by lowering `#pragma stacksize` in `mem.h` and raising
-  the bss2 region floor to match.
+  line reports what was never reached: `$0200 - $020D` on a `$0200..$0240`
+  region means 51 bytes in use and 13 spare, not the other way round. Only
+  the static frames ever use it - nothing reaches the dynamic stack - so the
+  region was cut from `$0280` to `$0240` on 2026-10-17 and bss2 lowered to
+  match. Should the frames outgrow it, the link fails with oscar64 error 3034.
+  The table below predates that cut.
 - **free (orphan)** - outside every linker region. Real RAM, but only
   reachable by placing something there by hand, the way `mem.h` and `view.cc`
   already do.

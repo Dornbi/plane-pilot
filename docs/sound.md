@@ -46,20 +46,22 @@ frames, in a module unrelated to sound. None of the three existing handlers has
 an `@stack` entry; that is what makes them safe, and it is a constraint the
 sound code inherits.
 
-Space is a secondary concern, and it is adjustable. `mem.h:19` declares the
-stack region as `$0200–$0280`; oscar64 carves the static frames out of the top
-of it and lets the dynamic stack grow down from there. Today:
+Space is a secondary concern, and it is adjustable. `mem.h:26` declares the
+stack region as `$0200–$0240`; oscar64 carves the static frames out of the top
+of it and lets the dynamic stack grow down from there. Nothing uses the dynamic
+stack, so the region is sized to the frames. Today, in ppilot:
 
 ```
-0200 - 025e : STACK,  stack      (dynamic stack, 94 bytes)
-025e - 0280 : SSTACK             (static frames, 34 bytes, fully allocated)
-0280 - 0800 : bss2               (about 1,000 of 1,408 bytes used)
+0200 - 020d : STACK,  stack      (dynamic stack, unused, 13 bytes)
+020d - 0240 : SSTACK             (static frames, 51 bytes, fully allocated)
+0240 - 0800 : bss2               (about 1,000 of 1,472 bytes used)
 ```
 
-A new frame pushes `StackEnd` down and shrinks the dynamic stack. If that ever
-gets tight, raising the stack region's top in `mem.h:19` and bss2's start in
-`mem.h:22` by the same amount converts bss2 space into frame space — at the cost
-of relocating that much data from bss2 into `main`. Two numbers in one file.
+A new frame pushes `StackEnd` down and shrinks the dynamic stack; once the
+frames no longer fit, the link fails with error 3034. Raising the stack
+region's top in `mem.h:26`, `#pragma stacksize` and bss2's start in `mem.h:31`
+by the same amount converts bss2 space into frame space — at the cost of
+relocating that much data from bss2 into `main`. Three numbers in one file.
 
 **Frames are slow and jittery.** `flight_advance()` runs at a wobbling ~10 Hz,
 varying with roll angle and polygon load — too slow and too irregular to drive

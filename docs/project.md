@@ -50,8 +50,8 @@ program (`__MAX_RAM__`).
 | ------------- | ---------------------------------------------------------- |
 | `$0002–$005A` | oscar64's own zero page: registers, parameters, temporaries |
 | `$0060–$00FF` | zero page (oscar64 `zeropage` region)                      |
-| `$0200–$0280` | CPU stack (`#pragma stacksize(0x80)`)                      |
-| `$0280–$0800` | `bss2`, a second BSS region; cleared by `mem_init()`, not by the startup code |
+| `$0200–$0240` | CPU stack (`#pragma stacksize(0x40)`)                      |
+| `$0240–$0800` | `bss2`, a second BSS region; cleared by `mem_init()`, not by the startup code |
 | `$0860–$0A6F` | boot-only code (`_boot()`, `cpu_probe()`, `mem_init()`); once `main()` is past it, scratch for `box.cc`'s caches (`mem.h` `kBootScratch`) |
 | `$0A70–$CFFF` | code, data, bss, heap                                      |
 | `$D000–$DFFF` | I/O (`MMAP_NO_ROM`)                                        |

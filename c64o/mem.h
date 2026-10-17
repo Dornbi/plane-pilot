@@ -13,17 +13,22 @@
 #define __striped
 #endif
 
-// We barely use the stack, make it smaller than the default.
-#pragma stacksize(0x80)
+// We barely use the stack, make it smaller than the default. Nothing recurses,
+// so oscar64 gives every function a static frame and never touches the
+// dynamic stack (SP is set at startup and read nowhere). The region only has
+// to hold the frames: about 51 bytes in ppilot, 46 in fpilot. Should they
+// outgrow it the link fails with error 3034 (static stack usage exceeds stack
+// segment); raise this, the region top below and MEM_BSS2_START together.
+#pragma stacksize(0x40)
 #ifdef __MAX_RAM__
 // Since the screen ram is moved to 0xE800 and 0xEC00, we can
 // use the original location for stack.
-#pragma region( stack, 0x0200, 0x0280, , , {stack} )
+#pragma region( stack, 0x0200, 0x0240, , , {stack} )
 // Additional bss, for zero-initialised globals only: the region is below the
 // load address, so nothing in the .prg can land here. The startup code only
 // clears the main bss section, and this RAM powers up holding the KERNAL's
 // variables and vectors and the default screen, so mem_init() clears it.
-#define MEM_BSS2_START 0x0280
+#define MEM_BSS2_START 0x0240
 #define MEM_BSS2_END 0x0800
 #pragma section(bss2, 0, , , bss)
 #pragma region( bss2, MEM_BSS2_START, MEM_BSS2_END, , , {bss2} )
