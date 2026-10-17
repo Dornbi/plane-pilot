@@ -28,7 +28,7 @@
 # pushed.
 #
 # Environment knobs:
-#   BRANCH=ram-loop  MAX_FAILS=4  REVIEW=1  SHOTS=1
+#   BRANCH=claude-loop  MAX_FAILS=4  REVIEW=1  SHOTS=1
 #   MODEL=<model>    BUDGET=<usd per agent call>  PERM=acceptEdits
 #   CLAUDE=<path to the claude CLI>  RUN_DIR=/tmp/ram-loop (logs, rejected diffs)
 set -u
@@ -38,7 +38,7 @@ cd "$REPO"
 
 LEDGER=docs/ram-loop.md
 MAX_PASSES=${1:-40}
-BRANCH=${BRANCH:-ram-loop}
+BRANCH=${BRANCH:-claude-loop}
 MAX_FAILS=${MAX_FAILS:-4}
 REVIEW=${REVIEW:-1}
 SHOTS=${SHOTS:-1}
@@ -192,6 +192,8 @@ Prefer changes that are cycle-neutral or faster.
   everything.
 
 When done, write $RUN_DIR/summary.txt in exactly this form:
+TITLE: <commit subject, at most 60 characters, imperative, ending in a full stop, e.g.
+       "Compute the music volume mix instead of a 48 B table.">
 IDEA: <one line: what you changed and the measured byte and cycle change, or why it was a dead end>
 NOTES: <optional extra lines: test changes and why, visual changes>
 If, after a real search, you believe no worthwhile saving is left within the rules, write
@@ -274,6 +276,8 @@ for ((n = 1; n <= MAX_PASSES && fails < MAX_FAILS; n++)); do
   git checkout -q -- screens
   idea=$(sed -n 's/^IDEA: *//p' "$RUN_DIR/summary.txt" 2>/dev/null | head -1)
   idea=${idea:-"(no summary written)"}
+  title=$(sed -n 's/^TITLE: *//p' "$RUN_DIR/summary.txt" 2>/dev/null | head -1 | cut -c1-72)
+  [ -n "$title" ] || title=$(printf '%s' "$idea" | cut -c1-60)
 
   result=""; f1=$f0; p1=$p0; c1=$c0
   pass_bench="$RUN_DIR/pass$pass.bench"
@@ -328,8 +332,8 @@ for ((n = 1; n <= MAX_PASSES && fails < MAX_FAILS; n++)); do
   if [ -z "$result" ]; then
     log_row "$pass" "$idea" "$df" "$dp" "$dc" "kept"
     git add -A
-    git commit -qm "$(printf 'Optimisation loop: %s\n\nfpilot free %s -> %s B, ppilot %s -> %s B.\nRender cycles (tools/bench.sh total) %s -> %s, %s.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>' \
-      "$idea" "$f0" "$f1" "$p0" "$p1" "$c0" "$c1" "$dc")"
+    git commit -qm "$(printf '%s\n\n%s\n\nfpilot free %s -> %s B, ppilot %s -> %s B.\nRender cycles (tools/bench.sh total) %s -> %s, %s.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>' \
+      "$title" "$idea" "$f0" "$f1" "$p0" "$p1" "$c0" "$c1" "$dc")"
     good_f=$f1; good_p=$p1; good_c=$c1
     cp "$pass_bench" "$RUN_DIR/current.bench"
     [ "$SHOTS" = 1 ] && cp "$RUN_DIR"/shots/*.png "$RUN_DIR/ref/"
@@ -339,7 +343,7 @@ for ((n = 1; n <= MAX_PASSES && fails < MAX_FAILS; n++)); do
     git diff HEAD > "$RUN_DIR/pass$pass.rejected.diff"
     git reset -q --hard "$head"; git clean -fdq
     log_row "$pass" "$idea" "$df" "$dp" "$dc" "$result"
-    git commit -qm "Optimisation loop: log pass $pass ($result)" -- "$LEDGER"
+    git commit -qm "Optimisation loop: log pass $pass ($(printf '%s' "$result" | cut -c1-40))" -- "$LEDGER"
     fails=$((fails + 1))
     say "$result ($idea)"
     # Rebuild, so the next worker starts from a build that matches the source.
