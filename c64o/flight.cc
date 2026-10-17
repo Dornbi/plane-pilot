@@ -479,6 +479,19 @@ void flight_init() {
   _flight_path_sample();
 }
 
+static uint8_t _flight_add_nav_point(uint8_t wp_idx) {
+  uint8_t wx = kMissionWpX[wp_idx];
+  uint8_t wy = kMissionWpY[wp_idx];
+  if (wx == 0 && wy == 0) {
+    return 0;
+  }
+  uint8_t n = flight_num_nav_points;
+  flight_nav_point_x[n] = (uint16_t)wx << 8;
+  flight_nav_point_y[n] = ((uint16_t)wy << 8) + 0x80;
+  flight_num_nav_points = ++n;
+  return n;
+}
+
 void flight_init_from_mission(uint8_t mission_idx) {
   flight_paused = false;
   flight_status = FLIGHT_ONGOING;
@@ -528,24 +541,10 @@ void flight_init_from_mission(uint8_t mission_idx) {
     num_wp = kMaxNavPoints;
   }
   for (uint8_t i = 0; i < num_wp; ++i) {
-    uint8_t wp_idx = wp_begin + i;
-    uint8_t wx = kMissionWpX[wp_idx];
-    uint8_t wy = kMissionWpY[wp_idx];
-    if (wx != 0 || wy != 0) {
-      flight_nav_point_x[flight_num_nav_points] = (uint16_t)wx << 8;
-      flight_nav_point_y[flight_num_nav_points] = ((uint16_t)wy << 8) + 0x80;
-      flight_num_nav_points++;
-      flight_waypoint_nav[i] = flight_num_nav_points;
-    } else {
-      flight_waypoint_nav[i] = 0;
-    }
+    flight_waypoint_nav[i] = _flight_add_nav_point(wp_begin + i);
   }
   if (flight_num_nav_points == 0) {
-    uint8_t wx = kMissionWpX[kWaypointDefault];
-    uint8_t wy = kMissionWpY[kWaypointDefault];
-    flight_nav_point_x[0] = (uint16_t)wx << 8;
-    flight_nav_point_y[0] = ((uint16_t)wy << 8) + 0x80;
-    flight_num_nav_points = 1;
+    _flight_add_nav_point(kWaypointDefault);
   }
   flight_nav = 0;
   _flight_update_nav();
@@ -601,7 +600,7 @@ static int16_t _flight_recip_v(int16_t speed) {
 // sitting *at* ground level - which is where one that has just unstuck sits
 // while its flight path builds - and one that arrived there from underneath or
 // through it. The clamp erases that difference, so it has to be reported.
-static bool _flight_move_forward(int16_t fspeed, int16_t vspeed) {
+static inline bool _flight_move_forward(int16_t fspeed, int16_t vspeed) {
   // The shift is after the multiply, not on fspeed: the product carries the
   // bits a quarter-sized step needs and fspeed on its own does not.
   flight_eye_x += _flight_step_s(vec_fastmul8p8(flight_cam.front.x, fspeed));
@@ -616,7 +615,7 @@ static bool _flight_move_forward(int16_t fspeed, int16_t vspeed) {
 
 #else // !__FLIGHT_AOA__
 
-static void _flight_move_forward(int16_t fspeed, int16_t vspeed) {
+static inline void _flight_move_forward(int16_t fspeed, int16_t vspeed) {
   // The shift is after the multiply, not on fspeed: the product carries the
   // bits a quarter-sized step needs and fspeed on its own does not.
   flight_eye_x += _flight_step_s(vec_fastmul8p8(flight_cam.front.x, fspeed));
@@ -707,11 +706,12 @@ static const char *const kFlightWaypointFault[] = {
 };
 
 // Both prefixes are nine characters and the longest fault text is fourteen,
-// so 24 is the exact fit and this leaves a little room. Built here rather
+// so 24 is the exact fit and this leaves a little room (waypoint faults with
+// " FOR MISSION" are at most 31 bytes including NUL). Built here rather
 // than stored per message because msg_show() keeps only the pointer. Every
 // caller below bails out once flight_status is set, so no warning can rewrite
 // the buffer while a crash message is still on screen.
-static char _flight_status_text[40];
+static char _flight_status_text[32];
 
 static const char *_flight_join(const char *prefix, const char *suffix) {
   char *dst = _flight_status_text;
@@ -743,14 +743,13 @@ static void _flight_check_mission_waypoints() {
       flight_paused) {
     return;
   }
-  uint8_t wp_begin = kMissionWpBegin[flight_active_mission_idx];
+  uint8_t wp_idx =
+      kMissionWpBegin[flight_active_mission_idx] + flight_current_wp;
   uint8_t wp_end = kMissionWpEnd[flight_active_mission_idx];
-  uint8_t num_wp = wp_end - wp_begin;
-  if (flight_current_wp >= num_wp) {
+  if (wp_idx >= wp_end) {
     return;
   }
 
-  uint8_t wp_idx = wp_begin + flight_current_wp;
   MissionWaypointConstraint constraint = kMissionWpConstraint[wp_idx];
   uint8_t eye_x_high = (uint8_t)(flight_eye_x >> 16);
   uint8_t eye_y_high = (uint8_t)(flight_eye_y >> 16);
@@ -801,16 +800,19 @@ static void _flight_check_mission_waypoints() {
   bool met = pos_ok;
   if (met) {
     switch (constraint) {
-    case WP_MAX_250FT:
-      met = flight_eye_z <= kFlightWpMaxAlt;
-      break;
     case WP_UPSIDE_DOWN:
       // A low pass, which is what the briefing asks for and what the crowd
       // came to see - so the altitude counts as much as the attitude. up.z is
       // 256 * cos(roll), so the bound is 120 degrees of roll: enough that the
       // aeroplane is unambiguously on its back rather than steeply banked,
       // which anything merely below zero would have allowed.
-      met = flight_cam.up.z < -128 && flight_eye_z <= kFlightWpMaxAlt;
+      if (flight_cam.up.z >= -128) {
+        met = false;
+        break;
+      }
+      // Fall through to WP_MAX_250FT altitude check.
+    case WP_MAX_250FT:
+      met = flight_eye_z <= kFlightWpMaxAlt;
       break;
     case WP_LANDED:
       met = model_on_ground && (flight_speed <= 0x0010);
@@ -822,8 +824,9 @@ static void _flight_check_mission_waypoints() {
   }
 
   if (met) {
-    if (flight_current_wp + 1 < num_wp) {
-      uint8_t nav_n = flight_waypoint_nav[flight_current_wp];
+    uint8_t cur_wp = flight_current_wp++;
+    if ((uint8_t)(wp_idx + 1) < wp_end) {
+      uint8_t nav_n = flight_waypoint_nav[cur_wp];
       if (nav_n != 0) {
         static char nav_reached_buf[] = "WAYPOINT 1 REACHED";
         nav_reached_buf[9] = '0' + nav_n;
@@ -831,19 +834,15 @@ static void _flight_check_mission_waypoints() {
       } else {
         msg_show("NEXT GOAL COMPLETED");
       }
-      flight_current_wp++;
     } else {
       // The last waypoint. The flight is not over: the pilot keeps the
       // aircraft and can fly on until they quit, restart or crash it. Past
       // the end of the list, so this cannot fire a second time - the message
       // is a moment, not a state, and nothing here re-arms it.
-      flight_current_wp = num_wp;
       flight_status = FLIGHT_MISSION_COMPLETED;
       msg_show(flight_status_text(FLIGHT_MISSION_COMPLETED, false),
                kFlightMissionCompleteDuration);
-      if (flight_active_mission_idx < kMissionCount) {
-        mission_completed[flight_active_mission_idx] = true;
-      }
+      mission_completed[flight_active_mission_idx] = true;
     }
   } else if (pos_ok && (wx != 0 || wy != 0)) {
     // Over the waypoint but the constraint is not satisfied: say which one,
@@ -1518,6 +1517,12 @@ void flight_input(enum flight_input_t input) {
     flight_flap = 1 - flight_flap;
     model_pending_events |= FLIGHT_EV_FLAP;
     return;
+  case FLIGHT_INPUT_TOGGLE_GEAR:
+    if (!model_on_ground || !flight_gear) {
+      flight_gear = 1 - flight_gear;
+      model_pending_events |= FLIGHT_EV_GEAR;
+    }
+    return;
   default:
     break;
   }
@@ -1526,17 +1531,16 @@ void flight_input(enum flight_input_t input) {
     switch (input) {
     case FLIGHT_INPUT_ROLL_LEFT:
     case FLIGHT_INPUT_YAW_LEFT:
+    case FLIGHT_INPUT_ROLL_RIGHT:
+    case FLIGHT_INPUT_YAW_RIGHT:
       // Nose wheel steering, so it needs the wheels to be turning. A parked
       // aircraft cannot pivot on the spot.
       if (flight_speed > 0) {
-        vec_transform3(&kVecYawLeft, &flight_cam);
-        model_need_normalize = true;
-      }
-      break;
-    case FLIGHT_INPUT_ROLL_RIGHT:
-    case FLIGHT_INPUT_YAW_RIGHT:
-      if (flight_speed > 0) {
-        vec_transform3(&kVecYawRight, &flight_cam);
+        vec_transform3((input == FLIGHT_INPUT_ROLL_LEFT ||
+                        input == FLIGHT_INPUT_YAW_LEFT)
+                           ? &kVecYawLeft
+                           : &kVecYawRight,
+                       &flight_cam);
         model_need_normalize = true;
       }
       break;
@@ -1585,12 +1589,6 @@ void flight_input(enum flight_input_t input) {
     }
 
 #endif // __FLIGHT_AOA__
-    case FLIGHT_INPUT_TOGGLE_GEAR:
-      if (!flight_gear) {
-        flight_gear = 1;
-        model_pending_events |= FLIGHT_EV_GEAR;
-      }
-      break;
     case FLIGHT_INPUT_BRAKE:
       if (flight_speed > 32) {
         flight_speed -= 32;
@@ -1637,10 +1635,5 @@ void flight_input(enum flight_input_t input) {
     vec_transform3(kFlightRotations[input - FLIGHT_INPUT_ROLL_LEFT],
                    &flight_cam);
     model_need_normalize = true;
-    return;
-  }
-  if (input == FLIGHT_INPUT_TOGGLE_GEAR) {
-    flight_gear = 1 - flight_gear;
-    model_pending_events |= FLIGHT_EV_GEAR;
   }
 }

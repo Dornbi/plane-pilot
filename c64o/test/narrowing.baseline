@@ -29,7 +29,7 @@
 # int16.h's i16() at each step the target truncates at. And because of the hole
 # above, a clean run here says nothing - the case belongs in target_test.cc,
 # which runs the arithmetic on a real 6510 and is the only exact answer.
-flight.cc 12
+flight.cc 10
 host_vec.cc 1
 mul_test.cc 1
 music_test.cc 5
