@@ -265,18 +265,17 @@ static uint8_t _map_tile_index(uint8_t cell, uint8_t row, uint8_t col) {
 }
 
 // world_map.cc is stored with N down and W right; the display is rotated 180
-// degrees to put N up and W left. The pass below walks the screen forwards
-// while walking kWorldMap backwards, which keeps the rotation to two
-// decrementing loop counters and no address arithmetic:
+// degrees to put N up and W left. Both passes below therefore walk the
+// screen forwards while walking kWorldMap backwards, which keeps the
+// rotation to two decrementing loop counters and no address arithmetic:
 //
 //   screen_row = 15 - map_row      screen_col = 31 - map_col
 //
-// Writes the bitmap at $E000, color RAM at $D800 (with I/O banked in), and
-// screen RAM at $D000 (briefly banking I/O out while interrupts are masked).
+// Pass A -- the object layer. I/O is banked in, so color RAM is writable and
+// the bitmap at $E000 is plain RAM either way.
 static inline void _map_draw_object_layer(void) {
   uint8_t *bm = kMapBitmap + kMapCharOffset * 8;
   uint8_t *cr = kColorRam + kMapCharOffset;
-  uint8_t *sm = kMapScreenRam + kMapCharOffset;
   for (uint8_t row = kWorldMapHeight; row-- != 0;) {
     const uint8_t *map_row = world_map_row(row);
     for (uint8_t col = kWorldMapWidth; col-- != 0;) {
@@ -296,13 +295,26 @@ static inline void _map_draw_object_layer(void) {
       bm[7] = kMapTileRows[7][idx];
       bm += 8;
       *cr++ = kMapTileCol[idx];
-      const uint8_t s = (kColorWhite << 4) | kMapTileLo[idx];
-      mmap_set(MMAP_RAM);
-      *sm++ = s;
-      mmap_set(MMAP_NO_ROM);
     }
     bm += kMapCharGap * 8;
     cr += kMapCharGap;
+  }
+}
+
+// Pass B -- the screen RAM layer, with I/O banked out so $D000 is RAM. The
+// tile index is recomputed rather than carried over from pass A: there is no
+// 512-byte scratch buffer to spare in main, and this runs once per
+// map_enter(), not per frame. Folding it into pass A, banking I/O out per
+// cell, lost the map's bottom row.
+static void _map_draw_screen_layer(void) {
+  uint8_t *sm = kMapScreenRam + kMapCharOffset;
+  for (uint8_t row = kWorldMapHeight; row-- != 0;) {
+    const uint8_t *map_row = world_map_row(row);
+    for (uint8_t col = kWorldMapWidth; col-- != 0;) {
+      const uint8_t idx =
+          _map_tile_index(world_map_cell(map_row, col), row, col);
+      *sm++ = (kColorWhite << 4) | kMapTileLo[idx];
+    }
     sm += kMapCharGap;
   }
 }
@@ -317,8 +329,8 @@ void map_enter() {
   // execute a cli** -- one would restart the split on the next raster
   // compare, and the map would be redrawn out from under itself in three
   // horizontal bands. Interrupts stay masked from here until
-  // map_exit()'s gfx_init_raster_irqs(). That also makes the I/O banking
-  // below safe for free.
+  // map_exit()'s gfx_init_raster_irqs(). That also makes the I/O banking in
+  // pass B safe for free.
   gfx_stop_raster_irqs();
 
   // Drop the instrument sprites; the aircraft marker turns two back on at the
@@ -353,9 +365,6 @@ void map_enter() {
   // computing the non-contiguous border.
   memset(kMapBitmap, 0xFF, kMapBitmapSize);
   memset(kColorRam, kColorBlack, kMapScreenSize);
-  mmap_set(MMAP_RAM);
-  memset(kMapScreenRam, kMapScreenSurround, kMapScreenSize);
-  mmap_set(MMAP_NO_ROM);
   _map_draw_object_layer();
   // Overlay, on top of the object art. Path first: a digit clears its own
   // cell's overlay before stencilling, so drawing it last keeps the trail
@@ -399,6 +408,8 @@ void map_enter() {
   // two in use are written; the other six are left as they are and stay
   // disabled.
   mmap_set(MMAP_RAM);
+  memset(kMapScreenRam, kMapScreenSurround, kMapScreenSize);
+  _map_draw_screen_layer();
   kMapScreenRam[kMapSprPtrOffset + kMapSprBody] = body_bitmap;
   kMapScreenRam[kMapSprPtrOffset + kMapSprWing] = wing_bitmap;
   mmap_set(MMAP_NO_ROM);
