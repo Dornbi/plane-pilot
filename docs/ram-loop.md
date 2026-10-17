@@ -33,7 +33,7 @@ logged but is not a gate.
 
 The script reads this line, so keep its format exactly:
 
-cycles-baseline: runway=131082 approach=122756 cruise=150020 town=152709 lake=138509
+cycles-baseline: runway=122384 approach=116327 cruise=138732 town=141890 lake=130944
 
 ## Rules (binding for the worker and the reviewer)
 
@@ -126,6 +126,13 @@ These come from earlier work (see the auto-memory notes `fpilot-ram-survey`,
 Baseline on 2026-10-16 at 63e2950: fpilot 9,546 B free allocatable (largest
 run 8,970 B), ppilot 6,466 B. Render cycles per frame: runway 131,082,
 approach 122,756, cruise 150,020, town 152,709, lake 138,509; total 695,076.
+
+The cycles baseline was reset on 2026-10-17 after pass 21 (the argon-loop
+merge, 84c4ccb), so the 2% budget starts from its faster render: fpilot
+14,197 B free (largest run 13,066 B), ppilot 10,686 B. Render cycles per
+frame: runway 122,384, approach 116,327, cruise 138,732, town 141,890, lake
+130,944; total 650,277. The "vs baseline" figures in rows 1-20 are against
+the old one.
 
 The script appends one row per pass. The fpilot and ppilot columns are the
 change in free allocatable bytes. The cycles column is the change in bench
