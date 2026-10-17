@@ -129,7 +129,7 @@ uint8_t menu_run() {
     {
       uint8_t bit = 1;
       for (uint8_t i = 0; i < kMenuKeyCount; ++i) {
-        if (key_pressed((enum KeyScanCode)kMenuKeys[i])) {
+        if (keys_pressed((enum KeyScanCode)kMenuKeys[i])) {
           menu_toggles |= bit;
         }
         bit <<= 1;
