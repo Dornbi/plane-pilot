@@ -272,20 +272,15 @@ inline void sprites_set_fuel(uint32_t fuel) {
 // against the message span, so a message narrow enough — or a sprite far
 // enough to the side — leaves the sprite alone. Coordinates are VIC sprite
 // coordinates, i.e. already shifted by kSpriteOffsetX / kSpriteOffsetY.
-static const int16_t kSpritesMsgBoxTop = kSpriteOffsetY;
-static const int16_t kSpritesMsgBoxBottom = kSpriteOffsetY + kMsgHeightPixels;
+static const uint8_t kSpritesMsgBoxBottom = kSpriteOffsetY + kMsgHeightPixels;
 
-static bool _sprites_hidden_by_msg(int16_t x, int16_t y, uint8_t width,
-                                   uint8_t height) {
-  if (!msg_active()) {
-    return false;
-  }
-  if (y >= kSpritesMsgBoxBottom || y + (int16_t)height <= kSpritesMsgBoxTop) {
+static bool _sprites_hidden_by_msg(int16_t x, uint8_t vy, uint8_t width) {
+  if (!msg_active() || vy >= kSpritesMsgBoxBottom) {
     return false;
   }
   int16_t x0 = kSpriteOffsetX + (int16_t)msg_span_x0;
   int16_t x1 = kSpriteOffsetX + (int16_t)msg_span_x1;
-  return x < x1 && x + (int16_t)width > x0;
+  return x < x1 && x + width > x0;
 }
 
 void sprites_stack_reset(void) {
@@ -300,17 +295,17 @@ bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
   // An expanded sprite pixel is two screen pixels, so the horizontal pivot
   // doubles with it and the vertical one does not.
   uint8_t width = kSpriteWidthPixels;
+  uint8_t px = (uint8_t)pivot_x;
   if (flags & kSpriteFlagExpandX) {
     width <<= 1;
-    x -= (int16_t)pivot_x << 1;
-  } else {
-    x -= (int16_t)pivot_x;
+    px <<= 1;
   }
-  uint8_t height = kSpriteHeightPixels;
+  x -= px;
+  uint8_t h_m1 = kSpriteHeightPixels - 1;
   if (bitmap2 != kSpriteNoBitmap) {
-    height <<= 1;
+    h_m1 = 2 * kSpriteHeightPixels - 1;
   }
-  y -= (int16_t)pivot_y;
+  y -= (uint8_t)pivot_y;
   // (x, y) is now the sprite's top left, still in viewport screen pixels.
 
   // The dither lattice, in screen space. X_vic = x + 24 and Y_vic = y + 50,
@@ -321,7 +316,7 @@ bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
     y = (y & ~1) | ((x >> 1) & 1);
   }
 
-  if (x >= (int16_t)kScreenWidthPixels || x + (int16_t)width <= 0) {
+  if (x >= (int16_t)kScreenWidthPixels || x + width <= 0) {
     return false;
   }
   // Vertically the test is on the *last* hardware sprite of the entry, not on
@@ -336,24 +331,22 @@ bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
   // half - the same symptom as the oscar64 miscompile of §3.4, from an
   // unrelated cause. Rejecting the entry is better than drawing half of it.
   //
-  // For a single sprite this is exactly `y >= kSpriteVisibleEndYPixels`; for a
-  // stack it is 21 lines stricter.
-  const int16_t last_sprite_top =
-      y + (int16_t)height - (int16_t)kSpriteHeightPixels;
-  if (last_sprite_top >= (int16_t)kSpriteVisibleEndYPixels ||
-      y + (int16_t)height <= 0) {
+  // Both `last_sprite_top >= kSpriteVisibleEndYPixels` and `y + height <= 0`
+  // bound `y + height - 1` to `[0, kSpriteVisibleEndYPixels + 20)`.
+  if ((uint16_t)(y + h_m1) >=
+      kSpriteVisibleEndYPixels + kSpriteHeightPixels - 1) {
     return false;
   }
 
   int16_t vx = x + (int16_t)kSpriteOffsetX;
-  int16_t vy = y + (int16_t)kSpriteOffsetY;
+  uint8_t vy = (uint8_t)y + kSpriteOffsetY;
   // No X wrap yet — clouds.md §1.6 and phase 8. Until then a sprite that would
   // need a negative register position is dropped rather than clipped, which is
   // what sprites_set_sun_position() did before the stack existed.
   if (vx < 0) {
     return false;
   }
-  if (_sprites_hidden_by_msg(vx, vy, width, height)) {
+  if (_sprites_hidden_by_msg(vx, vy, width)) {
     return false;
   }
 
@@ -361,20 +354,25 @@ bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
   if (i == kSpriteStackSize) {
     // Full. Only a nearer object earns a place, and it takes the farthest
     // one's.
-    if (depth >= _sprites_cand[kSpriteStackSize - 1].depth) {
+    if ((uint16_t)depth >=
+        (uint16_t)_sprites_cand[kSpriteStackSize - 1].depth) {
       return false;
     }
     i = kSpriteStackSize - 1;
   } else {
     _sprites_cand_count = i + 1;
   }
-  while (i > 0 && _sprites_cand[i - 1].depth > depth) {
-    _sprites_cand[i] = _sprites_cand[i - 1];
-    --i;
+  while (i > 0) {
+    uint8_t prev = i - 1;
+    if ((uint16_t)_sprites_cand[prev].depth <= (uint16_t)depth) {
+      break;
+    }
+    _sprites_cand[i] = _sprites_cand[prev];
+    i = prev;
   }
   _sprites_cand[i].depth = depth;
   _sprites_cand[i].x = vx;
-  _sprites_cand[i].y = (uint8_t)vy;
+  _sprites_cand[i].y = vy;
   _sprites_cand[i].bitmap = bitmap;
   _sprites_cand[i].bitmap2 = bitmap2;
   _sprites_cand[i].color = color;
