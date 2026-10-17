@@ -186,6 +186,14 @@ the flight model rather than of the types, nothing checks it, and the failure
 mode is a sign flip in drag at high speed. Twenty-five bytes for an unguarded
 invariant is a poor trade unless a `__assume()` or an assert comes with it.
 
+> **Landed 2026-10-17** (ram-loop), without the invariant: the drag square is
+> the only argument that can reach `0x8000` (it is `0xE100` at `kMaxSpeed`),
+> so it is halved before the call and the three drag shifts are one less. That
+> is bit-identical for every speed. The other arguments are bounded by their
+> types: `|left.z| <= 256`, the stall deficit is under `0x0600`, and the AOA
+> model's stall excess is a positive `int16_t`. +43 B free in fpilot, +40 B in
+> ppilot, render bench −0.07% (layout shift).
+
 ### 3.4. `kMusicVolumeMix` is three closed forms
 
 The 48-byte `kMusicVolumeMix[3][16]` in [music.cc](../c64o/music.cc) has rows

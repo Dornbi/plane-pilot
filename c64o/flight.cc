@@ -161,14 +161,11 @@ void flight_set_step_shift(uint8_t shift) {
 // more than one copy each and saved 206 cycles a model step. At 6.25 steps a
 // second that is 0.13% of the machine against a fifth of a kilobyte, and bytes
 // are the scarcer thing here.
-static __noinline uint16_t _flight_step_u(uint16_t v) {
-  uint8_t n = flight_step_shift;
-  while (n--) {
-    v >>= 1;
-  }
-  return v;
-}
-
+//
+// Signed only. An unsigned twin cost 21 B, and every unsigned argument fits
+// under 0x8000, where both shifts agree: the excess angle, the side-slip
+// square (|left.z| <= 256) and the stall deficit are small, and the drag
+// square, which reaches 0xE100 at kMaxSpeed, is halved before the call.
 static __noinline int16_t _flight_step_s(int16_t v) {
   uint8_t n = flight_step_shift;
   while (n--) {
@@ -1022,7 +1019,7 @@ void flight_advance() {
                     kFlightClPeak);
       if (excess > 0) {
         flight_stall = 1;
-        uint8_t brk = (uint8_t)(_flight_step_u((uint16_t)excess) >> 5);
+        uint8_t brk = (uint8_t)(_flight_step_s(excess) >> 5);
         if (brk == 0) {
           brk = whole_step ? 1 : 0;
         }
@@ -1103,17 +1100,18 @@ void flight_advance() {
 
     // Speed: Air resistance, gravity, throttle
     uint16_t speed_sqr = vec_fastsqr8p8(flight_speed);
-    // Scaled once for all three drag terms below.
-    const uint16_t drag = _flight_step_u(speed_sqr);
-    flight_speed -= drag >> 10;
+    // Scaled once for all three drag terms below, and halved first so the
+    // signed step shift sees a positive value: the shifts below are one less.
+    const uint16_t drag = _flight_step_s(speed_sqr >> 1);
+    flight_speed -= drag >> 9;
     if (flight_gear) {
-      flight_speed -= drag >> 12;
+      flight_speed -= drag >> 11;
     }
     if (flight_flap) {
-      flight_speed -= drag >> 12;
+      flight_speed -= drag >> 11;
     }
     if (!model_on_ground) {
-      flight_speed -= _flight_step_u(vec_fastsqr8p8(flight_cam.left.z)) >> 5;
+      flight_speed -= _flight_step_s(vec_fastsqr8p8(flight_cam.left.z)) >> 5;
     }
     flight_speed -= _flight_step_s(flight_cam.front.z) >> 3;
     if (flight_fuel > 0) {
@@ -1176,7 +1174,7 @@ void flight_advance() {
           vec_transform3(flight_cam.up.z < 0 ? &kVecPitchUp : &kVecPitchDown,
                          &flight_cam);
         } else {
-          uint8_t s = _flight_step_u(stall_speed - flight_speed) >> 5;
+          uint8_t s = _flight_step_s(stall_speed - flight_speed) >> 5;
           if (s == 0)
             s = whole_step ? 1 : 0;
           flight_cam.front.z -= s;
