@@ -546,15 +546,23 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
             content += "    NULL,\n"
     content += "};\n\n"
 
-    content += "const boxdef_t* const alt_boxes[60] = {\n"
+    # Only a few roll angles have an alternative box, so rather than a 60-entry
+    # pointer table that is mostly NULL, the angles that have one are listed
+    # with their definitions beside them, and boxdef_set_alt() searches them.
+    from . import roll_angle
+    alt_angles = []
     for r_idx in range(60):
-        from . import roll_angle
-        roll = roll_angle.RollAngle(r_idx)
-        name = f"BOX_{roll.name.upper()}_ALT"
+        name = f"BOX_{roll_angle.RollAngle(r_idx).name.upper()}_ALT"
         if name in box_defs:
-            content += f"    &{clean_name(name)}_def, // {r_idx}: {name}\n"
-        else:
-            content += "    NULL,\n"
+            alt_angles.append((r_idx, name))
+    content += f"static const uint8_t kAltBoxCount = {len(alt_angles)};\n\n"
+    content += "static const uint8_t alt_box_angles[kAltBoxCount] = {\n"
+    for r_idx, name in alt_angles:
+        content += f"    {r_idx}, // {name}\n"
+    content += "};\n\n"
+    content += "static const boxdef_t* const alt_boxes[kAltBoxCount] = {\n"
+    for r_idx, name in alt_angles:
+        content += f"    &{clean_name(name)}_def, // {r_idx}: {name}\n"
     content += "};\n\n"
     content += '#pragma data(data)\n\n'
 
@@ -569,16 +577,17 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
     content += "  return src;\n"
     content += "}\n\n"
 
+    # No kRollMax check of its own: an angle out of range matches no entry
+    # and falls through to boxdef_set_main(), which returns NULL for it.
     content += "const boxdef_t *boxdef_set_alt() {\n"
-    content += "  if (roll_angle >= kRollMax) {\n"
-    content += "    return NULL;\n"
+    content += "  for (uint8_t i = 0; i < kAltBoxCount; ++i) {\n"
+    content += "    if (alt_box_angles[i] == roll_angle) {\n"
+    content += "      const boxdef_t *src = alt_boxes[i];\n"
+    content += "      memcpy(&boxdef, src, sizeof(boxdef_t));\n"
+    content += "      return src;\n"
+    content += "    }\n"
     content += "  }\n"
-    content += "  const boxdef_t *src = alt_boxes[roll_angle];\n"
-    content += "  if (src == NULL) {\n"
-    content += "    return boxdef_set_main();\n"
-    content += "  }\n"
-    content += "  memcpy(&boxdef, src, sizeof(boxdef_t));\n"
-    content += "  return src;\n"
+    content += "  return boxdef_set_main();\n"
     content += "}\n\n"
 
     return content

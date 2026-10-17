@@ -216,7 +216,9 @@ tiles are about to overwrite them anyway — worth about 1000 cycles.
 `boxdef_t` is the tile: width, height, the step vector to the next copy, its
 offset relative to the snapped center, the character indices, and the index
 array. `boxdefs.cc` holds 68 definitions — 60 main (one per angle) and 8 alt —
-looked up through `main_boxes[]` / `alt_boxes[]`. Both files are generated;
+looked up through `main_boxes[]`, indexed by angle, and `alt_boxes[]`, which
+holds only the 8 angles that have an alt tile (listed in `alt_box_angles[]`,
+searched by `boxdef_set_alt()`). Both files are generated;
 edit the generators under `lib/` and re-run `make chardefs`.
 
 `chardefs.cc` stores each character once per vertical flip: a multicolour

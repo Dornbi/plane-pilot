@@ -1233,67 +1233,28 @@ const boxdef_t* const main_boxes[60] = {
     &box_r16d1_def, // 59: BOX_R16D1
 };
 
-const boxdef_t* const alt_boxes[60] = {
+static const uint8_t kAltBoxCount = 8;
+
+static const uint8_t alt_box_angles[kAltBoxCount] = {
+    0, // BOX_R8_ALT
+    8, // BOX_R8U8_ALT
+    15, // BOX_U8_ALT
+    22, // BOX_L8U8_ALT
+    30, // BOX_L8_ALT
+    38, // BOX_L8D8_ALT
+    45, // BOX_D8_ALT
+    52, // BOX_R8D8_ALT
+};
+
+static const boxdef_t* const alt_boxes[kAltBoxCount] = {
     &box_r8_alt_def, // 0: BOX_R8_ALT
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
     &box_r8u8_alt_def, // 8: BOX_R8U8_ALT
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
     &box_u8_alt_def, // 15: BOX_U8_ALT
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
     &box_l8u8_alt_def, // 22: BOX_L8U8_ALT
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
     &box_l8_alt_def, // 30: BOX_L8_ALT
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
     &box_l8d8_alt_def, // 38: BOX_L8D8_ALT
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
     &box_d8_alt_def, // 45: BOX_D8_ALT
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
     &box_r8d8_alt_def, // 52: BOX_R8D8_ALT
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
 };
 
 #pragma data(data)
@@ -1310,14 +1271,13 @@ const boxdef_t *boxdef_set_main() {
 }
 
 const boxdef_t *boxdef_set_alt() {
-  if (roll_angle >= kRollMax) {
-    return NULL;
+  for (uint8_t i = 0; i < kAltBoxCount; ++i) {
+    if (alt_box_angles[i] == roll_angle) {
+      const boxdef_t *src = alt_boxes[i];
+      memcpy(&boxdef, src, sizeof(boxdef_t));
+      return src;
+    }
   }
-  const boxdef_t *src = alt_boxes[roll_angle];
-  if (src == NULL) {
-    return boxdef_set_main();
-  }
-  memcpy(&boxdef, src, sizeof(boxdef_t));
-  return src;
+  return boxdef_set_main();
 }
 
