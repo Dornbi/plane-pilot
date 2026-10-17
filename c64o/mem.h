@@ -61,16 +61,17 @@
 // dead and can be reused (kBootScratch below). Each such function is wrapped
 // in `#pragma code(bootcode)` / `#pragma code(code)`.
 //
-// The end is the code's size plus a little headroom, and it is the one number
-// here that has to be moved by hand: if the boot code outgrows it, the link
-// fails with "Could not place object", and the fix is to raise it. It cannot
-// shrink below kBootScratch's largest tenant (box.cc's static_assert).
+// The end is the one number here that has to be moved by hand. It sits at
+// exactly the 512 bytes kBootScratch's tenants need (box.cc's static_assert),
+// which is the floor; the boot code is smaller (at most $0A3E, in ppilota). If
+// the boot code outgrows it, the link fails with "Could not place object",
+// and the fix is to raise it.
 //
 // Nothing outside the region may call into it, since after boot it is
 // whatever the scratch's users last wrote there. tools/check_boot_region.py
 // fails the build otherwise; main()'s one call to _boot() is the exception.
 #define MEM_BOOT_START 0x0860
-#define MEM_BOOT_END 0x0A70
+#define MEM_BOOT_END 0x0A60
 #pragma section(bootcode, 0)
 #pragma region( boot, MEM_BOOT_START, MEM_BOOT_END, , , {bootcode} )
 #pragma region( main, MEM_BOOT_END, 0xD000, , , {code, data, data_box, data_compr, bss, heap} )
