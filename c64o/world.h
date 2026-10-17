@@ -70,8 +70,11 @@ static inline WorldMapType world_map_cell(const uint8_t *map_row,
 static const uint8_t kWorldObjDim = 9;
 // Matches kPolyMaxVertices in poly.h.
 static const uint8_t kWorldObjMaxVerts = 6;
-extern const uint8_t kWorldObjX[kWorldObjDim][kWorldObjMaxVerts];
-extern const uint8_t kWorldObjY[kWorldObjDim][kWorldObjMaxVerts];
+// Vertices of the 5 distinct outlines (world_map.cc).
+static const uint8_t kWorldObjVerts = 23;
+extern const uint8_t kWorldObjX[kWorldObjVerts];
+extern const uint8_t kWorldObjY[kWorldObjVerts];
+extern const uint8_t kWorldObjFirstVert[kWorldObjDim];
 extern const uint8_t kWorldObjNumVerts[kWorldObjDim];
 extern const uint8_t kWorldObjChars[kWorldObjDim];
 extern const uint8_t kWorldObjColors[kWorldObjDim];

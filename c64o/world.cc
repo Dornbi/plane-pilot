@@ -194,11 +194,13 @@ void _world_render_object(WorldMapType object_type) {
 #pragma bss(bss2)
   uint8_t obj_idx = object_type - kWorldMapObjStart;
   uint8_t num_verts = kWorldObjNumVerts[obj_idx];
-  const uint8_t *ox = kWorldObjX[obj_idx];
-  const uint8_t *oy = kWorldObjY[obj_idx];
-  for (uint8_t i = 0; i < num_verts; ++i) {
-    const vec3_t *dx = &_world_dx4[ox[i]];
-    const vec3_t *dy = &_world_dy4[oy[i]];
+  uint8_t k = kWorldObjFirstVert[obj_idx];
+  for (uint8_t i = 0; i < num_verts; ++i, ++k) {
+    // kWorldObjX/Y hold byte offsets into the tables (world_map.cc).
+    const vec3_t *dx =
+        (const vec3_t *)((const uint8_t *)_world_dx4 + kWorldObjX[k]);
+    const vec3_t *dy =
+        (const vec3_t *)((const uint8_t *)_world_dy4 + kWorldObjY[k]);
     poly_verts[i].x = _world_vec_v.x + dx->x + dy->x;
     poly_verts[i].y = _world_vec_v.y + dx->y + dy->y;
     poly_verts[i].z = _world_vec_v.z + dx->z + dy->z;

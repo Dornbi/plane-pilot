@@ -33,28 +33,44 @@ static const auto LAK = MAP_OBJ_LAKE;
 static const auto TWN = MAP_OBJ_TOWN;
 static const auto CTY = MAP_OBJ_CITY;
 
-const uint8_t kWorldObjX[kWorldObjDim][kWorldObjMaxVerts] = {
-    {0, 8, 8, 0},       // MAP_OBJ_RUNWAY
-    {0, 4, 8, 2},       // MAP_OBJ_FIELD
-    {0, 4, 8, 2},       // MAP_OBJ_FIELD_SPARSE
-    {0, 2, 8, 3},       // MAP_OBJ_FIELD_YELLOW
-    {0, 2, 8, 3},       // MAP_OBJ_FIELD_YELLOW_DENSE
-    {1, 5, 7, 6, 2},    // MAP_OBJ_POND
-    {0, 2, 6, 8, 5, 2}, // MAP_OBJ_LAKE
-    {0, 2, 8, 3},       // MAP_OBJ_TOWN
-    {0, 2, 6, 8, 5, 2}, // MAP_OBJ_CITY
+// The 9 object types use 5 outlines, stored once each. A vertex holds the
+// byte offset of its _world_dx4 / _world_dy4 entry (world.cc), so the render
+// loop adds it to the table base instead of multiplying the index by 6.
+#define WORLD_OBJ_V(n) ((uint8_t)((n) * sizeof(vec3_t)))
+
+// clang-format off
+const uint8_t kWorldObjX[kWorldObjVerts] = {
+    WORLD_OBJ_V(0), WORLD_OBJ_V(8), WORLD_OBJ_V(8), WORLD_OBJ_V(0), //  0 runway
+    WORLD_OBJ_V(0), WORLD_OBJ_V(4), WORLD_OBJ_V(8), WORLD_OBJ_V(2), //  4 field
+    WORLD_OBJ_V(0), WORLD_OBJ_V(2), WORLD_OBJ_V(8), WORLD_OBJ_V(3), //  8 yellow field, town
+    WORLD_OBJ_V(1), WORLD_OBJ_V(5), WORLD_OBJ_V(7), WORLD_OBJ_V(6), // 12 pond
+    WORLD_OBJ_V(2),
+    WORLD_OBJ_V(0), WORLD_OBJ_V(2), WORLD_OBJ_V(6), WORLD_OBJ_V(8), // 17 lake, city
+    WORLD_OBJ_V(5), WORLD_OBJ_V(2),
 };
 
-const uint8_t kWorldObjY[kWorldObjDim][kWorldObjMaxVerts] = {
-    {4, 4, 3, 3},       // MAP_OBJ_RUNWAY
-    {2, 0, 5, 8},       // MAP_OBJ_FIELD
-    {2, 0, 5, 8},       // MAP_OBJ_FIELD_SPARSE
-    {6, 0, 3, 8},       // MAP_OBJ_FIELD_YELLOW
-    {6, 0, 3, 8},       // MAP_OBJ_FIELD_YELLOW_SPARSE
-    {3, 1, 4, 6, 7},    // MAP_OBJ_POND
-    {3, 0, 1, 4, 7, 8}, // MAP_OBJ_LAKE
-    {6, 0, 3, 8},       // MAP_OBJ_TOWN
-    {3, 0, 1, 4, 7, 8}, // MAP_OBJ_CITY
+const uint8_t kWorldObjY[kWorldObjVerts] = {
+    WORLD_OBJ_V(4), WORLD_OBJ_V(4), WORLD_OBJ_V(3), WORLD_OBJ_V(3), //  0 runway
+    WORLD_OBJ_V(2), WORLD_OBJ_V(0), WORLD_OBJ_V(5), WORLD_OBJ_V(8), //  4 field
+    WORLD_OBJ_V(6), WORLD_OBJ_V(0), WORLD_OBJ_V(3), WORLD_OBJ_V(8), //  8 yellow field, town
+    WORLD_OBJ_V(3), WORLD_OBJ_V(1), WORLD_OBJ_V(4), WORLD_OBJ_V(6), // 12 pond
+    WORLD_OBJ_V(7),
+    WORLD_OBJ_V(3), WORLD_OBJ_V(0), WORLD_OBJ_V(1), WORLD_OBJ_V(4), // 17 lake, city
+    WORLD_OBJ_V(7), WORLD_OBJ_V(8),
+};
+// clang-format on
+
+// First vertex of each type's outline in kWorldObjX / kWorldObjY.
+const uint8_t kWorldObjFirstVert[kWorldObjDim] = {
+    0,  // MAP_OBJ_RUNWAY
+    4,  // MAP_OBJ_FIELD
+    4,  // MAP_OBJ_FIELD_SPARSE
+    8,  // MAP_OBJ_FIELD_YELLOW
+    8,  // MAP_OBJ_FIELD_YELLOW_SPARSE
+    12, // MAP_OBJ_POND
+    17, // MAP_OBJ_LAKE
+    8,  // MAP_OBJ_TOWN
+    17, // MAP_OBJ_CITY
 };
 
 const uint8_t kWorldObjNumVerts[kWorldObjDim] = {4, 4, 4, 4, 4, 5, 6, 4, 6};
