@@ -134,3 +134,4 @@ total against the last kept state.
 | Pass | Date | fpilot Δ | ppilot Δ | Cycles Δ | Result | Idea |
 |-----:|------|---------:|---------:|---------:|--------|------|
 | 1 | 2026-10-17 | 45 | 45 | +0.3% | kept | Replaced the 48 B kMusicVolumeMix[3][16] table in music.cc with its three closed forms (0, v>>1, v) in music_master_volume() (codesize.md §3.4): fpilot 9,546 -> 9,591 B free (+45), ppilot 6,466 -> 6,511 (+45); bench total 695,076 -> 697,254 (+0.31%, layout shift only — music is not in the render path; worst scene approach +0.51%, all well inside +2%). |
+| 2 | 2026-10-17 | 45 | 45 | -0.2% | kept | Dropped the file-wide nooutline pragma from fmath.cc (codesize.md §3.1; _get_ratio runs at most 3x a frame): fpilot 9,591 -> 9,636 B free (+45), ppilot 6,511 -> 6,556 (+45); bench total 697,254 -> 696,176 (-0.15%; runway 130920 approach 123093 cruise 150529 town 152914 lake 138720, all inside +2%). |

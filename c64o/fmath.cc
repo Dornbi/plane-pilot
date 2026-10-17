@@ -1,7 +1,7 @@
 #include "fmath.h"
 
-// Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
-#pragma optimize(push, nooutline)
+// Left to the outliner (-Oo): _get_ratio() runs at most three times a frame,
+// so its JSR/RTS pairs cost nothing measurable (codesize.md §3.1).
 
 __forceinline uint8_t _get_msb(uint16_t n) {
   if (n == 0) {
@@ -151,4 +151,3 @@ uint8_t _get_roll_angle(int16_t up_z, int16_t left_z) {
     }
   }
 }
-#pragma optimize(pop)

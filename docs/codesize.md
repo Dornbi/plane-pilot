@@ -150,6 +150,9 @@ from `_get_roll_angle()` once per frame, so at most three calls a frame. Letting
 the outliner have the file gives **−42 B** for a handful of `JSR`/`RTS` pairs at
 10 Hz.
 
+> **Landed 2026-10-17** (ram-loop): +45 B free in both fpilot and ppilot, and
+> the render bench came out 0.15% faster (layout shift).
+
 ### 3.2. Same argument, half of `vec.cc`
 
 `vec.cc`'s `nooutline` is right for `vec_transform_inv()` and `vec_div8p8()`,
