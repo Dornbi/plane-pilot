@@ -173,7 +173,7 @@ Feature table total        60,729 B
 ### 3. World Model (7,147 B)
 
 * **Code (6,394 B)**: flight dynamics, physics integration, waypoint checking, terrain grid rendering (`flight.cc`, `world.cc`, `sim.cc`, `world_map.cc`, `clouds.cc`).
-* **Data (357 B)**: orientation matrices (`mat3_rot`, `kHeadingLut`), the world map, cloud hash and ladder tables.
+* **Data (357 B)**: orientation matrices (`mat3_rot`), the world map, cloud hash and ladder tables.
 * **BSS (337 B)**: flight path history (`flight_path_px/py`), delta transform vectors (`_world_dx4`, `_world_dy4`), camera state.
 * **ZP (59 B)**: flight state (`flight_eye_x/y/z`, `flight_speed`, `flight_throttle`, `flight_fuel`, `flight_vspeed`).
 

@@ -94,15 +94,13 @@ uint8_t _get_ratio(int16_t x, int16_t y) {
   return ratio;
 }
 
-static const uint8_t kHeadingLut[65] = {
-    0,  0,  0,  0,  0,  1,  1,  1,  1,  1,  2,  2,  2,  2, 2, 3, 3,
-    3,  3,  3,  4,  4,  4,  4,  4,  5,  5,  5,  5,  5,  6, 6, 6, 6,
-    6,  7,  7,  7,  7,  7,  8,  8,  8,  8,  8,  9,  9,  9, 9, 9, 10,
-    10, 10, 10, 10, 11, 11, 11, 11, 11, 12, 12, 12, 12, 12};
-
 uint8_t _get_heading(int16_t x, int16_t y) {
+  // 13 steps over the quadrant's 0..64 ratio, five ratio units each:
+  // ratio / 5, as (ratio * 51 + 12) >> 8 (exact for all 65 ratios), with
+  // 51 = 3 * 17 in shifts and adds.
   uint8_t ratio = _get_ratio(x, y);
-  uint8_t angle = kHeadingLut[ratio];
+  uint16_t r3 = (uint16_t)(ratio + (ratio << 1));
+  uint8_t angle = (uint8_t)(((r3 << 4) + r3 + 12) >> 8);
   if (x >= 0) {
     if (y < 0) {
       // Q0: 0-12

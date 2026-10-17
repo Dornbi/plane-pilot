@@ -113,7 +113,7 @@ DESCRIPTIONS = {
         'Code': 'flight dynamics, physics integration, waypoint checking, '
                 'terrain grid rendering (`flight.cc`, `world.cc`, `sim.cc`, '
                 '`world_map.cc`, `clouds.cc`)',
-        'Data': 'orientation matrices (`mat3_rot`, `kHeadingLut`), the world '
+        'Data': 'orientation matrices (`mat3_rot`), the world '
                 'map, cloud hash and ladder tables',
         'BSS': 'flight path history (`flight_path_px/py`), delta transform '
                'vectors (`_world_dx4`, `_world_dy4`), camera state',
