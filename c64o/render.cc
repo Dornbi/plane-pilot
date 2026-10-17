@@ -134,46 +134,41 @@ static uint16_t _unused_get_dist(int8_t px, int8_t py) {
 
 void render_snap_center_chars() {
   bm_view_start();
-  uint16_t min_dist = 0x7fff;
   _pull_to_center();
+
+  int16_t px = render_px_pixels;
+  int16_t py = render_py_pixels;
+  int16_t best_px = px;
+  int16_t best_py = py;
+  render_alt_box = false;
 
   if (roll_period == 1) {
     _render_set_alt_shift();
 
-    // 1. Main Lattice
-    uint16_t dist = roll_get_dist(render_px_pixels, render_py_pixels);
-    min_dist = dist;
-    render_cx_chars = (int8_t)((render_px_pixels + 4) >> 3);
-    render_cy_chars = (int8_t)((render_py_pixels + 4) >> 3);
-    render_alt_box = false;
-
-    // 2. Alt Lattice
-    dist = roll_get_dist(render_px_pixels - render_alt_shift_x,
-                         render_py_pixels - render_alt_shift_y);
-    if (dist < min_dist) {
-      render_cx_chars =
-          (int8_t)((render_px_pixels - render_alt_shift_x + 4) >> 3);
-      render_cy_chars =
-          (int8_t)((render_py_pixels - render_alt_shift_y + 4) >> 3);
+    // 1. Main Lattice vs 2. Alt Lattice
+    uint16_t min_dist = roll_get_dist(px, py);
+    int16_t ax = px - render_alt_shift_x;
+    int16_t ay = py - render_alt_shift_y;
+    if (roll_get_dist(ax, ay) < min_dist) {
+      best_px = ax;
+      best_py = ay;
       render_alt_box = true;
     }
-    bm_view_end(670, "SNP:");
-    return;
-  }
-
-  int16_t px = render_px_pixels;
-  int16_t py = render_py_pixels;
-  render_alt_box = false;
-  for (uint8_t i = 0; i < roll_period; ++i) {
-    uint16_t dist = roll_get_dist(px, py);
-    if (dist < min_dist) {
-      min_dist = dist;
-      render_cx_chars = (int8_t)((px + 4) >> 3);
-      render_cy_chars = (int8_t)((py + 4) >> 3);
+  } else {
+    uint16_t min_dist = 0x7fff;
+    for (uint8_t i = 0; i < roll_period; ++i) {
+      uint16_t dist = roll_get_dist(px, py);
+      if (dist < min_dist) {
+        min_dist = dist;
+        best_px = px;
+        best_py = py;
+      }
+      px += roll_dx;
+      py += roll_dy;
     }
-    px += roll_dx;
-    py += roll_dy;
   }
+  render_cx_chars = (int8_t)((best_px + 4) >> 3);
+  render_cy_chars = (int8_t)((best_py + 4) >> 3);
   bm_view_end(670, "SNP:");
 }
 
@@ -187,44 +182,17 @@ static void _fill_line(uint8_t *dst, uint8_t val) {
 // The row _fill_span writes to, in the screen and in the colour buffer.
 static uint8_t *_row_dst, *_row_color;
 
-// Fills cells [from, to) of the current row, from < to: sky sets the colour
-// cell too, ground leaves it alone. A whole row goes through the unrolled
-// _fill_line.
-static inline void _fill_span(uint8_t from, uint8_t to, bool sky) {
-  uint8_t n = to - from;
-  if (n == kViewportWidth) {
-    if (sky) {
-      _fill_line(_row_dst, kCharSolid11);
-      _fill_line(_row_color, kColorSky | 0x08);
-    } else {
-      _fill_line(_row_dst, kCharSolidGround);
-    }
-    return;
-  }
-  uint8_t *dst = _row_dst + from;
+static void _fill_full_row(bool sky) {
   if (sky) {
-    uint8_t *dst_color = _row_color + from;
-    do {
-      --n;
-      dst[n] = kCharSolid11;
-      dst_color[n] = kColorSky | 0x08;
-    } while (n);
+    _fill_line(_row_dst, kCharSolid11);
+    _fill_line(_row_color, kColorSky | 0x08);
   } else {
-    do {
-      dst[--n] = kCharSolidGround;
-    } while (n);
+    _fill_line(_row_dst, kCharSolidGround);
   }
 }
 
-// Clamps a row number into [0, kViewportHeight].
-static inline uint8_t _clamp_rows(int16_t row) {
-  if (row < 0) {
-    return 0;
-  }
-  if (row > kViewportHeight) {
-    return kViewportHeight;
-  }
-  return row;
+static inline uint8_t _clamp_pos(int8_t row) {
+  return row < 0 ? 0 : (uint8_t)row;
 }
 
 // One 12.4 position past the right edge of the viewport.
@@ -236,7 +204,7 @@ static const int16_t kFull = kViewportWidth << 4;
 // row, lo and hi = lo + w, where w is the kSkipLines band and lo walks by
 // roll_dx_div_dy a row:
 //
-//   hi < 0x0f    the whole row is the right side's
+//   hi < 0x10    the whole row is the right side's
 //   lo >= kFull  the whole row is the left side's
 //   otherwise    l = lo >> 4 (0 below 0x10), r = hi >> 4 (the edge at kFull)
 //
@@ -255,21 +223,22 @@ void render_fill_sky_ground() {
     // The sky side's rows stop kSkipLines short of the horizon row, the
     // ground side's run up to it.
     bool sky_left = roll_dx > 0;
-    int16_t e = render_cy_chars;
+    int8_t e = render_cy_chars;
+    uint8_t row_l, row_r;
     if (sky_left) {
-      e -= kSkipLines;
+      row_r = _clamp_pos(e);
+      row_l = _clamp_pos((int8_t)(row_r - kSkipLines));
+    } else {
+      row_l = _clamp_pos(e);
+      row_r = _clamp_pos((int8_t)(e + kSkipLines));
     }
     // Its own loop rather than the span logic below, which costs about 90
     // cycles a row more, and level flight is the common case.
-    uint8_t row_l = _clamp_rows(e);
-    uint8_t row_r = _clamp_rows(e + kSkipLines);
     for (uint8_t y = 0; y < kViewportHeight; ++y) {
-      if (y < row_l || y >= row_r) {
-        bool sky = (y < row_l) == sky_left;
-        _fill_line(_row_dst, sky ? kCharSolid11 : kCharSolidGround);
-        if (sky) {
-          _fill_line(_row_color, kColorSky | 0x08);
-        }
+      if (y < row_l) {
+        _fill_full_row(sky_left);
+      } else if (y >= row_r) {
+        _fill_full_row(!sky_left);
       }
       _row_dst += kScreenWidth;
       _row_color += kViewportWidth;
@@ -304,25 +273,38 @@ void render_fill_sky_ground() {
     }
 
     for (uint8_t y = 0; y < kViewportHeight; ++y) {
-      uint8_t l = 0, r = kViewportWidth;
       int16_t hi = lo + w;
-      if (hi < 0x0f) {
-        r = 0;
+      if (hi < 0x10) {
+        _fill_full_row(!sky_left);
       } else if (lo >= kFull) {
-        l = kViewportWidth;
+        _fill_full_row(sky_left);
       } else {
         if (lo >= 0x10) {
-          l = lo >> 4;
+          int8_t i = (int8_t)(lo >> 4) - 1;
+          if (sky_left) {
+            do {
+              _row_dst[i] = kCharSolid11;
+              _row_color[i] = kColorSky | 0x08;
+            } while (--i >= 0);
+          } else {
+            do {
+              _row_dst[i] = kCharSolidGround;
+            } while (--i >= 0);
+          }
         }
         if (hi < kFull) {
-          r = hi >> 4;
+          uint8_t i = (uint8_t)(hi >> 4);
+          if (!sky_left) {
+            do {
+              _row_dst[i] = kCharSolid11;
+              _row_color[i] = kColorSky | 0x08;
+            } while (++i < kViewportWidth);
+          } else {
+            do {
+              _row_dst[i] = kCharSolidGround;
+            } while (++i < kViewportWidth);
+          }
         }
-      }
-      if (l) {
-        _fill_span(0, l, sky_left);
-      }
-      if (r < kViewportWidth) {
-        _fill_span(r, kViewportWidth, !sky_left);
       }
       _row_dst += kScreenWidth;
       _row_color += kViewportWidth;

@@ -259,7 +259,7 @@ static __noinline bool _out_of_bounds(int8_t cx, int8_t cy, int8_t sx,
       return true;
     }
   } else {
-    if (cx + (int8_t)boxdef.w <= 0) {
+    if ((int8_t)(cx + boxdef.w) <= 0) {
       return true;
     }
   }
@@ -268,7 +268,7 @@ static __noinline bool _out_of_bounds(int8_t cx, int8_t cy, int8_t sx,
       return true;
     }
   } else {
-    if (cy + (int8_t)boxdef.h <= 0) {
+    if ((int8_t)(cy + boxdef.h) <= 0) {
       return true;
     }
   }

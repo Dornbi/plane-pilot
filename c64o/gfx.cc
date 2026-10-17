@@ -176,11 +176,6 @@ static void _switch_to_panel_bottom() {
 }
 
 static void _gfx_switch_to_terrain() {
-  // Once per frame, and the only thing in the program that is. This is the
-  // model's timebase (flight.h kFlightFramesPerStep): the main loop's own rate
-  // depends on what is on screen, and the aircraft must not.
-  ++gfx_frame_count;
-
   sprites_show_terrain_sprites();
   vic.color_back = kColorGrad2;
   vic.ctrl1 = 0x1b; // Multicolor character mode
@@ -322,10 +317,6 @@ static void _gfx_rirq_init(void) {
 
 #pragma optimize(pop)
 
-// Written by the raster handler, read by the main line. One byte, so the read
-// needs no protection; it wraps every 256 frames and every use is a difference.
-volatile uint8_t gfx_frame_count;
-
 #pragma bss(bss2)
 RIRQCode _rirq_panel_top, _rirq_panel_bottom, _rirq_terrain, _rirq_sprites_off;
 
@@ -448,42 +439,25 @@ inline void gfx_wait_flip_window(void) {
     ;
 }
 
-static inline void _gfx_draw_ground_point(int16_t px, int16_t py) {
-  uint8_t cx = (uint16_t)px >> 3;
-  uint8_t cy = (uint8_t)py >> 3;
-  uint8_t *p = mem_screen_row_ptrs[cy] + kViewportStartX + cx;
-  if (*p == kCharSolidGround) {
-    uint8_t lpx = (uint8_t)px;
-    uint8_t lpy = (uint8_t)py;
-    uint8_t ch = kGfxGroundPoints + ((lpx & 0x06) >> 1) + ((lpy & 0x06) << 1);
-    *p = ch;
-  }
-}
-
-static inline void _gfx_draw_color_point(int16_t px, int16_t py,
-                                         uint8_t color) {
-  uint8_t cx = (uint16_t)px >> 3;
-  uint8_t cy = (uint8_t)py >> 3;
-  uint8_t *p = mem_screen_row_ptrs[cy] + kViewportStartX + cx;
-  if (*p == kCharSolidGround) {
-    uint8_t lpx = (uint8_t)px;
-    uint8_t lpy = (uint8_t)py;
-    uint8_t ch = kGfxColorPoints + ((lpx & 0x06) >> 1) + ((lpy & 0x06) << 1);
-    *p = ch;
-    mem_color_row_ptrs[cy][cx] = color;
-  }
-}
-
 void gfx_project_and_draw(uint8_t color) {
   if (vec_project()) {
     int16_t px = kViewportWidthPixels / 2 - vec_sx;
     int16_t py = kViewportHeightPixels / 2 - vec_sy;
     if ((uint16_t)px < (uint16_t)kViewportWidthPixels &&
         (uint16_t)py < (uint16_t)kViewportHeightPixels) {
-      if (color == kColorGround) {
-        _gfx_draw_ground_point(px, py);
-      } else {
-        _gfx_draw_color_point(px, py, 0x08 | color);
+      uint8_t cx = (uint16_t)px >> 3;
+      uint8_t cy = (uint8_t)py >> 3;
+      uint8_t *p = mem_screen_row_ptrs[cy] + kViewportStartX + cx;
+      if (*p == kCharSolidGround) {
+        uint8_t lpx = (uint8_t)px;
+        uint8_t lpy = (uint8_t)py;
+        uint8_t off = ((lpx & 0x06) >> 1) + ((lpy & 0x06) << 1);
+        if (color == kColorGround) {
+          *p = kGfxGroundPoints + off;
+        } else {
+          *p = kGfxColorPoints + off;
+          mem_color_row_ptrs[cy][cx] = 0x08 | color;
+        }
       }
     }
   }
@@ -549,7 +523,7 @@ inline void gfx_update_heading_bitmap(uint8_t heading) {
 // five cells, by the same row and column as the pointers below, and
 // tests/test_png2koa.py checks all three lists still agree. Only these cells
 // are pinned; light red elsewhere in the panel is the encoder's business.
-static void _set_lamp(uint8_t *color_ptr, bool on) {
+static inline void _set_lamp(uint8_t *color_ptr, bool on) {
   *color_ptr = on ? kColorLightRed : kColorBlack;
 }
 
@@ -562,7 +536,7 @@ static inline bool _lamps_live(void) {
   return !mem_debug_enabled && view_state == VIEW_CENTER;
 }
 
-void gfx_update_nav_heading(uint8_t heading) {
+inline void gfx_update_nav_heading(uint8_t heading) {
   static uint8_t *const kHdgPtr = kColorRam + 15 * kScreenWidth + 21;
   if (_lamps_live()) {
     _set_lamp(kHdgPtr, heading == 0 || heading > kHeadingMax / 2);
@@ -570,21 +544,21 @@ void gfx_update_nav_heading(uint8_t heading) {
   }
 }
 
-void gfx_update_stall(bool stall) {
+inline void gfx_update_stall(bool stall) {
   static uint8_t *const kStallPtr = kColorRam + 15 * kScreenWidth + 13;
   if (_lamps_live()) {
     _set_lamp(kStallPtr, stall);
   }
 }
 
-void gfx_update_flap(bool flap) {
+inline void gfx_update_flap(bool flap) {
   static uint8_t *const kFlapPtr = kColorRam + 17 * kScreenWidth + 13;
   if (_lamps_live()) {
     _set_lamp(kFlapPtr, flap);
   }
 }
 
-void gfx_update_gear(bool gear) {
+inline void gfx_update_gear(bool gear) {
   static uint8_t *const kGearPtr = kColorRam + 18 * kScreenWidth + 13;
   if (_lamps_live()) {
     _set_lamp(kGearPtr, gear);

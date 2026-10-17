@@ -77,7 +77,7 @@ static const uint8_t kNoticeFrames = 150;
 
 // Print the notice and start its countdown. Re-showing while one is up
 // restarts the clock, which is what repeated V presses should do.
-void screen_notice(const char *text, uint8_t len);
+void screen_notice(const char *text);
 
 // Call once per frame from a polling loop. Clears the notice when the
 // countdown expires; does nothing the rest of the time.

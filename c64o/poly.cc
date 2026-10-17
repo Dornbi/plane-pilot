@@ -303,81 +303,56 @@ static inline void _poly_scan_lines2(uint8_t fill_char_start_idx,
                                      uint8_t color, uint8_t py_start,
                                      uint8_t py_end) {
   for (uint8_t py = py_start; py <= py_end; ++py) {
-    uint8_t t_min, b_min, t_max, b_max;
-    t_min = _min_x[py << 1];
-    t_max = _max_x[py << 1];
-    b_min = _min_x[(py << 1) + 1];
-    b_max = _max_x[(py << 1) + 1];
-
-    bool t_valid, b_valid;
-    t_valid = (t_max >= t_min);
-    b_valid = (b_max >= b_min);
-
-    if (!t_valid && !b_valid) {
+    uint8_t sy = py << 1;
+    uint8_t t_min = _min_x[sy];
+    uint8_t b_min = _min_x[sy + 1];
+    uint8_t min_x = _min8(t_min, b_min);
+    if (min_x == kScreenWidth * 2) {
       continue;
     }
+    uint8_t t_max = _max_x[sy];
+    uint8_t b_max = _max_x[sy + 1];
 
     uint8_t *row = mem_screen_row_ptrs[py];
     uint8_t *color_row = mem_color_row_ptrs[py];
 
-    // 1. Find the absolute left and right bounds (in pixels) for this row
-    uint8_t min_px = kViewportWidth;
-    uint8_t max_px = 0;
-    if (t_valid) {
-      min_px = _min8(min_px, t_min >> 1);
-      max_px = _max8(max_px, t_max >> 1);
-    }
-    if (b_valid) {
-      min_px = _min8(min_px, b_min >> 1);
-      max_px = _max8(max_px, b_max >> 1);
-    }
+    // 1. Find the absolute left and right bounds (in pixels) for this row.
+    // Untouched sub-rows have min=80 and max=0, which are neutral for
+    // _min8/_max8.
+    uint8_t min_px = min_x >> 1;
+    uint8_t max_px = _max8(t_max, b_max) >> 1;
 
-    // 2. Calculate the "Solid Core" where both top and bottom are fully
-    // covered. A pixel is fully covered by a sub-row if min <= px*2 and max >=
-    // px*2+1. This translates to a solid pixel span starting at (min + 1)/2 and
-    // ending at (max - 1)/2.
-    int8_t overlap_start = kViewportWidth;
-    int8_t overlap_end = -1;
-
-    if (t_valid && b_valid) {
-      int8_t t_solid_start = ((int16_t)t_min + 1) >> 1;
-      int8_t t_solid_end = ((int16_t)t_max - 1) >> 1;
-      int8_t b_solid_start = ((int16_t)b_min + 1) >> 1;
-      int8_t b_solid_end = ((int16_t)b_max - 1) >> 1;
-
-      overlap_start =
-          t_solid_start > b_solid_start ? t_solid_start : b_solid_start;
-      overlap_end = t_solid_end < b_solid_end ? t_solid_end : b_solid_end;
-    }
-
-    // If the spans don't overlap or the polygon is too narrow, default to
-    // normal rendering
-    if (overlap_end < overlap_start) {
-      overlap_start =
-          max_px + 1; // Forces the whole line to be treated as a "fringe"
-      overlap_end = max_px;
-    }
+    // 2. Calculate the "Solid Core" [overlap_start, overlap_stop) where both
+    // top and bottom are fully covered. A pixel is fully covered by a sub-row
+    // if min <= px*2 and max >= px*2+1. This translates to a solid pixel span
+    // starting at (core_min + 1)/2 and stopping before (core_max + 1)/2.
+    uint8_t overlap_start = (uint8_t)(_max8(t_min, b_min) + 1) >> 1;
+    uint8_t overlap_stop = (uint8_t)(_min8(t_max, b_max) + 1) >> 1;
 
     // 3. Fast path: Memset the Solid Core (No read-modify-write!)
-    if (overlap_end >= overlap_start) {
+    if (overlap_stop > overlap_start) {
+      uint8_t cnt = overlap_stop - overlap_start;
       if (color) {
         _poly_set_color_line(row + overlap_start, fill_char_start_idx | 0xF,
-                             color_row + overlap_start, color,
-                             overlap_end - overlap_start + 1);
+                             color_row + overlap_start, color, cnt);
       } else {
-        _poly_set_line(row + overlap_start, fill_char_start_idx | 0xF,
-                       overlap_end - overlap_start + 1);
+        _poly_set_line(row + overlap_start, fill_char_start_idx | 0xF, cnt);
       }
+    } else {
+      // If the spans don't overlap or the polygon is too narrow, default to
+      // normal rendering: set overlap_start past max_px so the fringe loop
+      // never skips.
+      overlap_start = kViewportWidth;
     }
 
     // 4. Process the fringe (every pixel outside the solid core). The core,
     // when present, lies within [min_px, max_px] and was filled above, so we
     // jump over it here. overlap_start is guaranteed >= min_px; when there is
-    // no core overlap_start is set to max_px + 1, so the skip never triggers
-    // and the whole span is treated as fringe.
+    // no core overlap_start is set to kViewportWidth, so the skip never
+    // triggers and the whole span is treated as fringe.
     for (uint8_t px = min_px; px <= max_px; ++px) {
       if (px == overlap_start) {
-        px = overlap_end; // skip the solid core; ++px lands just past it
+        px = overlap_stop - 1; // skip the solid core; ++px lands just past it
         continue;
       }
       uint8_t *dst = row + px;
@@ -388,21 +363,17 @@ static inline void _poly_scan_lines2(uint8_t fill_char_start_idx,
       uint8_t mask = 0;
       uint8_t sx_left = px << 1;
       uint8_t sx_right = sx_left + 1;
-      if (t_valid) {
-        if (sx_left >= t_min && sx_left <= t_max) {
-          mask |= 1;
-        }
-        if (sx_right >= t_min && sx_right <= t_max) {
-          mask |= 2;
-        }
+      if (sx_left >= t_min && sx_left <= t_max) {
+        mask |= 1;
       }
-      if (b_valid) {
-        if (sx_left >= b_min && sx_left <= b_max) {
-          mask |= 4;
-        }
-        if (sx_right >= b_min && sx_right <= b_max) {
-          mask |= 8;
-        }
+      if (sx_right >= t_min && sx_right <= t_max) {
+        mask |= 2;
+      }
+      if (sx_left >= b_min && sx_left <= b_max) {
+        mask |= 4;
+      }
+      if (sx_right >= b_min && sx_right <= b_max) {
+        mask |= 8;
       }
       if (mask) {
         _poly_set_char2(dst, fill_char_start_idx, mask);
@@ -485,6 +456,52 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
 }
 
 // 3D near clip
+
+// Ones'-complement high-byte magnitude: v is in [-3840, 3839] iff _mag_hi(v) <
+// 15, which guarantees |v| < 4096 without 16-bit two's-complement negation.
+static inline uint8_t _mag_hi(int16_t v) {
+  uint8_t hi = (uint8_t)((uint16_t)v >> 8);
+  return (hi & 0x80) ? (uint8_t)(hi ^ 0xff) : hi;
+}
+
+static __noinline void _clip_near_edge(const vec3_t *prev, const vec3_t *curr,
+                                       vec3_t *dest) {
+  // Where the edge crosses, as a 0.16 fraction of it. vec_div8p8's eight
+  // bits are a part in 256 of an edge that is often a thousand units
+  // long, and at the near plane that lands whole characters away.
+  int16_t dx = curr->x - prev->x;
+  int16_t a = 8 - prev->x;
+  int16_t dy = curr->y - prev->y;
+  int16_t dz = curr->z - prev->z;
+  uint16_t t = vec_frac16(a, dx);
+  // Then the resolution of the answer. At x = 8 the projection
+  // multiplies y by 32, so one unit in is eight sub-pixels out: rounded
+  // to whole units the intersection can only land on every fourth
+  // character. Projection is a ratio, so scaling one vertex changes
+  // nothing but its own resolution - lift this one by eight, near plane
+  // included, whenever sixteen bits have the room.
+  //
+  // All six magnitudes have to be tested, not just the near end and the
+  // deltas: the intersection lies between prev and curr, so bounding
+  // prev and the delta bounds neither it nor curr. Missing curr here
+  // wrapped the scaled intersection to the far side of the screen and
+  // filled the whole viewport with one polygon, which is what this
+  // scaling was added to prevent. test_near_clip_scaling_never_overflows
+  // covers it. The OR is a cheap "all six fit": any magnitude with high byte
+  // >= 15 fails the test.
+  bool fits = (_mag_hi(prev->y) | _mag_hi(prev->z) | _mag_hi(curr->y) |
+               _mag_hi(curr->z) | _mag_hi(dy) | _mag_hi(dz)) < 15;
+  if (fits) {
+    dest->x = 8 << 3;
+    dest->y = (prev->y << 3) + vec_mulfrac(t, (int16_t)(dy << 3));
+    dest->z = (prev->z << 3) + vec_mulfrac(t, (int16_t)(dz << 3));
+  } else {
+    dest->x = 8;
+    dest->y = prev->y + vec_mulfrac(t, dy);
+    dest->z = prev->z + vec_mulfrac(t, dz);
+  }
+}
+
 static inline uint8_t _clip_near(const vec3_t *in, uint8_t num_in,
                                  vec3_t *out) {
   uint8_t num_out = 0;
@@ -496,42 +513,7 @@ static inline uint8_t _clip_near(const vec3_t *in, uint8_t num_in,
     bool curr_inside = curr->x >= 8;
 
     if (curr_inside != prev_inside) {
-      // Where the edge crosses, as a 0.16 fraction of it. vec_div8p8's eight
-      // bits are a part in 256 of an edge that is often a thousand units
-      // long, and at the near plane that lands whole characters away.
-      int16_t dx = curr->x - prev->x;
-      int16_t a = 8 - prev->x;
-      int16_t dy = curr->y - prev->y;
-      int16_t dz = curr->z - prev->z;
-      uint16_t t = vec_frac16(a, dx);
-      // Then the resolution of the answer. At x = 8 the projection
-      // multiplies y by 32, so one unit in is eight sub-pixels out: rounded
-      // to whole units the intersection can only land on every fourth
-      // character. Projection is a ratio, so scaling one vertex changes
-      // nothing but its own resolution - lift this one by eight, near plane
-      // included, whenever sixteen bits have the room.
-      //
-      // All six magnitudes have to be tested, not just the near end and the
-      // deltas: the intersection lies between prev and curr, so bounding
-      // prev and the delta bounds neither it nor curr. Missing curr here
-      // wrapped the scaled intersection to the far side of the screen and
-      // filled the whole viewport with one polygon, which is what this
-      // scaling was added to prevent. test_near_clip_scaling_never_overflows
-      // covers it. The OR is a cheap "all six fit": any bit at 4096 or above
-      // fails the test.
-      bool fits =
-          (uint16_t)(_abs16(prev->y) | _abs16(prev->z) | _abs16(curr->y) |
-                     _abs16(curr->z) | _abs16(dy) | _abs16(dz)) < 4096;
-      vec3_t *dest = &out[num_out++];
-      if (fits) {
-        dest->x = 8 << 3;
-        dest->y = (prev->y << 3) + vec_mulfrac(t, (int16_t)(dy << 3));
-        dest->z = (prev->z << 3) + vec_mulfrac(t, (int16_t)(dz << 3));
-      } else {
-        dest->x = 8;
-        dest->y = prev->y + vec_mulfrac(t, dy);
-        dest->z = prev->z + vec_mulfrac(t, dz);
-      }
+      _clip_near_edge(prev, curr, &out[num_out++]);
     }
     if (curr_inside) {
       out[num_out++] = *curr;
@@ -616,6 +598,8 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
 
   for (uint8_t i = 0; i < num_clip3; ++i) {
     vec_v = clip3_buf[i];
+    int16_t px = 40;
+    int16_t py = 14;
     if (vec_project_nocull()) {
       // Rounded, not truncated toward zero: the bias is half a sub-pixel and
       // it is signed, so the two ends of a polygon are pulled in opposite
@@ -631,20 +615,19 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
       //
       // (x >> 2) + bit 1 of x is the same round-half-up with no addition to
       // overflow: the bit is set exactly when x mod 4 >= 2.
-      proj_buf[i].x = 40 - ((vec_sx >> 2) + ((vec_sx >> 1) & 1));
-      proj_buf[i].y = 14 - ((vec_sy >> 2) + ((vec_sy >> 1) & 1));
-    } else {
-      proj_buf[i].x = 40;
-      proj_buf[i].y = 14;
+      px -= (vec_sx >> 2) + ((vec_sx >> 1) & 1);
+      py -= (vec_sy >> 2) + ((vec_sy >> 1) & 1);
     }
-    if (proj_buf[i].x < min_x)
-      min_x = proj_buf[i].x;
-    if (proj_buf[i].x > max_x)
-      max_x = proj_buf[i].x;
-    if (proj_buf[i].y < min_y)
-      min_y = proj_buf[i].y;
-    if (proj_buf[i].y > max_y)
-      max_y = proj_buf[i].y;
+    proj_buf[i].x = px;
+    proj_buf[i].y = py;
+    if (px < min_x)
+      min_x = px;
+    if (px > max_x)
+      max_x = px;
+    if (py < min_y)
+      min_y = py;
+    if (py > max_y)
+      max_y = py;
   }
 
   if (max_x < 0 || min_x > 79 || max_y < 0 || min_y > 27) {

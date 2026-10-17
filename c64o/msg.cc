@@ -7,8 +7,7 @@
 #include "mem.h"
 
 static const char *msg_text = nullptr;
-static uint16_t msg_duration = 0;
-static bool msg_is_permanent = false;
+static uint8_t msg_duration = 0;
 
 // Placement of the message on row 0. Computed once in msg_show() rather than
 // per frame, because the sprite hiding test needs it every frame and strlen()
@@ -29,23 +28,17 @@ static uint8_t msg_color_len = 0;
 void msg_clear(void) {
   msg_text = nullptr;
   msg_duration = 0;
-  msg_is_permanent = false;
-  msg_col = 0;
-  msg_len = 0;
-  msg_span_x0 = 0;
-  msg_span_x1 = 0;
 }
 
-void msg_show(const char *text, uint16_t duration, bool permanent) {
+void msg_show(const char *text, uint8_t duration, bool permanent) {
   if (text == nullptr) {
     return;
   }
-  if (msg_is_permanent && !permanent && msg_text != nullptr) {
+  if (msg_text != nullptr && msg_duration == 0 && !permanent) {
     return;
   }
   msg_text = text;
-  msg_duration = duration;
-  msg_is_permanent = permanent;
+  msg_duration = permanent ? 0 : duration;
 
   uint8_t len = (uint8_t)strlen(text);
   if (len > kScreenWidth) {
@@ -58,11 +51,8 @@ void msg_show(const char *text, uint16_t duration, bool permanent) {
 }
 
 void msg_update(void) {
-  if (!msg_is_permanent && msg_text != nullptr && msg_duration > 0) {
-    --msg_duration;
-    if (msg_duration == 0) {
-      msg_text = nullptr;
-    }
+  if (msg_duration != 0 && --msg_duration == 0) {
+    msg_text = nullptr;
   }
 }
 

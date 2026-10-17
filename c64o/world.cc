@@ -67,21 +67,24 @@ static __noinline void _world_split_vec(vec3_t *v, vec3_t d9[9]) {
   // of expanding the split inline three times (saves code size; only called
   // twice per frame).
   int16_t *vp = (int16_t *)v;
+  int16_t *dp = (int16_t *)d9;
   for (uint8_t i = 0; i < 3; ++i) {
-    int16_t val = vp[i];
+    int16_t val = *vp;
     int16_t hlf = val >> 1;
     int16_t dbl = val << 1;
-    ((int16_t *)&d9[4])[i] = 0;
-    ((int16_t *)&d9[6])[i] = val;
-    ((int16_t *)&d9[2])[i] = -val;
-    ((int16_t *)&d9[5])[i] = hlf;
-    ((int16_t *)&d9[3])[i] = -hlf;
-    ((int16_t *)&d9[1])[i] = -val - hlf;
-    ((int16_t *)&d9[7])[i] = val + hlf;
-    ((int16_t *)&d9[8])[i] = dbl;
-    ((int16_t *)&d9[0])[i] = -dbl;
+    dp[0 * 3] = -dbl;
+    dp[1 * 3] = -val - hlf;
+    dp[2 * 3] = -val;
+    dp[3 * 3] = -hlf;
+    dp[4 * 3] = 0;
+    dp[5 * 3] = hlf;
+    dp[6 * 3] = val;
+    dp[7 * 3] = val + hlf;
+    dp[8 * 3] = dbl;
+    *vp = dbl << 1;
+    ++vp;
+    ++dp;
   }
-  *v = make_vector(d9[8].x << 1, d9[8].y << 1, d9[8].z << 1);
 }
 
 static inline void _world_draw_box_points(uint8_t start_idx, uint8_t num_points,
@@ -89,10 +92,9 @@ static inline void _world_draw_box_points(uint8_t start_idx, uint8_t num_points,
   uint8_t idx = start_idx & 0x0F;
   uint8_t color = KWorldDotColors[map_type];
   for (uint8_t i = num_points;;) {
-    vec_v = _world_vec_v;
-    vec_v.x += _world_mitch_x[idx];
-    vec_v.y += _world_mitch_y[idx];
-    vec_v.z += _world_mitch_z[idx];
+    vec_v.x = _world_vec_v.x + _world_mitch_x[idx];
+    vec_v.y = _world_vec_v.y + _world_mitch_y[idx];
+    vec_v.z = _world_vec_v.z + _world_mitch_z[idx];
     gfx_project_and_draw(color);
     if (--i == 0) {
       break;
@@ -101,9 +103,8 @@ static inline void _world_draw_box_points(uint8_t start_idx, uint8_t num_points,
   }
 }
 
-// Total = 72 = 4 + 2*9 (3*3) + 2*25 (5x5)
-static const uint8_t kNumPoints2[] = {8, 4, 2};
-// Total = 96 = 4 + 2*9 (3*3) + 25 (5*5) + 49 (7*7)
+// Radius 2 uses [0..2] (total 72 = 4 + 2*9 + 2*25); radius 3 uses [0..3]
+// (total 96 = 4 + 2*9 + 25 + 49).
 static const uint8_t kNumPoints3[] = {8, 4, 2, 1};
 // Total = 108 = 2 + 25 (5*5) + 81 (9*9)
 static const uint8_t kNumPoints4[] = {4, 2, 2, 1, 1};
@@ -158,13 +159,8 @@ void _world_init_start_dx_dy() {
   if (_world_grid_radius > 4) {
     _world_grid_radius = 4;
   }
-  if (_world_grid_radius == 2) {
-    _num_points_per_radius = kNumPoints2;
-  } else if (_world_grid_radius == 3) {
-    _num_points_per_radius = kNumPoints3;
-  } else if (_world_grid_radius == 4) {
-    _num_points_per_radius = kNumPoints4;
-  }
+  _num_points_per_radius =
+      (_world_grid_radius == 4) ? kNumPoints4 : kNumPoints3;
   int16_t grid_spacing = kGridSpacing * _world_grid_radius;
 
   // Pre-calculate delta vectors for step in X and step in Y, and the start
@@ -198,10 +194,14 @@ void _world_render_object(WorldMapType object_type) {
 #pragma bss(bss2)
   uint8_t obj_idx = object_type - kWorldMapObjStart;
   uint8_t num_verts = kWorldObjNumVerts[obj_idx];
+  const uint8_t *ox = kWorldObjX[obj_idx];
+  const uint8_t *oy = kWorldObjY[obj_idx];
   for (uint8_t i = 0; i < num_verts; ++i) {
-    poly_verts[i] = _world_vec_v;
-    vec_add(&poly_verts[i], &_world_dx4[kWorldObjX[obj_idx][i]]);
-    vec_add(&poly_verts[i], &_world_dy4[kWorldObjY[obj_idx][i]]);
+    const vec3_t *dx = &_world_dx4[ox[i]];
+    const vec3_t *dy = &_world_dy4[oy[i]];
+    poly_verts[i].x = _world_vec_v.x + dx->x + dy->x;
+    poly_verts[i].y = _world_vec_v.y + dx->y + dy->y;
+    poly_verts[i].z = _world_vec_v.z + dx->z + dy->z;
   }
   // Just the draw, not the vertex build above it, so this stays comparable
   // with the by-hand figure in docs/framerate.md.
@@ -218,23 +218,22 @@ __noinline void world_render_grid() {
   // If the current vec_v.x falls below this value, we can abort.
   int16_t bailout = -_max16(_abs16(_world_dx4[0].x), _abs16(_world_dy4[0].x));
   uint8_t cx = _world_start_cx;
-  for (int8_t x = -_world_grid_radius;;) {
+  for (int8_t x = -(int8_t)_world_grid_radius;;) {
     _world_vec_v = _world_p_start;
-    uint8_t abs_x = _abs16(x);
-    uint8_t cx2 = cx << 1;
+    uint8_t abs_x = _abs8(x);
     // Note: cx is N and cy is W in this case.
     const uint8_t *map_row = world_map_row(cx & kWorldMapHeightMask);
     uint8_t cy = _world_start_cy;
-    for (int8_t y = -_world_grid_radius;;) {
+    for (int8_t y = -(int8_t)_world_grid_radius;;) {
       WorldMapType map_type = world_map_cell(map_row, cy & kWorldMapWidthMask);
       if (map_type >= kWorldMapObjStart) {
         _world_render_object(map_type);
       } else if (map_type != MAP_NOTHING) {
-        uint8_t start_idx = cx2 + cy;
-        uint8_t num_points = _num_points_per_radius[_max16(abs_x, _abs16(y))];
+        uint8_t start_idx = (cx << 1) + cy;
+        uint8_t num_points = _num_points_per_radius[_max8(abs_x, _abs8(y))];
         _world_draw_box_points(start_idx, num_points, map_type);
       }
-      if (++y > _world_grid_radius) {
+      if (++y > (int8_t)_world_grid_radius) {
         break;
       }
       cy += _world_step_y;
@@ -244,7 +243,7 @@ __noinline void world_render_grid() {
         break;
       }
     }
-    if (++x > _world_grid_radius) {
+    if (++x > (int8_t)_world_grid_radius) {
       break;
     }
     cx += _world_step_x;

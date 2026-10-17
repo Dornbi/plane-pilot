@@ -295,21 +295,19 @@ enum Voice3Effect {
 // What each effect puts on voice 3, indexed by enum Voice3Effect. V3_NONE is
 // all zeros. The crash's frequency is a sweep computed in sound_update(); its
 // entry here is only a placeholder.
-__striped static const uint16_t kSoundV3Freq[V3_FLAP + 1] = {
-    0, kSoundStallFreq, 0, kSoundTouchdownFreq, kSoundGearFreq, kSoundFlapFreq};
-__striped static const uint16_t kSoundV3Pw[V3_FLAP + 1] = {0, kSoundStallPw, 0, 0, 0, 0};
+static const uint8_t kSoundV3FreqHi[V3_FLAP + 1] = {
+    0,
+    (uint8_t)(kSoundStallFreq >> 8),
+    0,
+    (uint8_t)(kSoundTouchdownFreq >> 8),
+    (uint8_t)(kSoundGearFreq >> 8),
+    (uint8_t)(kSoundFlapFreq >> 8)};
 static const uint8_t kSoundV3Wave[] = {0,
                                        SID_CTRL_RECT,
                                        SID_CTRL_NOISE,
                                        SID_CTRL_NOISE,
                                        SID_CTRL_NOISE,
                                        SID_CTRL_NOISE};
-static const uint8_t kSoundV3AttDec[] = {0,
-                                         kSoundStallAttDec,
-                                         kSoundCrashAttDec,
-                                         kSoundOneShotAttDec,
-                                         kSoundOneShotAttDec,
-                                         kSoundOneShotAttDec};
 static const uint8_t kSoundV3SusRel[] = {0,
                                          kSoundStallSusRel,
                                          kSoundCrashSusRel,
@@ -480,8 +478,8 @@ static bool _sound_driver_live(void) {
 // this function holds whatever value it had at the moment of the crash - a
 // stalled aircraft that hits the ground would otherwise leave its engine and
 // its stall warning running forever.
-static bool _sound_flying(void) {
-  return _sound_driver_live() && !flight_crashed() && flight_fuel > 0;
+static bool _sound_flying(bool driver_live) {
+  return driver_live && !flight_crashed() && flight_fuel != 0;
 }
 
 // Cycling up and wrapping, so from the default of full the first press is
@@ -611,14 +609,15 @@ void sound_update(void) {
   // than as an absence of writes. A torn read then mixes two valid register
   // sets instead of a valid one with a blank.
   const bool driver_live = _sound_driver_live();
-  const bool flying = _sound_flying();
+  const bool flying = _sound_flying(driver_live);
 
   // Triangle from the 8-bit phase: count up over the bottom half, back down
   // over the top. Scaled by 8 into the 12-bit pulse width register, then
   // knocked off it by a small random offset - the other half of the grit.
-  uint8_t tri = (_sound_pwm_phase & 0x80)
-                    ? (uint8_t)(0xFE - ((_sound_pwm_phase & 0x7F) << 1))
-                    : (uint8_t)((_sound_pwm_phase & 0x7F) << 1);
+  uint8_t tri = (uint8_t)(_sound_pwm_phase << 1);
+  if (_sound_pwm_phase & 0x80) {
+    tri ^= 0xFE;
+  }
   uint16_t pw =
       kSoundPwmMin + ((uint16_t)tri << 3) + (r_pw & kSoundPwmJitterMask);
 
@@ -634,18 +633,21 @@ void sound_update(void) {
   // the product goes through vec_fastmul8p8 instead of oscar64's mul16, which
   // is what lets mul16 drop out of the link entirely (docs/sound.md section 9
   // costed this as a shift rewrite, but that would have to change the jitter's
-  // distribution to get rid of the variable multiplier). Shifting n up by 8
-  // makes the routine's trunc(a * b / 256) an exact product, and the >> 4 then
-  // happens in C exactly as before, so the register value is unchanged.
+  // distribution to get rid of the variable multiplier). Passing (amp << 1)
+  // and ((r_pitch & 0x1F) << 3) as unsigned bytes hits vec_fastmul8p8's
+  // single-byte fast path to compute (amp * (r_pitch & 0x1F)) >> 4 directly,
+  // and subtracting amp yields floor(amp * ((r_pitch & 0x1F) - 16) / 16).
   //
   // vec_fastmul8p8 clobbers the shared zero-page scratch in vec_asm.cc. That
   // is safe here for the same reason the rest of this function is main-line
   // only: sound_update() is called from sim_frame(), never from a raster IRQ.
   uint16_t base = sound_engine_base_freq(flight_throttle);
-  int16_t amp = (int16_t)(base >> kSoundEngineJitterShift);
-  int16_t n = (int16_t)(r_pitch & 0x1F) - 16;
+  uint8_t amp = (uint8_t)(base >> kSoundEngineJitterShift);
   uint16_t freq =
-      (uint16_t)((int16_t)base + (vec_fastmul8p8(amp, n << 8) >> 4));
+      (uint16_t)((int16_t)base +
+                 vec_fastmul8p8((uint8_t)(amp << 1),
+                                (uint8_t)((r_pitch & 0x1F) << 3)) -
+                 (int16_t)amp);
 
   // --- Voice 3 arbitration -------------------------------------------------
   //
@@ -763,7 +765,7 @@ void sound_update(void) {
 
   {
     const uint8_t effect = _sound_v3_effect;
-    uint16_t v3_freq = kSoundV3Freq[effect];
+    uint16_t v3_freq = (uint16_t)((uint16_t)kSoundV3FreqHi[effect] << 8);
     if (effect == V3_CRASH) {
       // Sweeps down as the burst runs. _sound_v3_frames counts from
       // kSoundCrashFrames to zero, so this is a plain linear interpolation
@@ -784,13 +786,14 @@ void sound_update(void) {
     }
     // A one-shot sounds for the whole time it owns the voice; the stall only
     // sounds during the on-half of its warble.
-    const bool gate_open = _sound_v3_effect == V3_STALL
-                               ? stall_sounding
-                               : _sound_v3_effect != V3_NONE;
+    const bool gate_open =
+        effect == V3_STALL ? stall_sounding : effect != V3_NONE;
     const uint8_t v3_wave = kSoundV3Wave[effect];
-    _sound_set_voice(kSoundRegV3, v3_freq, kSoundV3Pw[effect],
+    _sound_set_voice(kSoundRegV3, v3_freq,
+                     effect == V3_STALL ? kSoundStallPw : (uint16_t)0,
                      gate_open ? (v3_wave | SID_CTRL_GATE) : v3_wave,
-                     kSoundV3AttDec[effect], kSoundV3SusRel[effect]);
+                     kSoundStallAttDec | kSoundCrashAttDec | kSoundOneShotAttDec,
+                     kSoundV3SusRel[effect]);
   }
 
   // Voice 1: engine. Gate clear when inaudible rather than the whole voice

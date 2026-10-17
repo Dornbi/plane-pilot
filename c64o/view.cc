@@ -35,28 +35,23 @@ static const char kViewPanelColorCompressed[] = {
 #pragma data(data)
 
 void view_update_cam() {
-  if (view_state == VIEW_CENTER) {
-    world_cam.front = flight_cam.front;
-    world_cam.left = flight_cam.left;
-  } else if (view_state == VIEW_LEFT) {
-    world_cam.front = flight_cam.left;
-    world_cam.left = flight_cam.front;
-    vec_negate(&world_cam.left);
-  } else if (view_state == VIEW_RIGHT) {
-    world_cam.front = flight_cam.left;
-    vec_negate(&world_cam.front);
-    world_cam.left = flight_cam.front;
-  } else {
-    // Looking back: half a turn about `up`, which negates both of the other
-    // two. Negating only one would mirror the world rather than turn round in
-    // it -- the handedness has to survive, or every polygon comes out wound
-    // the wrong way.
-    world_cam.front = flight_cam.front;
-    vec_negate(&world_cam.front);
-    world_cam.left = flight_cam.left;
-    vec_negate(&world_cam.left);
-  }
   world_cam.up = flight_cam.up;
+  if (view_state == VIEW_CENTER || view_state == VIEW_BACK) {
+    world_cam.front = flight_cam.front;
+    world_cam.left = flight_cam.left;
+    if (view_state != VIEW_CENTER) {
+      // Looking back: half a turn about `up`, which negates both of the other
+      // two. Negating only one would mirror the world rather than turn round in
+      // it -- the handedness has to survive, or every polygon comes out wound
+      // the wrong way.
+      vec_negate(&world_cam.front);
+      vec_negate(&world_cam.left);
+    }
+  } else {
+    world_cam.front = flight_cam.left;
+    world_cam.left = flight_cam.front;
+    vec_negate(view_state == VIEW_LEFT ? &world_cam.left : &world_cam.front);
+  }
 }
 
 // Panel rebuilding runs only when the view changes (a keypress), never from
@@ -121,10 +116,10 @@ static const uint16_t kViewPanelCells =
 // rewrites it three times a frame, and blanking the whole screen mid-flight
 // would be a worse artifact than the one it hides.
 //
-// It also destroys the colors it covers, which is why _view_build_panel()
+// It also destroys the colors it covers, which is why view_refresh_panel()
 // re-expands them from the compressed copy rather than shifting what is on
 // screen, the way this file used to.
-static void _view_blackout_panel(void) {
+static inline void _view_blackout_panel(void) {
   memset(kViewScreenDst, 0, kViewPanelCells);
   memset(kViewColorDst, 0, kViewPanelCells);
 }
@@ -183,9 +178,10 @@ static inline void _view_shift_colors(bool is_left_view) {
 // under that, and put the colors back last. Every caller is either a screen
 // transition, where screen_blank() has the display off anyway, or a 1/2/3/4
 // view switch, where the blackout above is the only cover there is.
-//
-// The caller has already ruled out the debug view.
-static void _view_build_panel(void) {
+void view_refresh_panel() {
+  if (mem_debug_enabled) {
+    return;
+  }
   _view_blackout_panel();
 
   if (view_state == VIEW_BACK) {
@@ -228,13 +224,6 @@ static void _view_build_panel(void) {
   }
 }
 
-void view_refresh_panel() {
-  if (mem_debug_enabled) {
-    return;
-  }
-  _view_build_panel();
-}
-
 void view_invalidate_bitmap() { view_bitmap_state = VIEW_UNKNOWN; }
 
 void view_update_view(view_state_t new_state) {
@@ -242,14 +231,11 @@ void view_update_view(view_state_t new_state) {
     return;
   }
   view_state = new_state;
-  if (mem_debug_enabled) {
-    return;
-  }
   // Unlike every other caller of this, the simulation is still running and the
-  // raster split still owns the screen. _view_build_panel() is written for
+  // raster split still owns the screen. view_refresh_panel() is written for
   // that case; the old shortcut for "the previous state was already center"
   // now lives inside it, as the view_bitmap_state test.
-  _view_build_panel();
+  view_refresh_panel();
 }
 
 #pragma optimize(pop)
