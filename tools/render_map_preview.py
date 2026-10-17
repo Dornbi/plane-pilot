@@ -41,10 +41,10 @@ OBJ_ORDER = ["RWY", "FLD", "FLS", "FYW", "FYS", "PND", "LAK", "TWN", "CTY"]
 
 
 def _parse_world_map(path):
-    body = open(path).read().split("const WorldMapType kWorldMap")[1]
+    body = open(path).read().split("const uint8_t kWorldMap")[1]
     rows = [
         [t.strip() for t in r.split(",") if t.strip()]
-        for r in re.findall(r"\{([^{}]*)\}", body)
+        for r in re.findall(r"WORLD_MAP_ROW\(([^()]*)\)", body)
     ]
     rows = [r for r in rows if len(r) == MAP_W]
     if len(rows) != MAP_H:

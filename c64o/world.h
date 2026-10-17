@@ -31,16 +31,17 @@ enum WorldMapType {
   MAP_DOT_CYAN = 4,
   MAP_DOT_BLUE = 5,
   MAP_DOT_YELLOW = 6,
-  // Polygon objects
-  MAP_OBJ_RUNWAY = 16,
-  MAP_OBJ_FIELD = 17,
-  MAP_OBJ_FIELD_SPARSE = 18,
-  MAP_OBJ_FIELD_YELLOW = 19,
-  MAP_OBJ_FIELD_YELLOW_SPARSE = 20,
-  MAP_OBJ_POND = 21,
-  MAP_OBJ_LAKE = 22,
-  MAP_OBJ_TOWN = 23,
-  MAP_OBJ_CITY = 24,
+  // Polygon objects. They follow the dots directly so that every type fits
+  // the nibble kWorldMap stores it in.
+  MAP_OBJ_RUNWAY = 7,
+  MAP_OBJ_FIELD = 8,
+  MAP_OBJ_FIELD_SPARSE = 9,
+  MAP_OBJ_FIELD_YELLOW = 10,
+  MAP_OBJ_FIELD_YELLOW_SPARSE = 11,
+  MAP_OBJ_POND = 12,
+  MAP_OBJ_LAKE = 13,
+  MAP_OBJ_TOWN = 14,
+  MAP_OBJ_CITY = 15,
 };
 
 extern const uint8_t KWorldDotColors[7];
@@ -49,8 +50,22 @@ static const uint8_t kWorldMapWidth = 32;
 static const uint8_t kWorldMapWidthMask = 0x1F;
 static const uint8_t kWorldMapHeight = 16;
 static const uint8_t kWorldMapHeightMask = 0xF;
-extern const WorldMapType kWorldMap[kWorldMapHeight][kWorldMapWidth];
+// Two cells per byte, the even column in the low nibble. Read it through
+// world_map_row() and world_map_cell().
+extern const uint8_t kWorldMap[kWorldMapHeight][kWorldMapWidth / 2];
 static const uint8_t kWorldMapObjStart = MAP_OBJ_RUNWAY;
+
+// Rows are 16 B, so shift rather than index: kWorldMap[row] links oscar64's
+// __multab tables.
+static inline const uint8_t *world_map_row(uint8_t row) {
+  return kWorldMap[0] + ((uint16_t)row << 4);
+}
+
+static inline WorldMapType world_map_cell(const uint8_t *map_row,
+                                          uint8_t col) {
+  uint8_t pair = map_row[col >> 1];
+  return (WorldMapType)((col & 1) ? pair >> 4 : pair & 0x0F);
+}
 
 static const uint8_t kWorldObjDim = 9;
 // Matches kPolyMaxVertices in poly.h.

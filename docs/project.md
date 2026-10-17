@@ -300,7 +300,8 @@ in isolation.
 
 The world is a **32 × 16 map** (`kWorldMap`) that wraps in both directions.
 Each cell is either nothing, a colored dot cluster, or a polygon object
-(runway, field, pond, lake, town, city).
+(runway, field, pond, lake, town, city). Every type fits in a nibble, so the
+map stores two cells per byte, 256 B.
 
 `world_render_grid()` walks a square of cells centered on the plane. The radius
 is chosen from altitude (2 at ground level, 3 by default, 4 when high), and the

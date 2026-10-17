@@ -22,7 +22,7 @@ int main(int argc, char **argv) {
 
     uint8_t row = ((wx + 4) >> 3) & kWorldMapHeightMask;
     uint8_t col = ((wy + 4) >> 3) & kWorldMapWidthMask;
-    WorldMapType map_type = kWorldMap[row][col];
+    WorldMapType map_type = world_map_cell(world_map_row(row), col);
 
     printf("Checking Waypoint %2d (X=0x%02X, Y=0x%02X) -> Map Tile [%2d][%2d] = %d (Constraint %d)... ",
            i, wx, wy, row, col, (int)map_type, (int)constraint);

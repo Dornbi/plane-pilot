@@ -223,13 +223,10 @@ __noinline void world_render_grid() {
     uint8_t abs_x = _abs16(x);
     uint8_t cx2 = cx << 1;
     // Note: cx is N and cy is W in this case.
-    // Rows are 32 B, so shift rather than index: kWorldMap[row] links
-    // oscar64's 32 B __multab32 tables.
-    const WorldMapType* map_row =
-        kWorldMap[0] + ((uint16_t)(cx & kWorldMapHeightMask) << 5);
+    const uint8_t *map_row = world_map_row(cx & kWorldMapHeightMask);
     uint8_t cy = _world_start_cy;
     for (int8_t y = -_world_grid_radius;;) {
-      WorldMapType map_type = map_row[cy & kWorldMapWidthMask];
+      WorldMapType map_type = world_map_cell(map_row, cy & kWorldMapWidthMask);
       if (map_type >= kWorldMapObjStart) {
         _world_render_object(map_type);
       } else if (map_type != MAP_NOTHING) {

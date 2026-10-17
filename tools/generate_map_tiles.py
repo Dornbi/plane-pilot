@@ -79,7 +79,7 @@ TILE_NAMES = [
     "DOT_CYAN",
     "DOT_BLUE",
     "DOT_YELLOW",
-    # Polygon objects, MAP_OBJ_RUNWAY .. MAP_OBJ_CITY (world.h 16..24).
+    # Polygon objects, MAP_OBJ_RUNWAY .. MAP_OBJ_CITY (world.h 7..15).
     "RUNWAY",
     "FIELD",
     "FIELD_SPARSE",

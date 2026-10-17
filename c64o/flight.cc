@@ -639,7 +639,7 @@ static bool _flight_on_runway() {
       ((uint8_t)((flight_eye_x >> 16) + 0x04) >> 3) & kWorldMapHeightMask;
   uint8_t col =
       ((uint8_t)((flight_eye_y >> 16) + 0x04) >> 3) & kWorldMapWidthMask;
-  return kWorldMap[row][col] == MAP_OBJ_RUNWAY;
+  return world_map_cell(world_map_row(row), col) == MAP_OBJ_RUNWAY;
 }
 
 // One landing envelope test, shared by the approach warnings and the

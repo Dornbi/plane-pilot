@@ -230,7 +230,8 @@ Tiles needed:
 | `MAP_OBJ_*` (runway … city) | 9 | art, `col` seeded from `kWorldObjColors` |
 
 15 tiles: 8 row arrays plus two colour arrays, so 10 bytes per tile, 150 bytes.
-Plus a type→index lookup — types are `1..6` and `16..24`, so
+Plus a type→index lookup — types are `1..6` and `7..15` (one nibble each,
+see `world_map_cell()`), so
 `idx = type < kWorldMapObjStart ? type : type - kWorldMapObjStart + 7`.
 
 Navpoint digits are **not** tiles. They are overlay stencils — see §8.

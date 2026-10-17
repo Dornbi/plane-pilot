@@ -83,24 +83,39 @@ const uint8_t kWorldObjColors[kWorldObjDim] = {
     kColorBlack,  // MAP_OBJ_CITY
 };
 
+// Two cells per byte, the even column in the low nibble (world.h
+// world_map_cell()). The rows below stay one entry per cell.
+#define WORLD_MAP_PAIR(lo, hi) ((uint8_t)((lo) | ((hi) << 4)))
+#define WORLD_MAP_ROW(c00, c01, c02, c03, c04, c05, c06, c07, c08, c09, c10, \
+                      c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, \
+                      c22, c23, c24, c25, c26, c27, c28, c29, c30, c31) \
+    {WORLD_MAP_PAIR(c00, c01), WORLD_MAP_PAIR(c02, c03), \
+     WORLD_MAP_PAIR(c04, c05), WORLD_MAP_PAIR(c06, c07), \
+     WORLD_MAP_PAIR(c08, c09), WORLD_MAP_PAIR(c10, c11), \
+     WORLD_MAP_PAIR(c12, c13), WORLD_MAP_PAIR(c14, c15), \
+     WORLD_MAP_PAIR(c16, c17), WORLD_MAP_PAIR(c18, c19), \
+     WORLD_MAP_PAIR(c20, c21), WORLD_MAP_PAIR(c22, c23), \
+     WORLD_MAP_PAIR(c24, c25), WORLD_MAP_PAIR(c26, c27), \
+     WORLD_MAP_PAIR(c28, c29), WORLD_MAP_PAIR(c30, c31)}
+
 // On this map N is down, W is right, S is up and E is left.
 // clang-format off
-const WorldMapType kWorldMap[kWorldMapHeight][kWorldMapWidth] = {
+const uint8_t kWorldMap[kWorldMapHeight][kWorldMapWidth / 2] = {
     // 00       10        20        30        40        50        60        70        80        90        A0        B0        C0        D0        E0        F0
-    {D__, D__, D__, DB_, PND, DB_, D__, D__, DY_, DY_, DY_, D__, D__, DK_, D__, D__, D__, D__, D__, DY_, DY_, DY_, D__, D__, D__, DC_, DC_, DC_, D__, D__, D__, D__}, // 00
-    {D__, D__, D__, DB_, DB_, DB_, D__, D__, DW_, D__, D__, D__, DK_, DK_, DK_, D__, D__, D__, D__, DY_, FYS, DY_, D__, D__, DC_, DB_, DB_, DB_, DC_, D__, D__, D__},
-    {D__, D__, D__, D__, D__, D__, D__, D__, DW_, D__, D__, DK_, DK_, CTY, DK_, DK_, D__, D__, D__, DY_, DY_, DY_, D__, D__, DC_, DB_, LAK, DB_, DC_, D__, D__, D__}, // 10
-    {D__, D__, D__, D__, D__, D__, D__, D__, DW_, D__, D__, D__, DK_, DK_, DK_, D__, D__, D__, D__, D__, D__, D__, D__, D__, DC_, DB_, DB_, DB_, DC_, D__, D__, D__},
-    {D__, D__, D__, D__, D__, D__, D__, D__, RWY, D__, D__, D__, D__, DK_, DK_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, DC_, DC_, DC_, D__, D__, D__, D__}, // 20
-    {D__, D__, DY_, DY_, DY_, D__, D__, D__, DW_, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__},
-    {D__, D__, DY_, FYS, DY_, D__, D__, D__, DW_, D__, D__, D__, D__, D__, DK_, D__, D__, FLS, D__, D__, D__, D__, D__, D__, D__, D__, D__, DC_, DC_, DC_, D__, D__}, // 30
-    {D__, D__, DY_, DY_, DY_, D__, D__, DY_, DW_, D__, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, D__, D__, FLD, D__, D__, D__, DC_, DB_, DB_, DB_, DC_, D__},
-    {D__, D__, D__, D__, D__, D__, DY_, DY_, DY_, D__, D__, D__, FLS, D__, D__, DK_, D__, D__, D__, D__, D__, D__, D__, D__, DW_, D__, DC_, DB_, LAK, DB_, DC_, D__}, // 40
-    {D__, DC_, DC_, DC_, D__, DY_, DY_, FYW, DY_, DY_, D__, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, D__, D__, D__, DW_, D__, DC_, DB_, DB_, DB_, DC_, D__},
-    {DC_, DB_, DB_, DB_, DC_, D__, DY_, DY_, DY_, D__, D__, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, D__, D__, D__, DW_, D__, D__, DC_, DC_, DC_, D__, D__}, // 50
-    {DC_, DB_, LAK, DB_, DC_, D__, D__, DY_, D__, D__, D__, D__, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, DK_, D__, DW_, D__, D__, D__, D__, D__, D__, D__},
-    {DC_, DB_, DB_, DB_, DC_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, DK_, DK_, DK_, DK_, D__, DK_, RWY, D__, D__, D__, D__, D__, D__, D__}, // 60
-    {D__, DC_, DC_, DC_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, FLD, D__, D__, D__, DK_, TWN, DK_, D__, D__, D__, DW_, DK_, DK_, D__, DK_, DK_, DK_, D__},
-    {D__, D__, D__, D__, D__, D__, D__, D__, DY_, DY_, DY_, D__, D__, D__, D__, D__, D__, D__, DK_, DK_, DK_, D__, D__, D__, DW_, D__, D__, DK_, DK_, TWN, DK_, D__}, // 70
-    {D__, D__, D__, DB_, DB_, DB_, D__, D__, DY_, FYS, DY_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, DW_, D__, D__, D__, DK_, DK_, DK_, D__},
+    WORLD_MAP_ROW(D__, D__, D__, DB_, PND, DB_, D__, D__, DY_, DY_, DY_, D__, D__, DK_, D__, D__, D__, D__, D__, DY_, DY_, DY_, D__, D__, D__, DC_, DC_, DC_, D__, D__, D__, D__), // 00
+    WORLD_MAP_ROW(D__, D__, D__, DB_, DB_, DB_, D__, D__, DW_, D__, D__, D__, DK_, DK_, DK_, D__, D__, D__, D__, DY_, FYS, DY_, D__, D__, DC_, DB_, DB_, DB_, DC_, D__, D__, D__),
+    WORLD_MAP_ROW(D__, D__, D__, D__, D__, D__, D__, D__, DW_, D__, D__, DK_, DK_, CTY, DK_, DK_, D__, D__, D__, DY_, DY_, DY_, D__, D__, DC_, DB_, LAK, DB_, DC_, D__, D__, D__), // 10
+    WORLD_MAP_ROW(D__, D__, D__, D__, D__, D__, D__, D__, DW_, D__, D__, D__, DK_, DK_, DK_, D__, D__, D__, D__, D__, D__, D__, D__, D__, DC_, DB_, DB_, DB_, DC_, D__, D__, D__),
+    WORLD_MAP_ROW(D__, D__, D__, D__, D__, D__, D__, D__, RWY, D__, D__, D__, D__, DK_, DK_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, DC_, DC_, DC_, D__, D__, D__, D__), // 20
+    WORLD_MAP_ROW(D__, D__, DY_, DY_, DY_, D__, D__, D__, DW_, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__),
+    WORLD_MAP_ROW(D__, D__, DY_, FYS, DY_, D__, D__, D__, DW_, D__, D__, D__, D__, D__, DK_, D__, D__, FLS, D__, D__, D__, D__, D__, D__, D__, D__, D__, DC_, DC_, DC_, D__, D__), // 30
+    WORLD_MAP_ROW(D__, D__, DY_, DY_, DY_, D__, D__, DY_, DW_, D__, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, D__, D__, FLD, D__, D__, D__, DC_, DB_, DB_, DB_, DC_, D__),
+    WORLD_MAP_ROW(D__, D__, D__, D__, D__, D__, DY_, DY_, DY_, D__, D__, D__, FLS, D__, D__, DK_, D__, D__, D__, D__, D__, D__, D__, D__, DW_, D__, DC_, DB_, LAK, DB_, DC_, D__), // 40
+    WORLD_MAP_ROW(D__, DC_, DC_, DC_, D__, DY_, DY_, FYW, DY_, DY_, D__, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, D__, D__, D__, DW_, D__, DC_, DB_, DB_, DB_, DC_, D__),
+    WORLD_MAP_ROW(DC_, DB_, DB_, DB_, DC_, D__, DY_, DY_, DY_, D__, D__, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, D__, D__, D__, DW_, D__, D__, DC_, DC_, DC_, D__, D__), // 50
+    WORLD_MAP_ROW(DC_, DB_, LAK, DB_, DC_, D__, D__, DY_, D__, D__, D__, D__, D__, D__, D__, D__, D__, DK_, D__, D__, D__, D__, DK_, D__, DW_, D__, D__, D__, D__, D__, D__, D__),
+    WORLD_MAP_ROW(DC_, DB_, DB_, DB_, DC_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, DK_, DK_, DK_, DK_, D__, DK_, RWY, D__, D__, D__, D__, D__, D__, D__), // 60
+    WORLD_MAP_ROW(D__, DC_, DC_, DC_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, FLD, D__, D__, D__, DK_, TWN, DK_, D__, D__, D__, DW_, DK_, DK_, D__, DK_, DK_, DK_, D__),
+    WORLD_MAP_ROW(D__, D__, D__, D__, D__, D__, D__, D__, DY_, DY_, DY_, D__, D__, D__, D__, D__, D__, D__, DK_, DK_, DK_, D__, D__, D__, DW_, D__, D__, DK_, DK_, TWN, DK_, D__), // 70
+    WORLD_MAP_ROW(D__, D__, D__, DB_, DB_, DB_, D__, D__, DY_, FYS, DY_, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, D__, DW_, D__, D__, D__, DK_, DK_, DK_, D__),
 };

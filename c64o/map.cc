@@ -268,8 +268,10 @@ static inline void _map_draw_object_layer(void) {
   uint8_t *bm = kMapBitmap + kMapCharOffset * 8;
   uint8_t *cr = kColorRam + kMapCharOffset;
   for (uint8_t row = kWorldMapHeight; row-- != 0;) {
+    const uint8_t *map_row = world_map_row(row);
     for (uint8_t col = kWorldMapWidth; col-- != 0;) {
-      const uint8_t idx = _map_tile_index(kWorldMap[row][col], row, col);
+      const uint8_t idx =
+          _map_tile_index(world_map_cell(map_row, col), row, col);
       // Eight indexed loads sharing one index register, off a
       // compile-time-constant base per row. This is what kMapTileRows is
       // transposed for: a [tile][8] layout would need a multiply by 8 and a
@@ -297,8 +299,10 @@ static inline void _map_draw_object_layer(void) {
 static void _map_draw_screen_layer(void) {
   uint8_t *sm = kMapScreenRam + kMapCharOffset;
   for (uint8_t row = kWorldMapHeight; row-- != 0;) {
+    const uint8_t *map_row = world_map_row(row);
     for (uint8_t col = kWorldMapWidth; col-- != 0;) {
-      const uint8_t idx = _map_tile_index(kWorldMap[row][col], row, col);
+      const uint8_t idx =
+          _map_tile_index(world_map_cell(map_row, col), row, col);
       *sm++ = (kColorWhite << 4) | kMapTileLo[idx];
     }
     sm += kMapCharGap;
