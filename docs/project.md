@@ -188,8 +188,9 @@ Map mode short-circuits the whole render path and just waits for vsync.
 
 One macro list defines the first 30 of the 60 angles and expands into three
 parallel tables: `kRollDx`, `kRollDy` and `kRollDxDivDy` (a 12.4 fixed-point
-slope). `kRollPeriod` gives how many pixel steps along the line before it
-returns to a character-aligned position; the renderer caps it at 8. Angle
+slope). The period, how many pixel steps along the line before it returns to
+a character-aligned position, is computed from the trailing zero bits of
+`dx | dy`; the renderer caps it at 8. Angle
 a + 30 is angle a with `dx` and `dy` negated, so `roll_update_state()` folds
 the second half-turn onto the first. It also selects hand-written multiply-by-constant routines (`roll_mul_funcs`) for
 the current `dx`/`dy`.
@@ -307,7 +308,7 @@ map stores two cells per byte, 256 B.
 `world_render_grid()` walks a square of cells centered on the plane. The radius
 is chosen from altitude (2 at ground level, 3 by default, 4 when high), and the
 number of dots per cell falls off with distance from the center
-(`kNumPoints2/3/4`). Dot positions inside a cell come from a 16-entry
+(`kNumPoints3/4`; radius 2 reads the first three entries of `kNumPoints3`). Dot positions inside a cell come from a 16-entry
 Mitchell's-best-candidate distribution, precombined once per frame into
 `_mitch_x/y/z` so each dot costs three additions and a projection. Iteration
 breaks out early once cells fall behind the camera.

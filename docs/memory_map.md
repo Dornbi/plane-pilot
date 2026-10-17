@@ -227,7 +227,7 @@ Feature table total        60,729 B
 ### 11. Core System & Drivers (5,830 B)
 
 * **Code (5,225 B)**: entry point, VIC setup, raster IRQ core, LZO decompressor, keyboard, CPU speed probe, oscar64 runtime (`ppilot.cc`, `mem.cc`, `gfx.cc`, `screen.cc`, `keys.cc`, `cpu.cc`, `bcd.cc`, `print.cc`); the boot-only part of it is the boot region at `$0860`, which is `box.cc`'s cache space once it has run.
-* **Data (375 B)**: startup header, screen row pointer tables, fill patterns.
+* **Data (375 B)**: startup header, screen row pointer table, fill patterns.
 * **BSS (217 B)**: raster IRQ lists, keyboard matrix, CPU probe results.
 * **ZP (13 B)**: compiler temporaries and kernel flags.
 * **Off budget (1,000 B)**: color RAM $D800-$DBE7: 1000 x 4 bits inside the I/O block, not DRAM.
