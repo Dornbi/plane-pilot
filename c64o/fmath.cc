@@ -122,17 +122,15 @@ uint8_t _get_heading(int16_t x, int16_t y) {
   }
 }
 
-static const uint8_t kRollAngleLut[65] = {
-    0,  0,  0,  0,  1,  1,  1,  1,  2,  2,  2,  2,  3,  3,  3,  3,  4,
-    4,  4,  4,  5,  5,  5,  5,  6,  6,  6,  6,  7,  7,  7,  7,  8,  8,
-    8,  8,  9,  9,  9,  9,  10, 10, 10, 10, 11, 11, 11, 11, 12, 12, 12,
-    12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15, 15};
-
 static const uint8_t kRollMax = 60;
 
 uint8_t _get_roll_angle(int16_t up_z, int16_t left_z) {
-  uint8_t ratio = _get_ratio(up_z, left_z);
-  uint8_t angle = kRollAngleLut[ratio];
+  // 16 steps over the quadrant's 0..64 ratio, four ratio units each; the
+  // full-quadrant ratio 64 stays in the last step.
+  uint8_t angle = _get_ratio(up_z, left_z) >> 2;
+  if (angle == 16) {
+    angle = 15;
+  }
   if (up_z >= 0) {
     if (left_z >= 0) {
       // Q0: 0-15
