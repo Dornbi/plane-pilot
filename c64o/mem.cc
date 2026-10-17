@@ -28,7 +28,6 @@ static const char *oscar_expand_lzo(char *dp, const char *sp) { return sp; }
 #pragma bss(bss2)
 static uint8_t *const kSpriteData = (uint8_t *)0xD400;
 
-uint8_t mem_box_char_start;
 #ifdef __ENABLE_DEBUG__
 bool mem_debug_enabled;
 #endif
@@ -39,7 +38,9 @@ bool mem_using_alt_buffer;
 // holding.
 volatile uint8_t mem_den = 0x10;
 
-__striped static uint8_t *const kScreenRowPtrsMain[kScreenHeight] = {
+uint8_t *mem_screen_ram = kScreenRamMain;
+uint8_t mem_box_char_start = 0x01;
+__striped uint8_t *mem_screen_row_ptrs[kScreenHeight] = {
     kScreenRamMain + kScreenWidth * 0,  kScreenRamMain + kScreenWidth * 1,
     kScreenRamMain + kScreenWidth * 2,  kScreenRamMain + kScreenWidth * 3,
     kScreenRamMain + kScreenWidth * 4,  kScreenRamMain + kScreenWidth * 5,
@@ -53,24 +54,6 @@ __striped static uint8_t *const kScreenRowPtrsMain[kScreenHeight] = {
     kScreenRamMain + kScreenWidth * 20, kScreenRamMain + kScreenWidth * 21,
     kScreenRamMain + kScreenWidth * 22, kScreenRamMain + kScreenWidth * 23,
     kScreenRamMain + kScreenWidth * 24};
-
-__striped static uint8_t *const kScreenRowPtrsAlt[kScreenHeight] = {
-    kScreenRamAlt + kScreenWidth * 0,  kScreenRamAlt + kScreenWidth * 1,
-    kScreenRamAlt + kScreenWidth * 2,  kScreenRamAlt + kScreenWidth * 3,
-    kScreenRamAlt + kScreenWidth * 4,  kScreenRamAlt + kScreenWidth * 5,
-    kScreenRamAlt + kScreenWidth * 6,  kScreenRamAlt + kScreenWidth * 7,
-    kScreenRamAlt + kScreenWidth * 8,  kScreenRamAlt + kScreenWidth * 9,
-    kScreenRamAlt + kScreenWidth * 10, kScreenRamAlt + kScreenWidth * 11,
-    kScreenRamAlt + kScreenWidth * 12, kScreenRamAlt + kScreenWidth * 13,
-    kScreenRamAlt + kScreenWidth * 14, kScreenRamAlt + kScreenWidth * 15,
-    kScreenRamAlt + kScreenWidth * 16, kScreenRamAlt + kScreenWidth * 17,
-    kScreenRamAlt + kScreenWidth * 18, kScreenRamAlt + kScreenWidth * 19,
-    kScreenRamAlt + kScreenWidth * 20, kScreenRamAlt + kScreenWidth * 21,
-    kScreenRamAlt + kScreenWidth * 22, kScreenRamAlt + kScreenWidth * 23,
-    kScreenRamAlt + kScreenWidth * 24};
-
-uint8_t *mem_screen_ram;
-__striped uint8_t *mem_screen_row_ptrs[kScreenHeight];
 
 // uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
 // Reuse kSpriteDsataCompressed.
@@ -189,13 +172,30 @@ void mem_init(void) {
 static void _copy_color_ram(void) {
   uint8_t *dst = kColorRam + kViewportStartX;
   const uint8_t *src = mem_color_buffer;
-  uint8_t x = kViewportWidth - 1;
-  do {
+  for (int8_t x = kViewportWidth - 1; x >= 0; --x) {
 #pragma unroll(full)
     for (uint8_t y = 0; y < kViewportHeight; ++y) {
-      dst[x + y * kScreenWidth] = src[x + y * kViewportWidth];
+      dst[(uint8_t)x + y * kScreenWidth] =
+          src[(uint8_t)x + y * kViewportWidth];
     }
-  } while (x--);
+  }
+}
+
+static void _mem_toggle_buffer_ptrs(void) {
+  mem_using_alt_buffer = !mem_using_alt_buffer;
+  if (mem_using_alt_buffer) {
+    // Now rendering into the alt buffer; _switch_to_terrain() will put the
+    // main buffer on screen.
+    mem_screen_ram = kScreenRamAlt;
+    mem_box_char_start = 0x61;
+  } else {
+    mem_screen_ram = kScreenRamMain;
+    mem_box_char_start = 0x01;
+  }
+  uint8_t *hi = (uint8_t *)mem_screen_row_ptrs + kScreenHeight;
+  for (int8_t i = kScreenHeight - 1; i >= 0; --i) {
+    hi[(uint8_t)i] ^= 0x04;
+  }
 }
 
 void mem_switch_buffer(void) {
@@ -216,19 +216,7 @@ void mem_switch_buffer(void) {
   // before the toggle, which is not.
   bm_view_start();
 
-  mem_using_alt_buffer = !mem_using_alt_buffer;
-
-  if (mem_using_alt_buffer) {
-    // Now rendering into the alt buffer; _switch_to_terrain() will put the
-    // main buffer on screen.
-    mem_screen_ram = kScreenRamAlt;
-    mem_screen_row_ptrs = kScreenRowPtrsAlt;
-    mem_box_char_start = 0x61;
-  } else {
-    mem_screen_ram = kScreenRamMain;
-    mem_screen_row_ptrs = kScreenRowPtrsMain;
-    mem_box_char_start = 0x01;
-  }
+  _mem_toggle_buffer_ptrs();
 
   _copy_color_ram();
   bm_view_end(910, "COL:");
@@ -242,10 +230,9 @@ void mem_use_main_buffer(void) {
     sei;
   }
   vic_memptr = kVicMemScreenMain;
-  mem_screen_ram = kScreenRamMain;
-  mem_screen_row_ptrs = kScreenRowPtrsMain;
-  mem_box_char_start = 0x01;
-  mem_using_alt_buffer = false;
+  if (mem_using_alt_buffer) {
+    _mem_toggle_buffer_ptrs();
+  }
 }
 
 inline void mem_set_mccm_mode(void) {

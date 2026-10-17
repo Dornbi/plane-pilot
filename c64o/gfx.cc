@@ -179,7 +179,6 @@ static void _gfx_switch_to_terrain() {
   // Once per frame, and the only thing in the program that is. This is the
   // model's timebase (flight.h kFlightFramesPerStep): the main loop's own rate
   // depends on what is on screen, and the aircraft must not.
-  ++gfx_frame_count;
 
   sprites_show_terrain_sprites();
   vic.color_back = kColorGrad2;
