@@ -23,7 +23,8 @@
 #      in docs/ram-loop.md, so that later passes do not repeat the idea.
 #
 # It stops after MAX_FAILS passes in a row with nothing kept, when the worker
-# reports NO_MORE_IDEAS, or after max_passes. All work goes on branch $BRANCH,
+# reports NO_MORE_IDEAS, when an agent call fails or hits the account's usage
+# limit, or after max_passes. All work goes on branch $BRANCH,
 # which is created from the current HEAD if it does not exist. Nothing is
 # pushed.
 #
@@ -122,6 +123,13 @@ over_budget() {  # over_budget <bench out>
       echo "$scene $now cycles, over $base +$CYCLE_SLACK_PERCENT%"; return
     fi
   done
+}
+
+# Whether an agent's log reads like the account ran out of usage rather than
+# like an answer. Checked only when the agent left no result behind, so a
+# worker that merely writes about limits in its analysis cannot trip it.
+limit_hit() {  # limit_hit <log>
+  grep -qiE 'usage limit|limit reached|hit your limit|out of extra usage|credit balance is too low|rate[ _-]limit' "$1"
 }
 
 pct() {  # pct <new> <old>: signed change in percent, one decimal
@@ -263,6 +271,10 @@ for ((n = 1; n <= MAX_PASSES && fails < MAX_FAILS; n++)); do
     git reset -q --hard "$head"; git clean -fdq
     die "worker call failed (exit $rc); see $RUN_DIR/pass$pass.worker.log"
   fi
+  if [ ! -f "$RUN_DIR/summary.txt" ] && limit_hit "$RUN_DIR/pass$pass.worker.log"; then
+    git reset -q --hard "$head"; git clean -fdq
+    die "usage limit reached during pass $pass; see $RUN_DIR/pass$pass.worker.log"
+  fi
 
   if grep -q '^NO_MORE_IDEAS' "$RUN_DIR/summary.txt" 2>/dev/null; then
     why=$(sed -n 's/^NO_MORE_IDEAS:* *//p' "$RUN_DIR/summary.txt" | head -1)
@@ -321,6 +333,10 @@ for ((n = 1; n <= MAX_PASSES && fails < MAX_FAILS; n++)); do
       > "$RUN_DIR/pass$pass.review.log" 2>&1 ||
       { git reset -q --hard "$head"; git clean -fdq; die "reviewer call failed; see $RUN_DIR/pass$pass.review.log"; }
     verdict=$(grep -E '^VERDICT:' "$RUN_DIR/pass$pass.review.log" | tail -1)
+    if [ -z "$verdict" ] && limit_hit "$RUN_DIR/pass$pass.review.log"; then
+      git reset -q --hard "$head"; git clean -fdq
+      die "usage limit reached reviewing pass $pass; see $RUN_DIR/pass$pass.review.log"
+    fi
     case "$verdict" in
       "VERDICT: ACCEPT"*) ;;
       "VERDICT: REJECT"*) result="rejected by review: ${verdict#VERDICT: REJECT: }" ;;
