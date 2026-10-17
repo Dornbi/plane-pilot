@@ -74,7 +74,11 @@ void screen_enter_static_mccm(void) {
 static uint8_t _notice_frames;
 static uint8_t _notice_len;
 
-void screen_notice(const char *text, uint8_t len) {
+void screen_notice(const char *text) {
+  if (!text) {
+    return;
+  }
+  uint8_t len = (uint8_t)strlen(text);
   if (_notice_len > len) {
     memset(mem_screen_row_ptrs[kNoticeRow] + kNoticeCol, ' ', _notice_len);
   }

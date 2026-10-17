@@ -268,63 +268,9 @@ int16_t vec_fastmul8p8(int16_t a, int16_t b) {
   return mul_res;
 }
 
-// PERF: inline -> bytes: +290 bytes, cycles: -1000
-static inline void _vec_project_internal() {
+void vec_project_mul(void) {
   // clang-format off
   __asm {
-        lda vec_v;
-        sta tmp1;
-        lda vec_v+1;
-        sta tmp2;
-
-    L_normalize_proj:
-        lda tmp2;
-        beq L_check_left_proj;
-    L_shift_right_loop_proj:
-        lsr tmp2;
-        ror tmp1;
-        lsr project_mul_a+1;
-        ror project_mul_a;
-        lsr project_mul_b+1;
-        ror project_mul_b;
-        lda tmp2;
-        bne L_shift_right_loop_proj;
-        beq L_normalized_proj; // already normalized after right shifts
-    L_check_left_proj:
-        lda tmp1;
-        bmi L_normalized_proj; // already >= 128
-    L_shift_left_proj:
-        asl tmp1;
-        asl project_mul_a;
-        asl project_mul_b;
-        lda tmp1;
-        bpl L_shift_left_proj;
-    L_normalized_proj:
-        
-        // Read R = LUT[X_norm] into tmp2
-        ldx tmp1;
-        lda vec_recip_lut - 128, x;
-        sta tmp2;
-
-        // Project Y
-        lda vec_v+3;
-        sta vec_mul8_lo;          // top bit has sign of Y
-        lda project_mul_a; // Y_norm
-        jsr L_do_project_mul;
-        sta vec_sx;
-        stx vec_sx+1;
-
-        // Project Z
-        lda vec_v+5;
-        sta vec_mul8_lo;          // top bit has sign of Z
-        lda project_mul_b; // Z_norm
-        jsr L_do_project_mul;
-        sta vec_sy;
-        stx vec_sy+1;
-
-        jmp L_done_proj;
-
-    L_do_project_mul:
         // A = val_norm
         // tmp2 = R
         // vec_mul8_lo = original sign (bit 7)
@@ -343,8 +289,8 @@ static inline void _vec_project_internal() {
         clc;
         lda vec_mul8_b;
         adc tmp2;
-        bcc L_nc_mul;
         tay;
+        bcc L_nc_mul;
         lda vec_sqr_lo+256, y;
         sec;
         sbc vec_sqr_lo, x;
@@ -353,7 +299,6 @@ static inline void _vec_project_internal() {
         sbc vec_sqr_hi, x;
         jmp L_add_mul;
     L_nc_mul:
-        tay;
         lda vec_sqr_lo, y;
         sec;
         sbc vec_sqr_lo, x;
@@ -383,8 +328,59 @@ static inline void _vec_project_internal() {
         tya;        // low byte
     L_done_mul:
         rts;
+  }
+  // clang-format on
+}
 
-    L_done_proj:
+// PERF: inline -> bytes: +290 bytes, cycles: -1000
+static inline void _vec_project_internal() {
+  // clang-format off
+  __asm {
+        lda vec_v;
+        sta tmp1;
+        lda vec_v+1;
+        sta tmp2;
+        beq L_check_left_proj;
+    L_shift_right_loop_proj:
+        lsr tmp2;
+        ror tmp1;
+        lsr project_mul_a+1;
+        ror project_mul_a;
+        lsr project_mul_b+1;
+        ror project_mul_b;
+        lda tmp2;
+        bne L_shift_right_loop_proj;
+        beq L_normalized_proj; // already normalized after right shifts
+    L_check_left_proj:
+        lda tmp1;
+        bmi L_normalized_proj; // already >= 128
+    L_shift_left_proj:
+        asl project_mul_a;
+        asl project_mul_b;
+        asl tmp1;
+        bpl L_shift_left_proj;
+    L_normalized_proj:
+        
+        // Read R = LUT[X_norm] into tmp2
+        ldx tmp1;
+        lda vec_recip_lut - 128, x;
+        sta tmp2;
+
+        // Project Y
+        lda vec_v+3;
+        sta vec_mul8_lo;          // top bit has sign of Y
+        lda project_mul_a; // Y_norm
+        jsr vec_project_mul;
+        sta vec_sx;
+        stx vec_sx+1;
+
+        // Project Z
+        lda vec_v+5;
+        sta vec_mul8_lo;          // top bit has sign of Z
+        lda project_mul_b; // Z_norm
+        jsr vec_project_mul;
+        sta vec_sy;
+        stx vec_sy+1;
   }
   // clang-format on
 }
@@ -398,9 +394,11 @@ inline bool vec_project() {
   // Compared unsigned: _abs16(-32768) is -32768, which a signed compare
   // would let through as in range.
   project_mul_a = _abs16(vec_v.y);
+  if ((uint16_t)project_mul_a > (uint16_t)vec_v.x) {
+    return false;
+  }
   project_mul_b = _abs16(vec_v.z);
-  if ((uint16_t)project_mul_a > (uint16_t)vec_v.x ||
-      (uint16_t)project_mul_b > (uint16_t)vec_v.x) {
+  if ((uint16_t)project_mul_b > (uint16_t)vec_v.x) {
     return false;
   }
 
@@ -451,15 +449,15 @@ void vec_frac_loop(void) {
   // clang-format on
 }
 
-uint16_t vec_fracn(int16_t a, int16_t b, uint8_t bits) {
+void vec_frac_setup(void) {
   // clang-format off
   __asm {
-        // Remainder starts as |a|, the high half of the dividend.
-        lda a;
-        sta frac_r0;
-        lda a + 1;
         sta frac_r1;
-        bpl L_a_pos_fr;
+        sty frac_d1;
+        eor frac_d1;
+        sta tmp1;
+        lda frac_r1;
+        bpl L_a_pos_fs;
         sec;
         lda #0;
         sbc frac_r0;
@@ -467,12 +465,9 @@ uint16_t vec_fracn(int16_t a, int16_t b, uint8_t bits) {
         lda #0;
         sbc frac_r1;
         sta frac_r1;
-    L_a_pos_fr:
-        lda b;
-        sta frac_d0;
-        lda b + 1;
-        sta frac_d1;
-        bpl L_b_pos_fr;
+    L_a_pos_fs:
+        lda frac_d1;
+        bpl L_b_pos_fs;
         sec;
         lda #0;
         sbc frac_d0;
@@ -480,11 +475,26 @@ uint16_t vec_fracn(int16_t a, int16_t b, uint8_t bits) {
         lda #0;
         sbc frac_d1;
         sta frac_d1;
-    L_b_pos_fr:
-        // The low half of the dividend is zero; the quotient takes its place.
+    L_b_pos_fs:
         lda #0;
         sta frac_q0;
         sta frac_q1;
+        rts;
+  }
+  // clang-format on
+}
+
+uint16_t vec_fracn(int16_t a, int16_t b, uint8_t bits) {
+  // clang-format off
+  __asm {
+        // Remainder starts as |a|, the high half of the dividend.
+        lda a;
+        sta frac_r0;
+        lda b;
+        sta frac_d0;
+        lda a + 1;
+        ldy b + 1;
+        jsr vec_frac_setup;
         ldx bits;
         jsr vec_frac_loop;
   }
@@ -507,39 +517,13 @@ uint16_t vec_fracn(int16_t a, int16_t b, uint8_t bits) {
 int16_t vec_div8p8(int16_t a, int16_t b) {
   // clang-format off
   __asm {
-        lda a + 1;
-        eor b + 1;
-        sta tmp1;
-
         lda a;
         sta frac_r0;
-        lda a + 1;
-        sta frac_r1;
-        bpl L_a_pos_dv;
-        sec;
-        lda #0;
-        sbc frac_r0;
-        sta frac_r0;
-        lda #0;
-        sbc frac_r1;
-        sta frac_r1;
-    L_a_pos_dv:
         lda b;
         sta frac_d0;
-        lda b + 1;
-        sta frac_d1;
-        bpl L_b_pos_dv;
-        sec;
-        lda #0;
-        sbc frac_d0;
-        sta frac_d0;
-        lda #0;
-        sbc frac_d1;
-        sta frac_d1;
-    L_b_pos_dv:
-        lda #0;
-        sta frac_q0;
-        sta frac_q1;
+        lda a + 1;
+        ldy b + 1;
+        jsr vec_frac_setup;
         ldx #8;
 
         // |a| < |b|: a fraction, eight iterations.

@@ -31,13 +31,6 @@ static const uint8_t kVisibleMissions = 4;
 //
 // Prints nothing at all in a build without sound - sound_volume_label()
 // returns null there.
-static void _menu_show_volume_notice(void) {
-  const char *label = sound_volume_label();
-  if (label) {
-    screen_notice(label, (uint8_t)strlen(label));
-  }
-}
-
 static void _menu_render_items(uint8_t scroll_offset) {
   memset(mem_screen_row_ptrs[4], ' ', kScreenWidth * 19);
 
@@ -94,6 +87,14 @@ static inline void _menu_draw_mission_cursor(uint8_t selected_mission,
       draw ? '>' : ' ';
 }
 
+static const uint8_t kMenuKeys[] = {
+    KSCAN_I, KSCAN_K, KSCAN_SPACE, KSCAN_RETURN, KSCAN_H,
+#ifdef __ENABLE_SOUND__
+    KSCAN_V,
+#endif
+};
+static const uint8_t kMenuKeyCount = sizeof(kMenuKeys);
+
 uint8_t menu_run() {
   uint8_t selected_mission = 0;
   uint8_t scroll_offset = 0;
@@ -125,26 +126,15 @@ uint8_t menu_run() {
     keyb_poll();
 
     uint8_t menu_toggles = 0;
-    if (key_pressed(KSCAN_I)) {
-      menu_toggles |= kMenuKeyI;
+    {
+      uint8_t bit = 1;
+      for (uint8_t i = 0; i < kMenuKeyCount; ++i) {
+        if (key_pressed((enum KeyScanCode)kMenuKeys[i])) {
+          menu_toggles |= bit;
+        }
+        bit <<= 1;
+      }
     }
-    if (key_pressed(KSCAN_K)) {
-      menu_toggles |= kMenuKeyK;
-    }
-    if (key_pressed(KSCAN_SPACE)) {
-      menu_toggles |= kMenuKeySpace;
-    }
-    if (key_pressed(KSCAN_RETURN)) {
-      menu_toggles |= kMenuKeyReturn;
-    }
-    if (key_pressed(KSCAN_H)) {
-      menu_toggles |= kMenuKeyH;
-    }
-#ifdef __ENABLE_SOUND__
-    if (key_pressed(KSCAN_V)) {
-      menu_toggles |= kMenuKeyV;
-    }
-#endif
     const uint8_t menu_edges = keys_edges(menu_toggles, &prev_menu_toggles);
 
     if (menu_edges & (kMenuKeyI | kMenuKeyK)) {
@@ -203,7 +193,7 @@ uint8_t menu_run() {
       // tune's per-bar ramp, so this is audible on the next tick without any
       // notification path of its own.
       sound_cycle_volume();
-      _menu_show_volume_notice();
+      screen_notice(sound_volume_label());
     }
 
     music_tick();

@@ -31,6 +31,12 @@ void bm_init(void) {
   cia2.cra = 0x11;
 }
 
+static __noinline uint32_t _bm_now(void) {
+  const uint16_t timer_a = cia2.ta;
+  const uint16_t timer_b = cia2.tb;
+  return (((uint32_t)timer_b << 16) | timer_a);
+}
+
 // Note: Timer B counts Timer A underflows. If Timer A rolls over between
 // reading ta and tb, the combined 32-bit sample can glitch by 65,536 cycles.
 // An atomic latch/retry loop is omitted deliberately to avoid code size
@@ -38,18 +44,13 @@ void bm_init(void) {
 void bm_start(void) {
   if (!mem_debug_enabled)
     return;
-  const uint16_t timer_a = cia2.ta;
-  const uint16_t timer_b = cia2.tb;
-  _benchmark_start = (((uint32_t)timer_b << 16) | timer_a);
+  _benchmark_start = _bm_now();
 }
 
 void bm_end(uint16_t pos, const char *label) {
   if (!mem_debug_enabled)
     return;
-  const uint16_t timer_a = cia2.ta;
-  const uint16_t timer_b = cia2.tb;
-  const uint32_t benchmark_end = (((uint32_t)timer_b << 16) | timer_a);
-  const uint32_t benchmark_cycles = _benchmark_start - benchmark_end;
+  const uint32_t benchmark_cycles = _benchmark_start - _bm_now();
   _benchmark_total_cycles += benchmark_cycles;
   print_labeled_bcd(pos, label, benchmark_cycles, 6);
 }
@@ -69,17 +70,13 @@ static uint32_t _bm_sub_total[BM_SUB_COUNT];
 void bm_sub_start(void) {
   if (!mem_debug_enabled)
     return;
-  const uint16_t timer_a = cia2.ta;
-  const uint16_t timer_b = cia2.tb;
-  _bm_sub_start = (((uint32_t)timer_b << 16) | timer_a);
+  _bm_sub_start = _bm_now();
 }
 
 void bm_sub_end(uint8_t slot) {
   if (!mem_debug_enabled)
     return;
-  const uint16_t timer_a = cia2.ta;
-  const uint16_t timer_b = cia2.tb;
-  _bm_sub_total[slot] += _bm_sub_start - (((uint32_t)timer_b << 16) | timer_a);
+  _bm_sub_total[slot] += _bm_sub_start - _bm_now();
 }
 
 void bm_sub_show(uint8_t slot, uint16_t pos, const char *label,
