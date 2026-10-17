@@ -61,6 +61,10 @@ if [ -z "${CLAUDE:-}" ]; then
   fi
 fi
 [ -x "$CLAUDE" ] || { echo "ram_loop: claude CLI not found; set CLAUDE=" >&2; exit 1; }
+# The desktop app's sessions are signed in through the app, but the CLI on its
+# own is not, so check before spending a baseline build on it.
+"$CLAUDE" auth status 2>/dev/null | grep -q '"loggedIn": *true' ||
+  { echo "ram_loop: the claude CLI is not logged in; run: \"$CLAUDE\" auth login" >&2; exit 1; }
 
 EXTRA=()
 [ -n "${MODEL:-}" ] && EXTRA+=(--model "$MODEL")
@@ -232,7 +236,7 @@ WORKER_TOOLS=(Read Edit Write Grep Glob
   "Bash(sed -n:*)" "Bash(cmp:*)" "Bash(diff:*)" "Bash(cp:*)" "Bash(mkdir:*)" "Bash(tar:*)")
 DENY_TOOLS=("Bash(git commit:*)" "Bash(git push:*)" "Bash(git reset:*)" "Bash(git checkout:*)"
   "Bash(git switch:*)" "Bash(git stash:*)" "Bash(git clean:*)" "Bash(rm -rf:*)"
-  "Edit($LEDGER)" "Write($LEDGER)")
+  "Edit($LEDGER)")
 REVIEW_TOOLS=(Read Grep Glob "Bash(git diff:*)" "Bash(git status:*)" "Bash(git log:*)" "Bash(git show:*)")
 
 # --- The loop --------------------------------------------------------------
@@ -250,6 +254,13 @@ for ((n = 1; n <= MAX_PASSES && fails < MAX_FAILS; n++)); do
   "$CLAUDE" -p "$(worker_prompt "$f0" "$p0" "$cur_bench")" ${EXTRA[@]+"${EXTRA[@]}"} \
     --add-dir "$RUN_DIR" --permission-mode "$PERM" --allowedTools "${WORKER_TOOLS[@]}" --disallowedTools "${DENY_TOOLS[@]}" \
     > "$RUN_DIR/pass$pass.worker.log" 2>&1
+  rc=$?
+  # A failed call (signed out, out of budget, API error) says nothing about
+  # the idea, so stop rather than log it as a dead end.
+  if [ $rc -ne 0 ]; then
+    git reset -q --hard "$head"; git clean -fdq
+    die "worker call failed (exit $rc); see $RUN_DIR/pass$pass.worker.log"
+  fi
 
   if grep -q '^NO_MORE_IDEAS' "$RUN_DIR/summary.txt" 2>/dev/null; then
     why=$(sed -n 's/^NO_MORE_IDEAS:* *//p' "$RUN_DIR/summary.txt" | head -1)
@@ -303,7 +314,8 @@ for ((n = 1; n <= MAX_PASSES && fails < MAX_FAILS; n++)); do
     both=$(paste "$RUN_DIR/current.bench" "$pass_bench" 2>/dev/null || paste "$RUN_DIR/baseline.bench" "$pass_bench")
     "$CLAUDE" -p "$(reviewer_prompt "$f0" "$f1" "$p0" "$p1" "${changed:-none (pixel-identical)}" "$both")" ${EXTRA[@]+"${EXTRA[@]}"} \
       --add-dir "$RUN_DIR" --permission-mode default --allowedTools "${REVIEW_TOOLS[@]}" --disallowedTools Edit Write \
-      > "$RUN_DIR/pass$pass.review.log" 2>&1
+      > "$RUN_DIR/pass$pass.review.log" 2>&1 ||
+      { git reset -q --hard "$head"; git clean -fdq; die "reviewer call failed; see $RUN_DIR/pass$pass.review.log"; }
     verdict=$(grep -E '^VERDICT:' "$RUN_DIR/pass$pass.review.log" | tail -1)
     case "$verdict" in
       "VERDICT: ACCEPT"*) ;;
