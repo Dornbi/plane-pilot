@@ -82,10 +82,9 @@ static inline void _world_draw_box_points(uint8_t start_idx, uint8_t num_points,
   uint8_t idx = start_idx & 0x0F;
   uint8_t color = KWorldDotColors[map_type];
   for (uint8_t i = num_points;;) {
-    vec_v = _world_vec_v;
-    vec_v.x += _world_mitch_x[idx];
-    vec_v.y += _world_mitch_y[idx];
-    vec_v.z += _world_mitch_z[idx];
+    vec_v.x = _world_vec_v.x + _world_mitch_x[idx];
+    vec_v.y = _world_vec_v.y + _world_mitch_y[idx];
+    vec_v.z = _world_vec_v.z + _world_mitch_z[idx];
     gfx_project_and_draw(color);
     if (--i == 0) {
       break;
@@ -207,12 +206,12 @@ __noinline void world_render_grid() {
   // If the current vec_v.x falls below this value, we can abort.
   int16_t bailout = -_max16(_abs16(_world_dx4[0].x), _abs16(_world_dy4[0].x));
   uint8_t cx = _world_start_cx;
-  for (int8_t x = -_world_grid_radius;;) {
+  for (int8_t x = -(int8_t)_world_grid_radius;;) {
     _world_vec_v = _world_p_start;
-    uint8_t abs_x = _abs16(x);
+    uint8_t abs_x = _abs8(x);
     uint8_t cx2 = cx << 1;
     uint8_t cy = _world_start_cy;
-    for (int8_t y = -_world_grid_radius;;) {
+    for (int8_t y = -(int8_t)_world_grid_radius;;) {
       // Note: cx is N and cy is W in this case.
       WorldMapType map_type =
           kWorldMap[cx & kWorldMapHeightMask][cy & kWorldMapWidthMask];
@@ -220,10 +219,10 @@ __noinline void world_render_grid() {
         _world_render_object(map_type);
       } else if (map_type != MAP_NOTHING) {
         uint8_t start_idx = cx2 + cy;
-        uint8_t num_points = _num_points_per_radius[_max16(abs_x, _abs16(y))];
+        uint8_t num_points = _num_points_per_radius[_max8(abs_x, _abs8(y))];
         _world_draw_box_points(start_idx, num_points, map_type);
       }
-      if (++y > _world_grid_radius) {
+      if (++y > (int8_t)_world_grid_radius) {
         break;
       }
       cy += _world_step_y;
@@ -233,7 +232,7 @@ __noinline void world_render_grid() {
         break;
       }
     }
-    if (++x > _world_grid_radius) {
+    if (++x > (int8_t)_world_grid_radius) {
       break;
     }
     cx += _world_step_x;
