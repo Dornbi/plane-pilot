@@ -133,3 +133,4 @@ total against the last kept state.
 
 | Pass | Date | fpilot Δ | ppilot Δ | Cycles Δ | Result | Idea |
 |-----:|------|---------:|---------:|---------:|--------|------|
+| 1 | 2026-10-17 | 45 | 45 | +0.3% | kept | Replaced the 48 B kMusicVolumeMix[3][16] table in music.cc with its three closed forms (0, v>>1, v) in music_master_volume() (codesize.md §3.4): fpilot 9,546 -> 9,591 B free (+45), ppilot 6,466 -> 6,511 (+45); bench total 695,076 -> 697,254 (+0.31%, layout shift only — music is not in the render path; worst scene approach +0.51%, all well inside +2%). |

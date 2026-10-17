@@ -81,27 +81,25 @@ static uint8_t _music_arp_idx;
 // --- Volume ----------------------------------------------------------------
 //
 // The tune's per-bar ramp and the player's V-key setting both want $D418's low
-// nibble, and neither may override the other. A table rather than a multiply:
-// no divide, no rounding question, and row 0 being all zeros means "sound off"
-// is silent by construction rather than by a predicate someone has to remember
-// to check. Row 1 scales the ramp to a ceiling of 7 instead of clipping it,
-// which is what keeps the opening fade a fade at the low setting.
+// nibble, and neither may override the other. Three closed forms, no multiply:
+// "sound off" is 0, the low setting halves the ramp to a ceiling of 7 instead
+// of clipping it, which is what keeps the opening fade a fade, and full is the
+// identity. v >> 1 equals round(v * 7 / 15) on all sixteen inputs.
 //
-// 48 bytes. See ../docs/music.md section 3.
-static const uint8_t kMusicVolumeMix[kSoundVolumeSteps][16] = {
-    // off
-    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-    // low: round(v * 7 / 15)
-    {0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7},
-    // full: identity
-    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
-};
+// This used to be a 3 x 16 table; arithmetic frees 45 bytes and runs once
+// per bar. See ../docs/music.md section 3.
+static_assert(kSoundVolumeSteps == 3 && kSoundVolumeDefault == 2,
+              "music_master_volume() knows three steps, default full");
 
 uint8_t music_master_volume(uint8_t bar_volume, uint8_t setting) {
-  if (setting >= kSoundVolumeSteps) {
-    setting = kSoundVolumeDefault;
+  uint8_t v = bar_volume & 0x0F;
+  if (setting == 0) {
+    return 0;
   }
-  return kMusicVolumeMix[setting][bar_volume & 0x0F];
+  if (setting == 1) {
+    return v >> 1;
+  }
+  return v;
 }
 
 // --- Pitch -----------------------------------------------------------------

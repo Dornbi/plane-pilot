@@ -191,6 +191,8 @@ for up to two compares, in a function `music_tick()` calls a few times per row.
 Inaudible, but it is a trade rather than a free lunch, and it is listed
 separately for that reason.
 
+> **Landed 2026-10-17** (ram-loop): +45 B free in both fpilot and ppilot.
+
 ---
 
 ## 4. Does not work

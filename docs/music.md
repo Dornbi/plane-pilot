@@ -330,7 +330,13 @@ value, 48 bytes of `const`:
 - row 1 is the ramp scaled to a 7 ceiling, so the *shape* survives the low step
   rather than being clipped by it.
 
-No multiply, no division, one indexed load per bar. This is the same argument
+No multiply, no division, one indexed load per bar.
+
+> **2026-10-17.** The table is gone. Its rows are three closed forms — `0`,
+> `v >> 1` (which equals `round(v * 7 / 15)` on all sixteen inputs) and `v` —
+> so `music_master_volume()` now computes them with two compares. Same
+> results, same properties, 45 bytes more free RAM, and it still runs once
+> per bar. A `static_assert` ties it to the three-step volume key. This is the same argument
 sound.md §3 makes for folding the volume key into a predicate rather than giving
 it a silencing path of its own: a mechanism every future voice would have to
 remember to consult is a mechanism that will eventually be forgotten.
