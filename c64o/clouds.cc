@@ -39,18 +39,15 @@ static void _clouds_build_basis(void) {
   // k: three multiplies per axis, nine for the whole basis, rather than the
   // twenty-seven three full transforms would cost.
   const int16_t k = (int16_t)kCloudOffsetU >> 1;
-
-  _clouds_half_basis[0].x = vec_fastmul8p8(world_cam.front.x, k);
-  _clouds_half_basis[0].y = vec_fastmul8p8(world_cam.left.x, k);
-  _clouds_half_basis[0].z = vec_fastmul8p8(world_cam.up.x, k);
-
-  _clouds_half_basis[1].x = vec_fastmul8p8(world_cam.front.y, k);
-  _clouds_half_basis[1].y = vec_fastmul8p8(world_cam.left.y, k);
-  _clouds_half_basis[1].z = vec_fastmul8p8(world_cam.up.y, k);
-
-  _clouds_half_basis[2].x = vec_fastmul8p8(world_cam.front.z, k);
-  _clouds_half_basis[2].y = vec_fastmul8p8(world_cam.left.z, k);
-  _clouds_half_basis[2].z = vec_fastmul8p8(world_cam.up.z, k);
+  const int16_t *cam = &world_cam.front.x;
+  vec3_t *dst = _clouds_half_basis;
+  for (uint8_t axis = 0; axis < 3; ++axis) {
+    dst->x = vec_fastmul8p8(cam[0], k);
+    dst->y = vec_fastmul8p8(cam[3], k);
+    dst->z = vec_fastmul8p8(cam[6], k);
+    ++cam;
+    ++dst;
+  }
 }
 
 // v outside [-r, r], as one unsigned compare instead of two signed ones: v + r
@@ -101,7 +98,9 @@ void clouds_add_candidates(void) {
 
   // The deck is flat, so every cloud in the world is at the same height and
   // the vertical offset is computed once (§2.6).
-  const int16_t rel_z = kCloudDeckU - _clouds_down_shift(flight_eye_z);
+  vec3_t delta;
+  delta.z = kCloudDeckU - _clouds_down_shift(flight_eye_z);
+  vec3_t centre;
 
   // Where the eye sits inside its own cell, negated. Every candidate's offset
   // from the eye is then this plus a whole number of cells plus the jitter -
@@ -153,12 +152,9 @@ void clouds_add_candidates(void) {
         continue;
       }
 
-      vec3_t delta;
       delta.x = rel_x;
       delta.y = rel_y;
-      delta.z = rel_z;
 
-      vec3_t centre;
       vec_transform_inv(&world_cam, &delta, &centre);
 
       // Behind the camera, or past the ladder's reach. vec_project() would
@@ -212,7 +208,7 @@ void clouds_add_candidates(void) {
       const uint8_t collapsed = rung < kCloudRungCollapsed;
       const uint8_t blobs = collapsed ? 1 : kCloudBlobsPerGroup;
 
-      if (!_clouds_basis_valid) {
+      if (!collapsed && !_clouds_basis_valid) {
         _clouds_build_basis();
         _clouds_basis_valid = true;
       }

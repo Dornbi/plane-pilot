@@ -289,6 +289,10 @@ static bool _unused_vec_project(const vec3_t *v) {
 }
 #endif
 
+// Cold attitude-update and boot helpers; only vec_transform_inv and
+// vec_turn3_xy below run in the hot per-object/per-frame path.
+#pragma optimize(push, outline)
+
 // A loop over the three components rather than three copies of the test: 63
 // bytes instead of 166, for 44 cycles more a call, and it runs only when the
 // attitude changes.
@@ -431,20 +435,6 @@ void vec_transform(const mat3_t *mat, const vec3_t *u, vec3_t *res) {
   res->z += vec_fastmul8p8(mat->up.z, u->z);
 }
 
-void vec_transform_inv(const mat3_t *mat, const vec3_t *u, vec3_t *res) {
-  res->x = vec_fastmul8p8(mat->front.x, u->x);
-  res->x += vec_fastmul8p8(mat->front.y, u->y);
-  res->x += vec_fastmul8p8(mat->front.z, u->z);
-
-  res->y = vec_fastmul8p8(mat->left.x, u->x);
-  res->y += vec_fastmul8p8(mat->left.y, u->y);
-  res->y += vec_fastmul8p8(mat->left.z, u->z);
-
-  res->z = vec_fastmul8p8(mat->up.x, u->x);
-  res->z += vec_fastmul8p8(mat->up.y, u->y);
-  res->z += vec_fastmul8p8(mat->up.z, u->z);
-}
-
 void vec_transform3(const mat3_t *t, mat3_t *m) {
   // Transposed copy of m: applying it with vec_transform_inv() is the same as
   // applying m with vec_transform(), and the copy has to be made either way.
@@ -464,10 +454,26 @@ void vec_transform3(const mat3_t *t, mat3_t *m) {
 }
 
 void vec_transform3_inv(const mat3_t *t, mat3_t *m) {
-  const mat3_t mc = *m;
-  vec_transform_inv(t, &mc.front, &m->front);
-  vec_transform_inv(t, &mc.left, &m->left);
-  vec_transform_inv(t, &mc.up, &m->up);
+  vec_transform_inv(t, &m->front, &m->front);
+  vec_transform_inv(t, &m->left, &m->left);
+  vec_transform_inv(t, &m->up, &m->up);
+}
+
+#pragma optimize(pop)
+
+void vec_transform_inv(const mat3_t *mat, const vec3_t *u, vec3_t *res) {
+  const int16_t ux = u->x;
+  const int16_t uy = u->y;
+  const int16_t uz = u->z;
+  res->x = vec_fastmul8p8(mat->front.x, ux) +
+           vec_fastmul8p8(mat->front.y, uy) +
+           vec_fastmul8p8(mat->front.z, uz);
+  res->y = vec_fastmul8p8(mat->left.x, ux) +
+           vec_fastmul8p8(mat->left.y, uy) +
+           vec_fastmul8p8(mat->left.z, uz);
+  res->z = vec_fastmul8p8(mat->up.x, ux) +
+           vec_fastmul8p8(mat->up.y, uy) +
+           vec_fastmul8p8(mat->up.z, uz);
 }
 
 // Both components come from the values the vector arrived with, which is what
