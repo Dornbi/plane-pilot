@@ -122,92 +122,74 @@ static void _poly_trace_edge_bresenham(int8_t xa, uint8_t ya, int8_t xb,
   uint8_t err =
       dy >> 1; // dy >> 1 (half-pixel offset) for even line segment distribution
 
-  if (x2 > x1) {
-    uint8_t dx = x2 - x1;
-    uint8_t x = x1;
+  const bool rising = x2 > x1;
+  uint8_t dx = rising ? x2 - x1 : x1 - x2;
+  uint8_t x = x1;
 
-    if (dx > dy) {
+  if (dx > dy) {
+    // X-major: several pixels a row. dx = q * dy + r, so a row moves x by q
+    // and carries r into err, which then steps at most once more - the
+    // same x as adding dx and stepping until err < dy, a pixel at a time.
+    uint8_t q = 0, r = dx;
+    do {
+      r -= dy;
+      ++q;
+    } while (r >= dy);
+    if (rising) {
       for (uint8_t y = y1; y < y2; y++) {
         uint8_t start_x = x;
-        err += dx;
-        while (err >= dy) {
-          x++;
-          err -= dy;
-        }
-        uint8_t end_x = x;
-
-        if (start_x < _min_x[y]) {
-          _min_x[y] = start_x;
-        }
-        if (end_x > _max_x[y]) {
-          _max_x[y] = end_x;
-        }
-      }
-    } else {
-      for (uint8_t y = y1; y < y2; y++) {
-        if (x < _min_x[y]) {
-          _min_x[y] = x;
-        }
-        if (x > _max_x[y]) {
-          _max_x[y] = x;
-        }
-
-        err += dx;
+        x += q;
+        err += r;
         if (err >= dy) {
           x++;
           err -= dy;
         }
+        if (start_x < _min_x[y]) {
+          _min_x[y] = start_x;
+        }
+        if (x > _max_x[y]) {
+          _max_x[y] = x;
+        }
       }
-    }
-    if (x < _min_x[y2]) {
-      _min_x[y2] = x;
-    }
-    if (x > _max_x[y2]) {
-      _max_x[y2] = x;
-    }
-  } else {
-    uint8_t dx = x1 - x2;
-    uint8_t x = x1;
-
-    if (dx > dy) {
+    } else {
       for (uint8_t y = y1; y < y2; y++) {
         uint8_t start_x = x;
-        err += dx;
-        while (err >= dy) {
+        x -= q;
+        err += r;
+        if (err >= dy) {
           x--;
           err -= dy;
         }
-        uint8_t end_x = x;
-
-        if (end_x < _min_x[y]) {
-          _min_x[y] = end_x;
+        if (x < _min_x[y]) {
+          _min_x[y] = x;
         }
         if (start_x > _max_x[y]) {
           _max_x[y] = start_x;
         }
       }
-    } else {
-      for (uint8_t y = y1; y < y2; y++) {
-        if (x < _min_x[y]) {
-          _min_x[y] = x;
-        }
-        if (x > _max_x[y]) {
-          _max_x[y] = x;
-        }
+    }
+  } else {
+    const int8_t step = rising ? 1 : -1;
+    for (uint8_t y = y1; y < y2; y++) {
+      if (x < _min_x[y]) {
+        _min_x[y] = x;
+      }
+      if (x > _max_x[y]) {
+        _max_x[y] = x;
+      }
 
-        err += dx;
-        if (err >= dy) {
-          x--;
-          err -= dy;
-        }
+      err += dx;
+      if (err >= dy) {
+        x += step;
+        err -= dy;
       }
     }
-    if (x < _min_x[y2]) {
-      _min_x[y2] = x;
-    }
-    if (x > _max_x[y2]) {
-      _max_x[y2] = x;
-    }
+  }
+  if (x < _min_x[y2]) {
+    _min_x[y2] = x;
+  }
+  if (x > _max_x[y2]) {
+    _max_x[y2] = x;
   }
 }
 
