@@ -12,7 +12,6 @@
 #define MMAP_RAM 0x30
 #define MMAP_CHAR_ROM 0x31
 #define MMAP_ALL_ROM 0x33
-static void mmap_trampoline() {}
 static char mmap_set(char pla) { return pla; }
 static const char *oscar_expand_lzo(char *dp, const char *sp) { return sp; }
 #endif
@@ -103,6 +102,21 @@ static const uint8_t kVicMemScreenAlt = 0xB8;
 // and letting raster 250 latch it is the same flip, one frame-accurate instead
 // of two writes racing.
 
+#ifdef __OSCAR64__
+// Where the NMI and, until gfx_init_raster_irqs() installs _gfx_isr, the IRQ
+// vector point. oscar64's mmap_trampoline() would route both through the
+// KERNAL handlers, but those jump via $0314/$0318, which bss2 overlays, so
+// they could only crash. The only NMI left is the RESTORE key (cia_init()
+// masks CIA2), and this ignores it; no IRQ source is armed before the split.
+// In main, not the boot region: it must outlive _boot().
+// clang-format off
+__asm _mem_ignore_irq
+{
+	rti
+}
+// clang-format on
+#endif
+
 // Startup and mode-switch helpers; none of these run per frame.
 #pragma optimize(push, outline)
 
@@ -112,7 +126,11 @@ static const uint8_t kVicMemScreenAlt = 0xB8;
 #pragma code(bootcode)
 #endif
 void mem_init(void) {
-  mmap_trampoline();
+#ifdef __OSCAR64__
+  // RAM under the KERNAL ROM, which is banked out below for good.
+  *(void **)0xfffa = _mem_ignore_irq;
+  *(void **)0xfffe = _mem_ignore_irq;
+#endif
 
   __asm {
     sei;
@@ -134,8 +152,8 @@ void mem_init(void) {
 
   // bss2 (mem.h). Nothing written to it so far needs to survive - the only
   // earlier tenant is cpu_probe()'s _probe_work - and the KERNAL vectors it
-  // overlaps at $0314/$0318 are only read by the trampolines on an IRQ or NMI;
-  // cia_init() has masked both CIAs and the VIC raster IRQ is not armed yet.
+  // overlaps at $0314/$0318 are never read: the hardware vectors set above
+  // bypass the KERNAL handlers.
 #ifdef __MAX_RAM__
   memset((uint8_t *)MEM_BSS2_START, 0, MEM_BSS2_END - MEM_BSS2_START);
 #endif
