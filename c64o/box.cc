@@ -166,12 +166,18 @@ void box_prepare(void) {
                                                         : (kColorSky | 0x08);
   }
 
-  // Fill box_chars and box_colors with the box definition.
-  if (boxdef.total_size > 0) {
-    const uint8_t *src = boxdef.box_chars;
+  // Fill box_chars and box_colors with the box definition. Its w * h cells
+  // follow the character indices in the same array; the count is summed
+  // rather than stored, since no multiply is linked and h is at most 11.
+  {
+    const uint8_t *src = boxdef.char_idx + boxdef.char_count;
+    uint8_t total_size = 0;
+    for (uint8_t r = boxdef.h; r != 0; --r) {
+      total_size += boxdef.w;
+    }
     uint8_t *dst_chars = kBoxChars + slot_offset;
     uint8_t *dst_colors = kBoxColors + slot_offset;
-    for (int8_t i = boxdef.total_size - 1;;) {
+    for (int8_t i = total_size - 1;;) {
       const uint8_t idx = src[i];
       dst_chars[i] = _char_lut[idx];
       dst_colors[i] = _color_lut[idx];

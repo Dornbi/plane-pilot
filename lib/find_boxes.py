@@ -561,15 +561,19 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
         # Write static arrays
         cname = clean_name(name)
 
-        char_idx = layout['char_idx'] or [0]
-        content += f"static const uint8_t {cname}_idx[] = {{ {', '.join(map(str, char_idx))} }};\n"
-        content += f"static const uint8_t {cname}_chars[] = {{ {', '.join(map(str, layout['grid']))} }};\n"
+        # One array per box: the char_count chardefs indices, then the w * h
+        # cells, so box_prepare() finds the cells at char_idx + char_count and
+        # the struct needs no second pointer. box_prepare() copies at least
+        # one character.
+        if layout['char_count'] == 0:
+            raise ValueError(f"Box {name} has no characters of its own.")
+        box_map = layout['char_idx'] + layout['grid']
+        content += f"static const uint8_t {cname}_map[] = {{ {', '.join(map(str, box_map))} }};\n"
 
         # Write boxdef_t struct
         content += f"static const boxdef_t {cname}_def = {{\n"
         content += f"    {data['w']}, // w\n"
         content += f"    {data['h']}, // h\n"
-        content += f"    {data['w'] * data['h']}, // total_size\n"
         content += f"    {data['step_x']}, // step_x\n"
         content += f"    {data['step_y']}, // step_y\n"
         content += f"    {data['rel_x']}, // rel_x\n"
@@ -583,8 +587,7 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
                        f"flipped")
         content += (f"    0x{layout['flip_around']:02x}, // flip_around: "
                     f"{flipped}\n")
-        content += f"    {cname}_idx, // char_idx\n"
-        content += f"    {cname}_chars // box_chars\n"
+        content += f"    {cname}_map // char_idx, then the cells\n"
         content += "};\n\n"
 
     # Generate Lookup Tables
@@ -674,8 +677,6 @@ def generate_boxdefs_h_content(max_total_size: int,
     content += "  uint8_t w;\n"
     content += "  // Height of the box in chars.\n"
     content += "  uint8_t h;\n"
-    content += "  // Total number of chars in the box = w * h.\n"
-    content += "  uint8_t total_size;\n"
     content += "  // Step in x direction to draw the next adjacent box.\n"
     content += "  int8_t step_x;\n"
     content += "  // Step in y direction to draw the next adjacent box.\n"
@@ -695,10 +696,10 @@ def generate_boxdefs_h_content(max_total_size: int,
     content += "  // up, so the run is grad1_color_start - low .. grad1_color_start +\n"
     content += "  // high - 1, and zero means none.\n"
     content += "  uint8_t flip_around;\n"
-    content += "  // chardefs index of each character.\n"
+    content += "  // chardefs index of each character, char_count of them, followed by\n"
+    content += "  // the box's w * h cells: each cell's index into the local characters\n"
+    content += "  // (0..2 the solid ones, 3.. char_idx[0..]).\n"
     content += "  const uint8_t *char_idx;\n"
-    content += "  // Index of each character in the local char_idx array.\n"
-    content += "  const uint8_t *box_chars;\n"
     content += "};\n\n"
     content += "extern boxdef_t boxdef;\n\n"
     content += "// Updates boxdef based on roll_angle.\n"

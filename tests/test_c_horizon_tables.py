@@ -38,17 +38,21 @@ def _parse_boxdefs_c():
         fields = [f.strip() for f in re.sub(r"//.*", "", m.group(2)).split(",")
                   if f.strip()]
         name = m.group(1)
-        grad1_start, flip_around = int(fields[7]), int(fields[9], 0)
+        grad1_start, flip_around = int(fields[6]), int(fields[8], 0)
+        char_count = int(fields[7])
+        # One array: the character indices, then the cells box_prepare()
+        # reads at char_idx + char_count.
+        box_map = arrays[fields[9]]
         boxes[name] = {
             "w": int(fields[0]), "h": int(fields[1]),
-            "total_size": int(fields[2]),
-            "step_x": int(fields[3]), "step_y": int(fields[4]),
-            "rel_x": int(fields[5]), "rel_y": int(fields[6]),
-            "grad1_start": grad1_start, "char_count": int(fields[8]),
+            "step_x": int(fields[2]), "step_y": int(fields[3]),
+            "rel_x": int(fields[4]), "rel_y": int(fields[5]),
+            "grad1_start": grad1_start, "char_count": char_count,
             # box_prepare()'s decoding of flip_around.
             "flip_start": grad1_start - (flip_around & 0x0F),
             "flip_end": grad1_start + (flip_around >> 4),
-            "char_idx": arrays[fields[10]], "box_chars": arrays[fields[11]],
+            "char_idx": box_map[:char_count],
+            "box_chars": box_map[char_count:],
         }
     return boxes
 
@@ -124,7 +128,8 @@ class TestCHorizonTables(unittest.TestCase):
                     (box["w"], box["h"], box["step_x"], box["step_y"],
                      box["rel_x"], box["rel_y"]),
                     tuple(model[:6]))
-                self.assertEqual(box["total_size"], box["w"] * box["h"])
+                # box_prepare() fills exactly w * h cells.
+                self.assertEqual(len(box["box_chars"]), box["w"] * box["h"])
                 self.assertEqual(_c_cells(box, self.rows), _py_cells(model))
 
 

@@ -18,8 +18,6 @@ struct boxdef_t {
   uint8_t w;
   // Height of the box in chars.
   uint8_t h;
-  // Total number of chars in the box = w * h.
-  uint8_t total_size;
   // Step in x direction to draw the next adjacent box.
   int8_t step_x;
   // Step in y direction to draw the next adjacent box.
@@ -39,10 +37,10 @@ struct boxdef_t {
   // up, so the run is grad1_color_start - low .. grad1_color_start +
   // high - 1, and zero means none.
   uint8_t flip_around;
-  // chardefs index of each character.
+  // chardefs index of each character, char_count of them, followed by
+  // the box's w * h cells: each cell's index into the local characters
+  // (0..2 the solid ones, 3.. char_idx[0..]).
   const uint8_t *char_idx;
-  // Index of each character in the local char_idx array.
-  const uint8_t *box_chars;
 };
 
 extern boxdef_t boxdef;

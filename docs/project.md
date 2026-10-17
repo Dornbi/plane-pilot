@@ -214,8 +214,9 @@ tiles are about to overwrite them anyway — worth about 1000 cycles.
 ### `boxdefs.cc` / `box.cc` — tiles
 
 `boxdef_t` is the tile: width, height, the step vector to the next copy, its
-offset relative to the snapped center, the character indices, and the index
-array. `boxdefs.cc` holds 68 definitions — 60 main (one per angle) and 8 alt —
+offset relative to the snapped center, and one array holding the character
+indices followed by the w × h cell map (`box_prepare()` finds the cells at
+`char_idx + char_count` and sums w × h, so neither is stored). `boxdefs.cc` holds 68 definitions — 60 main (one per angle) and 8 alt —
 looked up through `main_boxes[]`, indexed by angle, and `alt_boxes[]`, which
 holds only the 8 angles that have an alt tile (listed in `alt_box_angles[]`,
 searched by `boxdef_set_alt()`). Both files are generated;

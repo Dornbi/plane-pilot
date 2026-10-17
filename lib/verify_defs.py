@@ -101,23 +101,25 @@ def verify_boxdefs_c(box_defs: Dict[str, Dict[str, Any]],
         body = re.sub(r"//.*", "", struct_match.group(1))
         clean_fields = [f.strip() for f in body.split(",") if f.strip()]
 
-        # w, h, total, sx, sy, rx, ry, g1_start, cnt, flip_around, idx, chars
-        if len(clean_fields) != 12:
-            raise ValueError(f"Verification failed: {name} struct has {len(clean_fields)} fields, expected 12")
+        # w, h, sx, sy, rx, ry, g1_start, cnt, flip_around, map
+        if len(clean_fields) != 10:
+            raise ValueError(f"Verification failed: {name} struct has {len(clean_fields)} fields, expected 10")
+        if clean_fields[9] != f"{cname}_map":
+            raise ValueError(f"Verification failed: {name} does not point at {cname}_map")
 
-        chars_match = re.search(rf"(?:static\s+)?(?:const\s+)?uint8_t\s+{cname}_chars\s*\[\s*\]\s*=\s*\{{(.*?)\}};", content)
-        if not chars_match:
-             raise ValueError(f"Verification failed: Could not find chars array for {name} in boxdefs.cc")
-        actual_chars = [int(x.strip()) for x in chars_match.group(1).split(",") if x.strip()]
+        map_match = re.search(rf"(?:static\s+)?(?:const\s+)?uint8_t\s+{cname}_map\s*\[\s*\]\s*=\s*\{{(.*?)\}};", content)
+        if not map_match:
+            raise ValueError(f"Verification failed: Could not find map array for {name} in boxdefs.cc")
+        box_map = [int(x.strip()) for x in map_match.group(1).split(",") if x.strip()]
 
-        idx_match = re.search(rf"(?:static\s+)?(?:const\s+)?uint8_t\s+{cname}_idx\s*\[\s*\]\s*=\s*\{{(.*?)\}};", content)
-        if not idx_match:
-            raise ValueError(f"Verification failed: Could not find idx array for {name} in boxdefs.cc")
-        raw_idx = [int(x.strip()) for x in idx_match.group(1).split(",") if x.strip()]
-
-        grad1_start = int(clean_fields[7])
-        char_count = int(clean_fields[8])
-        flip_around = int(clean_fields[9], 0)
+        grad1_start = int(clean_fields[6])
+        char_count = int(clean_fields[7])
+        flip_around = int(clean_fields[8], 0)
+        # The cells follow the indices; box_prepare() reads w * h of them.
+        raw_idx = box_map[:char_count]
+        actual_chars = box_map[char_count:]
+        if len(actual_chars) != expected['w'] * expected['h']:
+            raise ValueError(f"Verification failed: {name} has {len(actual_chars)} cells, expected w * h")
         flip_start = grad1_start - (flip_around & 0x0F)
         flip_end = grad1_start + (flip_around >> 4)
 
@@ -146,10 +148,9 @@ def verify_boxdefs_c(box_defs: Dict[str, Dict[str, Any]],
         # Verify Struct Fields
         if int(clean_fields[0]) != expected['w']: raise ValueError(f"{name} w mismatch")
         if int(clean_fields[1]) != expected['h']: raise ValueError(f"{name} h mismatch")
-        if int(clean_fields[2]) != expected['w'] * expected['h']: raise ValueError(f"{name} total_size mismatch")
-        if int(clean_fields[3]) != expected['step_x']: raise ValueError(f"{name} step_x mismatch")
-        if int(clean_fields[4]) != expected['step_y']: raise ValueError(f"{name} step_y mismatch")
-        if int(clean_fields[5]) != expected['rel_x']: raise ValueError(f"{name} rel_x mismatch")
-        if int(clean_fields[6]) != expected['rel_y']: raise ValueError(f"{name} rel_y mismatch")
+        if int(clean_fields[2]) != expected['step_x']: raise ValueError(f"{name} step_x mismatch")
+        if int(clean_fields[3]) != expected['step_y']: raise ValueError(f"{name} step_y mismatch")
+        if int(clean_fields[4]) != expected['rel_x']: raise ValueError(f"{name} rel_x mismatch")
+        if int(clean_fields[5]) != expected['rel_y']: raise ValueError(f"{name} rel_y mismatch")
 
     print(f"Successfully verified {c_file_path} against box definitions.")
