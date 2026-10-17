@@ -163,7 +163,8 @@ class TestMusicData(unittest.TestCase):
         self.assertIn(f"kMusicTotalFrames = {shipped['total_frames']};", h_content)
         # The lanes are bar-indexed, so the header declares a pattern array and
         # a one-byte-per-bar index rather than one flat row array.
-        self.assertIn(f"kMusicLeadStartPat[][{shipped['rows_per_bar']}]", h_content)
+        # The lead lane keeps only the even rows (odd ones read as 0).
+        self.assertIn(f"kMusicLeadStartPat[][{shipped['rows_per_bar'] // 2}]", h_content)
         self.assertIn(f"kMusicLeadStartBar[{shipped['bars']}]", h_content)
 
     def test_volume_map_reaches_the_c64(self):
@@ -238,8 +239,11 @@ class TestMusicData(unittest.TestCase):
         bass_start, _ = music.get_flattened_bass(t['chords'], t['bars'], rows,
                                                  soft, rhythm)
 
-        # Lane 1 and 2: one byte a row, bar indexed only.
-        self.assertEqual(self._bar_table(cc, "kMusicLeadStart", rpb), lead_start)
+        # Lane 1 and 2: one byte a row, bar indexed only. The lead keeps
+        # only its even rows; MUSIC_LEAD_START_IN reads every odd row as 0.
+        lead_even = self._bar_table(cc, "kMusicLeadStart", rpb // 2)
+        unpacked_lead_start = [0 if r & 1 else lead_even[r >> 1] for r in range(rows)]
+        self.assertEqual(unpacked_lead_start, lead_start)
         self.assertEqual(self._bar_table(cc, "kMusicBassStart", rpb), bass_start)
 
         # Lane 3 and 4: bar indexed *and* bit packed. MUSIC_LEAD_ON(row) and
@@ -283,7 +287,7 @@ class TestMusicData(unittest.TestCase):
         drum_at = music.get_flattened_drums(t['bars'], rows, soft)
 
         lanes = {
-            'lead': (lead_start, rpb),
+            'lead': (lead_start[0::2], rpb // 2),
             'bass': (bass_start, rpb),
             'leadOn': (generate_music.pack_bits1(lead_on), rpb // 8),
             'drum': (generate_music.pack_bits2(

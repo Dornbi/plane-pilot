@@ -657,7 +657,7 @@ estimated:
 
 | Item                                          |    Bytes |
 | --------------------------------------------- | -------: |
-| `kMusicLeadStartPat[20][16]` + `Bar[24]`      |      344 |
+| `kMusicLeadStartPat[20][8]` + `Bar[24]`       |      184 |
 | `kMusicBassStartPat[11][16]` + `Bar[24]`      |      200 |
 | `kMusicDrumBitsPat[5][4]` + `Bar[24]`         |       44 |
 | `kMusicLeadOnBitsPat[3][2]` + `Bar[24]`       |       30 |
@@ -665,11 +665,11 @@ estimated:
 | Six instruments × 8                           |       48 |
 | `kMusicVolMap[24]`                            |       24 |
 | `kMusicNoteTable[12]`                         |       24 |
-| **Data, as generated**                        |  **791** |
+| **Data, as generated**                        |  **631** |
 | Volume composition table (§3)                 |       48 |
 | Player code                                   |      884 |
 | Player state (bss + zp)                       |       13 |
-| **Total**                                     | **1,688** |
+| **Total**                                     | **1,528** |
 
 Measured from `ppilot.map` by `tools/analyze_ram.py`, not estimated. Against
 6,623 bytes free in `ppilot.prg` — which is to say the tune is a quarter of the
@@ -720,7 +720,7 @@ byte or not**, on values that mostly did not:
 | `kMusicBassOn`    | always 1       | 384 | **0** | deleted; `MUSIC_BASS_ON(row)` is `1` |
 | `kMusicLeadOn`    | 0 or 1         | 384 | **48** | 1 bit/row, `MUSIC_LEAD_ON(row)` |
 | `kMusicDrumAt`    | 0–3            | 384 | **96** | 2 bits/row, `MUSIC_DRUM_AT(row)` |
-| `kMusicLeadStart` | MIDI note or 0 | 384 | **344** | bar index; 7 bits is not worth splitting |
+| `kMusicLeadStart` | MIDI note or 0 | 384 | **184** | even rows only, bar index; 7 bits is not worth splitting |
 | `kMusicBassStart` | MIDI note or 0 | 384 | **200** | bar index |
 | `kMusicChords`    | root + triad   |  96 | **52** | bar index |
 
@@ -788,13 +788,21 @@ about — so `test_packed_tables_round_trip` applies the two macros by hand and
 requires the result to equal what the browser got, row for row. If either shift
 expression in `musicdef.h` changes, that test fails.
 
+**Later: the lead's odd rows.** The lead starts a note only on even rows, so
+`kMusicLeadStartPat` keeps the even rows alone (`[20][8]`, 184 bytes with the
+index) and `MUSIC_LEAD_START_IN` reads every odd row as 0. The generator
+asserts the premise, and `test_packed_tables_round_trip` re-inserts the zeros
+before comparing with the browser's array. That took 160 more bytes off the
+lane, for a test of bit 0 on a read.
+
 **What is still on the table.** Two things, both measured rather than guessed.
 
 `kMusicBassStart` uses only 14 distinct note values, which fits a nibble: bar
 patterns of 8 bytes instead of 16 plus a 14-byte value table would take it from
 200 to 126. `kMusicLeadStart` uses 17, one over the nibble limit, so it would
 need 5-bit fields or a value it can spare — 20 patterns of 10 bytes plus the
-table is ~225 against 344. Together roughly another 190 bytes, for a second
+table is ~225 against the 344 it was then (184 now, after the odd-row cut,
+which leaves the nibble idea about 70 bytes for the lead). Together roughly another 190 bytes, for a second
 decode step on every read.
 
 Beyond that is the tracker the original plan specified: `(row, note, length)`

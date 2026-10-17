@@ -64,7 +64,7 @@ extern const uint8_t kMusicVolMap[24];
 // should know about.
 extern const music_chord_t kMusicChordPat[];
 extern const uint8_t kMusicChordBar[24];
-extern const uint8_t kMusicLeadStartPat[][16];
+extern const uint8_t kMusicLeadStartPat[][8];
 extern const uint8_t kMusicLeadStartBar[24];
 extern const uint8_t kMusicBassStartPat[][16];
 extern const uint8_t kMusicBassStartBar[24];
@@ -81,8 +81,11 @@ extern const uint8_t kMusicDrumBitsBar[24];
 // Each lookup comes twice: by bar and row within it (the _IN form,
 // which is what the player keeps, so it never splits a 16-bit row),
 // and by absolute row.
+// The lead only ever starts a note on an even row, so its lane keeps
+// the even rows alone and every odd row reads as 0.
 #define MUSIC_LEAD_START_IN(bar, r)  \
-    (kMusicLeadStartPat[kMusicLeadStartBar[bar]][r])
+    (((r) & 1) ? 0 : \
+     kMusicLeadStartPat[kMusicLeadStartBar[bar]][(r) >> 1])
 #define MUSIC_BASS_START_IN(bar, r)  \
     (kMusicBassStartPat[kMusicBassStartBar[bar]][r])
 #define MUSIC_LEAD_ON_IN(bar, r)  \

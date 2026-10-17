@@ -61,10 +61,13 @@ def dedup_bars(values, per_bar):
     return patterns, index
 
 
-def _emit_bar_table(f, name, patterns, index, per_bar, per_line, what):
+def _emit_bar_table(f, name, patterns, index, per_bar, per_line, what,
+                    was=None):
     """Emits the pattern array and its bar index, with the saving in a
-    comment so the next person can see whether it is still earning its keep."""
-    was = len(index) * per_bar
+    comment so the next person can see whether it is still earning its keep.
+    `was` is the flat size, when the lane was thinned out before the dedup."""
+    if was is None:
+        was = len(index) * per_bar
     now = len(patterns) * per_bar + len(index)
     f.write(f"// {what}: {len(patterns)} distinct bars of {len(index)}, "
             f"{now} bytes instead of {was}.\n")
@@ -161,7 +164,7 @@ def generate_c64_headers():
         f.write("// should know about.\n")
         f.write(f"extern const music_chord_t kMusicChordPat[];\n")
         f.write(f"extern const uint8_t kMusicChordBar[{t1['bars']}];\n")
-        f.write(f"extern const uint8_t kMusicLeadStartPat[][{rpb}];\n")
+        f.write(f"extern const uint8_t kMusicLeadStartPat[][{rpb // 2}];\n")
         f.write(f"extern const uint8_t kMusicLeadStartBar[{t1['bars']}];\n")
         f.write(f"extern const uint8_t kMusicBassStartPat[][{rpb}];\n")
         f.write(f"extern const uint8_t kMusicBassStartBar[{t1['bars']}];\n")
@@ -178,8 +181,11 @@ def generate_c64_headers():
         f.write("// Each lookup comes twice: by bar and row within it (the _IN form,\n")
         f.write("// which is what the player keeps, so it never splits a 16-bit row),\n")
         f.write("// and by absolute row.\n")
+        f.write("// The lead only ever starts a note on an even row, so its lane keeps\n")
+        f.write("// the even rows alone and every odd row reads as 0.\n")
         f.write("#define MUSIC_LEAD_START_IN(bar, r)  \\\n")
-        f.write("    (kMusicLeadStartPat[kMusicLeadStartBar[bar]][r])\n")
+        f.write("    (((r) & 1) ? 0 : \\\n")
+        f.write("     kMusicLeadStartPat[kMusicLeadStartBar[bar]][(r) >> 1])\n")
         f.write("#define MUSIC_BASS_START_IN(bar, r)  \\\n")
         f.write("    (kMusicBassStartPat[kMusicBassStartBar[bar]][r])\n")
         f.write("#define MUSIC_LEAD_ON_IN(bar, r)  \\\n")
@@ -239,7 +245,9 @@ def generate_c64_source():
     drum_bits = pack_bits2([DRUM_CODE[v] for v in drum_at])
 
     rows_per_bar = t1['rows_per_bar']
-    lead_pat = dedup_bars(lead_start, rows_per_bar)
+    # MUSIC_LEAD_START_IN reads odd rows as 0 without a table byte.
+    assert not any(lead_start[1::2]), "the lead starts a note on an odd row"
+    lead_pat = dedup_bars(lead_start[0::2], rows_per_bar // 2)
     bass_pat = dedup_bars(bass_start, rows_per_bar)
     leadon_pat = dedup_bars(lead_on_bits, rows_per_bar // 8)
     drum_pat = dedup_bars(drum_bits, rows_per_bar // 4)
@@ -281,8 +289,9 @@ def generate_c64_source():
         _emit_rows(f, t1['vol_map'], 8)
         f.write("};\n\n")
 
-        _emit_bar_table(f, "kMusicLeadStart", *lead_pat, rows_per_bar, 12,
-                        "Lead start midi notes, 0 = rest")
+        _emit_bar_table(f, "kMusicLeadStart", *lead_pat, rows_per_bar // 2, 12,
+                        "Lead start midi notes on even rows, 0 = rest",
+                        was=tot_rows)
         _emit_bar_table(f, "kMusicBassStart", *bass_pat, rows_per_bar, 12,
                         "Bass start midi notes, 0 = rest")
 
