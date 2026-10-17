@@ -1,5 +1,7 @@
 #include "fmath.h"
 
+const uint8_t kBit[8] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80};
+
 // Left to the outliner (-Oo): _get_ratio() runs at most three times a frame,
 // so its JSR/RTS pairs cost nothing measurable (codesize.md §3.1).
 

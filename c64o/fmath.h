@@ -21,6 +21,10 @@ inline uint16_t _min16(uint16_t a, uint16_t b) { return a > b ? b : a; }
 
 uint8_t _get_msb(uint16_t n);
 
+// kBit[n] == 1 << n. A shift by a variable amount makes oscar64 link its 56 B
+// bitshift runtime table; every such shift in the program reads this instead.
+extern const uint8_t kBit[8];
+
 // Calculates the ratio of |y| to |x| + |y|,
 // scaled by a factor of 64 to return a value between 0 and 64.
 uint8_t _get_ratio(int16_t x, int16_t y);

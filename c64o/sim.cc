@@ -67,7 +67,7 @@ static const uint8_t kMapExitKeyCount =
 // Closes the map if one of those keys is down, and reports whether it did.
 static inline bool _map_poll_exit(void) {
   for (uint8_t i = 0; i < kMapExitKeyCount; ++i) {
-    if (key_pressed(kMapExitKeys[i])) {
+    if (keys_pressed(kMapExitKeys[i])) {
       map_exit();
       // Every one of these means something else in the simulation loop --
       // M would reopen the map on the very next iteration and Q would quit
@@ -153,7 +153,7 @@ void sim_run(uint8_t selected_mission) {
     {
       uint8_t bit = 1;
       for (uint8_t i = 0; i < kToggleKeyCount; ++i) {
-        if (key_pressed(kToggleKeys[i])) {
+        if (keys_pressed(kToggleKeys[i])) {
           toggles |= bit;
         }
         bit <<= 1;
@@ -217,7 +217,7 @@ void sim_run(uint8_t selected_mission) {
       mem_switch_debug(false);
     }
     for (uint8_t i = 0; i < kHeldKeyCount; ++i) {
-      if (key_pressed(kHeldKeys[i].scan)) {
+      if (keys_pressed(kHeldKeys[i].scan)) {
         flight_input(kHeldKeys[i].input);
       }
     }

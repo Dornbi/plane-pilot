@@ -403,9 +403,13 @@ static int8_t _vec_step[VEC_STEP_COUNT] = {-32, 32, 16, -16, 8, -8};
 void vec_set_rotation_shift(uint8_t shift) {
   // From the built-in magnitudes every time, so this is idempotent - the model
   // may set it again if the probe is ever re-run, and vecdemo never calls it.
-  const int8_t roll = (int8_t)(32 >> shift);
-  const int8_t pitch = (int8_t)(16 >> shift);
-  const int8_t yaw = (int8_t)(8 >> shift);
+  // A loop, not 32 >> shift: that would link oscar64's bitshift table.
+  int8_t roll = 32;
+  for (uint8_t i = shift; i != 0; --i) {
+    roll >>= 1;
+  }
+  const int8_t pitch = roll >> 1;
+  const int8_t yaw = roll >> 2;
 
   _vec_step[VEC_STEP_ROLL_LEFT] = -roll;
   _vec_step[VEC_STEP_ROLL_RIGHT] = roll;

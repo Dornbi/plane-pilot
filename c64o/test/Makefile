@@ -103,9 +103,9 @@ MUL_TEST_HDRS = ../vec.h
 # also why sprites.cc is a header dependency here. vic.h and mem.h point their
 # register and screen RAM addresses at arrays in the test when __OSCAR64__ is
 # not defined, the same way sid.h already does for the SID.
-SPRITES_TEST_SRC = sprites_test.cc ../spritedef.cc
+SPRITES_TEST_SRC = sprites_test.cc ../spritedef.cc ../fmath.cc
 SPRITES_TEST_HDRS = ../sprites.h ../sprites.cc ../spritedef.h ../vic.h \
-		../mem.h ../msg.h ../view.h ../color.h ../roll.h
+		../mem.h ../msg.h ../view.h ../color.h ../roll.h ../fmath.h
 
 # poly_test includes ../poly.cc rather than linking it: the projection and
 # both clippers are static, and it is the projection that is under test. The

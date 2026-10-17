@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "bool.h"
+#include "fmath.h"
 
 #ifdef __OSCAR64__
 #include <c64/keyboard.h>
@@ -39,6 +40,15 @@ enum KeyScanCode {
 
 inline void keyb_poll() {}
 inline bool key_pressed(enum KeyScanCode key) { return false; }
+inline bool keys_pressed(enum KeyScanCode key) { return false; }
+#endif
+
+#ifdef __OSCAR64__
+// key_pressed() for a scan code that is not a constant. oscar64's own shifts
+// 1 by the code's low bits, and that shift pulls in its bitshift table.
+inline bool keys_pressed(enum KeyScanCode key) {
+  return !(keyb_matrix[key >> 3] & kBit[key & 7]);
+}
 #endif
 
 // Returns which bits of `current` were not set in `*prev` (i.e. the keys

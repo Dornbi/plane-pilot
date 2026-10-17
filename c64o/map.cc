@@ -13,6 +13,7 @@ static char mmap_set(char pla) { return pla; }
 #include "box.h"
 #include "color.h"
 #include "flight.h"
+#include "fmath.h"
 #include "gfx.h"
 #include "mapdefs.h"
 #include "mem.h"
@@ -110,8 +111,8 @@ static uint8_t *_map_cell_bitmap(uint8_t screen_row, uint8_t screen_col) {
 // row and the bit pair within it.
 void map_set_overlay_pixel(uint8_t px, uint8_t py) {
   uint8_t *dst = _map_cell_bitmap(py >> 3, px >> 2) + (py & 7);
-  const uint8_t shift = (3 - (px & 3)) << 1;
-  *dst = (*dst & ~(3 << shift)) | (1 << shift);
+  const uint8_t bit = kBit[(3 - (px & 3)) << 1];
+  *dst = (*dst & ~(bit | (bit << 1))) | bit;
 }
 
 // Stamps an overlay stencil over one character cell.

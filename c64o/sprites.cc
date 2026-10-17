@@ -1,6 +1,7 @@
 #include "sprites.h"
 
 #include "color.h"
+#include "fmath.h"
 #include "mem.h"
 #include "msg.h"
 #include "roll.h"
@@ -584,7 +585,7 @@ static void _sprites_draw_fin_row(uint8_t *dst, uint8_t width) {
   dst[2] = 0;
   uint8_t x = (kSpriteWidthPixels - width) >> 1;
   for (uint8_t n = width; n != 0; --n) {
-    dst[x >> 3] |= 0x80 >> (x & 7);
+    dst[x >> 3] |= kBit[(x & 7) ^ 7];
     ++x;
   }
 }

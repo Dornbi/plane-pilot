@@ -144,8 +144,15 @@ uint8_t kFlightSubstepMask = 0;
 #endif
 void flight_set_step_shift(uint8_t shift) {
   flight_step_shift = shift;
-  kFlightFramesPerStep = (8 >> shift) ? (8 >> shift) : 1;
-  kFlightSubstepMask = (uint8_t)((1 << shift) - 1);
+  // Loops, not shifts by `shift`: those would link oscar64's bitshift table.
+  uint8_t frames = 8;
+  uint8_t mask = 0;
+  for (uint8_t i = shift; i != 0; --i) {
+    frames >>= 1;
+    mask = (uint8_t)(mask << 1) | 1;
+  }
+  kFlightFramesPerStep = frames ? frames : 1;
+  kFlightSubstepMask = mask;
   vec_set_rotation_shift(shift);
   model_substep = 0;
 }
