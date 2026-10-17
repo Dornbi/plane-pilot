@@ -27,7 +27,7 @@ class TestAnalyzeRam(unittest.TestCase):
         self.assertEqual(analyze_ram.get_category('music_stop'), 'Music')
         self.assertEqual(analyze_ram.get_category('music_tick'), 'Music')
         self.assertEqual(analyze_ram.get_category('kMusicLeadStart'), 'Music')
-        self.assertEqual(analyze_ram.get_category('kMusicBassStart'), 'Music')
+        self.assertEqual(analyze_ram.get_category('kMusicBassStep'), 'Music')
         self.assertEqual(analyze_ram.get_category('kMusicVolMap'), 'Music')
         self.assertEqual(analyze_ram.get_category('kVolumeMix'), 'Music')
         self.assertEqual(analyze_ram.get_category('kMusicLeadOnBits'), 'Music')

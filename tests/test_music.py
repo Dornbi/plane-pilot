@@ -244,7 +244,13 @@ class TestMusicData(unittest.TestCase):
         lead_even = self._bar_table(cc, "kMusicLeadStart", rpb // 2)
         unpacked_lead_start = [0 if r & 1 else lead_even[r >> 1] for r in range(rows)]
         self.assertEqual(unpacked_lead_start, lead_start)
-        self.assertEqual(self._bar_table(cc, "kMusicBassStart", rpb), bass_start)
+        # The bass lane is the interval above the bar's chord root + 1;
+        # MUSIC_BASS_START_IN adds the root back.
+        bass_step = self._bar_table(cc, "kMusicBassStep", rpb)
+        roots = [root for _name, root, _triad in t['chords']]
+        unpacked_bass = [roots[r // rpb] - 1 + v if v else 0
+                         for r, v in enumerate(bass_step)]
+        self.assertEqual(unpacked_bass, bass_start)
 
         # Lane 3 and 4: bar indexed *and* bit packed. MUSIC_LEAD_ON(row) and
         # MUSIC_DRUM_AT(row), spelled out.
@@ -288,7 +294,8 @@ class TestMusicData(unittest.TestCase):
 
         lanes = {
             'lead': (lead_start[0::2], rpb // 2),
-            'bass': (bass_start, rpb),
+            'bass': ([v - t['chords'][r // rpb][1] + 1 if v else 0
+                      for r, v in enumerate(bass_start)], rpb),
             'leadOn': (generate_music.pack_bits1(lead_on), rpb // 8),
             'drum': (generate_music.pack_bits2(
                 [generate_music.DRUM_CODE[v] for v in drum_at]), rpb // 4),

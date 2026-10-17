@@ -658,14 +658,14 @@ estimated:
 | Item                                          |    Bytes |
 | --------------------------------------------- | -------: |
 | `kMusicLeadStartPat[20][8]` + `Bar[24]`       |      184 |
-| `kMusicBassStartPat[11][16]` + `Bar[24]`      |      200 |
+| `kMusicBassStepPat[3][16]` + `Bar[24]`        |       72 |
 | `kMusicDrumBitsPat[5][4]` + `Bar[24]`         |       44 |
 | `kMusicLeadOnBitsPat[3][2]` + `Bar[24]`       |       30 |
 | `kMusicChordPat[7]` + `Bar[24]`               |       52 |
 | Six instruments × 8                           |       48 |
 | `kMusicVolMap[24]`                            |       24 |
 | `kMusicNoteTable[12]`                         |       24 |
-| **Data, as generated**                        |  **631** |
+| **Data, as generated**                        |  **503** |
 | Volume composition table (§3)                 |       48 |
 | Player code                                   |      884 |
 | Player state (bss + zp)                       |       13 |
@@ -721,7 +721,7 @@ byte or not**, on values that mostly did not:
 | `kMusicLeadOn`    | 0 or 1         | 384 | **48** | 1 bit/row, `MUSIC_LEAD_ON(row)` |
 | `kMusicDrumAt`    | 0–3            | 384 | **96** | 2 bits/row, `MUSIC_DRUM_AT(row)` |
 | `kMusicLeadStart` | MIDI note or 0 | 384 | **184** | even rows only, bar index; 7 bits is not worth splitting |
-| `kMusicBassStart` | MIDI note or 0 | 384 | **200** | bar index |
+| `kMusicBassStart` | MIDI note or 0 | 384 | **72** | interval above the chord root, bar index |
 | `kMusicChords`    | root + triad   |  96 | **52** | bar index |
 
 `kMusicBassOn` was 384 bytes in which every byte was `1`: the bass never rests,
@@ -795,22 +795,26 @@ asserts the premise, and `test_packed_tables_round_trip` re-inserts the zeros
 before comparing with the browser's array. That took 160 more bytes off the
 lane, for a test of bit 0 on a read.
 
+**Later: the bass is rhythm over the chord root.** Every bass note is its
+bar's chord root plus 0, 7, 10 or 12, so the generator stores the interval + 1
+(0 = no new note) in `kMusicBassStepPat` and the eleven note patterns collapse
+into three rhythm shapes: the intro pedal, the groove and the push bar. The
+player tests the step for the hard restart and adds `MUSIC_CHORD(bar).root`
+only when a note starts. 200 → 72 bytes of data, about 10 of code; the
+generator asserts no note lies below its root, and
+`test_packed_tables_round_trip` adds the roots back before comparing.
+
 **What is still on the table.** Two things, both measured rather than guessed.
 
-`kMusicBassStart` uses only 14 distinct note values, which fits a nibble: bar
-patterns of 8 bytes instead of 16 plus a 14-byte value table would take it from
-200 to 126. `kMusicLeadStart` uses 17, one over the nibble limit, so it would
-need 5-bit fields or a value it can spare — 20 patterns of 10 bytes plus the
-table is ~225 against the 344 it was then (184 now, after the odd-row cut,
-which leaves the nibble idea about 70 bytes for the lead). Together roughly another 190 bytes, for a second
-decode step on every read.
+`kMusicLeadStart` uses 17 distinct note values, one over the nibble limit, so
+it would need 5-bit fields or a value it can spare — 20 patterns of 10 bytes
+plus the table is ~225 against the 344 it was then (184 now, after the odd-row
+cut, which leaves the nibble idea about 70 bytes), for a second decode step on
+every read.
 
 Beyond that is the tracker the original plan specified: `(row, note, length)`
-triples for the lead, and for the bass the observation that it only ever plays
-intervals 0, 7, 10 and 12 above its bar's chord root, so two rhythm patterns
-plus a one-bit-per-bar selector reproduce all of it. That is a few hundred more
-bytes and a pointer walk per channel. Recorded so the options are visible, not
-because either is due.
+triples for the lead. That is a few hundred more bytes and a pointer walk.
+Recorded so the options are visible, not because either is due.
 
 **`ppilot.prg` only.** The build already splits on `__ENABLE_SOUND__` for
 `ppilot` and `__ENABLE_DEBUG__` for `ppilotd`, and `PPILOTD_SRC` is literally

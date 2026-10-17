@@ -325,13 +325,15 @@ void music_tick(void) {
   // drop to single rows in the push bars, and a bass pickup whose envelope
   // starts halfway up is a note with no front edge - on the one voice whose
   // front edge *is* the rhythm.
-  if (last_frame_of_row && MUSIC_BASS_START_IN(next_bar, next_row) != 0) {
+  if (last_frame_of_row && MUSIC_BASS_STEP_IN(next_bar, next_row) != 0) {
     _music_hard_restart_restart(kVoice2);
   }
   if (_music_row_frame == 0) {
-    const uint8_t note = MUSIC_BASS_START_IN(_music_bar, _music_row);
-    if (note != 0) {
-      _set_voice(kVoice2, music_note_freq(note), kMusicBassPw,
+    const uint8_t step = MUSIC_BASS_STEP_IN(_music_bar, _music_row);
+    if (step != 0) {
+      _set_voice(kVoice2,
+                 music_note_freq(MUSIC_BASS_NOTE(_music_bar, step)),
+                 kMusicBassPw,
                  kMusicInsBass.wave | SID_CTRL_GATE, kMusicInsBass.ad,
                  kMusicInsBass.sr);
     }

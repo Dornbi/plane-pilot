@@ -66,8 +66,8 @@ extern const music_chord_t kMusicChordPat[];
 extern const uint8_t kMusicChordBar[24];
 extern const uint8_t kMusicLeadStartPat[][8];
 extern const uint8_t kMusicLeadStartBar[24];
-extern const uint8_t kMusicBassStartPat[][16];
-extern const uint8_t kMusicBassStartBar[24];
+extern const uint8_t kMusicBassStepPat[][16];
+extern const uint8_t kMusicBassStepBar[24];
 extern const uint8_t kMusicLeadOnBitsPat[][2];
 extern const uint8_t kMusicLeadOnBitsBar[24];
 extern const uint8_t kMusicDrumBitsPat[][4];
@@ -86,8 +86,17 @@ extern const uint8_t kMusicDrumBitsBar[24];
 #define MUSIC_LEAD_START_IN(bar, r)  \
     (((r) & 1) ? 0 : \
      kMusicLeadStartPat[kMusicLeadStartBar[bar]][(r) >> 1])
+// The bass only plays intervals above its bar's chord root, so its
+// lane holds the interval + 1 (0 = no new note) and comes down to
+// the few rhythm shapes the arrangement has. The player tests the
+// step and adds the root only when a note starts.
+#define MUSIC_BASS_STEP_IN(bar, r)  \
+    (kMusicBassStepPat[kMusicBassStepBar[bar]][r])
+#define MUSIC_BASS_NOTE(bar, step)  \
+    ((uint8_t)(MUSIC_CHORD(bar).root - 1 + (step)))
 #define MUSIC_BASS_START_IN(bar, r)  \
-    (kMusicBassStartPat[kMusicBassStartBar[bar]][r])
+    (MUSIC_BASS_STEP_IN(bar, r) ? \
+     MUSIC_BASS_NOTE(bar, MUSIC_BASS_STEP_IN(bar, r)) : 0)
 #define MUSIC_LEAD_ON_IN(bar, r)  \
     ((kMusicLeadOnBitsPat[kMusicLeadOnBitsBar[bar]][(r) >> 3] \
       >> ((r) & 7)) & 1)

@@ -62,24 +62,16 @@ const uint8_t kMusicLeadStartBar[24] = {
       5,   9,  10,  11,  12,  13,  14,  15,  16,  17,  18,  19,
 };
 
-// Bass start midi notes, 0 = rest: 11 distinct bars of 24, 200 bytes instead of 384.
-const uint8_t kMusicBassStartPat[11][16] = {
-    {  38,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0 }, // pattern 0
-    {  34,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0 }, // pattern 1
-    {  36,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0 }, // pattern 2
-    {  33,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0 }, // pattern 3
-    {  38,   0,  38,   0,  38,   0,  50,   0,  38,   0,  38,   0,  45,   0,  50,   0 }, // pattern 4
-    {  34,   0,  34,   0,  34,   0,  46,   0,  34,   0,  34,   0,  41,   0,  46,   0 }, // pattern 5
-    {  36,   0,  36,   0,  36,   0,  48,   0,  36,   0,  36,   0,  43,   0,  48,   0 }, // pattern 6
-    {  33,   0,  33,   0,  33,  33,  45,   0,  33,   0,  40,   0,  45,   0,  43,  45 }, // pattern 7
-    {  29,   0,  29,   0,  29,   0,  41,   0,  29,   0,  29,   0,  36,   0,  41,   0 }, // pattern 8
-    {  31,   0,  31,   0,  31,  31,  43,   0,  31,   0,  38,   0,  43,   0,  41,  43 }, // pattern 9
-    {  31,   0,  31,   0,  31,   0,  43,   0,  31,   0,  31,   0,  38,   0,  43,   0 }, // pattern 10
+// Bass interval above the chord root + 1, 0 = no new note: 3 distinct bars of 24, 72 bytes instead of 384.
+const uint8_t kMusicBassStepPat[3][16] = {
+    {   1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0 }, // pattern 0
+    {   1,   0,   1,   0,   1,   0,  13,   0,   1,   0,   1,   0,   8,   0,  13,   0 }, // pattern 1
+    {   1,   0,   1,   0,   1,   1,  13,   0,   1,   0,   8,   0,  13,   0,  11,  13 }, // pattern 2
 };
 
-const uint8_t kMusicBassStartBar[24] = {
-      0,   1,   2,   3,   4,   5,   6,   7,   4,   8,   6,   9,
-      4,   5,   6,   7,   4,   5,   6,   7,   4,   8,  10,   7,
+const uint8_t kMusicBassStepBar[24] = {
+      0,   0,   0,   0,   1,   1,   1,   2,   1,   1,   1,   2,
+      1,   1,   1,   2,   1,   1,   1,   2,   1,   1,   1,   2,
 };
 
 // Lead gate, 1 bit per row LSB first. MUSIC_LEAD_ON(row): 3 distinct bars of 24, 30 bytes instead of 48.

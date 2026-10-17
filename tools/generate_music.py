@@ -166,8 +166,8 @@ def generate_c64_headers():
         f.write(f"extern const uint8_t kMusicChordBar[{t1['bars']}];\n")
         f.write(f"extern const uint8_t kMusicLeadStartPat[][{rpb // 2}];\n")
         f.write(f"extern const uint8_t kMusicLeadStartBar[{t1['bars']}];\n")
-        f.write(f"extern const uint8_t kMusicBassStartPat[][{rpb}];\n")
-        f.write(f"extern const uint8_t kMusicBassStartBar[{t1['bars']}];\n")
+        f.write(f"extern const uint8_t kMusicBassStepPat[][{rpb}];\n")
+        f.write(f"extern const uint8_t kMusicBassStepBar[{t1['bars']}];\n")
         f.write(f"extern const uint8_t kMusicLeadOnBitsPat[][{rpb // 8}];\n")
         f.write(f"extern const uint8_t kMusicLeadOnBitsBar[{t1['bars']}];\n")
         f.write(f"extern const uint8_t kMusicDrumBitsPat[][{rpb // 4}];\n")
@@ -186,8 +186,17 @@ def generate_c64_headers():
         f.write("#define MUSIC_LEAD_START_IN(bar, r)  \\\n")
         f.write("    (((r) & 1) ? 0 : \\\n")
         f.write("     kMusicLeadStartPat[kMusicLeadStartBar[bar]][(r) >> 1])\n")
+        f.write("// The bass only plays intervals above its bar's chord root, so its\n")
+        f.write("// lane holds the interval + 1 (0 = no new note) and comes down to\n")
+        f.write("// the few rhythm shapes the arrangement has. The player tests the\n")
+        f.write("// step and adds the root only when a note starts.\n")
+        f.write("#define MUSIC_BASS_STEP_IN(bar, r)  \\\n")
+        f.write("    (kMusicBassStepPat[kMusicBassStepBar[bar]][r])\n")
+        f.write("#define MUSIC_BASS_NOTE(bar, step)  \\\n")
+        f.write("    ((uint8_t)(MUSIC_CHORD(bar).root - 1 + (step)))\n")
         f.write("#define MUSIC_BASS_START_IN(bar, r)  \\\n")
-        f.write("    (kMusicBassStartPat[kMusicBassStartBar[bar]][r])\n")
+        f.write("    (MUSIC_BASS_STEP_IN(bar, r) ? \\\n")
+        f.write("     MUSIC_BASS_NOTE(bar, MUSIC_BASS_STEP_IN(bar, r)) : 0)\n")
         f.write("#define MUSIC_LEAD_ON_IN(bar, r)  \\\n")
         f.write("    ((kMusicLeadOnBitsPat[kMusicLeadOnBitsBar[bar]][(r) >> 3] \\\n")
         f.write("      >> ((r) & 7)) & 1)\n")
@@ -248,7 +257,13 @@ def generate_c64_source():
     # MUSIC_LEAD_START_IN reads odd rows as 0 without a table byte.
     assert not any(lead_start[1::2]), "the lead starts a note on an odd row"
     lead_pat = dedup_bars(lead_start[0::2], rows_per_bar // 2)
-    bass_pat = dedup_bars(bass_start, rows_per_bar)
+    # MUSIC_BASS_NOTE adds the chord root back, so the lane is only rhythm.
+    bass_step = []
+    for r, v in enumerate(bass_start):
+        root = t1['chords'][r // rows_per_bar][1]
+        assert v == 0 or 0 < v - root + 1 < 256, "a bass note below its chord root"
+        bass_step.append(v - root + 1 if v else 0)
+    bass_pat = dedup_bars(bass_step, rows_per_bar)
     leadon_pat = dedup_bars(lead_on_bits, rows_per_bar // 8)
     drum_pat = dedup_bars(drum_bits, rows_per_bar // 4)
 
@@ -292,8 +307,8 @@ def generate_c64_source():
         _emit_bar_table(f, "kMusicLeadStart", *lead_pat, rows_per_bar // 2, 12,
                         "Lead start midi notes on even rows, 0 = rest",
                         was=tot_rows)
-        _emit_bar_table(f, "kMusicBassStart", *bass_pat, rows_per_bar, 12,
-                        "Bass start midi notes, 0 = rest")
+        _emit_bar_table(f, "kMusicBassStep", *bass_pat, rows_per_bar, 12,
+                        "Bass interval above the chord root + 1, 0 = no new note")
 
         _emit_bar_table(f, "kMusicLeadOnBits", *leadon_pat, rows_per_bar // 8, 12,
                         "Lead gate, 1 bit per row LSB first. MUSIC_LEAD_ON(row)")
