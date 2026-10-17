@@ -702,9 +702,12 @@ are guarding against. Building without the orthonormalize at all crashes the
 aircraft within seconds, so the numerical margin here is not large.
 
 The same "identity plus one antisymmetric pair" shape describes all six
-`kVec*` control matrices, so `vec_transform3()` on the input path has the
-identical 27-for-6 win available. Measured at **6,191 cycles a frame** while a
-control key is held, against a frame of about 146,000. Not done.
+`kVec*` control matrices, so `vec_transform3()` on the input path had the
+identical 27-for-6 win available, measured at **6,191 cycles a frame** while a
+control key is held, against a frame of about 146,000. It is taken now:
+`vec_rotate_step()` moves the two rows each step turns, bit for bit the same
+answer (test/host_vec.cc), and the six matrices left fpilot and ppilot along
+with it (about 200 B). vecdemo and planedemo still use the matrices.
 
 **How the scaled model is checked.** Not by `flight_test`: that suite counts
 steps — "roll for six frames, then assert the bank" — so a quarter-size step

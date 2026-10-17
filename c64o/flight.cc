@@ -1042,8 +1042,9 @@ void flight_advance() {
           // putting back nearly all of a direct change to front.z. A body axis
           // rotation is well defined at any attitude, and one step is enough
           // to tip the nose off the vertical.
-          vec_transform3(flight_alpha16 > 0 ? &kVecPitchDown : &kVecPitchUp,
-                         &flight_cam);
+          vec_rotate_step(flight_alpha16 > 0 ? VEC_STEP_PITCH_DOWN
+                                             : VEC_STEP_PITCH_UP,
+                          &flight_cam);
         } else if (nose_down) {
           flight_cam.front.z -= brk;
         } else {
@@ -1171,8 +1172,9 @@ void flight_advance() {
           // raises the nose whenever up.z is negative. Picking the rotation by
           // the sign of up.z keeps the stall break pointed at the ground at
           // any attitude, which is what flight.md 2.2 requires.
-          vec_transform3(flight_cam.up.z < 0 ? &kVecPitchUp : &kVecPitchDown,
-                         &flight_cam);
+          vec_rotate_step(flight_cam.up.z < 0 ? VEC_STEP_PITCH_UP
+                                              : VEC_STEP_PITCH_DOWN,
+                          &flight_cam);
         } else {
           uint8_t s = _flight_step_s(stall_speed - flight_speed) >> 5;
           if (s == 0)
@@ -1454,14 +1456,19 @@ void flight_advance() {
   model_substep = (model_substep + 1) & kFlightSubstepMask;
 }
 
-// The airborne attitude steps, indexed by input - FLIGHT_INPUT_ROLL_LEFT.
-static mat3_t *const kFlightRotations[] = {
-    &kVecRollLeft, &kVecRollRight, &kVecPitchUp,
-    &kVecPitchDown, &kVecYawLeft, &kVecYawRight,
-};
-static_assert(FLIGHT_INPUT_YAW_RIGHT - FLIGHT_INPUT_ROLL_LEFT + 1 ==
-                  sizeof(kFlightRotations) / sizeof(kFlightRotations[0]),
-              "kFlightRotations must cover the contiguous rotation inputs");
+// The airborne attitude step for an input is
+// vec_rotate_step(input - FLIGHT_INPUT_ROLL_LEFT).
+static_assert(FLIGHT_INPUT_ROLL_RIGHT - FLIGHT_INPUT_ROLL_LEFT ==
+                      VEC_STEP_ROLL_RIGHT &&
+                  FLIGHT_INPUT_PITCH_UP - FLIGHT_INPUT_ROLL_LEFT ==
+                      VEC_STEP_PITCH_UP &&
+                  FLIGHT_INPUT_PITCH_DOWN - FLIGHT_INPUT_ROLL_LEFT ==
+                      VEC_STEP_PITCH_DOWN &&
+                  FLIGHT_INPUT_YAW_LEFT - FLIGHT_INPUT_ROLL_LEFT ==
+                      VEC_STEP_YAW_LEFT &&
+                  FLIGHT_INPUT_YAW_RIGHT - FLIGHT_INPUT_ROLL_LEFT ==
+                      VEC_STEP_YAW_RIGHT,
+              "the rotation inputs must be in vec_step_t order");
 
 void flight_input(enum flight_input_t input) {
   if (input == FLIGHT_INPUT_TOGGLE_NAV) {
@@ -1527,20 +1534,20 @@ void flight_input(enum flight_input_t input) {
       // Nose wheel steering, so it needs the wheels to be turning. A parked
       // aircraft cannot pivot on the spot.
       if (flight_speed > 0) {
-        vec_transform3(&kVecYawLeft, &flight_cam);
+        vec_rotate_step(VEC_STEP_YAW_LEFT, &flight_cam);
         model_need_normalize = true;
       }
       break;
     case FLIGHT_INPUT_ROLL_RIGHT:
     case FLIGHT_INPUT_YAW_RIGHT:
       if (flight_speed > 0) {
-        vec_transform3(&kVecYawRight, &flight_cam);
+        vec_rotate_step(VEC_STEP_YAW_RIGHT, &flight_cam);
         model_need_normalize = true;
       }
       break;
     case FLIGHT_INPUT_PITCH_DOWN:
       if (flight_cam.front.z > 0) {
-        vec_transform3(&kVecPitchDown, &flight_cam);
+        vec_rotate_step(VEC_STEP_PITCH_DOWN, &flight_cam);
         if (flight_cam.front.z < 0) {
           flight_cam.front.z = 0;
         }
@@ -1557,7 +1564,7 @@ void flight_input(enum flight_input_t input) {
       // a real runway, and flight_advance() decides the liftoff by asking
       // whether the wing carries the aeroplane.
       if (flight_cam.front.z < kFlightMaxGroundPitch) {
-        vec_transform3(&kVecPitchUp, &flight_cam);
+        vec_rotate_step(VEC_STEP_PITCH_UP, &flight_cam);
         if (flight_cam.front.z > kFlightMaxGroundPitch) {
           flight_cam.front.z = kFlightMaxGroundPitch;
         }
@@ -1574,7 +1581,7 @@ void flight_input(enum flight_input_t input) {
         // below owns the pitch again and this cannot fire a second time.
         uint8_t steps = kFlightMaxRotateSteps;
         while (flight_cam.front.z < kFlightRotatePitchZ && steps--) {
-          vec_transform3(&kVecPitchUp, &flight_cam);
+          vec_rotate_step(VEC_STEP_PITCH_UP, &flight_cam);
         }
         model_need_normalize = true;
         model_on_ground = false;
@@ -1628,12 +1635,11 @@ void flight_input(enum flight_input_t input) {
 
 #endif // __FLIGHT_AOA__
 
-  // Airborne, every axis is the same action with a different matrix, so the
-  // six switch arms are one indexed call. kFlightRotations is in the enum's
-  // order and the static_assert below is what keeps it that way.
+  // Airborne, every axis is the same action with a different step, so the six
+  // switch arms are one indexed call. The rotation inputs are in vec_step_t's
+  // order and the static_assert above is what keeps it that way.
   if (input >= FLIGHT_INPUT_ROLL_LEFT && input <= FLIGHT_INPUT_YAW_RIGHT) {
-    vec_transform3(kFlightRotations[input - FLIGHT_INPUT_ROLL_LEFT],
-                   &flight_cam);
+    vec_rotate_step(input - FLIGHT_INPUT_ROLL_LEFT, &flight_cam);
     model_need_normalize = true;
     return;
   }

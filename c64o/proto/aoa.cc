@@ -473,7 +473,7 @@ void aoa_advance(void) {
   }
 }
 
-static mat3_t *const kAoaRotations[] = {
+static const mat3_t *const kAoaRotations[] = {
     &kVecRollLeft, &kVecRollRight, &kVecPitchUp,
     &kVecPitchDown, &kVecYawLeft, &kVecYawRight,
 };

@@ -11,8 +11,8 @@
 // 20 MHz accelerator alike. See docs/flight.md §8.
 //
 // The rotation magnitudes below are what that scales - they are the step size
-// expressed as matrices, which is why vec_set_rotation_shift() rebuilds them
-// and why they are powers of two, so that halving is exact.
+// as vec_rotate_step() angles, which is why vec_set_rotation_shift() rebuilds
+// them and why they are powers of two, so that halving is exact.
 
 #ifndef __OSCAR64__
 // Same stand-ins mem.h provides, repeated because flight.cc reaches vec.h and
@@ -182,19 +182,30 @@ void vec_cross(const vec3_t *u, const vec3_t *v, vec3_t *res);
 // Orthonormalizes mat using 8.8 fixed point arithmetic.
 void vec_orthonormalize(mat3_t *mat);
 
-// One control step each, as a small-angle rotation. Not const: they are the
-// flight model's step size, and vec_set_rotation_shift() rescales them once at
-// init when the shift is not pinned at build time. Everything that uses them
-// takes a const pointer, so nothing else can write to them.
-extern mat3_t kVecRollLeft;
-extern mat3_t kVecRollRight;
-extern mat3_t kVecPitchUp;
-extern mat3_t kVecPitchDown;
-extern mat3_t kVecYawLeft;
-extern mat3_t kVecYawRight;
+// One control step each, as a small-angle rotation at the built-in magnitude,
+// for vecdemo and planedemo. The flight model uses vec_rotate_step() instead.
+extern const mat3_t kVecRollLeft;
+extern const mat3_t kVecRollRight;
+extern const mat3_t kVecPitchUp;
+extern const mat3_t kVecPitchDown;
+extern const mat3_t kVecYawLeft;
+extern const mat3_t kVecYawRight;
 
-// Rebuilds the six above at 1 >> shift of their built-in magnitudes. Rebuilds
-// rather than divides, so calling it twice is the same as calling it once.
+// The six steps of vec_rotate_step(), in the order of the matrices above (and
+// of flight.h's rotation inputs).
+enum vec_step_t {
+  VEC_STEP_ROLL_LEFT,
+  VEC_STEP_ROLL_RIGHT,
+  VEC_STEP_PITCH_UP,
+  VEC_STEP_PITCH_DOWN,
+  VEC_STEP_YAW_LEFT,
+  VEC_STEP_YAW_RIGHT,
+  VEC_STEP_COUNT
+};
+
+// Sets vec_rotate_step()'s angles to 1 >> shift of the built-in magnitudes.
+// Rebuilds rather than divides, so calling it twice is the same as calling it
+// once.
 void vec_set_rotation_shift(uint8_t shift);
 
 // Transforms u by vec_mat and stores the result in res.
@@ -228,6 +239,16 @@ void vec_transform3_inv(const mat3_t *t, mat3_t *m);
 // with an arithmetic shift instead it would floor, and the two would differ by
 // one on half of all products.
 void vec_turn3_xy(int16_t s, mat3_t *m);
+
+// One control step: exactly vec_transform3() with the matching matrix above,
+// rescaled by vec_set_rotation_shift(), and bit for bit the same answer
+// (test/host_vec.cc). Each of those matrices only turns two of m's vectors
+// towards each other, so this moves those two rows by the step's angle s/256 -
+// p += s * q, q -= s * p, both from the old values - and skips the other 21 of
+// the general routine's 27 multiplies, by the same three identities as
+// vec_turn3_xy(). It also needs vec_fastmul8p8(a, b) == vec_fastmul8p8(b, a),
+// which holds because the product is formed from the magnitudes.
+void vec_rotate_step(uint8_t step, mat3_t *m);
 
 #pragma compile("vec.cc")
 #pragma compile("vec_asm.cc")

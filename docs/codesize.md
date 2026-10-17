@@ -115,10 +115,11 @@ Two things, both in [flight.cc](../c64o/flight.cc):
   `model_on_ground` split now.
 - The six airborne rotation arms were the same three lines with a different
   matrix, so they collapse to
-  `vec_transform3(kFlightRotations[input - FLIGHT_INPUT_ROLL_LEFT], ...)`.
-  A `static_assert` ties the table's length to the contiguous run of rotation
-  values in `enum flight_input_t`, which is the thing that would break silently
-  if a new input were inserted in the middle.
+  `vec_rotate_step(input - FLIGHT_INPUT_ROLL_LEFT, ...)` (it was a
+  `kFlightRotations` table of matrices until those went, flight.md §8). A
+  `static_assert` ties the rotation values in `enum flight_input_t` to
+  `enum vec_step_t`, which is the thing that would break silently if a new
+  input were inserted in the middle.
 
 Ground behaviour is untouched - the nose-wheel speed gate, the rotate-to-
 attitude pitch step of `33364c0`, the gear lockout and the brake all still live

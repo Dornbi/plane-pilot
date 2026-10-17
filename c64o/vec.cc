@@ -362,59 +362,57 @@ void vec_orthonormalize(mat3_t *mat) {
 
 // One control step, as a small-angle rotation: the off-diagonal over 256 is the
 // angle in radians, so 32 is 7.2 degrees of roll, 16 is 3.6 of pitch and 8 is
-// 1.8 of yaw. These are the magnitudes vecdemo sees. The simulation calls
-// vec_set_rotation_shift() at boot and scales them to the machine the probe
-// measured (docs/flight.md §8), which is why they are powers of two - halving
-// is exact and that is what the whole scheme rests on.
+// 1.8 of yaw. These are the magnitudes vecdemo and planedemo see. The flight
+// model steps with vec_rotate_step() instead, whose angles
+// vec_set_rotation_shift() scales to the machine the probe measured
+// (docs/flight.md §8), which is why they are powers of two - halving is exact
+// and that is what the whole scheme rests on.
 
 // clang-format off
-mat3_t kVecRollLeft = {
+const mat3_t kVecRollLeft = {
   { 256,    0,    0},
   {   0,  256,  -32},
   {   0,   32,  256}};
-mat3_t kVecRollRight = {
+const mat3_t kVecRollRight = {
   { 256,    0,    0},
   {   0,  256,   32},
   {   0,  -32,  256}};
-mat3_t kVecPitchUp = {
+const mat3_t kVecPitchUp = {
   { 256,    0,   16},
   {   0,  256,    0},
   { -16,    0,  256}};
-mat3_t kVecPitchDown = {
+const mat3_t kVecPitchDown = {
   { 256,    0,  -16},
   {   0,  256,    0},
   {  16,    0,  256}};
-mat3_t kVecYawLeft = {
+const mat3_t kVecYawLeft = {
   { 256,    8,    0},
   {  -8,  256,    0},
   {   0,    0,  256}};
-mat3_t kVecYawRight = {
+const mat3_t kVecYawRight = {
   { 256,   -8,    0},
   {   8,  256,    0},
   {   0,    0,  256}};
 // clang-format on
 
+// vec_rotate_step()'s angle per step, in vec_step_t order: the off-diagonal
+// entry that matrix has in its first moved row (vec.h). Built-in magnitudes
+// until vec_set_rotation_shift() scales them.
+static int8_t _vec_step[VEC_STEP_COUNT] = {-32, 32, 16, -16, 8, -8};
+
 void vec_set_rotation_shift(uint8_t shift) {
   // From the built-in magnitudes every time, so this is idempotent - the model
   // may set it again if the probe is ever re-run, and vecdemo never calls it.
-  const int16_t roll = (int16_t)(32 >> shift);
-  const int16_t pitch = (int16_t)(16 >> shift);
-  const int16_t yaw = (int16_t)(8 >> shift);
+  const int8_t roll = (int8_t)(32 >> shift);
+  const int8_t pitch = (int8_t)(16 >> shift);
+  const int8_t yaw = (int8_t)(8 >> shift);
 
-  kVecRollLeft.left.z = -roll;
-  kVecRollLeft.up.y = roll;
-  kVecRollRight.left.z = roll;
-  kVecRollRight.up.y = -roll;
-
-  kVecPitchUp.front.z = pitch;
-  kVecPitchUp.up.x = -pitch;
-  kVecPitchDown.front.z = -pitch;
-  kVecPitchDown.up.x = pitch;
-
-  kVecYawLeft.front.y = yaw;
-  kVecYawLeft.left.x = -yaw;
-  kVecYawRight.front.y = -yaw;
-  kVecYawRight.left.x = yaw;
+  _vec_step[VEC_STEP_ROLL_LEFT] = -roll;
+  _vec_step[VEC_STEP_ROLL_RIGHT] = roll;
+  _vec_step[VEC_STEP_PITCH_UP] = pitch;
+  _vec_step[VEC_STEP_PITCH_DOWN] = -pitch;
+  _vec_step[VEC_STEP_YAW_LEFT] = yaw;
+  _vec_step[VEC_STEP_YAW_RIGHT] = -yaw;
 }
 
 // vec_transform() and vec_transform_inv() are the same nine multiplies, read
@@ -490,5 +488,23 @@ __forceinline void vec_turn3_xy(int16_t s, mat3_t *m) {
   _turn_xy(s, &m->front);
   _turn_xy(s, &m->left);
   _turn_xy(s, &m->up);
+}
+
+void vec_rotate_step(uint8_t step, mat3_t *m) {
+  // Roll moves left and up, pitch front and up, yaw front and left.
+  int16_t *p = &m->front.x;
+  int16_t *q = &m->up.x;
+  if (step < VEC_STEP_PITCH_UP) {
+    p = &m->left.x;
+  } else if (step >= VEC_STEP_YAW_LEFT) {
+    q = &m->left.x;
+  }
+  const int16_t s = _vec_step[step];
+  for (uint8_t i = 0; i < 3; ++i) {
+    const int16_t a = p[i];
+    const int16_t b = q[i];
+    p[i] = a + vec_fastmul8p8(s, b);
+    q[i] = b - vec_fastmul8p8(s, a);
+  }
 }
 #pragma optimize(pop)

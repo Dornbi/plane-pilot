@@ -142,5 +142,45 @@ int host_vec_selfcheck() {
     }
   }
 
+  // vec_rotate_step() against vec_transform3() with the matrix it stands for,
+  // at each rotation shift whose angles are still nonzero: the built-in
+  // matrix with its two off-diagonal entries scaled the same way.
+  static const mat3_t *const kSteps[VEC_STEP_COUNT] = {
+      &kVecRollLeft, &kVecRollRight, &kVecPitchUp,
+      &kVecPitchDown, &kVecYawLeft, &kVecYawRight};
+  for (uint8_t shift = 0; shift <= 3; ++shift) {
+    vec_set_rotation_shift(shift);
+    for (uint8_t step = 0; step < VEC_STEP_COUNT; ++step) {
+      mat3_t rot = *kSteps[step];
+      int16_t *e = &rot.front.x;
+      for (int n = 0; n < 9; ++n) {
+        if (e[n] != 0 && e[n] != 256) {
+          e[n] = (int16_t)(e[n] / (1 << shift));
+        }
+      }
+      for (int i = 0; i < kCompCount; ++i) {
+        for (int j = 0; j < kCompCount; ++j) {
+          for (int k = 0; k < kCompCount; ++k) {
+            mat3_t want = {{kComp[i], kComp[j], kComp[k]},
+                           {kComp[j], kComp[k], kComp[i]},
+                           {kComp[k], kComp[i], kComp[j]}};
+            mat3_t got = want;
+            vec_transform3(&rot, &want);
+            vec_rotate_step(step, &got);
+            if (memcmp(&want, &got, sizeof(mat3_t)) != 0) {
+              if (mismatches < 5) {
+                printf("  vec_rotate_step(%u) at shift %u on (%d,%d,%d) "
+                       "differs from vec_transform3\n",
+                       step, shift, kComp[i], kComp[j], kComp[k]);
+              }
+              ++mismatches;
+            }
+          }
+        }
+      }
+    }
+  }
+  vec_set_rotation_shift(0);
+
   return mismatches;
 }
