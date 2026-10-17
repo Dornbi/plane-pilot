@@ -344,6 +344,10 @@ for ((n = 1; n <= MAX_PASSES && fails < MAX_FAILS; n++)); do
     esac
   fi
 
+  # Something switched the checkout mid-pass once, and the commit landed on
+  # the wrong branch. Refuse to commit anywhere but $BRANCH.
+  [ "$(git branch --show-current)" = "$BRANCH" ] ||
+    die "checkout moved off $BRANCH during pass $pass (now on $(git branch --show-current)); nothing committed"
   df=$((f1 - f0)); dp=$((p1 - p0)); dc=$(pct "$c1" "$c0")
   if [ -z "$result" ]; then
     log_row "$pass" "$idea" "$df" "$dp" "$dc" "kept"
