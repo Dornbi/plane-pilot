@@ -318,28 +318,41 @@ def generate_chardefs_content(global_chars: Dict[bytes, Dict[str, Any]], special
     return content
 
 
-def generate_chardefs_c_content(stored: List[Any], char_map: Dict[int, Any]) -> str:
+def generate_chardefs_c_content(stored: List[Any], char_map: Dict[int, Any],
+                                stream: bytes) -> str:
     """
     Generates the C source code for chardefs.cc.
 
-    stored is find_boxes.build_c_charset()'s: the characters the boxes use,
-    each once per vertical flip. The comment on each row names the global
+    stored, char_map and stream are find_boxes.build_c_charset()'s: the
+    characters the boxes use, each once per vertical flip, numbered in the
+    order they start in stream. The comment on each offset names the global
     character ids it serves, and which of them are it upside down.
     """
     content = banner.c_banner("lib/batch_generator.py")
     content += '#include "chardefs.h"\n\n'
-    content += "const uint8_t chardefs[kCharDefCount][8] = {\n"
+    content += ("// Every stored character is eight consecutive bytes of this stream, from\n"
+                "// its offset below (lib/find_boxes.py build_char_stream()).\n")
+    content += "const uint8_t chardef_bytes[kCharDefBytes] = {\n"
+    for pos in range(0, len(stream), 8):
+        byte_vals = [f"0x{b:02x}" for b in stream[pos:pos + 8]]
+        content += f"    {', '.join(byte_vals)}, // {pos}\n"
+    content += "};\n\n"
+    content += ("// Low byte of each character's offset into chardef_bytes. The offsets grow\n"
+                "// with the index, so the high byte is 1 from kCharDefPage1 on and 2 from\n"
+                "// kCharDefPage2 on.\n")
+    content += "const uint8_t chardef_offset_lo[kCharDefCount] = {\n"
     for i, (char_bytes, ids) in enumerate(stored):
-        byte_vals = [f"0x{b:02x}" for b in char_bytes]
+        offset = stream.find(char_bytes)
         served = ", ".join(f"{cid} flipped" if char_map[cid][1] else str(cid)
                            for cid in ids)
-        content += f"    {{ {', '.join(byte_vals)} }}, // {i}: {served}\n"
+        content += f"    0x{offset & 0xFF:02x}, // {i} at {offset}: {served}\n"
     content += "};\n"
     return content
 
 def generate_chardefs_h_content(global_chars: Dict[bytes, Dict[str, Any]],
                                 special_ids: Dict[str, int],
-                                stored: List[Any]) -> str:
+                                stored: List[Any],
+                                stream: bytes) -> str:
     """
     Generates the C header code for chardefs.h.
     """
@@ -353,8 +366,20 @@ def generate_chardefs_h_content(global_chars: Dict[bytes, Dict[str, Any]],
                 f"once per vertical\n"
                 f"// flip (lib/find_boxes.py build_c_charset()). Fewer than 256, "
                 f"so a byte\n"
-                f"// indexes them.\n")
-    content += f"static const uint16_t kCharDefCount = {len(stored)};\n\n"
+                f"// indexes them. They overlap inside one {len(stream)} B "
+                f"stream, numbered in\n"
+                f"// the order they start in it. kCharDefPage1 is the first "
+                f"one that starts\n"
+                f"// 256 B or more in, kCharDefPage2 512 B or more "
+                f"(kCharDefCount if none).\n")
+    offsets = [stream.find(char_bytes) for char_bytes, _ in stored]
+    pages = [next((i for i, o in enumerate(offsets) if o >= 256 * p),
+                  len(stored))
+             for p in (1, 2)]
+    content += f"static const uint16_t kCharDefCount = {len(stored)};\n"
+    content += f"static const uint16_t kCharDefBytes = {len(stream)};\n"
+    content += f"static const uint8_t kCharDefPage1 = {pages[0]};\n"
+    content += f"static const uint8_t kCharDefPage2 = {pages[1]};\n\n"
     
     content += "static const uint8_t kCharSolidGround = 128;\n"
     content += "static const uint8_t kCharSolidSky = 0;\n"
@@ -364,7 +389,8 @@ def generate_chardefs_h_content(global_chars: Dict[bytes, Dict[str, Any]],
     #for name, cid in special_ids.items():
     #    content += f"static const uint8_t {_to_k_camel_case(name)} = {cid};\n"
         
-    content += "\nextern const uint8_t chardefs[kCharDefCount][8];\n\n"
+    content += "\nextern const uint8_t chardef_bytes[kCharDefBytes];\n"
+    content += "extern const uint8_t chardef_offset_lo[kCharDefCount];\n\n"
     content += "#pragma compile(\"chardefs.cc\")\n\n"
     content += "#endif\n"
     return content

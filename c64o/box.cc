@@ -103,6 +103,9 @@ void box_prepare(void) {
 
   // Copy unique characters to kCharRam.
   // The definition stores one byte per character, its index into chardefs.
+  // A character is eight bytes of the chardef_bytes stream; its offset grows
+  // with the index, so the low byte comes from a table and the high byte from
+  // two compares (lib/find_boxes.py build_char_stream()).
   // chardefs holds each character once per vertical flip, so some local
   // characters are their entry upside down, and are copied bottom row first
   // (lib/find_boxes.py build_c_charset()). They are one run around
@@ -115,7 +118,14 @@ void box_prepare(void) {
   const uint8_t flip_end = boxdef.grad1_color_start + (boxdef.flip_around >> 4);
 
   for (uint8_t i = 0;;) {
-    const uint8_t *src = chardefs[src_idx[i]];
+    const uint8_t c = src_idx[i];
+    const uint8_t *src = chardef_bytes + chardef_offset_lo[c];
+    if (c >= kCharDefPage1) {
+      src += 256;
+      if (c >= kCharDefPage2) {
+        src += 256;
+      }
+    }
     if (i >= flip_start && i < flip_end) {
 #pragma unroll(full)
       for (uint8_t row = 0; row < 8; ++row) {

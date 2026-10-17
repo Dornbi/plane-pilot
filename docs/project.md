@@ -242,6 +242,16 @@ the change, by 30 to 572 cycles. `tests/test_c_horizon_tables.py`
 decodes the checked-in tables the same way and compares every cell with the
 Python model.
 
+The 224 characters overlap heavily: one's bottom rows are often another's top
+rows. So `chardefs.cc` keeps them as one 728 B byte stream, `chardef_bytes`,
+in which every character is eight consecutive bytes (a greedy shortest common
+superstring, `lib/find_boxes.py` `build_char_stream()`), instead of 1,792 B of
+separate rows. The characters are numbered in the order they start in the
+stream, so the start offset grows with the index. `chardef_offset_lo[]` holds
+its low byte, and the high byte steps up at `kCharDefPage1` and
+`kCharDefPage2`, which `box_prepare()` tests with two compares. Stream, table
+and code together are about 820 B smaller than the rows were.
+
 `box_prepare()` copies the tile's unique characters into the current buffer's
 character slot and builds parallel character/color arrays. It caches per slot:
 if the slot already holds this definition — the common case when flying

@@ -4,24 +4,49 @@ from typing import Dict, Any, List
 
 
 def parse_chardefs_c(c_file_path: str) -> List[bytes]:
-    """The rows of chardefs.cc, as the C64 holds them."""
-    if not os.path.exists(c_file_path):
-        raise FileNotFoundError(f"Verification failed: {c_file_path} not found")
+    """
+    The stored characters of chardefs.cc, decoded the way box_prepare() does:
+    eight bytes of chardef_bytes from chardef_offset_lo[i], plus 256 from
+    kCharDefPage1 on and 256 more from kCharDefPage2 on (chardefs.h).
+    """
+    h_file_path = os.path.splitext(c_file_path)[0] + ".h"
+    for path in (c_file_path, h_file_path):
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Verification failed: {path} not found")
 
     with open(c_file_path, "r") as f:
-        content = f.read()
+        content = re.sub(r"//.*", "", f.read())
+    with open(h_file_path, "r") as f:
+        header = f.read()
 
-    # const uint8_t chardefs[kCharDefCount][8] = { ... };
-    match = re.search(r"(?:static\s+)?(?:const\s+)?uint8_t\s+chardefs\s*\[\s*kCharDefCount\s*\]\s*\[\s*8\s*\]\s*=\s*\{(.*?)\};", content, re.DOTALL)
-    if not match:
-        raise ValueError("Verification failed: Could not find chardefs array in chardefs.cc")
+    def array(name: str) -> List[int]:
+        match = re.search(rf"const\s+uint8_t\s+{name}\s*\[\s*\w+\s*\]\s*=\s*\{{(.*?)\}};",
+                          content, re.DOTALL)
+        if not match:
+            raise ValueError(f"Verification failed: Could not find {name} in chardefs.cc")
+        return [int(x.strip(), 16) for x in match.group(1).split(",") if x.strip()]
+
+    def constant(name: str) -> int:
+        match = re.search(rf"\b{name}\s*=\s*(\d+);", header)
+        if not match:
+            raise ValueError(f"Verification failed: Could not find {name} in chardefs.h")
+        return int(match.group(1))
+
+    stream = bytes(array("chardef_bytes"))
+    offset_lo = array("chardef_offset_lo")
+    if len(stream) != constant("kCharDefBytes"):
+        raise ValueError("Verification failed: chardef_bytes is not kCharDefBytes long")
+    if len(offset_lo) != constant("kCharDefCount"):
+        raise ValueError("Verification failed: chardef_offset_lo is not kCharDefCount long")
+    page1 = constant("kCharDefPage1")
+    page2 = constant("kCharDefPage2")
 
     rows = []
-    for i, row_text in enumerate(re.findall(r"\{(.*?)\}", match.group(1))):
-        byte_vals = [int(x.strip(), 16) for x in row_text.split(",") if x.strip()]
-        if len(byte_vals) != 8:
-            raise ValueError(f"Verification failed: Row {i} in chardefs.cc has {len(byte_vals)} bytes, expected 8")
-        rows.append(bytes(byte_vals))
+    for i, lo in enumerate(offset_lo):
+        offset = lo + (256 if i >= page1 else 0) + (256 if i >= page2 else 0)
+        if offset + 8 > len(stream):
+            raise ValueError(f"Verification failed: character {i} runs past chardef_bytes")
+        rows.append(stream[offset:offset + 8])
     return rows
 
 

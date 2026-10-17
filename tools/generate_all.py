@@ -134,23 +134,26 @@ def main():
             
         # The characters chardefs.cc stores - each once per vertical flip -
         # and, for every global id a box uses, where it is and which way up.
-        stored, char_map = lib.find_boxes.build_c_charset(global_chars, box_defs)
+        stored, char_map, stream = lib.find_boxes.build_c_charset(
+            global_chars, box_defs)
         print(f"Characters stored for the C64: {len(stored)} "
-              f"of {len(global_chars)}")
+              f"of {len(global_chars)}, in a {len(stream)} B stream")
 
         # Calculate max stats for boxdefs.h
         max_box_total_size = sorted_boxes[0][1]['area'] if sorted_boxes else 0
         max_box_char_count = sorted_box_counts[0][1] if sorted_box_counts else 0
         
         # 1. Chardefs C and H
-        chardefs_c = lib.batch_generator.generate_chardefs_c_content(stored, char_map)
+        chardefs_c = lib.batch_generator.generate_chardefs_c_content(stored, char_map,
+                                                                   stream)
         chardefs_c_path = os.path.join(c64_dir, "chardefs.cc")
         with open(chardefs_c_path, "w") as f:
             f.write(chardefs_c)
             
         print(f"Generated {chardefs_c_path}")
 
-        chardefs_h = lib.batch_generator.generate_chardefs_h_content(global_chars, special_ids, stored)
+        chardefs_h = lib.batch_generator.generate_chardefs_h_content(
+            global_chars, special_ids, stored, stream)
         chardefs_h_path = os.path.join(c64_dir, "chardefs.h")
         with open(chardefs_h_path, "w") as f:
             f.write(chardefs_h)

@@ -328,13 +328,19 @@ def build_c_charset(global_chars: Dict[bytes, Dict[str, Any]],
     Only the characters a box references dynamically are stored: 0 and 1 are
     the solid ground and sky, which box_prepare() never copies.
 
-    The member of a pair with the lower global id is the stored one, and the
-    stored characters are in global id order, so chardefs.cc still reads in
-    the order the generator found them.
+    The member of a pair with the lower global id is the stored one.
 
-    Returns (stored, char_map):
-        stored    [(bytes, [global ids it serves])], in chardefs.cc order
+    The stored characters overlap a lot - one's bottom rows are often another's
+    top rows - so chardefs.cc keeps them as one byte stream in which each
+    character is eight consecutive bytes (build_char_stream()). They are
+    numbered in the order they start in that stream, which makes the start
+    offset grow with the index: box_prepare() rebuilds it from a low byte and
+    the index ranges where the high byte steps up.
+
+    Returns (stored, char_map, stream):
+        stored    [(bytes, [global ids it serves])], in stream order
         char_map  global id -> (index into stored, flipped)
+        stream    the bytes every stored character is a run of
     """
     by_id = {info['id']: char_bytes for char_bytes, info in global_chars.items()}
     referenced = sorted({char_id
@@ -360,7 +366,66 @@ def build_c_charset(global_chars: Dict[bytes, Dict[str, Any]],
         raise ValueError(
             f"{len(stored)} characters to store: box_prepare() indexes "
             f"chardefs with a byte, so at most 256 fit.")
-    return stored, char_map
+
+    stream = build_char_stream([char_bytes for char_bytes, _ in stored])
+    if len(stream) > 768:
+        raise ValueError(
+            f"{len(stream)} B of character stream: chardef() steps the high "
+            f"byte of the offset at most twice, so at most 768 B fit.")
+    order = sorted(range(len(stored)), key=lambda s: stream.find(stored[s][0]))
+    new_slot = {old: new for new, old in enumerate(order)}
+    stored = [stored[old] for old in order]
+    char_map = {char_id: (new_slot[slot], flipped)
+                for char_id, (slot, flipped) in char_map.items()}
+    return stored, char_map, stream
+
+
+def build_char_stream(chars: List[bytes]) -> bytes:
+    """
+    A short byte string that holds every one of chars as a contiguous run.
+
+    Greedy shortest common superstring: characters contained in another are
+    dropped, then the pair with the longest suffix/prefix overlap is chained
+    first, ties in index order so the output is deterministic. The 224 box
+    characters (1,792 B) come out at about 720 B.
+    """
+    pieces = [c for c in chars if not any(c != d and c in d for d in chars)]
+    pieces = list(dict.fromkeys(pieces))
+
+    def overlap(a: bytes, b: bytes) -> int:
+        for k in range(min(len(a), len(b)) - 1, 0, -1):
+            if a[-k:] == b[:k]:
+                return k
+        return 0
+
+    n = len(pieces)
+    pairs = [(overlap(a, b), i, j)
+             for i, a in enumerate(pieces)
+             for j, b in enumerate(pieces) if i != j]
+    pairs = sorted((p for p in pairs if p[0] > 0), key=lambda p: -p[0])
+    nxt = [None] * n
+    prv = [None] * n
+    shared = [0] * n
+    for k, i, j in pairs:
+        if nxt[i] is not None or prv[j] is not None:
+            continue
+        tail = j
+        while nxt[tail] is not None:
+            tail = nxt[tail]
+        if tail == i:
+            continue
+        nxt[i], prv[j], shared[j] = j, i, k
+
+    stream = b""
+    for head in range(n):
+        if prv[head] is not None:
+            continue
+        p = head
+        while p is not None:
+            stream += pieces[p][shared[p]:]
+            p = nxt[p]
+    assert all(c in stream for c in chars)
+    return stream
 
 
 def compute_box_layout(name: str,
