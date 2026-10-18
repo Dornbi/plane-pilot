@@ -1166,6 +1166,23 @@ the player closes. A start a few hundred metres behind, low enough to read as
 a pass and clear of the player's eye, is the first guess; VICE shots and a
 timed take-off settle it.
 
+*Settled, 2026-10-18:* 400 m behind, 24 m above the eye, airspeed 1,500. In
+VICE the enemy passes overhead about 35 steps after the start. A host run of
+`flight.cc` with full throttle after a delay, rotating at 1,300 and climbing,
+against the enemy stepped as `traffic.cc` steps it (gap along x):
+
+| Throttle up after | Airborne | Largest gap | Within 100 m |
+| ---: | ---: | ---: | ---: |
+| 20 steps | 80 | 222 m | step 170 |
+| 35, as it passes | 95 | 398 m | 238 |
+| 60 | 120 | 691 m | 339 |
+| 100 | 160 | 1,160 m | 495 |
+| 150 | 210 | 1,746 m | 690 |
+
+Parked, the gap grows 11.7 m a step, so the enemy leaves the 4 km cull after
+~340 steps, about 50 s: a player who waits that long loses it. Throttle up
+sooner and it is caught within a minute or two, from behind and below.
+
 Why this one first:
 
 - **No behaviour code**: a start position and one add per step. With the
