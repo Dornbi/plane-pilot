@@ -73,6 +73,47 @@ static void _pair_products(void) {
   // clang-format on
 }
 
+static_assert(kPlaneMagCount == 16, "planes_asm.h sizes _planes_px by hand");
+
+// _planes_mags(): sixteen products on vec_mul8, k in vec_mul8_b throughout,
+// which vec_mul8 only reads. A magnitude doubled still fits a byte (the
+// largest is 66), and (hi + 1) >> 1 takes the carry into bit 7 for hi 255.
+static uint8_t _mi;
+
+static void _mags(void) {
+  // clang-format off
+  __asm {
+        ldy #15;
+    L_mag:
+        sty _mi;
+        lda kPlaneMags, y;
+        asl;
+        jsr vec_mul8;
+        clc;
+        adc #1;
+        ror;
+        ldy _mi;
+        sta _planes_px, y;
+        dey;
+        bpl L_mag;
+
+        // Each pair's magnitude times k, pairs 15 .. 1.
+        ldy #15;
+    L_pair_mag:
+        ldx kPlanePairMag, y;
+        lda _planes_px, x;
+        sta _planes_pv, y;
+        dey;
+        bne L_pair_mag;
+  }
+  // clang-format on
+}
+
+void _planes_mags(uint8_t k) {
+  vec_mul8_b = k;
+  _mags();
+}
+
 void _planes_axis_products(const vec3_t *a, uint8_t first, uint8_t end) {
   uint16_t my = (uint16_t)(a->y < 0 ? -a->y : a->y), mz = (uint16_t)(a->z < 0 ? -a->z : a->z);
   _ay_lo = (uint8_t)my;

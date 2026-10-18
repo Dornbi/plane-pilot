@@ -59,9 +59,9 @@ static uint8_t _poly_start[kMaxPolys + 1];
 static uint8_t _poly_count;
 static uint8_t _vert_count;
 
-// Magnitudes times k, and each pair's; _px_k is the k they hold, 0 for none.
+// Magnitudes times k (planes_asm.h), and _px_k the k they hold, 0 for none.
 // They depend on nothing else, so they are kept while the distance holds.
-static uint8_t _px[kPlaneMagCount];
+uint8_t _planes_px[kPlaneMagCount];
 static uint16_t _px_k;
 
 // planes_asm.h's: the pairs' magnitudes times k and their products, and the
@@ -104,6 +104,16 @@ static uint8_t _norm2(int8_t x, int8_t y) {
 // ---------------------------------------------------------------------------
 // planes_asm.h in C, for the host: what planes_asm.cc does on the C64, step
 // for step.
+
+void _planes_mags(uint8_t k) {
+  for (uint8_t m = 0; m < kPlaneMagCount; ++m) {
+    // magnitude * k / 256 rounded, as trunc(2 * magnitude * k / 256)
+    _planes_px[m] = (uint8_t)(((vec_mul8x8((uint8_t)(kPlaneMags[m] << 1), k) >> 8) + 1) >> 1);
+  }
+  for (uint8_t p = 1; p < 16; ++p) {
+    _planes_pv[p] = _planes_px[kPlanePairMag[p]];
+  }
+}
 
 void _planes_axis_products(const vec3_t *a, uint8_t first, uint8_t end) {
   for (uint8_t p = first; p < end; ++p) {
@@ -226,13 +236,7 @@ static void _end_poly(void) {
 static void _project(uint16_t k, const mat3_t *axes) {
   PROFILE_START();
   if (k != _px_k) {
-    for (uint8_t m = 0; m < kPlaneMagCount; ++m) {
-      // magnitude * k / 256 rounded, as trunc(2 * magnitude * k / 256)
-      _px[m] = (uint8_t)(((vec_mul8x8((uint8_t)(kPlaneMags[m] << 1), (uint8_t)k) >> 8) + 1) >> 1);
-    }
-    for (uint8_t p = 1; p < 16; ++p) {
-      _planes_pv[p] = _px[kPlanePairMag[p]];
-    }
+    _planes_mags((uint8_t)k);
     _px_k = k;
   }
   PROFILE_END(8, kProfMags);
@@ -261,7 +265,7 @@ static void _project(uint16_t k, const mat3_t *axes) {
   for (uint8_t i = 0; i < kPlaneBodyCount; ++i) {
     sx[i] = (uint8_t)(kBias + _planes_tx[kPlaneBodyFore[i]]);
     sy[i] = (uint8_t)(kBias + _planes_ty[kPlaneBodyFore[i]]);
-    sr[i] = _px[kPlaneBodyRadius[i]];
+    sr[i] = _planes_px[kPlaneBodyRadius[i]];
     if (sr[i] > sr[widest]) {
       widest = i;
     }

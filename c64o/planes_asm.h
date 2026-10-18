@@ -12,8 +12,15 @@
 // test/target_test.cc holds the assembly to the same reference. The two
 // follow each other step for step. Nothing outside the renderer uses this.
 
-// Each pair's magnitude times k, for p = 1 .. 15.
+// Each of the model's magnitudes times k, rounded, and each pair's, for
+// p = 1 .. 15: what _planes_mags() fills.
+extern uint8_t _planes_px[16];
 extern uint8_t _planes_pv[16];
+
+// magnitude * k / 256 rounded, as trunc(2 * magnitude * k / 256), for every
+// magnitude, then each pair's from its magnitude's. k is at most the size
+// cap, so a byte.
+void _planes_mags(uint8_t k);
 
 // Each pair's screen offset, x from its axis's y and y from its z: negated at
 // p, as is at 16 + p, and zero at 0 -- the terms planedef.h's kPlaneVert*
