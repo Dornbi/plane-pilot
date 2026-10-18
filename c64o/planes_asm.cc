@@ -17,6 +17,11 @@
 // One axis's pairs, for _planes_axis_products(): the loop bounds, and each
 // screen component's magnitude split into a low byte and a 256, with a mask
 // that is $00 for a negative component and $FF for a positive one.
+// fpilot keeps these per-call statics, and the fill's below, in the screen's
+// dead rows (mem.h tscratch), as planes.cc does its arrays.
+#ifdef __FPILOT__
+#pragma bss(tscratch)
+#endif
 static uint8_t _ap, _ap_end;
 static uint8_t _ay_lo, _ay_hi, _ay_m, _az_lo, _az_hi, _az_m;
 
@@ -79,6 +84,9 @@ static_assert(kPlaneMagCount == 16, "planes_asm.h sizes _planes_px by hand");
 // which vec_mul8 only reads. A magnitude doubled still fits a byte (the
 // largest is 66), and (hi + 1) >> 1 takes the carry into bit 7 for hi 255.
 static uint8_t _mi;
+#ifdef __FPILOT__
+#pragma bss(bss)
+#endif
 
 static void _mags(void) {
   // clang-format off
@@ -131,6 +139,9 @@ void _planes_axis_products(const vec3_t *a, uint8_t first, uint8_t end) {
 // The fill: convex polygons into up to four sprite blocks 64 bytes apart.
 
 static __zeropage uint8_t *_blk;    // the back buffer's first block
+#ifdef __FPILOT__
+#pragma bss(tscratch)
+#endif
 static uint8_t _buf_h, _buf_w1;     // height, and width - 1
 static uint8_t _bottom;             // offset of the lower row of blocks
 static uint8_t _lo[42], _hi[42];    // each row's extent while a polygon is traced
@@ -139,6 +150,9 @@ static uint8_t _fs, _fn;            // the polygon: first vertex, count
 static uint8_t _y0, _y1, _fi, _xt, _yt, _xe, _ye, _dy, _cnt, _row;
 static uint8_t _dxl, _dxh, _sl, _sh, _hl, _hh, _xbl, _xbh;
 static uint8_t _pa, _pb, _t, _base, _jb;
+#ifdef __FPILOT__
+#pragma bss(bss)
+#endif
 
 // kPlaneRecip is striped, its high bytes kPlaneRecipCount after the low ones,
 // and the inline assembler takes only a literal offset - so the fill spells

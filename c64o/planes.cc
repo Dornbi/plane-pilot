@@ -54,20 +54,31 @@ static const uint8_t kMaxPolys = 5;
 // and fin, then the fuselage outline, then the end-on disc. Polygon i is
 // vertices _poly_start[i] .. _poly_start[i + 1] - 1.
 static const uint8_t kBias = 128;
+// fpilot keeps the per-call arrays in the screen's dead rows, over the
+// terrain's own scratch (mem.h tscratch): written before they are read, every
+// call, and dead between calls.
+#ifdef __FPILOT__
+#pragma bss(tscratch)
+#endif
 static uint8_t _vx[kPlaneVertMax], _vy[kPlaneVertMax];
 static uint8_t _poly_start[kMaxPolys + 1];
 static uint8_t _poly_count;
 static uint8_t _vert_count;
+// planes_asm.h's: the pairs' products.
+int8_t _planes_tx[32], _planes_ty[32];
+#ifdef __FPILOT__
+#pragma bss(bss)
+#endif
 
 // Magnitudes times k (planes_asm.h), and _px_k the k they hold, 0 for none.
-// They depend on nothing else, so they are kept while the distance holds.
+// They depend on nothing else, so they are kept while the distance holds;
+// so are the pairs' magnitudes times k.
 uint8_t _planes_px[kPlaneMagCount];
 static uint16_t _px_k;
-
-// planes_asm.h's: the pairs' magnitudes times k and their products, and the
-// vertices in buffer coordinates.
 uint8_t _planes_pv[16];
-int8_t _planes_tx[32], _planes_ty[32];
+
+// planes_asm.h's: the vertices in buffer coordinates. Kept with the state
+// they belong to, which planes_fill() skips copying from its key.
 uint8_t _planes_lx[kPlaneVertMax], _planes_ly[kPlaneVertMax];
 
 // The largest extent a layout holds: xs * (24 * cols - 1) and
@@ -241,6 +252,10 @@ static void _project(uint16_t k, const mat3_t *axes) {
   }
   PROFILE_END(8, kProfMags);
   PROFILE_START();
+  // Term 0 is the zero every vertex without that axis adds; nothing else
+  // writes it, and in fpilot the array is scratch (mem.h).
+  _planes_tx[0] = 0;
+  _planes_ty[0] = 0;
   _planes_axis_products(&axes->front, kPlaneAxisPairs[0], kPlaneAxisPairs[1]);
   _planes_axis_products(&axes->left, kPlaneAxisPairs[1], kPlaneAxisPairs[2]);
   _planes_axis_products(&axes->up, kPlaneAxisPairs[2], kPlaneAxisPairs[3]);
