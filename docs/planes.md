@@ -624,27 +624,34 @@ plain RAM. The difference is mostly code — the fuselage, the layout and the
 slide — and the caches; the buffers have left the main region altogether, and
 the rasteriser's tables shrank from 144 bytes to 100.
 
-The C port is about three times the design, and `ppilot.prg` has 4,309 bytes
-free (`make -C c64o pram`), so it does not fit as it stands. Everything it
-shares with `ppilot` is already there and costs nothing: `vec_fastmul8p8` and
-its byte multiply `vec_mul8`, `vec_fracn` behind `vec_frac16`, the
-quarter-square tables. Adding it needs, besides the table's ~4.4 KB, the glue
-this demo does not have — camera-space position and axes through the existing
-`vec_transform_inv` and `vec_transform3_inv`, the sprite stack's 2-wide and
-Y-expanded entries (§5), the block-set flip — estimated at 300–450 bytes:
-**~4.8 KB against ~4.3 KB free.** `fpilot.prg`, the game traffic is for, has
-9,546 (`make -C c64o fram`, at 65ec1fd), having left the debug view out: the
-port fits there, with about 4.5 KB left for the enemy aircraft's own logic —
-§13 has the count. The ways to close the gap, in order of size:
+The C port is about three times the design, which used to be more than
+`ppilot.prg` had free. The RAM work since ([ram-loop.md](ram-loop.md)) has
+changed that: at b1cdfdf `ppilot.prg` has 11,014 bytes free (`make -C c64o
+pram`, largest run 10,250) and `fpilot.prg`, the game traffic is for, 14,528
+(`make -C c64o fram`, largest run 13,322). Everything it shares with `ppilot`
+is already there and costs nothing: `vec_fastmul8p8` and its byte multiply
+`vec_mul8`, `vec_fracn` behind `vec_frac16`, the quarter-square tables. Adding
+it needs, besides the table's ~4.4 KB, the glue this demo does not have —
+camera-space position and axes through the existing `vec_transform_inv` and
+`vec_transform3_inv`, the sprite stack's 2-wide and Y-expanded entries (§5),
+the block-set flip — estimated at 300–450 bytes: **~4.8 KB, which now fits
+either game** — §13 has fpilot's count. Room is no longer what the levers
+below are for; the first is still the largest saving of cycles outside the
+fill. In order of size:
 
 - Write `planes_render()`'s layout and caches, and `_project()`, in assembly
   as the fill and the products already are: the pipeline code is where the
   port is furthest from the design, and oscar64's C runs about three times
   the size of the equivalent assembly there. Perhaps 1.2–1.5 KB.
-- Share the per-frame scratch with `poly.cc`'s row buffers in `bss2`: the
-  terrain and the traffic are drawn one after the other, never at once.
-  355 bytes.
-- Find the rest elsewhere in `ppilot`.
+- Lay the per-frame scratch over the terrain's. fpilot keeps `poly.cc`'s
+  buffers and `world.cc`'s per-call tables in rows 14–24 of the main screen,
+  which the VIC never fetches in flight (`mem.h` `scratch`, `$EA30–$EBE7`,
+  420 of its 440 bytes taken); ppilot keeps them in `bss2`. The terrain and
+  the traffic are drawn one after the other, never at once, and the scratch
+  rule there — every byte written before it is read, within one call — is
+  what the traffic's scratch already keeps. Placed by hand, the way
+  `kBootScratch`'s tenants are, it leaves fpilot's main region altogether.
+  355 bytes, less the ~70 that §13's half-rate shape keeps across frames.
 
 ---
 
@@ -851,10 +858,12 @@ oversize** (§2), the far tier uses a **static bitmap** (§4), the wing hub sits
 and the layout the bounding box** (§4), **Y-expansion only with X, only when a
 close aircraft is too tall for two sprites** (§1), the bitmap **slides above the DMA
 cut instead of being rejected** (§4), the colour is **one fixed value with no
-background test** (§8), and the update rate is **every sim frame** —
+background test** (§8), and the **position** is updated **every sim frame** —
 [sprite_objects.md](sprite_objects.md) §5 is right that half-rate projection
 reads as jitter, because camera rotation moves a stationary object across the
-screen even when it is not moving.
+screen even when it is not moving. The silhouette's **shape** is the exception
+and goes to every other frame in fpilot (§13): it is always drawn at this
+frame's centre, so a turn moves it without the jitter.
 
 ---
 
@@ -1003,14 +1012,16 @@ width, edge-on surfaces as lines, the slide, the cycle budget — and, through
 
 ## 13. Into fpilot
 
-**Status: planned, 2026-10-07; nothing of it has landed.** `fpilot.prg` is
-`ppilot.cc` built with `-D__FPILOT__` and without the debug view, and it is
-where traffic goes first: it has the room, and it is the game that needs an
-aircraft to fight. Everything below is fpilot-only unless it says otherwise.
+**Status: planned 2026-10-07, figures brought up to date 2026-10-18 at
+b1cdfdf; nothing of it has landed.** `fpilot.prg` is `ppilot.cc` built with
+`-D__FPILOT__` and without the debug view, and it is where traffic goes
+first: it is the game that needs an aircraft to fight, and it has the most
+room. (ppilot now has room too, §5.) Everything below is fpilot-only unless
+it says otherwise.
 
 ### Where it starts
 
-RAM, against 9,546 bytes free in fpilot at 65ec1fd (largest run 8,970), with
+RAM, against 14,528 bytes free in fpilot at b1cdfdf (largest run 13,322), with
 the renderer's sizes read off `planedemo.map`:
 
 | Item | Bytes |
@@ -1022,19 +1033,22 @@ the renderer's sizes read off `planedemo.map`:
 | Glue: the stack's new entries, the enemy state, the per-frame calls (estimate) | 600–1,000 |
 | **Total** | **~5 KB** |
 
-That leaves about 4.5 KB for the enemy's behaviour, guns and hits. Most of the
-vector maths is already linked — `vec_mul8`, `vec_fracn`, `vec_div8p8`,
+That leaves about 9.5 KB for the enemy's behaviour, guns and hits, and the
+scratch row comes off the total once it overlays the terrain's (§5). Most of
+the vector maths is already linked — `vec_mul8`, `vec_fracn`, `vec_div8p8`,
 `vec_transform_inv` — but `vec_transform3_inv` is not; the body axes can come
 from three `vec_transform_inv` calls instead of linking it.
 
-Time is the tighter of the two. A sim frame's render work is 100k–145k cycles
-([framerate.md](framerate.md)), and `sim_run()` takes exactly one model step
+Time is the tighter of the two. A sim frame's render work was 100k–145k cycles
+in [framerate.md](framerate.md), and `sim_run()` takes exactly one model step
 per rendered frame, so a frame that takes longer is also the game running
-slower. Against that, §11: a redraw is ~29,000 cycles at 150 m and ~46,000 at
-60 m banked in 2 × 2, and a frame with the last one's `k` and axes ~3,000. One
-manoeuvring enemy therefore adds one and a half to two and a half PAL frames —
-roughly 7 fps down to 5.5. Both ideas below, and the order of work at the end,
-are about that.
+slower. Since the argon-loop merge, `tools/bench.sh` puts the render at
+116,000–142,000 cycles over [ram-loop.md](ram-loop.md)'s five poses (runway
+122,384, cruise 138,732, town 141,890). Against that, §11: a redraw is ~29,000
+cycles at 150 m and ~46,000 at 60 m banked in 2 × 2, and a frame with the last
+one's `k` and axes ~3,000. One manoeuvring enemy therefore adds one and a half
+to two and a half PAL frames — roughly 7.5 fps down to 5.5–6. Both ideas
+below, and the order of work at the end, are about that.
 
 ### Steps
 
@@ -1042,8 +1056,9 @@ are about that.
    `__FPILOT__` or an `__ENABLE_TRAFFIC__` the fpilot rule passes. All the
    link checks have to pass as they stand. Watch the zero page:
    oscar64 put `_vy` there by itself in planedemo, and `check_zeropage.py`
-   finds fpilot's runtime topping out at `$5B` against a region starting at
-   `$60`: four bytes of headroom.
+   still finds fpilot's runtime topping out at `$5B` against a region
+   starting at `$60` at b1cdfdf: four bytes of headroom. The RAM work freed
+   main memory, not zero page.
 2. **Memory.** The block sets at `$D000–$D33F` as §5 lays them out. The
    plane states are re-initialised and the dot rewritten in
    `_enter_simulation()`, after `map_exit()` and after help, since the title
@@ -1051,8 +1066,8 @@ are about that.
    clear and the fill only, and nothing inside that bracket may touch I/O.
 3. **Enemy state.** Two aircraft, as arrays and `__striped` from the start:
    position in `flight_eye`'s 24.8, attitude as a `mat3_t`, speed. The first
-   one is parked or flies a straight line near the mission's city;
-   behaviour is §12's phase 7 and a document of its own.
+   one flies the Scramble pass below; anything more is §12's phase 7 and a
+   document of its own.
 4. **Per frame**, in `world_update_objects()`: position relative to the eye in
    32 bits, culled, then `>> 6` (§2); `vec_transform_inv()` into camera space;
    the body axes the same way; `planes_render()` with the view
@@ -1071,6 +1086,76 @@ are about that.
 8. **Measure** the runway, approach and cruise poses of framerate.md with and
    without an enemy in view, and take VICE shots of a parked one at the
    distances of §2's table. Only then the rest of this section.
+9. **The shape at half rate**, as decided below, once the order of work's
+   levers are in.
+
+### The first enemy: a pass over the runway
+
+Mission 01, Scramble, starts the player parked on runway 1 at `(0x1C, 0x3F)`,
+facing north: `_m_init`'s front is +x, and x is the map's row, north
+([map.md](map.md), "World to map cell"). The first enemy:
+
+- **starts straight behind**: on the player's y, the runway's centreline
+  (`0x3F` and a half unit, as `flight_init_from_mission()` puts the eye), some
+  way south of it, low and level, heading north. Its attitude is `_m_init`, so
+  it needs no matrix of its own;
+- **flies a low pass straight ahead**: every sim step adds
+  `_flight_step_s(kEnemySpeed << 1)` to its x and nothing else, next to
+  `flight_advance()`. That is what `_flight_move_forward(flight_speed << 1,
+  …)` adds for a level aircraft heading north at that airspeed, since a front
+  of `(256, 0, 0)` leaves the product unchanged, so it stays right under every
+  `flight_step_shift` and in the player's own units. It overtakes the parked
+  player down the length of the runway;
+- **keeps going north** in a straight line at the same height, **slowly
+  enough to be caught** after take-off.
+
+The speed is what makes it a target rather than a fly-past. In the airspeed
+units of [flight.md](flight.md)'s envelope table, the player unsticks at
+1,165, flies level at 1,476 on half throttle — the practical floor — and at
+2,054 on three quarters. `kEnemySpeed` goes at about 1,500: above the 1 g
+stall of 1,024, so it is a plausible aeroplane; below the player's cruise, so
+three-quarter throttle closes at ~550 and full throttle faster; and at the
+half-throttle trim, so a player who has caught it can hold station behind it.
+Any slower and the player cannot fly level that slowly, and overshoots.
+
+Catching it also needs it to be still in sight. It keeps pulling ahead while
+the player rolls, rotates and climbs away, and beyond the 4 km cull there is
+nothing to chase. So the start distance and `kEnemySpeed` are picked together
+against a measured take-off: the gap when the player reaches cruise wants to
+be well inside 4 km — a dot ahead, from about 1 km a silhouette that grows as
+the player closes. A start a few hundred metres behind, low enough to read as
+a pass and clear of the player's eye, is the first guess; VICE shots and a
+timed take-off settle it.
+
+Why this one first:
+
+- **No behaviour code**: a start position and one add per step. With the
+  attitude fixed, the body axes in camera space change only when the player
+  turns. Once caught, the range closes slowly, `k` holds for frames at a
+  time, and the cache hits (§7).
+- **The whole range in one run**: closing from behind in the back view, where
+  the fin holds three indices; overhead at its nearest, where the size cap
+  and the two-sprite cap act; away through the silhouette band towards the
+  dot; and back in again as the player catches it.
+- **The case the half-rate shape is for.** A target whose range changes
+  misses the cache whenever `k` does (§7), and the pass changes range on
+  almost every frame from first sight to the dot. It is the worst redraw rate
+  one plane can have.
+- **Edge-on surfaces**: from behind and a little below, the wings and the
+  tailplane are close to edge-on, which is §6's line case.
+
+Two things it raises:
+
+- **The world wraps**, at 128 units in x ([map.md](map.md)): 32.8 km. Flying
+  north for ever, it comes round and closes on a player who has stayed put
+  from behind again, many minutes later at this speed. Either that is a free
+  second pass, or the enemy stops once it is past the cull. Either way the
+  relative position has to be taken modulo the wrap, or it jumps when the
+  player crosses the seam.
+- **The mission text** has the bandits over the city, which at `(0x10,
+  0x68)` is south-west of the runway, behind the take-off. The pass flies the
+  other way. That is fine for a first integration, and the text can follow
+  the behaviour later.
 
 ### The sprite frame runs ahead of the terrain
 
@@ -1083,7 +1168,8 @@ most of every frame. Not yet checked on the emulator.
 
 For the clouds that is hard to see. For a plane it is a position error
 against the horizon of one frame's worth of rotation, and it is in the way of
-anything that builds a bitmap over more than one frame. The fix is to have
+anything that builds a bitmap over more than one frame — which the half-rate
+shape does, so step 6 comes before step 9. The fix is to have
 commit fill the back frame and leave the flip to `mem_switch_buffer()`, next to
 the toggle of `mem_using_alt_buffer`, so that sprites and characters change on
 the same PAL frame.
@@ -1103,10 +1189,15 @@ and the last silhouette moves with the centre exactly as a frame with the last
 | Frames whose `k` and axes have not changed cost what they cost now | "Shown" and "being built" become two sets of state, and the vertices have to outlive the terrain render: ~70 bytes that cannot be shared with `poly.cc` (§5's second lever), and ~200–300 bytes of code |
 | | The slide can change between the two halves. The simple answer is to clamp to the cut for that frame and lose a few lines |
 
-An uneven split is worse than none: with one step per frame, alternating long
-and short frames is a game speed that alternates too. **Alternating two planes
-comes first**; splitting one plane's redraw only if, after the optimisations,
-a single close plane still makes the frames uneven.
+**Decided, 2026-10-18: the shape at half rate, split by polygon.** The first
+integration has one enemy, so alternating two planes does nothing for it, and
+that enemy opens with a low pass, the case where `k` changes on almost every
+frame and the cache cannot help. Each plane's redraw is cut in two by polygon,
+against a cost estimated from each polygon's rows, so that the halves come out
+even. With two planes each is cut the same way, which costs what alternating
+them would. An uneven split is worse than none: with one step per frame,
+alternating long and short frames is a game speed that alternates too. So the
+cut is balanced after the order of work's levers, on the costs they leave.
 
 ### At most two sprites
 
@@ -1125,22 +1216,25 @@ Y-expansion is the one to try against it in VICE shots.
 
 ### Order of work
 
-§5 and §11 leave levers open: the layout, caches and `_project()` in
-assembly (perhaps 1.2–1.5 KB); the per-frame scratch shared with `poly.cc`
-(355 bytes); clearing only the rows drawn the frame before last (up to ~1,000
-cycles); one slope for a quad's parallel edges (~300); no tailplane at 1:1
-(~1,000 at range).
+§5 and §11 leave levers open: the layout, caches and `_project()` in assembly
+(perhaps 1.2–1.5 KB); the per-frame scratch laid over the terrain's (~285
+bytes, the vertices of a half-built shape staying out); clearing only the rows
+drawn the frame before last (up to ~1,000 cycles); one slope for a quad's
+parallel edges (~300); no tailplane at 1:1 (~1,000 at range).
 
-They come **after steps 1–5 and 8, and before the half-rate silhouette and
-before the enemy's behaviour**:
+They come **after steps 1–5 and 8 with the Scramble pass, and before the
+half-rate shape (step 9) and before any behaviour beyond the pass**:
 
-- RAM is not what blocks: ~5 KB against 9.5 KB free.
+- RAM is not what blocks: ~5 KB against 14.5 KB free. The assembly is now
+  worth doing for its cycles, not its bytes.
 - Only the game shows which levers matter — how often the cache hits in real
   flight, and what share of a real frame a redraw is.
-- The assembly changes the costs a half-rate split would be balanced on, and
-  may make it unnecessary.
+- The assembly changes the costs the half-rate cut is balanced on. Balanced
+  first, it would have to be balanced again.
 - `planes.cc` stays shared, so `planedemo.prg`, `test/planes_test.cc` and
   target tests 6 and 7 stay the bench and the reference throughout.
 
-The one lever tied to a decision is sharing the scratch with `poly.cc`, which
-the split rules out. It waits for that decision.
+With the split decided, laying the scratch over the terrain's shrinks rather
+than goes: the vertices of a shape being built have to outlive the terrain
+render, ~70 bytes, and the products and row extents, the rest, can still
+share.
