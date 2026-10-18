@@ -140,7 +140,7 @@ pct() {  # pct <new> <old>: signed change in percent, one decimal
 log_row() {
   local idea=${2//|//}
   local result=${6//|//}
-  printf '| %s | %s | %s | %s | %s | %s | %s |\n' "$1" "$(date +%F)" "$3" "$4" "$5" "$result" "$idea" >> "$LEDGER"
+  printf '| %s | %s | %s | %s | %s | %s | %s | %s |\n' "$1" "$(date +%F)" "${BRANCH%-loop}" "$3" "$4" "$5" "$result" "$idea" >> "$LEDGER"
 }
 
 say "baseline build on $BRANCH"
