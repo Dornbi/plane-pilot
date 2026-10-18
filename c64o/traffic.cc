@@ -6,6 +6,7 @@
 #include "flight.h"
 #include "mem.h"
 #include "mission.h"
+#include "planedef.h"
 #include "planes.h"
 #include "sprites.h"
 #include "vec.h"
@@ -74,6 +75,8 @@ static int16_t _traffic_speed[kTrafficMax];
 static planes_state_t _traffic_planes[kTrafficMax];
 // Bit i: which of slot i's two block sets is on screen.
 static uint8_t _traffic_front;
+// The aircraft being drawn, in camera space and quarter metres.
+static vec3_t _traffic_c;
 #pragma bss(bss)
 
 void traffic_invalidate(void) {
@@ -140,6 +143,30 @@ static bool _traffic_quarter(int32_t d, uint8_t mask, int16_t *q) {
   return true;
 }
 
+// Whether the aircraft at _traffic_c is wholly outside the viewport.
+//
+// Every part of it is within r = kPlaneMaxRadius / 2 quarter metres of c, so
+// no part is inside an edge at tangent t if |y| - r > t * (x + r), that is
+// |y| - r * (1 + t) > t * x. The edges are at t = 160 / 256 = 1/2 + 1/8
+// across and 56 / 256 = 1/4 - 1/32 up and down (vec_project()), and each
+// gets another 4 pixels, x / 64, for expanded pixels' rounding.
+//
+// Unsigned: x is positive here, and oscar64's signed shifts cost twice the
+// bytes. On _traffic_c rather than three parameters, for the same reason.
+static const uint16_t kTrafficReachX = (kPlaneMaxRadius / 2) * 13 / 8 + 2;
+static const uint16_t kTrafficReachZ = (kPlaneMaxRadius / 2) * 39 / 32 + 2;
+
+static __noinline bool _traffic_off_screen(void) {
+  uint16_t half = (uint16_t)_traffic_c.x >> 1;
+  uint16_t eighth = half >> 2;
+  uint16_t px4 = eighth >> 3;
+  int16_t y = _traffic_c.y, z = _traffic_c.z;
+  uint16_t ay = (uint16_t)(y < 0 ? -y : y);
+  uint16_t az = (uint16_t)(z < 0 ? -z : z);
+  return ay > half + eighth + px4 + kTrafficReachX ||
+         az > (half >> 1) - (eighth >> 2) + px4 + kTrafficReachZ;
+}
+
 void traffic_add_sprites(void) {
   for (uint8_t i = 0; i < kTrafficMax; ++i) {
     if (!_traffic_on[i]) {
@@ -151,10 +178,16 @@ void traffic_add_sprites(void) {
         !_traffic_quarter(_traffic_z[i] - flight_eye_z, 0xFF, &rel.z)) {
       continue;
     }
-    vec3_t c;
-    vec_transform_inv(&world_cam, &rel, &c);
+    vec_transform_inv(&world_cam, &rel, &_traffic_c);
     // planes_render() says the same, but only after the axes below.
-    if (c.x <= 64) {
+    if (_traffic_c.x <= 64) {
+      continue;
+    }
+    // Wholly outside the viewport. planes_render() only gives up 45 degrees
+    // off the view axis, so an aircraft just over the top on the pass, or
+    // just off to one side, would be projected, and drawn or looked up in
+    // the cache, for nothing: 7,000-38,000 cycles a frame.
+    if (_traffic_off_screen()) {
       continue;
     }
     // The body axes in camera space. Everything flies level and north so
@@ -181,7 +214,7 @@ void traffic_add_sprites(void) {
     // The fill writes under I/O. The raster handlers bank I/O in for
     // themselves (gfx.cc _gfx_isr), and nothing in planes_render() touches it.
     mmap_set(MMAP_RAM);
-    planes_render(&_traffic_planes[i], &kView, &c, &axes,
+    planes_render(&_traffic_planes[i], &kView, &_traffic_c, &axes,
                   _traffic_block(back), &f);
     mmap_set(MMAP_NO_ROM);
     if (f.hidden != kPlaneShown) {
@@ -216,7 +249,7 @@ void traffic_add_sprites(void) {
       }
     }
     // Depth in the clouds' 2 m units, so that the two sort together.
-    sprites_stack_add(c.x >> 3, f.x, f.y, 0, 0, bitmap, bitmap2, kColorTraffic,
+    sprites_stack_add(_traffic_c.x >> 3, f.x, f.y, 0, 0, bitmap, bitmap2, kColorTraffic,
                       flags);
   }
 }
