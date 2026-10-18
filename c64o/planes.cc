@@ -122,6 +122,30 @@ static uint8_t _norm2(int8_t x, int8_t y) {
 // planes_asm.h in C, for the host: what planes_asm.cc does on the C64, step
 // for step.
 
+void _planes_flat(void) {
+  for (uint8_t i = 0; i < kPlaneVertCount; ++i) {
+    uint8_t f = kPlaneVertFore[i], l = kPlaneVertLeft[i], u = kPlaneVertUp[i];
+    _planes_vx[i] = (uint8_t)(kBias + _planes_tx[f] + _planes_tx[l] + _planes_tx[u]);
+    _planes_vy[i] = (uint8_t)(kBias + _planes_ty[f] + _planes_ty[l] + _planes_ty[u]);
+  }
+}
+
+uint8_t _planes_box_x0, _planes_box_x1, _planes_box_y0, _planes_box_y1;
+
+void _planes_box(uint8_t count) {
+  uint8_t minx = _planes_vx[0], maxx = _planes_vx[0], miny = _planes_vy[0], maxy = _planes_vy[0];
+  for (uint8_t i = 1; i < count; ++i) {
+    if (_planes_vx[i] < minx) minx = _planes_vx[i];
+    if (_planes_vx[i] > maxx) maxx = _planes_vx[i];
+    if (_planes_vy[i] < miny) miny = _planes_vy[i];
+    if (_planes_vy[i] > maxy) maxy = _planes_vy[i];
+  }
+  _planes_box_x0 = minx;
+  _planes_box_x1 = maxx;
+  _planes_box_y0 = miny;
+  _planes_box_y1 = maxy;
+}
+
 bool _planes_key(uint8_t *key, uint8_t count, uint8_t bx, uint8_t by, uint16_t s9,
                  uint8_t xs, uint8_t ys) {
   bool differ = false;
@@ -304,11 +328,7 @@ static void _project(uint16_t k, const mat3_t *axes) {
   _planes_axis_products(&axes->up, kPlaneAxisPairs[2], kPlaneAxisPairs[3]);
   PROFILE_END(9, kProfPairs);
   PROFILE_START();
-  for (uint8_t i = 0; i < kPlaneVertCount; ++i) {
-    uint8_t f = kPlaneVertFore[i], l = kPlaneVertLeft[i], u = kPlaneVertUp[i];
-    _planes_vx[i] = (uint8_t)(kBias + _planes_tx[f] + _planes_tx[l] + _planes_tx[u]);
-    _planes_vy[i] = (uint8_t)(kBias + _planes_ty[f] + _planes_ty[l] + _planes_ty[u]);
-  }
+  _planes_flat();
   for (uint8_t p = 0; p < 4; ++p) {
     _poly_start[p] = kPlanePolyStart[p];
   }
@@ -505,13 +525,9 @@ void planes_project(planes_state_t *state, const planes_view_t *view,
   // 8. body axes are the caller's, 9. the polygons in screen pixels
   _project(k, axes);
   PROFILE_START();
-  uint8_t minx = _planes_vx[0], maxx = _planes_vx[0], miny = _planes_vy[0], maxy = _planes_vy[0];
-  for (uint8_t i = 1; i < _vert_count; ++i) {
-    if (_planes_vx[i] < minx) minx = _planes_vx[i];
-    if (_planes_vx[i] > maxx) maxx = _planes_vx[i];
-    if (_planes_vy[i] < miny) miny = _planes_vy[i];
-    if (_planes_vy[i] > maxy) maxy = _planes_vy[i];
-  }
+  _planes_box(_vert_count);
+  uint8_t minx = _planes_box_x0, maxx = _planes_box_x1;
+  uint8_t miny = _planes_box_y0, maxy = _planes_box_y1;
   uint8_t bw = (uint8_t)(maxx - minx), bh = (uint8_t)(maxy - miny);
 
   // 10. Y-expansion and layout

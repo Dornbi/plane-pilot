@@ -32,6 +32,14 @@ extern int8_t _planes_tx[32], _planes_ty[32];
 extern uint8_t _planes_vx[kPlaneVertMax], _planes_vy[kPlaneVertMax];
 extern uint8_t _planes_lx[kPlaneVertMax], _planes_ly[kPlaneVertMax];
 
+// Step 9's flat surfaces: _planes_vx and _planes_vy 0 .. 15, each the sum
+// of its fore, left and up terms (planedef.h) plus 128.
+void _planes_flat(void);
+
+// The bounding box of vertices 0 .. count - 1, count at least 1.
+extern uint8_t _planes_box_x0, _planes_box_x1, _planes_box_y0, _planes_box_y1;
+void _planes_box(uint8_t count);
+
 // Step 12: the vertices in buffer coordinates, 0 .. count - 1, into
 // _planes_lx and _planes_ly and into the vertex cache's key_x and key_y at
 // `key`, 32 bytes apart. x is _planes_vx less bx, y is _planes_vy less by plus

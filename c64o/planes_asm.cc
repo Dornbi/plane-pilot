@@ -123,6 +123,92 @@ void _planes_mags(uint8_t k) {
 }
 
 // ---------------------------------------------------------------------------
+// The flat surfaces' vertices, and the bounding box.
+
+static_assert(kPlaneVertCount == 16, "_planes_flat() counts 15 .. 0");
+
+// Each term's product, summed, plus 128 - which is an eor of bit 7.
+void _planes_flat(void) {
+  // clang-format off
+  __asm {
+        ldx #15;
+    L_flat:
+        ldy kPlaneVertFore, x;
+        lda _planes_tx, y;
+        ldy kPlaneVertLeft, x;
+        clc;
+        adc _planes_tx, y;
+        ldy kPlaneVertUp, x;
+        clc;
+        adc _planes_tx, y;
+        eor #$80;
+        sta _planes_vx, x;
+        ldy kPlaneVertFore, x;
+        lda _planes_ty, y;
+        ldy kPlaneVertLeft, x;
+        clc;
+        adc _planes_ty, y;
+        ldy kPlaneVertUp, x;
+        clc;
+        adc _planes_ty, y;
+        eor #$80;
+        sta _planes_vy, x;
+        dex;
+        bpl L_flat;
+  }
+  // clang-format on
+}
+
+uint8_t _planes_box_x0, _planes_box_x1, _planes_box_y0, _planes_box_y1;
+#ifdef __FPILOT__
+#pragma bss(tscratch)
+#endif
+static uint8_t _bn;
+#ifdef __FPILOT__
+#pragma bss(bss)
+#endif
+
+void _planes_box(uint8_t count) {
+  _bn = count;
+  // clang-format off
+  __asm {
+        lda _planes_vx;
+        sta _planes_box_x0;
+        sta _planes_box_x1;
+        lda _planes_vy;
+        sta _planes_box_y0;
+        sta _planes_box_y1;
+        ldy #1;
+        cpy _bn;
+        beq L_box_done;
+    L_box:
+        lda _planes_vx, y;
+        cmp _planes_box_x0;
+        bcs L_x_not_min;
+        sta _planes_box_x0;
+    L_x_not_min:
+        cmp _planes_box_x1;
+        bcc L_x_not_max;
+        sta _planes_box_x1;
+    L_x_not_max:
+        lda _planes_vy, y;
+        cmp _planes_box_y0;
+        bcs L_y_not_min;
+        sta _planes_box_y0;
+    L_y_not_min:
+        cmp _planes_box_y1;
+        bcc L_y_not_max;
+        sta _planes_box_y1;
+    L_y_not_max:
+        iny;
+        cpy _bn;
+        bne L_box;
+    L_box_done:
+  }
+  // clang-format on
+}
+
+// ---------------------------------------------------------------------------
 // The vertex cache's key.
 
 static_assert(kPlaneVertMax == 32, "_key() finds key_y 32 bytes after key_x");
