@@ -27,8 +27,18 @@ void _planes_mags(uint8_t k);
 // index.
 extern int8_t _planes_tx[32], _planes_ty[32];
 
-// This frame's vertices in buffer coordinates, for the fill.
+// This frame's vertices relative to the centre, in screen pixels offset by
+// 128, and in buffer coordinates, for the fill.
+extern uint8_t _planes_vx[kPlaneVertMax], _planes_vy[kPlaneVertMax];
 extern uint8_t _planes_lx[kPlaneVertMax], _planes_ly[kPlaneVertMax];
+
+// The fuselage's three stations, centre (offset by 128) and radius, and its
+// outline: each station offset by r * u along the unit normal u = (ux, uy)
+// (8.8, |u| <= 256), as lib/planes.py smul() rounds it - stations 0 .. 2 on
+// one side, then 2 .. 0 on the other - into _planes_vx and _planes_vy from
+// index `at`.
+extern uint8_t _planes_sx[3], _planes_sy[3], _planes_sr[3];
+void _planes_tube(int16_t ux, int16_t uy, uint8_t at);
 
 // The products of axis a's pairs, first .. end - 1, each trunc(component * v
 // / 256) as vec_fastmul8p8 truncates: _planes_tx from a's y, _planes_ty from

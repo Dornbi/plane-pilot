@@ -60,7 +60,10 @@ static const uint8_t kBias = 128;
 #ifdef __FPILOT__
 #pragma bss(tscratch)
 #endif
-static uint8_t _vx[kPlaneVertMax], _vy[kPlaneVertMax];
+uint8_t _planes_vx[kPlaneVertMax], _planes_vy[kPlaneVertMax];
+// The fuselage's stations: centre and radius (planes_asm.h).
+uint8_t _planes_sx[kPlaneBodyCount], _planes_sy[kPlaneBodyCount];
+uint8_t _planes_sr[kPlaneBodyCount];
 static uint8_t _poly_start[kMaxPolys + 1];
 static uint8_t _poly_count;
 static uint8_t _vert_count;
@@ -94,14 +97,17 @@ static const uint8_t kFitH[2][2] = {{20, 41}, {40, 82}};
 
 static inline int16_t _abs16(int16_t a) { return a < 0 ? (int16_t)-a : a; }
 
+#ifndef __OSCAR64__
 // lib/planes.py smul(u, r) for a unit component u (|u| <= 256) and 0 <= r < 256:
 // u * r / 256 rounded, as the reference forms it from trunc(2|u| r / 256).
+// The host's; planes_asm.cc has it inline in the fuselage.
 static int8_t _smul(int16_t u, uint8_t r) {
   uint16_t m = (uint16_t)_abs16(u);
   uint16_t p = m >= 256 ? (uint16_t)(r << 8) : vec_mul8x8((uint8_t)m, r);
   int8_t q = (int8_t)(((p >> 7) + 1) >> 1);
   return u < 0 ? (int8_t)-q : q;
 }
+#endif
 
 // |(x, y)| within ~3%: max(hi, 7/8 hi + 1/2 lo).
 static uint8_t _norm2(int8_t x, int8_t y) {
@@ -115,6 +121,22 @@ static uint8_t _norm2(int8_t x, int8_t y) {
 // ---------------------------------------------------------------------------
 // planes_asm.h in C, for the host: what planes_asm.cc does on the C64, step
 // for step.
+
+void _planes_tube(int16_t ux, int16_t uy, uint8_t at) {
+  int8_t ox[kPlaneBodyCount], oy[kPlaneBodyCount];
+  for (uint8_t i = 0; i < kPlaneBodyCount; ++i) {
+    ox[i] = _smul(ux, _planes_sr[i]);
+    oy[i] = _smul(uy, _planes_sr[i]);
+  }
+  for (uint8_t i = 0; i < kPlaneBodyCount; ++i, ++at) {
+    _planes_vx[at] = (uint8_t)(_planes_sx[i] + ox[i]);
+    _planes_vy[at] = (uint8_t)(_planes_sy[i] + oy[i]);
+  }
+  for (uint8_t i = kPlaneBodyCount; i-- > 0; ++at) {
+    _planes_vx[at] = (uint8_t)(_planes_sx[i] - ox[i]);
+    _planes_vy[at] = (uint8_t)(_planes_sy[i] - oy[i]);
+  }
+}
 
 void _planes_mags(uint8_t k) {
   for (uint8_t m = 0; m < kPlaneMagCount; ++m) {
@@ -232,8 +254,8 @@ void _planes_fill_poly(uint8_t s, uint8_t n) {
 // Projection.
 
 static void _add_vertex(uint8_t x, uint8_t y) {
-  _vx[_vert_count] = x;
-  _vy[_vert_count] = y;
+  _planes_vx[_vert_count] = x;
+  _planes_vy[_vert_count] = y;
   ++_vert_count;
 }
 
@@ -263,8 +285,8 @@ static void _project(uint16_t k, const mat3_t *axes) {
   PROFILE_START();
   for (uint8_t i = 0; i < kPlaneVertCount; ++i) {
     uint8_t f = kPlaneVertFore[i], l = kPlaneVertLeft[i], u = kPlaneVertUp[i];
-    _vx[i] = (uint8_t)(kBias + _planes_tx[f] + _planes_tx[l] + _planes_tx[u]);
-    _vy[i] = (uint8_t)(kBias + _planes_ty[f] + _planes_ty[l] + _planes_ty[u]);
+    _planes_vx[i] = (uint8_t)(kBias + _planes_tx[f] + _planes_tx[l] + _planes_tx[u]);
+    _planes_vy[i] = (uint8_t)(kBias + _planes_ty[f] + _planes_ty[l] + _planes_ty[u]);
   }
   for (uint8_t p = 0; p < 4; ++p) {
     _poly_start[p] = kPlanePolyStart[p];
@@ -274,8 +296,7 @@ static void _project(uint16_t k, const mat3_t *axes) {
   PROFILE_END(10, kProfVerts);
   PROFILE_START();
   // The fuselage: each station offset along the normal to the projected axis.
-  uint8_t sx[kPlaneBodyCount], sy[kPlaneBodyCount];
-  uint8_t sr[kPlaneBodyCount];
+  uint8_t *sx = _planes_sx, *sy = _planes_sy, *sr = _planes_sr;
   uint8_t widest = 0;
   for (uint8_t i = 0; i < kPlaneBodyCount; ++i) {
     sx[i] = (uint8_t)(kBias + _planes_tx[kPlaneBodyFore[i]]);
@@ -289,18 +310,8 @@ static void _project(uint16_t k, const mat3_t *axes) {
   int8_t fy = (int8_t)(sy[0] - sy[kPlaneBodyCount - 1]);
   uint8_t n = _norm2(fx, fy);
   if (n > 0) {
-    int16_t ux = vec_div8p8((int16_t)-fy, n), uy = vec_div8p8(fx, n);
-    int8_t ox[kPlaneBodyCount], oy[kPlaneBodyCount];
-    for (uint8_t i = 0; i < kPlaneBodyCount; ++i) {
-      ox[i] = _smul(ux, sr[i]);
-      oy[i] = _smul(uy, sr[i]);
-    }
-    for (uint8_t i = 0; i < kPlaneBodyCount; ++i) {
-      _add_vertex((uint8_t)(sx[i] + ox[i]), (uint8_t)(sy[i] + oy[i]));
-    }
-    for (uint8_t i = kPlaneBodyCount; i-- > 0;) {
-      _add_vertex((uint8_t)(sx[i] - ox[i]), (uint8_t)(sy[i] - oy[i]));
-    }
+    _planes_tube(vec_div8p8((int16_t)-fy, n), vec_div8p8(fx, n), _vert_count);
+    _vert_count += 2 * kPlaneBodyCount;
     _end_poly();
   }
   // End-on: the cross-section at the widest station, an octagon of radius r
@@ -473,12 +484,12 @@ void planes_project(planes_state_t *state, const planes_view_t *view,
   // 8. body axes are the caller's, 9. the polygons in screen pixels
   _project(k, axes);
   PROFILE_START();
-  uint8_t minx = _vx[0], maxx = _vx[0], miny = _vy[0], maxy = _vy[0];
+  uint8_t minx = _planes_vx[0], maxx = _planes_vx[0], miny = _planes_vy[0], maxy = _planes_vy[0];
   for (uint8_t i = 1; i < _vert_count; ++i) {
-    if (_vx[i] < minx) minx = _vx[i];
-    if (_vx[i] > maxx) maxx = _vx[i];
-    if (_vy[i] < miny) miny = _vy[i];
-    if (_vy[i] > maxy) maxy = _vy[i];
+    if (_planes_vx[i] < minx) minx = _planes_vx[i];
+    if (_planes_vx[i] > maxx) maxx = _planes_vx[i];
+    if (_planes_vy[i] < miny) miny = _planes_vy[i];
+    if (_planes_vy[i] > maxy) maxy = _planes_vy[i];
   }
   uint8_t bw = (uint8_t)(maxx - minx), bh = (uint8_t)(maxy - miny);
 
@@ -554,8 +565,8 @@ void planes_project(planes_state_t *state, const planes_view_t *view,
   uint16_t s9 = (uint16_t)slid & 0x1FF;
   uint8_t *kx = state->key_x, *ky = state->key_y;
   for (uint8_t i = 0; i < _vert_count; ++i) {
-    uint8_t x = (uint8_t)(_vx[i] - bx);
-    uint16_t u = (uint16_t)((uint8_t)(_vy[i] - by) + s9);
+    uint8_t x = (uint8_t)(_planes_vx[i] - bx);
+    uint16_t u = (uint16_t)((uint8_t)(_planes_vy[i] - by) + s9);
     uint8_t y;
     if (xs == 2) {
       x >>= 1;

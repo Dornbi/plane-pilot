@@ -122,6 +122,120 @@ void _planes_mags(uint8_t k) {
   _mags();
 }
 
+// ---------------------------------------------------------------------------
+// The fuselage outline.
+
+static_assert(kPlaneBodyCount == 3, "_tube() walks three stations");
+
+#ifdef __FPILOT__
+#pragma bss(tscratch)
+#endif
+// |ux| and |uy| as a low byte and a 256, each sign as 0 or $FF, the offsets
+// r * u per station, and the loop's station and vertex indices.
+static uint8_t _ux_lo, _ux_hi, _ux_neg, _uy_lo, _uy_hi, _uy_neg;
+static int8_t _tox[3], _toy[3];
+static uint8_t _ti, _tat;
+#ifdef __FPILOT__
+#pragma bss(bss)
+#endif
+
+// smul(u, r) per station: q = (|u| * r + 128) >> 8, which is the reference's
+// ((p >> 7) + 1) >> 1 - the high byte plus bit 7 of the low one - and just r
+// when |u| is 256; negated when u is.
+static void _tube(void) {
+  // clang-format off
+  __asm {
+        ldy #2;
+    L_station:
+        sty _ti;
+        lda _planes_sr, y;
+        sta vec_mul8_b;
+
+        lda _ux_hi;
+        beq L_ox_mul;
+        lda vec_mul8_b;
+        jmp L_ox_sign;
+    L_ox_mul:
+        lda _ux_lo;
+        jsr vec_mul8;
+        asl vec_mul8_lo;
+        adc #0;
+    L_ox_sign:
+        ldx _ux_neg;
+        beq L_ox_pos;
+        eor #$ff;
+        clc;
+        adc #1;
+    L_ox_pos:
+        ldy _ti;
+        sta _tox, y;
+
+        lda _uy_hi;
+        beq L_oy_mul;
+        lda vec_mul8_b;
+        jmp L_oy_sign;
+    L_oy_mul:
+        lda _uy_lo;
+        jsr vec_mul8;
+        asl vec_mul8_lo;
+        adc #0;
+    L_oy_sign:
+        ldx _uy_neg;
+        beq L_oy_pos;
+        eor #$ff;
+        clc;
+        adc #1;
+    L_oy_pos:
+        ldy _ti;
+        sta _toy, y;
+        dey;
+        bpl L_station;
+
+        // Stations 0 .. 2 plus the offset, then 2 .. 0 minus it.
+        ldx _tat;
+        ldy #0;
+    L_plus:
+        lda _planes_sx, y;
+        clc;
+        adc _tox, y;
+        sta _planes_vx, x;
+        lda _planes_sy, y;
+        clc;
+        adc _toy, y;
+        sta _planes_vy, x;
+        inx;
+        iny;
+        cpy #3;
+        bne L_plus;
+        ldy #2;
+    L_minus:
+        lda _planes_sx, y;
+        sec;
+        sbc _tox, y;
+        sta _planes_vx, x;
+        lda _planes_sy, y;
+        sec;
+        sbc _toy, y;
+        sta _planes_vy, x;
+        inx;
+        dey;
+        bpl L_minus;
+  }
+  // clang-format on
+}
+
+void _planes_tube(int16_t ux, int16_t uy, uint8_t at) {
+  _ux_neg = ux < 0 ? 0xFF : 0x00;
+  _uy_neg = uy < 0 ? 0xFF : 0x00;
+  uint16_t mx = (uint16_t)(ux < 0 ? -ux : ux), my = (uint16_t)(uy < 0 ? -uy : uy);
+  _ux_lo = (uint8_t)mx;
+  _ux_hi = (uint8_t)(mx >> 8);
+  _uy_lo = (uint8_t)my;
+  _uy_hi = (uint8_t)(my >> 8);
+  _tat = at;
+  _tube();
+}
+
 void _planes_axis_products(const vec3_t *a, uint8_t first, uint8_t end) {
   uint16_t my = (uint16_t)(a->y < 0 ? -a->y : a->y), mz = (uint16_t)(a->z < 0 ? -a->z : a->z);
   _ay_lo = (uint8_t)my;
