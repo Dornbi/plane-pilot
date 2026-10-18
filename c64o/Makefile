@@ -27,8 +27,9 @@ PPILOT_PROGRAM = ppilot
 PPILOTA_PROGRAM = ppilota
 # Fighter Pilot: a different game on the same engine, with air-to-air combat
 # and missions of its own. Also built from ppilot.cc, with -D__FPILOT__, which
-# for now does no more than swap pmission.cc for fmission.cc (mission.h)
-# and put its own name on the menu. Arcade flight model, as ppilot.
+# swaps pmission.cc for fmission.cc (mission.h), puts its own name on the menu
+# and adds the other aircraft (traffic.h, docs/planes.md). Arcade flight model,
+# as ppilot.
 #
 # No debug view: it is built without $(DEBUG) whatever that is set to, so the
 # D key, the stage counters behind it and the code that prints them are not

@@ -1,7 +1,9 @@
 # Other Aircraft — Traffic Sprites
 
-**Status: designed, not built into the game.** None of §12's phases has landed
-in `ppilot.prg`; there is no traffic there. The renderer does run on its own:
+**Status: built into `fpilot.prg`, on the `planes` branch (2026-10-18).**
+One aircraft flies the Scramble pass there (§13, "What landed"); it has no
+behaviour beyond that, and `ppilot.prg` has no traffic. The renderer also
+runs on its own:
 `c64o/planedemo.prg` draws one aircraft in default character mode with
 `c64o/planes.cc`, a C port of `lib/planes.py` held to it byte for byte on the
 host (`test/planes_test.cc`) and on an emulated 6510 (`test/target_test.cc`,
@@ -9,8 +11,8 @@ tests 6 and 7). §11 has what it costs there, and §5 whether it fits. The layer
 stack of [sprite_objects.md](sprite_objects.md) §2 exists in `c64o/sprites.cc`
 and serves the sun and the clouds, so §5's "hardware sprite indices" is a
 matter of calling `sprites_stack_add()` rather than of writing an allocator —
-once the stack has learnt the two things §5 lists. §13 plans the way into
-`fpilot.prg`, the game traffic is for.
+and the stack has since learnt the two things §5 lists. §13 is the way into
+`fpilot.prg`, the game traffic is for, and what of it has landed.
 
 **Revised: polygons and 2 × 2 X+Y sprites.** The first version of this
 document drew an aircraft as three thick strokes in at most two X-expanded
@@ -451,8 +453,10 @@ hysteresis (the same 87%) is there only so that the sprite count does not
 flicker and push other objects in and out of the stack.
 
 At the cap, level flight at any heading needs two sprites; a moderate bank or
-a steep pitch needs four. Nothing needs more than two until `d` passes 39,
-inside ~112 m.
+a steep pitch needs four. Nothing needs more than two until `d` passes 47,
+inside ~91 m: a sweep of every attitude in 2.5° steps through `planes.cc`,
+hysteresis carried over, finds `k` 90 two sprites at worst and 92 four
+(2026-10-18; the figure here was 39 before it, an estimate).
 
 ### The DMA cut: slide, don't reject
 
@@ -569,9 +573,10 @@ the map left there.
 
 **Block sets go by rank, not by plane.** The nearest aircraft gets the
 eight-block set and may use all four sprites; the second gets the four-block
-set and is capped at two sprites, which in §4's terms means a `d` limit of 39
-— it freezes at ~112 m. When the two swap rank they swap sets, and both redraw
-once.
+set and is capped at two sprites, a `kmax` of 88 (`planes.h`
+`kPlaneKMaxTwoSprites`) — it freezes at ~93 m. When the two swap rank they
+swap sets, and both redraw once. *As built (§13), the sets go by slot and
+both slots are capped at two sprites, so nothing swaps yet.*
 
 Double buffering is not optional. The VIC fetches sprite data on the lines
 where the sprite is displayed; rewriting a block in place tears the image for
@@ -823,7 +828,7 @@ Colour is per sprite, so every sprite of a layout — up to four — must be set
   when a close aircraft banks past ~35–40°, which follows the roll. Both are
   mitigated only by hysteresis.
 - **The second plane freezes early.** Capped at two sprites, it holds its size
-  from ~112 m (§5).
+  from ~93 m (§5). As built, so does the first.
 - **Clouds give way.** A close, banked plane takes four of the seven indices,
   and with a second plane and the sun there are none left for clouds.
 - **First-order projection at the freeze.** At 54 m a 16.5 m span has about
@@ -1012,12 +1017,46 @@ width, edge-on surfaces as lines, the slide, the cycle budget — and, through
 
 ## 13. Into fpilot
 
-**Status: planned 2026-10-07, figures brought up to date 2026-10-18 at
-b1cdfdf; nothing of it has landed.** `fpilot.prg` is `ppilot.cc` built with
-`-D__FPILOT__` and without the debug view, and it is where traffic goes
-first: it is the game that needs an aircraft to fight, and it has the most
-room. (ppilot now has room too, §5.) Everything below is fpilot-only unless
-it says otherwise.
+**Status: steps 1-9 landed on the `planes` branch, 2026-10-18; the
+assembly levers of the order of work are what is left.** `fpilot.prg` is
+`ppilot.cc` built with `-D__FPILOT__` and without the debug view, and it is
+where traffic goes first: it is the game that needs an aircraft to fight, and
+it has the most room. (ppilot now has room too, §5.) Everything below is
+fpilot-only unless it says otherwise. "What landed" says where the build
+went its own way; the subsections after it are the plan it followed.
+
+### What landed
+
+| Step | Where | Against the plan |
+| :--- | :--- | :--- |
+| 1-4, 7 | `c64o/traffic.cc` | Two slots in `bss2`, the first flying the Scramble pass. No attitude yet: everything flies level and north, so the body axes in camera space are `world_cam`'s columns, no products. `-D__NO_TRAFFIC__` leaves it out |
+| 2 | `mem.h`, `traffic.cc` | Block sets by slot, not by rank: slot 0 at 69-76, slot 1 at 65-68, the dot at 64. `$01` is banked around the fill only. fpilot's stack region grows to `$0288`: the static frames reach 132 bytes |
+| 5 | `sprites.cc` | `kSpriteFlagWide` and `kSpriteFlagExpandY`, with `bitmap2` as the second row's first block. One vertical cull serves both heights |
+| 6 | `sprites.cc` | Each sprite frame belongs to a screen buffer and goes up with it: no flip of its own, nothing in `mem.cc` |
+| Cap | `planes.h` | The size cap is the view's `kmax`. A sweep of every attitude finds two sprites enough up to `k` 90, not 73; traffic uses 88, freezing at ~93 m rather than 112 |
+| 9 | `planes.cc`, `traffic.cc` | Cut between the projection and the fill, not between polygons: under the cap the projection, ~17,000-20,000 cycles, already outweighs the fill. `planes_fill()` reads the vertex-cache key, so nothing shared has to survive between the halves |
+| — | `traffic.cc` | An aircraft wholly outside the viewport is skipped before it is projected: `planes_render()` gives up only 45° off the axis, the viewport is 32° and 12° |
+
+On the way, oscar64 folded `(uint8_t)(u + 16) >= 32` to `u >= 16`, which
+culled every aircraft behind the eye; `traffic.cc`'s range test is signed.
+
+Measured over the Scramble pass, render cycles per frame against the same
+build with `-D__NO_TRAFFIC__`:
+
+| Frame | One frame | Half rate |
+| :--- | ---: | ---: |
+| Behind the camera, or wholly off screen | +2,000-4,000 | the same |
+| Drawn from the cache | +7,400-9,900 | the same |
+| `k` changed, pixels the same | +18,000-21,000 | the same |
+| Redrawn | +30,000-39,000 | ~+26,000 projecting, ~+20,000 filling |
+| The worst | 39,227 | 28,337 |
+
+`tools/bench.sh`, with the enemy where each pose leaves it: runway +2,200
+(behind), approach +9,600 (600 m ahead, cached), cruise, town and lake
++0-400 (culled at 4 km). RAM: fpilot 14,528 → 8,003 bytes free over the
+five commits, ~6.5 KB against the ~5 KB the table below estimated; the
+stack's new entries, the half-rate split and the off-screen test are most of
+the difference.
 
 ### Where it starts
 
@@ -1212,7 +1251,9 @@ with two.
 | **A budget that moves**: four sprites only while nothing else wants them | The best picture when alone | The aircraft visibly shrinks whenever the budget drops |
 
 **Two for both planes, by the lower cap, to start with**; the earlier
-Y-expansion is the one to try against it in VICE shots.
+Y-expansion is the one to try against it in VICE shots. *Built that way. The
+sweep put the cap at 88, not 73: the size holds from ~93 m rather than 112,
+which takes some of the sting out of the first option's "against".*
 
 ### Order of work
 
@@ -1222,19 +1263,35 @@ bytes, the vertices of a half-built shape staying out); clearing only the rows
 drawn the frame before last (up to ~1,000 cycles); one slope for a quad's
 parallel edges (~300); no tailplane at 1:1 (~1,000 at range).
 
-They come **after steps 1–5 and 8 with the Scramble pass, and before the
-half-rate shape (step 9) and before any behaviour beyond the pass**:
+The plan put them after steps 1–5 and 8 and before step 9. The build did step
+9 first, for two reasons it found on the way:
 
-- RAM is not what blocks: ~5 KB against 14.5 KB free. The assembly is now
-  worth doing for its cycles, not its bytes.
-- Only the game shows which levers matter — how often the cache hits in real
-  flight, and what share of a real frame a redraw is.
-- The assembly changes the costs the half-rate cut is balanced on. Balanced
-  first, it would have to be balanced again.
-- `planes.cc` stays shared, so `planedemo.prg`, `test/planes_test.cc` and
-  target tests 6 and 7 stay the bench and the reference throughout.
+- The first lever tried, the vertex-cache step in assembly, ran 3,473 cycles
+  against the C's 3,399: oscar64's code for that loop was already about what
+  straightforward assembly does. The levers are smaller than "C runs three
+  times the assembly" suggested, and each has to be measured.
+- The cut it would have had to rebalance was not needed: under the
+  two-sprite cap the projection outweighs the fill whatever the assembly
+  does to either, so the half-rate cut sits between them (step 9).
 
-With the split decided, laying the scratch over the terrain's shrinks rather
-than goes: the vertices of a shape being built have to outlive the terrain
-render, ~70 bytes, and the products and row extents, the rest, can still
-share.
+What is left, from `planedemo_prof.prg` at 150 m, one sprite, the attitude
+changing every frame (cycles): centre and `k` 1,735; magnitudes × `k` 2,950
+when `k` changes, 127 when not; axis products 4,280 (assembly already);
+flat-surface vertices 1,512; fuselage 3,870; layout 2,513; vertex cache 3,399;
+clear and fill 12,368. In order of what each is likely to buy:
+
+- **Magnitudes × `k` in assembly**, ~1,500-2,000 on every projection whose
+  `k` changed, which in an approach or a pass is most of them: sixteen
+  `vec_mul8x8` calls through C become sixteen `vec_mul8`s in a loop.
+- **The fuselage**, ~1,500: `_smul` six times, two divisions, a norm.
+- **The axis products' multiplies inline** rather than through `jsr
+  vec_mul8`, ~1,000.
+- **The vertices and the layout's bounding box in assembly**, ~700 each.
+- **The scratch over the terrain's.** `planes_fill()` now takes its vertices
+  from the cache's key, so no per-frame array has to outlive the terrain
+  render after all: all ~355 bytes can share, not ~285.
+- The fill's own levers above, ~300-1,000 each.
+
+`planes.cc` stays shared, so `planedemo.prg`, `test/planes_test.cc` (now in
+both one call and two halves) and target tests 6 and 7 stay the bench and the
+reference throughout.

@@ -21,7 +21,7 @@ Two things were built, and they are separable:
 
 1. **A sprite stack.** A general, distance-sorted allocator for the eight
    hardware sprites in the viewport band. The sun is its first client and
-   clouds its second; traffic ([planes.md](planes.md)) is meant to be its
+   clouds its second; traffic ([planes.md](planes.md)), in fpilot, is its
    third. This is [sprite_objects.md](sprite_objects.md) §2, and it landed on
    its own, before any cloud existed.
 2. **Clouds.** A hashed placement scheme, a group layout, and a distance-driven

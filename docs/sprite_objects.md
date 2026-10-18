@@ -6,8 +6,8 @@ possibly projectiles — with the eight hardware sprites in the viewport band.
 §2's restructure shipped as the sprite stack in
 [`c64o/sprites.cc`](../c64o/sprites.cc), designed in detail in
 [clouds.md](clouds.md) §1, which also supersedes §6.1 the way
-[planes.md](planes.md) supersedes §6.2. Clouds and the sun go through it;
-traffic is meant to be its third client and does not exist yet.
+[planes.md](planes.md) supersedes §6.2. Clouds and the sun go through it,
+and so does traffic in `fpilot.prg` (planes.md §13), its third client.
 
 For how sprites are used today see [project.md](project.md); for the raster
 band split see `gfx.cc`. For the aircraft case in full — which supersedes §6.2
