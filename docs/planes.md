@@ -1017,8 +1017,9 @@ width, edge-on surfaces as lines, the slide, the cycle budget — and, through
 
 ## 13. Into fpilot
 
-**Status: steps 1-9 landed on the `planes` branch, 2026-10-18; the
-assembly levers of the order of work are what is left.** `fpilot.prg` is
+**Status: steps 1-9 landed on the `planes` branch, 2026-10-18, and the
+order of work's levers after them; behaviour beyond the Scramble pass is
+what is left.** `fpilot.prg` is
 `ppilot.cc` built with `-D__FPILOT__` and without the debug view, and it is
 where traffic goes first: it is the game that needs an aircraft to fight, and
 it has the most room. (ppilot now has room too, §5.) Everything below is
@@ -1036,6 +1037,7 @@ went its own way; the subsections after it are the plan it followed.
 | Cap | `planes.h` | The size cap is the view's `kmax`. A sweep of every attitude finds two sprites enough up to `k` 90, not 73; traffic uses 88, freezing at ~93 m rather than 112 |
 | 9 | `planes.cc`, `traffic.cc` | Cut between the projection and the fill, not between polygons: under the cap the projection, ~17,000-20,000 cycles, already outweighs the fill. `planes_fill()` reads the vertex-cache key, so nothing shared has to survive between the halves |
 | — | `traffic.cc` | An aircraft wholly outside the viewport is skipped before it is projected: `planes_render()` gives up only 45° off the axis, the viewport is 32° and 12° |
+| Levers | `mem.h`, `planes_asm.cc` | The per-call scratch over the terrain's (`tscratch`, 224 bytes back). In assembly: the magnitudes × `k`, the fuselage outline, the vertex cache's key (self-modifying: a plain loop was no faster than the C), the flat vertices and the box, and a tighter span loop |
 
 On the way, oscar64 folded `(uint8_t)(u + 16) >= 32` to `u >= 16`, which
 culled every aircraft behind the eye; `traffic.cc`'s range test is signed.
@@ -1043,20 +1045,23 @@ culled every aircraft behind the eye; `traffic.cc`'s range test is signed.
 Measured over the Scramble pass, render cycles per frame against the same
 build with `-D__NO_TRAFFIC__`:
 
-| Frame | One frame | Half rate |
-| :--- | ---: | ---: |
-| Behind the camera, or wholly off screen | +2,000-4,000 | the same |
-| Drawn from the cache | +7,400-9,900 | the same |
-| `k` changed, pixels the same | +18,000-21,000 | the same |
-| Redrawn | +30,000-39,000 | ~+26,000 projecting, ~+20,000 filling |
-| The worst | 39,227 | 28,337 |
+| Frame | One frame | Half rate | With the levers |
+| :--- | ---: | ---: | ---: |
+| Behind the camera, or wholly off screen | +2,000-4,000 | the same | the same |
+| Drawn from the cache | +7,400-9,900 | the same | ~+9,900 |
+| Redrawn, projecting | +30,000-39,000 | ~+26,000 | ~+22,000-23,000 |
+| Redrawn, filling | (the same frame) | ~+20,000 | ~+18,000-20,000 |
+| The worst | 39,227 | 28,337 | **24,847** |
+| The 90 frames of the pass | 1,332,664 | 1,126,698 | 1,060,190 (+9.6%) |
 
-`tools/bench.sh`, with the enemy where each pose leaves it: runway +2,200
-(behind), approach +9,600 (600 m ahead, cached), cruise, town and lake
-+0-400 (culled at 4 km). RAM: fpilot 14,528 → 8,003 bytes free over the
-five commits, ~6.5 KB against the ~5 KB the table below estimated; the
-stack's new entries, the half-rate split and the off-screen test are most of
-the difference.
+Of a cached frame, ~1,900 is before `planes_project()` (the transform
+~1,200), ~2,900 is its cached path (mostly the centre's two exact
+divisions), and the stack, the sprites' DMA and the layout of the code the
+rest. `tools/bench.sh`, with the enemy where each pose leaves it: runway
++2,200 (behind), approach +11,000 (600 m ahead, cached), cruise, town and
+lake +0-400 (culled at 4 km). RAM: fpilot 14,528 → 8,104 bytes free, ~6.4 KB
+against the ~5 KB the table below estimated; the stack's new entries, the
+half-rate split and the off-screen test are most of the difference.
 
 ### Where it starts
 
@@ -1291,23 +1296,33 @@ The plan put them after steps 1–5 and 8 and before step 9. The build did step
   two-sprite cap the projection outweighs the fill whatever the assembly
   does to either, so the half-rate cut sits between them (step 9).
 
-What is left, from `planedemo_prof.prg` at 150 m, one sprite, the attitude
-changing every frame (cycles): centre and `k` 1,735; magnitudes × `k` 2,950
-when `k` changes, 127 when not; axis products 4,280 (assembly already);
-flat-surface vertices 1,512; fuselage 3,870; layout 2,513; vertex cache 3,399;
-clear and fill 12,368. In order of what each is likely to buy:
+What the levers bought, from `planedemo_prof.prg` stopped at the same frame
+in both builds, 150 m and the attitude changing every frame (cycles):
 
-- **Magnitudes × `k` in assembly**, ~1,500-2,000 on every projection whose
-  `k` changed, which in an approach or a pass is most of them: sixteen
-  `vec_mul8x8` calls through C become sixteen `vec_mul8`s in a loop.
-- **The fuselage**, ~1,500: `_smul` six times, two divisions, a norm.
-- **The axis products' multiplies inline** rather than through `jsr
-  vec_mul8`, ~1,000.
-- **The vertices and the layout's bounding box in assembly**, ~700 each.
-- **The scratch over the terrain's.** `planes_fill()` now takes its vertices
-  from the cache's key, so no per-frame array has to outlive the terrain
-  render after all: all ~355 bytes can share, not ~285.
-- The fill's own levers above, ~300-1,000 each.
+| Step | Before | After |
+| :--- | ---: | ---: |
+| Magnitudes × `k`, when `k` changes | 2,950 | ~2,080 |
+| Fuselage | 3,870 | 2,550-2,610 |
+| Vertex cache's key | 3,399 | 1,875 |
+| Flat vertices | 1,512 | 1,428 |
+| Layout | 2,513 | 1,888 |
+| Clear and fill | 12,368 | 9,920 |
+
+Not taken, and why:
+
+- **The centre by one reciprocal** instead of two exact divisions, ~1,100 on
+  every frame: a 16-bit reciprocal of the depth is off by up to ~4 px at the
+  screen's edge at 4 km, and a wider one costs what the divisions do.
+- **The axis products' multiplies inline**, ~500 for ~60 bytes.
+- **Clearing only the rows drawn before**, ~350 for a one-sprite aircraft:
+  per-set bookkeeping in the caller for little.
+- **The fill's edges**: the slope's two multiplies and the end points are
+  most of what is left, and an incremental edge would have to step exactly
+  as the reference's fixed point does.
+- **`k` held while the pixels would not change** would turn the ~20,000
+  cycles of a projection that finds the same pixels into a cached frame's
+  ~3,000. It is a change to the design, not a lever: the size would move in
+  steps, and `lib/planes.py` would have to say so first.
 
 `planes.cc` stays shared, so `planedemo.prg`, `test/planes_test.cc` (now in
 both one call and two halves) and target tests 6 and 7 stay the bench and the
