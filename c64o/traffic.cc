@@ -64,8 +64,8 @@ static const int16_t kTrafficSpeed = 1500;
 // it. +y is west, which is left facing north. The height is 80 m above the
 // eye of an aircraft on the ground (flight.cc kFlightMinEyeZ, 32 m).
 static const int32_t kTrafficBehind = 400L << 8;
-static const int32_t kTrafficLeft = 192L << 8;
-static const int32_t kTrafficPassZ = 112L << 8;
+static const int32_t kTrafficLeft = 96L << 8;
+static const int32_t kTrafficPassZ = 96L << 8;
 
 // --- State ------------------------------------------------------------------
 
@@ -106,7 +106,8 @@ void traffic_reset(uint8_t mission) {
   }
   _traffic_on[0] = true;
   _traffic_x[0] = ((int32_t)kMissionStartX[mission] << 16) - kTrafficBehind;
-  _traffic_y[0] = ((int32_t)kMissionStartY[mission] << 16) + 0x8000 + kTrafficLeft;
+  _traffic_y[0] =
+      ((int32_t)kMissionStartY[mission] << 16) + 0x8000 + kTrafficLeft;
   _traffic_z[0] = kTrafficPassZ;
   _traffic_speed[0] = kTrafficSpeed;
   traffic_invalidate();
@@ -281,8 +282,8 @@ void traffic_add_sprites(void) {
       }
     }
     // Depth in the clouds' 2 m units, so that the two sort together.
-    sprites_stack_add(_traffic_c.x >> 3, f.x, f.y, 0, 0, bitmap, bitmap2, kColorTraffic,
-                      flags);
+    sprites_stack_add(_traffic_c.x >> 3, f.x, f.y, 0, 0, bitmap, bitmap2,
+                      kColorTraffic, flags);
   }
 }
 
