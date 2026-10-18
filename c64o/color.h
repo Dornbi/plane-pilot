@@ -41,8 +41,10 @@ static const uint8_t kColorOrientation = kColorWhite;
 // cyan sky above the horizon and the green ground below it - and it must not
 // be mistaken for a cloud, which is the one other large pale shape out there.
 static const uint8_t kColorAircraft = kColorMedGray;
-// Other aircraft (docs/planes.md §8): one fixed colour, light grey to start.
-static const uint8_t kColorTraffic = kColorLightGray;
+// Other aircraft (docs/planes.md §8): one fixed colour. Dark grey: it reads
+// against the sky and the ground alike, and it is not the tail fin's medium
+// grey or a cloud's white.
+static const uint8_t kColorTraffic = kColorDarkGray;
 static const uint8_t kColorWater = kColorBlue;
 
 #endif /* COLOR_H */

@@ -48,19 +48,24 @@ static_assert(kSpriteVisibleEndYPixels - 1 == 89 &&
 
 // --- The Scramble pass ------------------------------------------------------
 //
-// Straight behind the player parked on runway 1, low and level and heading
-// north, so it overtakes down the runway and flies on north in a straight
-// line, slowly enough to catch after take-off (docs/planes.md §13, "The first
-// enemy").
+// Behind the player parked on runway 1 and off to its left, low and level and
+// heading north, so it overtakes alongside the runway and flies on north in a
+// straight line, slowly enough to catch after take-off (docs/planes.md §13,
+// "The first enemy").
 //
 // Airspeed in the model's units: the player's half-throttle level trim, the
 // slowest it can fly level, so that a player who has caught it can sit behind
 // it. Below the 1,024 stall it would not be an aeroplane; above the player's
 // 2,054 cruise it could not be caught.
 static const int16_t kTrafficSpeed = 1500;
-// How far behind the player it starts, and how high: 24.8 metres.
+// How far behind the player it starts, how far to the left, and how high:
+// 24.8 metres. The runway is one unit, 256 m, wide and the player starts on
+// its centreline, so its left edge is 128 m away; the pass is 64 m beyond
+// it. +y is west, which is left facing north. The height is 80 m above the
+// eye of an aircraft on the ground (flight.cc kFlightMinEyeZ, 32 m).
 static const int32_t kTrafficBehind = 400L << 8;
-static const int32_t kTrafficPassZ = 56L << 8;
+static const int32_t kTrafficLeft = 192L << 8;
+static const int32_t kTrafficPassZ = 112L << 8;
 
 // --- State ------------------------------------------------------------------
 
@@ -101,7 +106,7 @@ void traffic_reset(uint8_t mission) {
   }
   _traffic_on[0] = true;
   _traffic_x[0] = ((int32_t)kMissionStartX[mission] << 16) - kTrafficBehind;
-  _traffic_y[0] = ((int32_t)kMissionStartY[mission] << 16) + 0x8000;
+  _traffic_y[0] = ((int32_t)kMissionStartY[mission] << 16) + 0x8000 + kTrafficLeft;
   _traffic_z[0] = kTrafficPassZ;
   _traffic_speed[0] = kTrafficSpeed;
   traffic_invalidate();

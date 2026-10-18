@@ -797,11 +797,12 @@ drift across the screen and through the DMA cut.
 **One fixed colour, always.** No background test, no switching, no multicolour.
 
 ```c
-vic.spr_color[idx] = kColorTraffic;      // kColorLightGray to start with
+vic.spr_color[idx] = kColorTraffic;      // kColorDarkGray
 ```
 
-Light grey is the opening choice, medium grey the fallback if it proves too
-close to the sky gradient. Both read against blue sky, the cyan/light-blue
+Light grey was the opening choice, medium grey the fallback if it proved too
+close to the sky gradient; fpilot settled on dark grey (2026-10-18, by
+eye). Medium grey is the tail fin's. Both read against blue sky, the cyan/light-blue
 gradient band and green ground without being as loud as white, which is the
 instrument colour and wants to stay unambiguous.
 
@@ -847,8 +848,7 @@ Colour is per sprite, so every sprite of a layout — up to four — must be set
 
 ## 10. Open questions
 
-1. **Light grey or medium grey?** §8 starts at light grey. This is a look at a
-   screenshot, not an argument.
+1. ~~**Light grey or medium grey?**~~ Dark grey, chosen in fpilot (§8).
 2. **Does Y-expansion look right on a real screen?** The prototype draws it
    over the terrain's 2 × 2 lattice at the 10 Hz sim rate, which is as close as
    a browser gets; a VICE screenshot is the real test.
@@ -1142,7 +1142,8 @@ facing north: `_m_init`'s front is +x, and x is the map's row, north
 - **starts straight behind**: on the player's y, the runway's centreline
   (`0x3F` and a half unit, as `flight_init_from_mission()` puts the eye), some
   way south of it, low and level, heading north. Its attitude is `_m_init`, so
-  it needs no matrix of its own;
+  it needs no matrix of its own. *As built it is 192 m to the left instead, 64
+  m beyond the runway's left edge (the runway is one unit, 256 m, wide).*
 - **flies a low pass straight ahead**: every sim step adds
   `_flight_step_s(kEnemySpeed << 1)` to its x and nothing else, next to
   `flight_advance()`. That is what `_flight_move_forward(flight_speed << 1,
@@ -1171,8 +1172,12 @@ the player closes. A start a few hundred metres behind, low enough to read as
 a pass and clear of the player's eye, is the first guess; VICE shots and a
 timed take-off settle it.
 
-*Settled, 2026-10-18:* 400 m behind, 24 m above the eye, airspeed 1,500. In
-VICE the enemy passes overhead about 35 steps after the start. A host run of
+*Settled, 2026-10-18:* 400 m behind, 192 m to the left, 112 m up (80 m
+above the eye on the ground), airspeed 1,500. That high, it is above the top
+of the viewport whenever it is nearer than ~370 m (56 / 256 of the depth), so
+the back view never shows it and the front view first does ~370 m ahead. In
+VICE it passes abeam about 35 steps after the start. The first build had it
+on the centreline, 24 m above the eye, where the back view's fin hid it. A host run of
 `flight.cc` with full throttle after a delay, rotating at 1,300 and climbing,
 against the enemy stepped as `traffic.cc` steps it (gap along x):
 
