@@ -468,7 +468,7 @@ static __zeropage uint8_t *_blk;    // the back buffer's first block
 #pragma bss(tscratch)
 #endif
 static uint8_t _buf_h, _buf_w1;     // height, and width - 1
-static uint8_t _bottom;             // offset of the lower row of blocks
+static uint8_t _bottom_adj;         // offset of the lower row of blocks, less 64
 static uint8_t _lo[42], _hi[42];    // each row's extent while a polygon is traced
 static uint8_t _fs, _fn;            // the polygon: first vertex, count
 
@@ -800,95 +800,52 @@ static void _fill_poly(void) {
         bcs L_span;
         jmp L_span_next;
     L_span:
-        lda _lo, x;
-        cmp _buf_w1;
-        bcc L_a_in;
-        lda _buf_w1;
-    L_a_in:
-        sta _pa;
+        // The row's first byte: 3 * row, and in the lower blocks _bottom on
+        // from row 21, which is 3 * row + _bottom - 63: the compare's carry
+        // is the 1 that _bottom_adj, _bottom - 64, is short of it.
+        stx _t;
+        txa;
+        asl;
+        adc _t;
+        cpx #21;
+        bcc L_upper;
+        adc _bottom_adj;
+    L_upper:
+        sta _base;
         lda _hi, x;
         cmp _buf_w1;
         bcc L_b_in;
         lda _buf_w1;
     L_b_in:
         sta _pb;
-        // The row's first byte: 3 * row in the upper blocks, _bottom on in
-        // the lower.
-        txa;
-        cmp #21;
-        bcc L_upper;
-        sbc #21;
-        sta _t;
-        asl;
-        adc _t;
-        adc _bottom;
-        jmp L_based;
-    L_upper:
-        sta _t;
-        asl;
-        adc _t;
-    L_based:
-        sta _base;
-        lda _pa;
-        lsr;
-        lsr;
-        lsr;
-        tax;
-        lda _pb;
         lsr;
         lsr;
         lsr;
         sta _jb;
-        cpx _jb;
-        bne L_bytes;
-        // Most spans are inside one byte: both masks on it.
-        lda _pa;
+        lda _lo, x;
+        cmp _buf_w1;
+        bcc L_a_in;
+        lda _buf_w1;
+    L_a_in:
+        // The left end's byte into X, its mask into A.
+        tay;
+        lsr;
+        lsr;
+        lsr;
+        tax;
+        tya;
         and #7;
         tay;
         lda kPlaneLeftMask, y;
+        cpx _jb;
+        bne L_bytes;
+        // Most spans are inside one byte: both masks on it.
         sta _t;
         lda _pb;
         and #7;
         tay;
         lda kPlaneRightMask, y;
         and _t;
-        jsr L_or;
-        jmp L_span_next;
-    L_bytes:
-        lda _pa;
-        and #7;
-        tay;
-        lda kPlaneLeftMask, y;
-        jsr L_or;
-        inx;
-    L_full:
-        cpx _jb;
-        beq L_right;
-        lda kPlaneByteOffset, x;
-        clc;
-        adc _base;
-        tay;
-        lda #$ff;
-        sta (_blk), y;
-        inx;
-        jmp L_full;
-    L_right:
-        lda _pb;
-        and #7;
-        tay;
-        lda kPlaneRightMask, y;
-        jsr L_or;
-    L_span_next:
-        ldx _row;
-        cpx _y1;
-        inx;
-        bcs L_done;
-        jmp L_span_row;
-    L_done:
-        rts;
-
-        // OR A into byte X of the row at _base. Keeps X.
-    L_or:
         sta _t;
         lda kPlaneByteOffset, x;
         clc;
@@ -897,6 +854,49 @@ static void _fill_poly(void) {
         lda (_blk), y;
         ora _t;
         sta (_blk), y;
+        jmp L_span_next;
+    L_bytes:
+        sta _t;
+        lda kPlaneByteOffset, x;
+        clc;
+        adc _base;
+        tay;
+        lda (_blk), y;
+        ora _t;
+        sta (_blk), y;
+        inx;
+        cpx _jb;
+        beq L_right;
+    L_full:
+        lda kPlaneByteOffset, x;
+        clc;
+        adc _base;
+        tay;
+        lda #$ff;
+        sta (_blk), y;
+        inx;
+        cpx _jb;
+        bne L_full;
+    L_right:
+        lda _pb;
+        and #7;
+        tay;
+        lda kPlaneRightMask, y;
+        sta _t;
+        lda kPlaneByteOffset, x;
+        clc;
+        adc _base;
+        tay;
+        lda (_blk), y;
+        ora _t;
+        sta (_blk), y;
+    L_span_next:
+        ldx _row;
+        cpx _y1;
+        inx;
+        bcs L_done;
+        jmp L_span_row;
+    L_done:
         rts;
 
         // Widen row _row's extent to take pixels _pa and _pb, in either
@@ -937,7 +937,7 @@ void _planes_fill_begin(uint8_t *back, uint8_t cols, uint8_t height) {
   _blk = back;
   _buf_h = height;
   _buf_w1 = (uint8_t)((24 << (cols - 1)) - 1);
-  _bottom = (uint8_t)(cols << 6);
+  _bottom_adj = (uint8_t)((cols << 6) - 64);
 }
 
 void _planes_fill_poly(uint8_t first, uint8_t count) {
