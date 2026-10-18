@@ -324,8 +324,8 @@ static uint8_t _pick_level(uint8_t prev, uint8_t d) {
 }
 
 void planes_state_init(planes_state_t *state) {
-  state->level = kPlaneLevelDot;
-  state->ys = state->cols = state->rows = 1;
+  state->lay.level = kPlaneLevelDot;
+  state->lay.ys = state->lay.cols = state->lay.rows = 1;
   state->key_valid = false;
   state->key_count = 0;
 }
@@ -351,25 +351,56 @@ void planes_dot_bitmap(uint8_t *block) {
   block[3 * (kPlaneDotY + 1) + 1] = 0x0C;
 }
 
-void planes_render(planes_state_t *state, const planes_view_t *view,
-                   const vec3_t *c, const mat3_t *axes, uint8_t *back,
-                   planes_frame_t *frame) {
+// A bitmap is drawn slid by lay->slid, so it lands in place at that slide;
+// when this centre needs more, it goes higher by the difference, a few lines
+// out of place rather than a sprite starting below the DMA cut.
+int16_t planes_place(const planes_layout_t *lay, const planes_view_t *view,
+                     planes_frame_t *frame) {
+  uint8_t level = lay->level;
+  frame->level = level;
+  if (level == kPlaneLevelDot) {
+    frame->xs = frame->ys = frame->cols = frame->rows = 1;
+    frame->x = (int16_t)(frame->cx - kPlaneDotX);
+    frame->y = (int16_t)(frame->cy - kPlaneDotY);
+    frame->slid = 0;
+    if (frame->y > view->cut1) {
+      frame->hidden = kPlaneBelowCut;
+    }
+    return 0;
+  }
+  uint8_t ys = lay->ys, rows = lay->rows;
+  frame->xs = level == kPlaneLevel1x ? 1 : 2;
+  frame->ys = ys;
+  frame->cols = lay->cols;
+  frame->rows = rows;
+  frame->x = (int16_t)(frame->cx + lay->ox);
+  int16_t top = (int16_t)(frame->cy + lay->oy);
+  int16_t need = _slide(view, top, ys, rows);
+  int16_t slid = need > lay->slid ? need : lay->slid;
+  frame->y = (int16_t)(top - slid);
+  frame->slid = (uint8_t)slid;
+  return need;
+}
+
+// Steps 1-7 for the frame alone: what is hidden, the centre, the scale and
+// the pixel size. Nothing here depends on the state.
+bool planes_centre(const planes_view_t *view, const vec3_t *c, planes_frame_t *frame) {
   frame->hidden = kPlaneShown;
   frame->cached = false;
   frame->slid = 0;
   if (c->x <= 64) {
     frame->hidden = kPlaneBehindCamera;
-    return;
+    return false;
   }
   if (c->x > 16000 || _abs16(c->y) >= c->x || _abs16(c->z) >= c->x) {
     frame->hidden = kPlaneOutOfRange;
-    return;
+    return false;
   }
 
   // 5. centre, 6. perspective scale, 6b. the size cap
   PROFILE_START();
-  int16_t cx = (int16_t)(view->cx0 - vec_div8p8(c->y, c->x));
-  int16_t cy = (int16_t)(view->cy0 - vec_div8p8(c->z, c->x));
+  frame->cx = (int16_t)(view->cx0 - vec_div8p8(c->y, c->x));
+  frame->cy = (int16_t)(view->cy0 - vec_div8p8(c->z, c->x));
   // 32768 / x: the fraction 64 / x to nine bits, exact as x > 64.
   uint16_t k = vec_fracn(64, c->x, 9);
   frame->clamped = k > view->kmax;
@@ -380,14 +411,26 @@ void planes_render(planes_state_t *state, const planes_view_t *view,
   PROFILE_END(2, kProfCentre);
 
   // 7. pixel size, from distance alone: R * k / 128, as trunc(2R * k / 256)
-  uint8_t d = (uint8_t)(vec_mul8x8(kPlaneMaxRadius << 1, (uint8_t)k) >> 8);
-  frame->d = d;
-  uint8_t level = _pick_level(state->level, d);
+  frame->d = (uint8_t)(vec_mul8x8(kPlaneMaxRadius << 1, (uint8_t)k) >> 8);
+  return true;
+}
+
+// Which state's vertices _planes_lx and _planes_ly hold, for planes_fill().
+static const planes_state_t *_planes_lx_state;
+
+void planes_project(planes_state_t *state, const planes_view_t *view,
+                    const vec3_t *c, const mat3_t *axes, planes_frame_t *frame) {
+  if (!planes_centre(view, c, frame)) {
+    return;
+  }
+  int16_t cx = frame->cx, cy = frame->cy;
+  uint16_t k = frame->k;
+  uint8_t level = _pick_level(state->lay.level, frame->d);
   frame->level = level;
 
   if (level == kPlaneLevelDot) {
-    state->level = kPlaneLevelDot;
-    state->ys = state->cols = state->rows = 1;
+    state->lay.level = kPlaneLevelDot;
+    state->lay.ys = state->lay.cols = state->lay.rows = 1;
     state->key_valid = false;
     frame->xs = frame->ys = frame->cols = frame->rows = 1;
     frame->x = (int16_t)(cx - kPlaneDotX);
@@ -402,20 +445,10 @@ void planes_render(planes_state_t *state, const planes_view_t *view,
   // moved with the centre, and the same layout -- the hysteresis settles in
   // one frame. Only the slide, which depends on where the centre is, can
   // still change what is in the buffer.
-  if (state->key_valid && state->k == k && _same_axes(state->axes, axes)) {
-    int16_t ox = (int16_t)(cx + state->ox), oy = (int16_t)(cy + state->oy);
-    int16_t slid = _slide(view, oy, state->ys, state->rows);
-    if (slid == state->slid) {
-      frame->xs = level == kPlaneLevel1x ? 1 : 2;
-      frame->ys = state->ys;
-      frame->cols = state->cols;
-      frame->rows = state->rows;
-      frame->x = ox;
-      frame->y = (int16_t)(oy - slid);
-      frame->slid = (uint8_t)slid;
-      frame->cached = true;
-      return;
-    }
+  if (state->key_valid && state->k == k && _same_axes(state->axes, axes) &&
+      planes_place(&state->lay, view, frame) == state->lay.slid) {
+    frame->cached = true;
+    return;
   }
 
   // 8. body axes are the caller's, 9. the polygons in screen pixels
@@ -434,25 +467,25 @@ void planes_render(planes_state_t *state, const planes_view_t *view,
   uint8_t xs = level == kPlaneLevel1x ? 1 : 2;
   uint8_t ys = 1;
   if (level == kPlaneLevelX &&
-      (bh > kPlaneYLimit || (state->level == level && state->ys == 2 && bh > kPlaneYHold))) {
+      (bh > kPlaneYLimit || (state->lay.level == level && state->lay.ys == 2 && bh > kPlaneYHold))) {
     ys = 2;
   }
-  bool same = state->level == level && state->ys == ys;
+  bool same = state->lay.level == level && state->lay.ys == ys;
   uint8_t cols = bw <= kFitW[xs - 1][0] ? 1 : 2;
-  if (same && state->cols == 2 && cols == 1 && bw > kPlaneColsHold[xs]) {
+  if (same && state->lay.cols == 2 && cols == 1 && bw > kPlaneColsHold[xs]) {
     cols = 2;
   }
   uint8_t rows = bh <= kFitH[ys - 1][0] ? 1 : 2;
-  if (same && state->rows == 2 && rows == 1 && bh > kPlaneRowsHold[ys]) {
+  if (same && state->lay.rows == 2 && rows == 1 && bh > kPlaneRowsHold[ys]) {
     rows = 2;
   }
   // The latches are the cached vertices' layout until they change here.
-  bool cached = state->key_valid && same && state->cols == cols && state->rows == rows &&
+  bool cached = state->key_valid && same && state->lay.cols == cols && state->lay.rows == rows &&
                 state->key_count == _vert_count;
-  state->level = level;
-  state->ys = ys;
-  state->cols = cols;
-  state->rows = rows;
+  state->lay.level = level;
+  state->lay.ys = ys;
+  state->lay.cols = cols;
+  state->lay.rows = rows;
   frame->xs = xs;
   frame->ys = ys;
   frame->cols = cols;
@@ -480,9 +513,9 @@ void planes_render(planes_state_t *state, const planes_view_t *view,
   last[3] = axes->left.z;
   last[4] = axes->up.y;
   last[5] = axes->up.z;
-  state->ox = ox;
-  state->oy = oy;
-  state->slid = slid;
+  state->lay.ox = ox;
+  state->lay.oy = oy;
+  state->lay.slid = slid;
 
   frame->slid = (uint8_t)slid;
   frame->x = (int16_t)(cx + ox);
@@ -521,29 +554,59 @@ void planes_render(planes_state_t *state, const planes_view_t *view,
       cached = false;
     }
   }
+  _planes_lx_state = state;
   state->key_count = _vert_count;
+  state->key_poly_count = _poly_count;
   state->key_band = band;
   state->key_valid = true;
   PROFILE_END(5, kProfKey);
-  if (cached) {
-    frame->cached = true;
-    return;
-  }
+  frame->cached = cached;
+}
 
+void planes_fill(const planes_state_t *state, uint8_t *back) {
   // 13. fill into the back buffer. A slide of a whole buffer or more leaves
   // it empty, and y no longer fits a byte.
   PROFILE_START();
+  uint8_t cols = state->lay.cols, rows = state->lay.rows;
   uint8_t blocks = (uint8_t)(rows << (cols - 1));
   memset(back, 0, (uint16_t)blocks << 6);
   uint8_t height = (uint8_t)(kRows << (rows - 1));
-  if ((uint16_t)slid >> (ys - 1) < height) {
+  if ((uint16_t)state->lay.slid >> (state->lay.ys - 1) < height) {
+    // The vertices are the cache's key. The arrays the fill reads still
+    // hold them unless another aircraft was projected since.
+    uint8_t n = state->key_count;
+    if (_planes_lx_state != state) {
+      memcpy(_planes_lx, state->key_x, n);
+      memcpy(_planes_ly, state->key_y, n);
+      _planes_lx_state = state;
+    }
     _planes_fill_begin(back, cols, height);
-    for (uint8_t p = 0; p < _poly_count; ++p) {
-      uint8_t first = _poly_start[p];
-      _planes_fill_poly(first, (uint8_t)(_poly_start[p + 1] - first));
+    // The wing, tailplane and fin, then the fuselage if there is one, then
+    // the end-on disc if there is one: the last polygon ends at n.
+    for (uint8_t p = 0; p < 3; ++p) {
+      uint8_t first = kPlanePolyStart[p];
+      _planes_fill_poly(first, (uint8_t)(kPlanePolyStart[p + 1] - first));
+    }
+    uint8_t first = kPlanePolyStart[3];
+    if (state->key_poly_count == 5) {
+      _planes_fill_poly(first, 2 * kPlaneBodyCount);
+      first += 2 * kPlaneBodyCount;
+    }
+    if (state->key_poly_count >= 4) {
+      _planes_fill_poly(first, (uint8_t)(n - first));
     }
   }
   PROFILE_END(6, kProfFill);
 }
+
+void planes_render(planes_state_t *state, const planes_view_t *view,
+                   const vec3_t *c, const mat3_t *axes, uint8_t *back,
+                   planes_frame_t *frame) {
+  planes_project(state, view, c, axes, frame);
+  if (frame->hidden == kPlaneShown && frame->level != kPlaneLevelDot && !frame->cached) {
+    planes_fill(state, back);
+  }
+}
+
 
 #pragma optimize(pop)

@@ -39,9 +39,20 @@ static void hex(std::string &out, const uint8_t *bytes, int n) {
   }
 }
 
-int main() {
+// Every case through planes_render(), or with `split` through its two
+// halves the way traffic.cc spreads a redraw over two frames: projected, then
+// another aircraft projected over the shared vertex arrays, then filled; and
+// the drawn bitmap placed back at its own centre, which has to land where
+// the frame says it is.
+static int run(bool split) {
   const planes_view_t view = {kCaseCx0, kCaseCy0, kCaseCut1, kCaseCut2,
                               kPlaneKMax};
+  planes_state_t decoy;
+  const vec3_t decoy_c = make_vector(900, 40, -30);
+  mat3_t decoy_axes;
+  decoy_axes.front = make_vector(181, 181, 0);
+  decoy_axes.left = make_vector(-181, 181, 0);
+  decoy_axes.up = make_vector(0, 0, 256);
   static const char *const kReasons[] = {"", "behind camera", "out of range",
                                          "below the sprite cut"};
   static uint8_t sets[2][4][kPlaneBlockStride];
@@ -67,7 +78,31 @@ int main() {
     uint8_t *back = sets[front ^ 1][0];
 
     planes_frame_t frame;
-    planes_render(&state, &view, &c, &axes, back, &frame);
+    if (!split) {
+      planes_render(&state, &view, &c, &axes, back, &frame);
+    } else {
+      planes_project(&state, &view, &c, &axes, &frame);
+      planes_frame_t other;
+      planes_state_init(&decoy);
+      planes_project(&decoy, &view, &decoy_c, &decoy_axes, &other);
+      if (frame.hidden == kPlaneShown && frame.level != kPlaneLevelDot && !frame.cached) {
+        planes_fill(&state, back);
+        const planes_layout_t shown = state.lay;
+        planes_frame_t placed;
+        placed.hidden = kPlaneShown;
+        placed.cx = frame.cx;
+        placed.cy = frame.cy;
+        planes_place(&shown, &view, &placed);
+        if (placed.x != frame.x || placed.y != frame.y || placed.slid != frame.slid ||
+            placed.cols != frame.cols || placed.rows != frame.rows || placed.ys != frame.ys ||
+            placed.xs != frame.xs) {
+          if (++fails <= 5) {
+            printf("planes_test: case %d placed at %d,%d, drawn at %d,%d\n", n, placed.x,
+                   placed.y, frame.x, frame.y);
+          }
+        }
+      }
+    }
 
     std::string sig;
     if (frame.hidden != kPlaneShown) {
@@ -103,11 +138,14 @@ int main() {
     }
   }
 
+  const char *how = split ? " in two halves" : "";
   if (fails) {
-    printf("planes_test: %d of %d cases FAILED\n", fails, count);
+    printf("planes_test: %d of %d cases FAILED%s\n", fails, count, how);
     return 1;
   }
-  printf("planes_test: %d cases match lib/planes.py byte for byte (%d from the cache)\n",
-         count, cached);
+  printf("planes_test: %d cases match lib/planes.py byte for byte%s (%d from the cache)\n",
+         count, how, cached);
   return 0;
 }
+
+int main() { return run(false) | run(true); }

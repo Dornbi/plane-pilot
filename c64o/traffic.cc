@@ -75,6 +75,10 @@ static int16_t _traffic_speed[kTrafficMax];
 static planes_state_t _traffic_planes[kTrafficMax];
 // Bit i: which of slot i's two block sets is on screen.
 static uint8_t _traffic_front;
+// Bit i: slot i was projected anew last frame and is filled this one.
+static uint8_t _traffic_pending;
+// The layout of what is in slot i's front set.
+static planes_layout_t _traffic_shown[kTrafficMax];
 // The aircraft being drawn, in camera space and quarter metres.
 static vec3_t _traffic_c;
 #pragma bss(bss)
@@ -82,8 +86,10 @@ static vec3_t _traffic_c;
 void traffic_invalidate(void) {
   for (uint8_t i = 0; i < kTrafficMax; ++i) {
     planes_state_init(&_traffic_planes[i]);
+    _traffic_shown[i] = _traffic_planes[i].lay;
   }
   _traffic_front = 0;
+  _traffic_pending = 0;
   mmap_set(MMAP_RAM);
   planes_dot_bitmap((uint8_t *)0xD000);
   mmap_set(MMAP_NO_ROM);
@@ -190,33 +196,63 @@ void traffic_add_sprites(void) {
     if (_traffic_off_screen()) {
       continue;
     }
-    // The body axes in camera space. Everything flies level and north so
-    // far, so the body frame is the world's and its axes in camera space
-    // are world_cam's columns - and of those planes_render() reads only the
-    // screen components, y and z. Three vec_transform_inv() calls did the
-    // same for ~3,500 cycles a frame. Traffic that turns needs them back,
-    // with an attitude per aircraft.
-    mat3_t axes;
-    axes.front.y = world_cam.left.x;
-    axes.front.z = world_cam.up.x;
-    axes.left.y = world_cam.left.y;
-    axes.left.z = world_cam.up.y;
-    axes.up.y = world_cam.left.z;
-    axes.up.z = world_cam.up.z;
-
     uint8_t bit = (uint8_t)(1 << i);
     uint8_t first = kTrafficBlockFirst[i];
     uint8_t set = kTrafficSetBlocks[i];
     uint8_t front = (_traffic_front & bit) ? (uint8_t)(first + set) : first;
     uint8_t back = (_traffic_front & bit) ? first : (uint8_t)(first + set);
+    planes_state_t *state = &_traffic_planes[i];
+    planes_layout_t *shown = &_traffic_shown[i];
 
+    // A redraw takes two frames, the projection in one and the fill in the
+    // next (docs/planes.md §13, "The silhouette at half rate"), so neither
+    // frame pays for both. The position is this frame's either way: the
+    // bitmap on screen is placed at this frame's centre.
     planes_frame_t f;
-    // The fill writes under I/O. The raster handlers bank I/O in for
-    // themselves (gfx.cc _gfx_isr), and nothing in planes_render() touches it.
-    mmap_set(MMAP_RAM);
-    planes_render(&_traffic_planes[i], &kView, &_traffic_c, &axes,
-                  _traffic_block(back), &f);
-    mmap_set(MMAP_NO_ROM);
+    if (_traffic_pending & bit) {
+      // The fill the last frame projected. It writes under I/O; the raster
+      // handlers bank I/O in for themselves (gfx.cc _gfx_isr), and nothing
+      // in planes_fill() touches it. Then the new bitmap is the front one:
+      // it goes on screen with this frame's characters, at
+      // mem_switch_buffer(), and by the time a later frame fills the other
+      // set the raster handler has stopped showing it - mem_switch_buffer()
+      // runs past raster 250 in its colour copy before it returns.
+      bool seen = planes_centre(&kView, &_traffic_c, &f);
+      mmap_set(MMAP_RAM);
+      planes_fill(state, _traffic_block(back));
+      mmap_set(MMAP_NO_ROM);
+      _traffic_pending &= (uint8_t)~bit;
+      _traffic_front ^= bit;
+      front = back;
+      *shown = state->lay;
+      if (!seen) {
+        continue;
+      }
+      planes_place(shown, &kView, &f);
+    } else {
+      // The body axes in camera space. Everything flies level and north so
+      // far, so the body frame is the world's and its axes in camera space
+      // are world_cam's columns - and of those planes_project() reads only
+      // the screen components, y and z. Three vec_transform_inv() calls did
+      // the same for ~3,500 cycles a frame. Traffic that turns needs them
+      // back, with an attitude per aircraft.
+      mat3_t axes;
+      axes.front.y = world_cam.left.x;
+      axes.front.z = world_cam.up.x;
+      axes.left.y = world_cam.left.y;
+      axes.left.z = world_cam.up.y;
+      axes.up.y = world_cam.left.z;
+      axes.up.z = world_cam.up.z;
+      planes_project(state, &kView, &_traffic_c, &axes, &f);
+      if (f.hidden != kPlaneShown) {
+        continue;
+      }
+      if (f.level != kPlaneLevelDot && !f.cached) {
+        // A new silhouette, filled next frame; until then the old bitmap.
+        _traffic_pending |= bit;
+        planes_place(shown, &kView, &f);
+      }
+    }
     if (f.hidden != kPlaneShown) {
       continue;
     }
@@ -225,15 +261,6 @@ void traffic_add_sprites(void) {
     uint8_t bitmap2 = kSpriteNoBitmap;
     uint8_t flags = 0;
     if (f.level != kPlaneLevelDot) {
-      // A new bitmap is in the back set: it becomes the front one. It goes on
-      // screen with the characters of this frame, at mem_switch_buffer(), and
-      // by the time the next frame draws into the other set the raster
-      // handler has stopped showing it - mem_switch_buffer() runs past raster
-      // 250 in its colour copy before it returns.
-      if (!f.cached) {
-        _traffic_front ^= bit;
-        front = back;
-      }
       bitmap = front;
       if (f.rows == 2) {
         bitmap2 = (uint8_t)(front + f.cols);

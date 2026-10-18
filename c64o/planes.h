@@ -49,10 +49,21 @@ static const uint16_t kPlaneKMaxTwoSprites = 88;
 // the end-on disc.
 static const uint8_t kPlaneVertMax = 32;
 
+// A bitmap's layout: the pixel size, Y-expansion and sprites (the hysteresis
+// latches), and where the buffer sits - its top left less the centre before
+// the slide, and the slide. Kept on its own to show a bitmap at a later
+// frame's centre than the one it was projected in (planes_place()).
+struct planes_layout_t {
+  uint8_t level, ys, cols, rows;
+  int16_t ox, oy, slid;
+};
+
 // Everything that persists between frames: the hysteresis latches and the
 // caches. One per aircraft.
 struct planes_state_t {
-  uint8_t level, ys, cols, rows;
+  // The last projection's layout. ox, oy and slid mean something only while
+  // key_valid.
+  planes_layout_t lay;
   // The rest describes the last frame that projected the model, if
   // key_valid; the dot tier and planes_state_init() clear it.
   bool key_valid;
@@ -63,13 +74,15 @@ struct planes_state_t {
   // within one band no two rows share a byte.
   uint8_t key_count, key_band;
   uint8_t key_x[kPlaneVertMax], key_y[kPlaneVertMax];
+  // How many polygons those vertices make: the three flat surfaces, then
+  // the fuselage and the end-on disc where the attitude shows them. With
+  // them, the key is everything planes_fill() needs.
+  uint8_t key_poly_count;
   // What they were projected from -- the scale, and the screen components
-  // (y, z) of the front, left and up axes -- and where the buffer sat: its
-  // top left less the centre before the slide, and the slide. The same scale
-  // and axes project the same silhouette again, moved with the centre.
+  // (y, z) of the front, left and up axes. The same scale and axes project
+  // the same silhouette again, moved with the centre.
   uint16_t k;
   int16_t axes[6];
-  int16_t ox, oy, slid;
 };
 
 enum planes_hidden_t {
@@ -90,7 +103,9 @@ struct planes_frame_t {
   bool cached;          // nothing drawn: the last bitmap still stands
   uint16_t k;           // perspective scale, after the cap
   uint8_t d;            // unforeshortened diameter, pixels
+  int16_t cx, cy;       // the centre, viewport pixels
 };
+
 
 void planes_state_init(planes_state_t *state);
 
@@ -110,6 +125,31 @@ void planes_state_init(planes_state_t *state);
 void planes_render(planes_state_t *state, const planes_view_t *view,
                    const vec3_t *c, const mat3_t *axes, uint8_t *back,
                    planes_frame_t *frame);
+
+// planes_render() in two halves, for a caller that spreads a redraw over two
+// frames (docs/planes.md §13, "The silhouette at half rate"):
+//
+// - planes_project() is everything but the fill. On a miss - shown, not the
+//   dot, not cached - the state holds the new silhouette and its layout,
+//   and the frame describes them; the bitmap is not drawn yet.
+// - planes_fill() draws the state's silhouette into `back`, on this frame or
+//   a later one, whatever other aircraft were projected in between, as long
+//   as this state was not projected again.
+//
+// Until the new bitmap is filled the old one is on screen, and the caller
+// shows it at each frame's centre with planes_place(), having kept a copy of
+// state->lay when it was filled. planes_centre() is the first part of
+// planes_project(), for the frames that only place.
+void planes_project(planes_state_t *state, const planes_view_t *view,
+                    const vec3_t *c, const mat3_t *axes, planes_frame_t *frame);
+void planes_fill(const planes_state_t *state, uint8_t *back);
+bool planes_centre(const planes_view_t *view, const vec3_t *c, planes_frame_t *frame);
+// A bitmap of layout `lay` at frame->cx, cy: level, layout, top left and
+// slide, and hidden if the dot is below the cut. A bitmap whose last row
+// would now start below the DMA cut is moved up to it. Returns the slide
+// this centre needs, which planes_project() compares with lay->slid.
+int16_t planes_place(const planes_layout_t *lay, const planes_view_t *view,
+                     planes_frame_t *frame);
 
 // The far tier's static bitmap: a 2 x 2 blob on the block's last two rows.
 void planes_dot_bitmap(uint8_t *block);
