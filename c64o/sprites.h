@@ -83,6 +83,15 @@ static const uint8_t kSpriteFlagExpandX = 0x01;
 // their transparent pixels aligned instead of filling each other in. Clouds set
 // it; the sun, which is solid, does not.
 static const uint8_t kSpriteFlagAlignDither = 0x02;
+// Two sprites side by side rather than one: the right-hand one shows the block
+// after the left-hand one's, one sprite width (24, or 48 expanded) to its
+// right. With bitmap2 set as well it is a 2 x 2 block, the lower row starting
+// at bitmap2. Traffic (docs/planes.md §5) is the only user.
+static const uint8_t kSpriteFlagWide = 0x04;
+// Y-expanded: 42 raster lines a sprite, so the lower row of a 2-row entry is 42
+// below the upper one, and the entry is culled against the Y-expanded DMA cut
+// (mem.h kSpritesOffLeadExpandY).
+static const uint8_t kSpriteFlagExpandY = 0x08;
 
 // Begins a new frame's candidate list.
 void sprites_stack_reset(void);
@@ -99,7 +108,8 @@ void sprites_stack_reset(void);
 //
 // bitmap2 is kSpriteNoBitmap for a single sprite, or the lower block of a
 // 1 x 2 stack, in which case the entry claims two consecutive indices and the
-// lower sprite is placed 21 raster lines below the upper one.
+// lower sprite is placed 21 raster lines below the upper one (42 with
+// kSpriteFlagExpandY). kSpriteFlagWide doubles both, to 2 x 1 and 2 x 2.
 //
 // depth is the camera-space forward distance, used only for ordering; INT16_MAX
 // sorts an object behind everything, which is what the sun passes.

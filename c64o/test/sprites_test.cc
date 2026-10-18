@@ -44,6 +44,9 @@ static uint8_t screen_alt[1024];
 uint8_t *kScreenRamMain = screen_main;
 uint8_t *kScreenRamAlt = screen_alt;
 uint8_t *kColorRam = nullptr;
+// Which buffer the main line draws into. Each sprite frame belongs to one of
+// them, so show_terrain() below flips it the way mem_switch_buffer() does.
+bool mem_using_alt_buffer = false;
 
 // The tail fin's two sprite blocks, which live at $FF40 on the C64 (mem.h).
 // An array here, so that the art sprites_init() draws into them can be read
@@ -85,8 +88,8 @@ static uint8_t spr_expand_y(void) { return vic_regs[0x17]; }
 static uint8_t spr_color(uint8_t i) { return vic_regs[0x27 + i]; }
 static uint8_t spr_ptr(uint8_t i) { return screen_main[1016 + i]; }
 
-// Program the terrain band from the frame the last commit published.
-static void show_terrain(void) {
+// Run the terrain band's handler on whatever buffer is on screen.
+static void program_terrain(void) {
   memset(vic_regs, 0xAA, sizeof(vic_regs));
   memset(screen_main + 1016, 0xAA, 8);
   memset(screen_alt + 1016, 0xAA, 8);
@@ -95,6 +98,14 @@ static void show_terrain(void) {
   // pointer has to be written to both or the pointer goes stale on alternate
   // frames. Checking it once here rather than in every case below.
   assert(memcmp(screen_main + 1016, screen_alt + 1016, 8) == 0);
+}
+
+// Program the terrain band from the frame the last commit published: put the
+// buffer it was drawn into on screen, as mem_switch_buffer() does, and run the
+// handler.
+static void show_terrain(void) {
+  mem_using_alt_buffer = !mem_using_alt_buffer;
+  program_terrain();
 }
 
 static bool enabled(uint8_t i) { return (spr_enable() >> i) & 1; }
@@ -194,6 +205,68 @@ static void test_two_sprite_stack(void) {
   // pixel is two screen pixels wide and one raster line tall.
   assert(spr_x(0) == (uint8_t)(160 - 2 * 12 + 24));
   assert(spr_y(0) == (uint8_t)(56 - 20 + 50));
+}
+
+static void test_wide_entries(void) {
+  printf("  a 2 x 2 traffic entry: rows of two, the right one a block on\n");
+  const uint8_t kFlags = kSpriteFlagExpandX | kSpriteFlagExpandY | kSpriteFlagWide;
+  sprites_stack_reset();
+  // Top left (100, 10) in viewport pixels: pivot 0, as traffic places it.
+  assert(sprites_stack_add(300, 100, 10, 0, 0, 69, 71, kColorAircraft, kFlags));
+  sprites_stack_add(0x7FFF, 60, 56, kSunPivotX, kSunPivotY, kSun, NB, kColorSun,
+                    0);
+  sprites_stack_commit();
+  show_terrain();
+  // Row by row, left to right; X-expanded columns are 48 apart and
+  // Y-expanded rows 42.
+  assert(spr_x(0) == 124 && spr_y(0) == 60 && spr_ptr(0) == 69);
+  assert(spr_x(1) == 172 && spr_y(1) == 60 && spr_ptr(1) == 70);
+  assert(spr_x(2) == 124 && spr_y(2) == 102 && spr_ptr(2) == 71);
+  assert(spr_x(3) == 172 && spr_y(3) == 102 && spr_ptr(3) == 72);
+  assert(spr_expand() == 0x0F);
+  assert(spr_expand_y() == 0x0F);
+  assert(spr_ptr(4) == kSun);
+  assert(spr_enable() == 0x1F);
+
+  printf("  and each column carries its own ninth X bit\n");
+  sprites_stack_reset();
+  assert(sprites_stack_add(300, 230, 10, 0, 0, 69, NB, kColorAircraft,
+                           kSpriteFlagExpandX | kSpriteFlagWide));
+  sprites_stack_commit();
+  show_terrain();
+  assert(spr_x(0) == 254 && spr_ptr(0) == 69);
+  assert(spr_x(1) == (uint8_t)(254 + 48) && spr_ptr(1) == 70);
+  assert(spr_msbx() == 0x02);
+  assert(spr_expand_y() == 0x00);
+  assert(spr_enable() == 0x03);
+
+  printf("  a Y-expanded entry is culled at the Y-expanded cut\n");
+  // The first line a Y-expanded sprite may not start on (mem.h).
+  const uint8_t kCutY = kViewportEndYPixels - kSpritesOffLeadExpandY;
+  sprites_stack_reset();
+  assert(sprites_stack_add(300, 100, kCutY - 1, 0, 0, 69, NB, 1,
+                           kSpriteFlagExpandY));
+  assert(!sprites_stack_add(300, 100, kCutY, 0, 0, 69, NB, 1,
+                            kSpriteFlagExpandY));
+  // Two rows: the lower one starts 42 lines down and is the one that counts.
+  assert(sprites_stack_add(300, 100, kCutY - 43, 0, 0, 69, 70, 1,
+                           kSpriteFlagExpandY));
+  assert(!sprites_stack_add(300, 100, kCutY - 42, 0, 0, 69, 70, 1,
+                            kSpriteFlagExpandY));
+  // Not expanded, the same line is well inside the plain cut.
+  assert(sprites_stack_add(300, 100, kCutY, 0, 0, 69, NB, 1, 0));
+
+  printf("  a 2 x 2 entry that does not fit is not part placed\n");
+  sprites_stack_reset();
+  for (int i = 0; i < 2; ++i) {
+    sprites_stack_add((int16_t)(100 + i), 160, 56, 12, 20, 85, 86, kColorRed,
+                      kSpriteFlagExpandX);
+  }
+  sprites_stack_add(200, 100, 10, 0, 0, 69, 71, kColorAircraft, kFlags);
+  sprites_stack_commit();
+  show_terrain();
+  assert(spr_enable() == 0x0F);
+  assert(spr_expand_y() == 0x00);
 }
 
 static void test_overflow(void) {
@@ -471,31 +544,37 @@ static void test_orientation(void) {
 }
 
 static void test_double_buffer(void) {
-  printf("  the frame is published by the flip, not written in place\n");
+  printf("  the frame goes up with its screen buffer, not written in place\n");
   sprites_stack_reset();
   sprites_stack_add(100, 160, 56, kSunPivotX, kSunPivotY, 42, NB, 1, 0);
   sprites_stack_commit();
   show_terrain();
   assert(spr_ptr(0) == 42);
 
-  // Build a different frame. Until commit, the band still programs the old one
-  // - which is what stops a raster interrupt landing mid-write from putting one
-  // object's X against another's Y.
+  // Build a different frame. Until the buffer switch, the band still programs
+  // the old one, after the commit as well as during it - which is what stops a
+  // raster interrupt landing mid-write from putting one object's X against
+  // another's Y, and what puts the sprites on screen on the same raster 250 as
+  // the characters drawn with them (docs/planes.md §13).
   sprites_stack_reset();
   sprites_stack_add(100, 100, 56, kSunPivotX, kSunPivotY, 43, NB, 1, 0);
-  show_terrain();
+  program_terrain();
   assert(spr_ptr(0) == 42);
   sprites_stack_commit();
+  program_terrain();
+  assert(spr_ptr(0) == 42);
   show_terrain();
   assert(spr_ptr(0) == 43);
 
-  // And the two buffers alternate rather than one being favoured.
-  uint8_t first = _sprites_frame_shown;
+  // And the switch back shows the other frame again: the two alternate rather
+  // than one being favoured.
   sprites_stack_reset();
+  sprites_stack_add(100, 100, 56, kSunPivotX, kSunPivotY, 44, NB, 1, 0);
   sprites_stack_commit();
-  assert(_sprites_frame_shown == (first ^ 1));
-  sprites_stack_commit();
-  assert(_sprites_frame_shown == first);
+  show_terrain();
+  assert(spr_ptr(0) == 44);
+  show_terrain();
+  assert(spr_ptr(0) == 43);
 }
 
 static void test_panel_bands(void) {
@@ -795,6 +874,7 @@ int main() {
   test_msbx();
   test_nearest_first();
   test_two_sprite_stack();
+  test_wide_entries();
   test_overflow();
   test_no_index_used_twice();
   test_culls();

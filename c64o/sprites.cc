@@ -39,6 +39,14 @@ static const uint8_t kSpriteOffsetY = 50;
 static const uint8_t kSpriteWidthPixels = 24;
 static const uint8_t kSpriteHeightPixels = 21;
 
+// sprites_stack_add()'s one vertical cull serves both heights: the last line a
+// Y-expanded sprite may start on, plus its 42 lines, is the same as for a plain
+// one plus its 21.
+static_assert(kViewportEndYPixels - kSpritesOffLeadExpandY +
+                      2 * kSpriteHeightPixels ==
+                  kSpriteVisibleEndYPixels + kSpriteHeightPixels,
+              "the Y-expanded cut needs its own bound in sprites_stack_add()");
+
 static const uint8_t kSpriteSpeedPivotX = 112;
 static const uint8_t kSpriteSpeedPivotY = 176;
 static const uint8_t kSpriteAltPivotX = 208;
@@ -127,25 +135,25 @@ static bool _sprites_fin_on;
 // from the main line at an unrelated point. A torn read of a single object -
 // which is all the old sun path could produce - is one object a frame stale;
 // a torn read across eight is one object's X against another's Y, which is a
-// sprite in the wrong place. Commit fills the back frame and then stores the
-// index, and a single byte store is atomic on a 6502, so no sei is needed.
-// Two named objects rather than an array of two, because the raster handler
-// must reach them by a *constant* address - see the macro below.
+// sprite in the wrong place. Two named objects rather than an array of two,
+// because the raster handler must reach them by a *constant* address - see the
+// macro below.
 //
-// **The frames are volatile as well as the index, and "then" depends on it.**
-// C orders a volatile access only against other volatile accesses, so with
-// plain frames oscar64 was free to move the index store - the last statement
-// of sprites_stack_commit() - up to the top of it, next to the load it is
-// computed from, and it did: the flip landed before a single byte of the back
-// frame was written. Whenever raster 250 fell inside the ~1,000 cycles of
-// commit, the handler programmed a half-filled frame whose enable mask and
-// most of whose sprites were two game frames old. One PAL frame of that is a
-// near cloud drawn with a stale bitmap and a far one blinking in beside it -
-// the cloud flicker that flying straight at a cloud group shows best.
-// Volatile frames make every write into them ordered against the flip.
+// **Each frame belongs to a screen buffer**: A to the main one and B to the
+// alt one. Commit fills the frame of the buffer being drawn into, and the
+// handler shows the frame of the buffer it puts on screen, both decided by
+// mem_using_alt_buffer. So there is no flip of its own: mem_switch_buffer()'s
+// toggle of that byte puts the sprites and the characters one camera drew on
+// screen at the same raster 250. With a flip of its own at the end of commit,
+// as this had until docs/planes.md §13 step 6, the sprites went up a whole
+// render before the terrain they were drawn against - the sun and the clouds
+// from the next frame's camera over the last frame's ground.
+//
+// The frames stay volatile. They are written by the main line and read by the
+// handler, and once that ordering was a flip index oscar64 hoisted to the top
+// of commit, so that the handler programmed a half-filled frame.
 static volatile sprite_frame_t _sprites_frame_a;
 static volatile sprite_frame_t _sprites_frame_b;
-static volatile uint8_t _sprites_frame_shown;
 
 static volatile sprite_xy_t _sprites_instrument_xy[8];
 static volatile uint8_t _sprites_instrument_idx[8];
@@ -159,15 +167,12 @@ inline void sprites_init(void) {
     vic.spr_color[i] = kColorInstrument;
   }
 
-  // Commit an empty stack twice. Both frames end up holding "no objects", so a
-  // terrain interrupt arriving before the first world_update_objects() programs
-  // nothing rather than whatever bss happened to contain - and the two flips
-  // leave the front buffer back where it started. Cheaper in bytes than writing
-  // the two frames out by hand, and it cannot drift from what commit() means by
-  // an empty frame.
-  sprites_stack_reset();
-  sprites_stack_commit();
-  sprites_stack_commit();
+  // Both frames with nothing enabled, so a terrain interrupt arriving before
+  // the first world_update_objects() programs no sprites rather than whatever
+  // the last flight or bss left there. The rest of a frame is not looked at
+  // while its enable mask is clear.
+  _sprites_frame_a.enable = 0;
+  _sprites_frame_b.enable = 0;
 
   // Nothing else in the program writes these four, and up to now that worked
   // only because they are zero after a reset. $D01D became a live register when
@@ -318,9 +323,16 @@ bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
     px <<= 1;
   }
   x -= px;
-  uint8_t h_m1 = kSpriteHeightPixels - 1;
+  if (flags & kSpriteFlagWide) {
+    width <<= 1;
+  }
+  uint8_t pitch = kSpriteHeightPixels;
+  if (flags & kSpriteFlagExpandY) {
+    pitch <<= 1;
+  }
+  uint8_t h_m1 = pitch - 1;
   if (bitmap2 != kSpriteNoBitmap) {
-    h_m1 = 2 * kSpriteHeightPixels - 1;
+    h_m1 += pitch;
   }
   y -= (uint8_t)pivot_y;
   // (x, y) is now the sprite's top left, still in viewport screen pixels.
@@ -349,7 +361,9 @@ bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
   // unrelated cause. Rejecting the entry is better than drawing half of it.
   //
   // Both `last_sprite_top >= kSpriteVisibleEndYPixels` and `y + height <= 0`
-  // bound `y + height - 1` to `[0, kSpriteVisibleEndYPixels + 20)`.
+  // bound `y + height - 1` to `[0, kSpriteVisibleEndYPixels + 20)`. A
+  // Y-expanded entry's cut is 21 lines higher and its last sprite 21 lines
+  // taller, so the same bound is the Y-expanded cut too (the assert below).
   if ((uint16_t)(y + h_m1) >=
       kSpriteVisibleEndYPixels + kSpriteHeightPixels - 1) {
     return false;
@@ -638,8 +652,9 @@ void sprites_set_fin(void) { _sprites_fin_on = view_state == VIEW_BACK; }
 void sprites_stack_commit(void) {
   // Main line, so a pointer is fine here - the restriction above is on the
   // interrupt side only.
-  uint8_t back = _sprites_frame_shown ^ 1;
-  volatile sprite_frame_t *f = back ? &_sprites_frame_b : &_sprites_frame_a;
+  // The frame of the buffer being drawn into (see the frames above).
+  volatile sprite_frame_t *f =
+      mem_using_alt_buffer ? &_sprites_frame_b : &_sprites_frame_a;
 
   // Above the fin when it is up, so that it keeps the lowest indices and with
   // them the priority - see the tail fin section. The shift is by a constant
@@ -652,33 +667,55 @@ void sprites_stack_commit(void) {
   }
   uint8_t msbx = 0;
   uint8_t expand = 0;
+  uint8_t expand_y = 0;
   uint8_t enable = 0;
 
   for (uint8_t i = 0; i < _sprites_cand_count; ++i) {
     const sprite_cand_t *c = &_sprites_cand[i];
-    uint8_t slots = (c->bitmap2 == kSpriteNoBitmap) ? 1 : 2;
+    uint8_t flags = c->flags;
+    uint8_t cols = (flags & kSpriteFlagWide) ? 2 : 1;
+    uint8_t slots =
+        (c->bitmap2 == kSpriteNoBitmap) ? cols : (uint8_t)(cols << 1);
     // kSpriteTerrainSlots, not kSpriteStackSize: index 7 belongs to the
     // vertical-speed needle (sprites.h).
     if (idx + slots > kSpriteTerrainSlots) {
       // The list is sorted, so everything after this is farther still.
       break;
     }
+    // Row by row, left to right: the right-hand sprite of a wide entry is
+    // one sprite width on and shows the next block, and each row after the
+    // first starts at bitmap2, one sprite height down.
     uint8_t ptr = c->bitmap;
     uint8_t sy = c->y;
+    uint8_t col_w = (flags & kSpriteFlagExpandX) ? 2 * kSpriteWidthPixels
+                                                 : kSpriteWidthPixels;
+    uint8_t pitch = (flags & kSpriteFlagExpandY) ? 2 * kSpriteHeightPixels
+                                                 : kSpriteHeightPixels;
     for (uint8_t s = 0; s < slots; ++s) {
-      f->pos[idx << 1] = (uint8_t)c->x;
+      uint16_t sx = (uint16_t)c->x;
+      uint8_t p = ptr;
+      if ((cols & 2) && (s & 1)) {
+        sx += col_w;
+        ++p;
+      }
+      f->pos[idx << 1] = (uint8_t)sx;
       f->pos[(idx << 1) + 1] = sy;
-      f->ptr[idx] = ptr;
+      f->ptr[idx] = p;
       f->color[idx] = c->color;
       enable |= bit;
-      if (c->x & 0x100) {
+      if (sx & 0x100) {
         msbx |= bit;
       }
-      if (c->flags & kSpriteFlagExpandX) {
+      if (flags & kSpriteFlagExpandX) {
         expand |= bit;
       }
-      ptr = c->bitmap2;
-      sy += kSpriteHeightPixels;
+      if (flags & kSpriteFlagExpandY) {
+        expand_y |= bit;
+      }
+      if (s + 1 == cols) {
+        ptr = c->bitmap2;
+        sy += pitch;
+      }
       bit <<= 1;
       ++idx;
     }
@@ -713,7 +750,6 @@ void sprites_stack_commit(void) {
   // the mark is, and reaches the same frame whether the stack overflowed or was
   // empty. One pointer variable rather than a table: the top sprite is the tip
   // and everything below it is the shaft, which is the whole of the art.
-  uint8_t expand_y = 0;
   if (_sprites_fin_on) {
     uint8_t sy = kSpriteFinTopVY;
     uint8_t ptr = kFinSpriteBlock;
@@ -726,15 +762,13 @@ void sprites_stack_commit(void) {
       ptr = kFinSpriteBlock + 1;
     }
     enable |= kSpriteFinMask;
-    expand_y = kSpriteFinMask;
+    expand_y |= kSpriteFinMask;
   }
 
   f->msbx = msbx;
   f->expand = expand;
   f->expand_y = expand_y;
   f->enable = enable;
-
-  _sprites_frame_shown = back;
 }
 
 // Programs one frame into the VIC. A macro, and a duplicated loop, rather than
@@ -779,11 +813,13 @@ void sprites_stack_commit(void) {
     vic.spr_enable = (F).enable;                                               \
   } while (0)
 
+// The frame of the buffer going on screen: the main one while the main line
+// draws into the alt one, and the other way round.
 inline void sprites_show_terrain_sprites() {
-  if (_sprites_frame_shown) {
-    _sprites_program_frame(_sprites_frame_b);
-  } else {
+  if (mem_using_alt_buffer) {
     _sprites_program_frame(_sprites_frame_a);
+  } else {
+    _sprites_program_frame(_sprites_frame_b);
   }
 }
 
