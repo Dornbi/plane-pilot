@@ -122,6 +122,27 @@ static uint8_t _norm2(int8_t x, int8_t y) {
 // planes_asm.h in C, for the host: what planes_asm.cc does on the C64, step
 // for step.
 
+bool _planes_key(uint8_t *key, uint8_t count, uint8_t bx, uint8_t by, uint16_t s9,
+                 uint8_t xs, uint8_t ys) {
+  bool differ = false;
+  for (uint8_t i = 0; i < count; ++i) {
+    uint8_t x = (uint8_t)(_planes_vx[i] - bx);
+    uint16_t u = (uint16_t)((uint8_t)(_planes_vy[i] - by) + s9);
+    if (xs == 2) {
+      x >>= 1;
+    }
+    uint8_t y = ys == 2 ? (uint8_t)(u >> 1) : (uint8_t)u;
+    _planes_lx[i] = x;
+    _planes_ly[i] = y;
+    if (x != key[i] || y != key[kPlaneVertMax + i]) {
+      key[i] = x;
+      key[kPlaneVertMax + i] = y;
+      differ = true;
+    }
+  }
+  return differ;
+}
+
 void _planes_tube(int16_t ux, int16_t uy, uint8_t at) {
   int8_t ox[kPlaneBodyCount], oy[kPlaneBodyCount];
   for (uint8_t i = 0; i < kPlaneBodyCount; ++i) {
@@ -562,27 +583,8 @@ void planes_project(planes_state_t *state, const planes_view_t *view,
   if (state->key_band != band) {
     cached = false;
   }
-  uint16_t s9 = (uint16_t)slid & 0x1FF;
-  uint8_t *kx = state->key_x, *ky = state->key_y;
-  for (uint8_t i = 0; i < _vert_count; ++i) {
-    uint8_t x = (uint8_t)(_planes_vx[i] - bx);
-    uint16_t u = (uint16_t)((uint8_t)(_planes_vy[i] - by) + s9);
-    uint8_t y;
-    if (xs == 2) {
-      x >>= 1;
-    }
-    if (ys == 2) {
-      y = (uint8_t)(u >> 1);
-    } else {
-      y = (uint8_t)u;
-    }
-    _planes_lx[i] = x;
-    _planes_ly[i] = y;
-    if (x != kx[i] || y != ky[i]) {
-      kx[i] = x;
-      ky[i] = y;
-      cached = false;
-    }
+  if (_planes_key(state->key_x, _vert_count, bx, by, (uint16_t)slid & 0x1FF, xs, ys)) {
+    cached = false;
   }
   _planes_lx_state = state;
   state->key_count = _vert_count;

@@ -32,6 +32,14 @@ extern int8_t _planes_tx[32], _planes_ty[32];
 extern uint8_t _planes_vx[kPlaneVertMax], _planes_vy[kPlaneVertMax];
 extern uint8_t _planes_lx[kPlaneVertMax], _planes_ly[kPlaneVertMax];
 
+// Step 12: the vertices in buffer coordinates, 0 .. count - 1, into
+// _planes_lx and _planes_ly and into the vertex cache's key_x and key_y at
+// `key`, 32 bytes apart. x is _planes_vx less bx, y is _planes_vy less by plus
+// s9, the slide modulo 512, and each is halved when expanded. True if any
+// differed from the key.
+bool _planes_key(uint8_t *key, uint8_t count, uint8_t bx, uint8_t by, uint16_t s9,
+                 uint8_t xs, uint8_t ys);
+
 // The fuselage's three stations, centre (offset by 128) and radius, and its
 // outline: each station offset by r * u along the unit normal u = (ux, uy)
 // (8.8, |u| <= 256), as lib/planes.py smul() rounds it - stations 0 .. 2 on

@@ -73,6 +73,7 @@ struct planes_state_t {
   // down, so y is kept modulo 256 and the slide's 128-line band beside it --
   // within one band no two rows share a byte.
   uint8_t key_count, key_band;
+  // key_y must follow key_x: planes_asm.cc reaches both from key_x.
   uint8_t key_x[kPlaneVertMax], key_y[kPlaneVertMax];
   // How many polygons those vertices make: the three flat surfaces, then
   // the fuselage and the end-on disc where the attitude shows them. With

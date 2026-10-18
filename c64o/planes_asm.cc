@@ -123,6 +123,131 @@ void _planes_mags(uint8_t k) {
 }
 
 // ---------------------------------------------------------------------------
+// The vertex cache's key.
+
+static_assert(kPlaneVertMax == 32, "_key() finds key_y 32 bytes after key_x");
+
+#ifdef __FPILOT__
+#pragma bss(tscratch)
+#endif
+static uint8_t _kkl, _kkh, _kn, _kbx, _kby, _ks9l, _kxs, _kys, _ks9h, _kdiff;
+#ifdef __FPILOT__
+#pragma bss(bss)
+#endif
+
+// Self-modifying: the call's constants are written into the loop before it
+// runs - the key's two addresses, bx, by and the slide's low byte as
+// operands, and the expansions as opcodes - so that a vertex costs its
+// loads, stores and compares and nothing else. Y-expanded, y is bits 1-8 of
+// the nine-bit (v - by) + s9: ror brings the sum's carry in as bit 7, and
+// eor flips it when the slide's own bit 8 is set.
+static void _key(void) {
+  // clang-format off
+  __asm {
+        lda _kkl;
+        sta L_cx + 1;
+        sta L_sx + 1;
+        clc;
+        adc #32;
+        sta L_cy + 1;
+        sta L_sy + 1;
+        lda _kkh;
+        sta L_cx + 2;
+        sta L_sx + 2;
+        adc #0;
+        sta L_cy + 2;
+        sta L_sy + 2;
+        lda _kbx;
+        sta L_bx + 1;
+        lda _kby;
+        sta L_by + 1;
+        lda _ks9l;
+        sta L_s9 + 1;
+        lda _kn;
+        sta L_n + 1;
+
+        lda #$ea;               // nop
+        ldx _kxs;
+        cpx #2;
+        bne L_x_one;
+        lda #$4a;               // lsr a
+    L_x_one:
+        sta L_xsh;
+        lda #$ea;
+        ldx #0;
+        ldy _kys;
+        cpy #2;
+        bne L_y_one;
+        lda #$6a;               // ror a
+        ldy _ks9h;
+        beq L_y_one;
+        ldx #$80;
+    L_y_one:
+        sta L_ysh;
+        stx L_yeor + 1;
+
+        lda #0;
+        sta _kdiff;
+        ldy #0;
+    L_vert:
+        lda _planes_vx, y;
+        sec;
+    L_bx:
+        sbc #0;
+    L_xsh:
+        nop;
+        sta _planes_lx, y;
+    L_cx:
+        cmp $1234, y;
+        beq L_x_same;
+        inc _kdiff;
+    L_x_same:
+    L_sx:
+        sta $1234, y;
+
+        lda _planes_vy, y;
+        sec;
+    L_by:
+        sbc #0;
+        clc;
+    L_s9:
+        adc #0;
+    L_ysh:
+        nop;
+    L_yeor:
+        eor #0;
+        sta _planes_ly, y;
+    L_cy:
+        cmp $1234, y;
+        beq L_y_same;
+        inc _kdiff;
+    L_y_same:
+    L_sy:
+        sta $1234, y;
+        iny;
+    L_n:
+        cpy #0;
+        bne L_vert;
+  }
+  // clang-format on
+}
+
+bool _planes_key(uint8_t *key, uint8_t count, uint8_t bx, uint8_t by, uint16_t s9,
+                 uint8_t xs, uint8_t ys) {
+  _kkl = (uint8_t)(uint16_t)key;
+  _kkh = (uint8_t)((uint16_t)key >> 8);
+  _kn = count;
+  _kbx = bx;
+  _kby = by;
+  _ks9l = (uint8_t)s9;
+  _ks9h = (uint8_t)(s9 >> 8);
+  _kxs = xs;
+  _kys = ys;
+  _key();
+  return _kdiff != 0;
+}
+
+// ---------------------------------------------------------------------------
 // The fuselage outline.
 
 static_assert(kPlaneBodyCount == 3, "_tube() walks three stations");
