@@ -7,6 +7,7 @@
 #include "mem.h"
 #include "print.h"
 #include "sprites.h"
+#include "traffic.h"
 #include "vic.h"
 #include "view.h"
 
@@ -129,6 +130,8 @@ void screen_restore_simulation(void) {
   }
   gfx_init_raster_irqs();
   sprites_init();
+  // The map's screen RAM is the traffic's sprite blocks (docs/planes.md §5).
+  traffic_invalidate();
 }
 
 #pragma optimize(pop)

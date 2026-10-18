@@ -372,9 +372,9 @@ void planes_render(planes_state_t *state, const planes_view_t *view,
   int16_t cy = (int16_t)(view->cy0 - vec_div8p8(c->z, c->x));
   // 32768 / x: the fraction 64 / x to nine bits, exact as x > 64.
   uint16_t k = vec_fracn(64, c->x, 9);
-  frame->clamped = k > kPlaneKMax;
+  frame->clamped = k > view->kmax;
   if (frame->clamped) {
-    k = kPlaneKMax;
+    k = view->kmax;
   }
   frame->k = k;
   PROFILE_END(2, kProfCentre);

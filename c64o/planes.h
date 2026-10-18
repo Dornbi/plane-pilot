@@ -23,16 +23,27 @@ static const uint8_t kPlaneLevelX = 2;
 static const uint8_t kPlaneBlockBytes = 63;
 static const uint8_t kPlaneBlockStride = 64;
 
-// Where the aircraft is drawn and where sprite DMA stops.
+// Where the aircraft is drawn, where sprite DMA stops, and how big it may get.
 //
 // ppilot's viewport is centred on (160, 56), and the last line a sprite may
 // start on is 89, or 68 if it is Y-expanded (mem.h). A program with no panel
 // under its sprites passes cuts below the bottom of the screen and nothing
 // ever slides.
+//
+// kmax is the size cap, the largest perspective scale drawn: kPlaneKMax
+// (planedef.h) lets the aircraft grow to 2 x 2 sprites, and
+// kPlaneKMaxTwoSprites holds it to two at every attitude (docs/planes.md §13).
 struct planes_view_t {
   int16_t cx0, cy0;
   int16_t cut1, cut2;
+  uint16_t kmax;
 };
+
+// The largest kmax that never needs more than two sprites. Measured by a sweep
+// of every attitude in 2.5 degree steps, hysteresis carried from one attitude
+// to the next: two hold up to 90, about 91 m, and 92 needs four. Two below
+// that for margin, which freezes the size at about 93 m.
+static const uint16_t kPlaneKMaxTwoSprites = 88;
 
 // The most vertices a frame has: the flat surfaces, the fuselage outline and
 // the end-on disc.

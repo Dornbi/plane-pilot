@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "../planedef.h"
 #include "../planes.h"
 #include "planes_cases.h"
 
@@ -39,7 +40,8 @@ static void hex(std::string &out, const uint8_t *bytes, int n) {
 }
 
 int main() {
-  const planes_view_t view = {kCaseCx0, kCaseCy0, kCaseCut1, kCaseCut2};
+  const planes_view_t view = {kCaseCx0, kCaseCy0, kCaseCut1, kCaseCut2,
+                              kPlaneKMax};
   static const char *const kReasons[] = {"", "behind camera", "out of range",
                                          "below the sprite cut"};
   static uint8_t sets[2][4][kPlaneBlockStride];

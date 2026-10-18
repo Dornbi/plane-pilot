@@ -32,6 +32,7 @@
 #include "benchmark.h"
 #include "cia.h"
 #include "keys.h"
+#include "planedef.h"
 #include "planes.h"
 #include "print.h"
 #include "vec.h"
@@ -52,7 +53,7 @@ bool mem_debug_enabled = true;
 // The whole screen is the viewport: the aircraft is centred on it, and there
 // is no panel under it, so the DMA cuts are below the bottom and nothing
 // slides.
-static const planes_view_t kView = {160, 100, 250, 250};
+static const planes_view_t kView = {160, 100, 250, 250, kPlaneKMax};
 
 // Where it starts. Build with -DDEMO_DISTANCE=40 -DDEMO_PRESET=3, say, to
 // screenshot one case without a keyboard (tools/vice_shot.sh cannot type);

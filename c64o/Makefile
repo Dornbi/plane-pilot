@@ -122,6 +122,16 @@ PPILOT_SRC = \
 		world.cc \
 		world_map.cc
 
+# Other aircraft (docs/planes.md): fpilot only, see traffic.h.
+TRAFFIC_SRC = \
+		planedef.h \
+		planes.h \
+		planes.cc \
+		planes_asm.h \
+		planes_asm.cc \
+		traffic.h \
+		traffic.cc
+
 POLYDEMO_PROGRAM = polydemo
 POLYDEMO_SRC = \
 		bcd.cc \
@@ -315,7 +325,7 @@ $(PPILOTA_PROGRAM).prg: $(PPILOT_SRC)
 
 # Not on FLIGHT_STAMP either, for the same reason: its model does not follow
 # FLIGHT_AOA.
-$(FPILOT_PROGRAM).prg: $(PPILOT_SRC)
+$(FPILOT_PROGRAM).prg: $(PPILOT_SRC) $(TRAFFIC_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(CLOUDS) -D__FPILOT__ -D__MAX_RAM__ -o=$(FPILOT_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(FPILOT_PROGRAM).asm
 	@$(IRQCHECK) $(FPILOT_PROGRAM).asm
