@@ -12,24 +12,26 @@
 #include "vec.h"
 #include "world.h"
 
-// docs/planes.md §13. Two aircraft slots; the Scramble pass flies the first.
+// docs/planes.md §13: the Scramble pass.
 
-static const uint8_t kTrafficMax = 2;
+// One slot: the Scramble pass flies one aircraft. A second needs §5's block
+// sets by rank - eight blocks and a four-sprite cap for the nearer, four and
+// a two-sprite cap for the other - since $D000-$D3FF holds 16 blocks, not the
+// 17 that two four-sprite slots and the dot would take.
+static const uint8_t kTrafficMax = 1;
 
 // --- Sprite blocks ----------------------------------------------------------
 //
 // $D000-$D33F, RAM under I/O that the VIC in bank 3 reads, time-shared with
 // the map view's screen RAM and the title aircraft (mem.h, docs/planes.md §5):
-// the dot's block, then each aircraft's two sets, front and back. Slot 0 has
-// sets of four blocks so that it can be allowed 2 x 2 one day; for now both
-// are held to two sprites by the size cap (kView below).
+// the dot's block, then the aircraft's two sets of four, front and back: up
+// to 2 x 2 sprites (kView below).
 static const uint8_t kTrafficBlockDot = (0xD000 - 0xC000) / 64;
 static_assert(kTrafficBlockDot == kTitleSpriteBlock,
               "the dot is the first block at $D000, written as such below");
-static const uint8_t kTrafficBlockFirst[kTrafficMax] = {kTrafficBlockDot + 5,
-                                                        kTrafficBlockDot + 1};
-static const uint8_t kTrafficSetBlocks[kTrafficMax] = {4, 2};
-static_assert(kTrafficBlockDot + 5 + 2 * 4 <= (0xD400 - 0xC000) / 64,
+static const uint8_t kTrafficBlockFirst[kTrafficMax] = {kTrafficBlockDot + 1};
+static const uint8_t kTrafficSetBlocks[kTrafficMax] = {4};
+static_assert(kTrafficBlockDot + 1 + 2 * 4 <= (0xD400 - 0xC000) / 64,
               "traffic blocks run past $D3FF into the sprite bitmaps");
 
 static inline uint8_t *_traffic_block(uint8_t block) {
@@ -37,11 +39,14 @@ static inline uint8_t *_traffic_block(uint8_t block) {
 }
 
 // The viewport's centre, the last line a sprite may start on, plain and
-// Y-expanded (mem.h), and the two-sprite size cap.
+// Y-expanded (mem.h), and the model's own size cap: the aircraft grows to
+// 2 x 2 sprites and holds its size from ~54 m. One view for every slot: a
+// view that varies costs ~150 bytes, since oscar64 folds a constant one into
+// the renderer.
 static const planes_view_t kView = {
     kScreenWidthPixels / 2, kViewportEndYPixels / 2,
     kSpriteVisibleEndYPixels - 1,
-    kViewportEndYPixels - kSpritesOffLeadExpandY - 1, kPlaneKMaxTwoSprites};
+    kViewportEndYPixels - kSpritesOffLeadExpandY - 1, kPlaneKMax};
 static_assert(kSpriteVisibleEndYPixels - 1 == 89 &&
                   kViewportEndYPixels - kSpritesOffLeadExpandY - 1 == 68,
               "the DMA cuts moved: check planes.h's description of them");

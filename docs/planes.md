@@ -575,8 +575,8 @@ the map left there.
 eight-block set and may use all four sprites; the second gets the four-block
 set and is capped at two sprites, a `kmax` of 88 (`planes.h`
 `kPlaneKMaxTwoSprites`) — it freezes at ~93 m. When the two swap rank they
-swap sets, and both redraw once. *As built (§13), the sets go by slot and
-both slots are capped at two sprites, so nothing swaps yet.*
+swap sets, and both redraw once. *As built (§13), there is one slot: the
+dot at 64, two sets of four at 65-72, and the model's own cap, up to 2 × 2.*
 
 Double buffering is not optional. The VIC fetches sprite data on the lines
 where the sprite is displayed; rewriting a block in place tears the image for
@@ -829,7 +829,7 @@ Colour is per sprite, so every sprite of a layout — up to four — must be set
   when a close aircraft banks past ~35–40°, which follows the roll. Both are
   mitigated only by hysteresis.
 - **The second plane freezes early.** Capped at two sprites, it holds its size
-  from ~93 m (§5). As built, so does the first.
+  from ~93 m (§5). As built there is no second plane.
 - **Clouds give way.** A close, banked plane takes four of the seven indices,
   and with a second plane and the sun there are none left for clouds.
 - **First-order projection at the freeze.** At 54 m a 16.5 m span has about
@@ -1030,11 +1030,11 @@ went its own way; the subsections after it are the plan it followed.
 
 | Step | Where | Against the plan |
 | :--- | :--- | :--- |
-| 1-4, 7 | `c64o/traffic.cc` | Two slots in `bss2`, the first flying the Scramble pass. No attitude yet: everything flies level and north, so the body axes in camera space are `world_cam`'s columns, no products. `-D__NO_TRAFFIC__` leaves it out |
-| 2 | `mem.h`, `traffic.cc` | Block sets by slot, not by rank: slot 0 at 69-76, slot 1 at 65-68, the dot at 64. `$01` is banked around the fill only. fpilot's stack region grows to `$0288`: the static frames reach 132 bytes |
+| 1-4, 7 | `c64o/traffic.cc` | One slot in `bss2`, flying the Scramble pass (two at first; see Cap). No attitude yet: everything flies level and north, so the body axes in camera space are `world_cam`'s columns, no products. `-D__NO_TRAFFIC__` leaves it out |
+| 2 | `mem.h`, `traffic.cc` | The dot at 64 and the slot's two sets of four at 65-72; no sets by rank, with one slot. `$01` is banked around the fill only. fpilot's stack region grows to `$0288`: the static frames reach 132 bytes |
 | 5 | `sprites.cc` | `kSpriteFlagWide` and `kSpriteFlagExpandY`, with `bitmap2` as the second row's first block. One vertical cull serves both heights |
 | 6 | `sprites.cc` | Each sprite frame belongs to a screen buffer and goes up with it: no flip of its own, nothing in `mem.cc` |
-| Cap | `planes.h` | The size cap is the view's `kmax`. A sweep of every attitude finds two sprites enough up to `k` 90, not 73; traffic uses 88, freezing at ~93 m rather than 112 |
+| Cap | `planes.h`, `traffic.cc` | The size cap is the view's `kmax`. A sweep of every attitude finds two sprites enough up to `k` 90, not 73 (`kPlaneKMaxTwoSprites`, 88, ~93 m). Traffic first used it; since 2026-10-19 it uses the model's own, `kPlaneKMax`, up to 2 × 2 from ~93 m in and frozen at ~54 m. A cap per slot cost ~150 bytes (oscar64 folds one constant view into the renderer), so traffic went to one slot: a second needs §5's sets by rank, as two four-sprite slots and the dot would take 17 of the 16 blocks |
 | 9 | `planes.cc`, `traffic.cc` | Cut between the projection and the fill, not between polygons: under the cap the projection, ~17,000-20,000 cycles, already outweighs the fill. `planes_fill()` reads the vertex-cache key, so nothing shared has to survive between the halves |
 | — | `traffic.cc` | An aircraft wholly outside the viewport is skipped before it is projected: `planes_render()` gives up only 45° off the axis, the viewport is 32° and 12° |
 | Levers | `mem.h`, `planes_asm.cc` | The per-call scratch over the terrain's (`tscratch`, 224 bytes back). In assembly: the magnitudes × `k`, the fuselage outline, the vertex cache's key (self-modifying: a plain loop was no faster than the C), the flat vertices and the box, and a tighter span loop |
@@ -1278,9 +1278,9 @@ with two.
 | **A budget that moves**: four sprites only while nothing else wants them | The best picture when alone | The aircraft visibly shrinks whenever the budget drops |
 
 **Two for both planes, by the lower cap, to start with**; the earlier
-Y-expansion is the one to try against it in VICE shots. *Built that way. The
-sweep put the cap at 88, not 73: the size holds from ~93 m rather than 112,
-which takes some of the sting out of the first option's "against".*
+Y-expansion is the one to try against it in VICE shots. *Built that way at
+first. The sweep put the cap at 88, not 73: the size held from ~93 m rather
+than 112. Since 2026-10-19 the one aircraft may use four (Cap, above).*
 
 ### Order of work
 
@@ -1299,7 +1299,9 @@ The plan put them after steps 1–5 and 8 and before step 9. The build did step
   times the assembly" suggested, and each has to be measured.
 - The cut it would have had to rebalance was not needed: under the
   two-sprite cap the projection outweighs the fill whatever the assembly
-  does to either, so the half-rate cut sits between them (step 9).
+  does to either, so the half-rate cut sits between them (step 9). With
+  four sprites allowed, a close 2 × 2 fill (~28,000 at 60 m) outweighs the
+  projection instead, and the filling frame is the heavier one.
 
 What the levers bought, from `planedemo_prof.prg` stopped at the same frame
 in both builds, 150 m and the attitude changing every frame (cycles):
