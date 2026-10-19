@@ -172,8 +172,8 @@ static uint8_t *const kTitleSpriteData = (uint8_t *)0xD000;
 // constant. Two blocks fit here and $FFC0 would be the third, which is the page
 // the vectors are in.
 //
-// Two is enough because the fin is three sprites drawn from two bitmaps - a
-// tapered tip and a straight shaft, the shaft used twice.
+// Two is enough because the fin is two sprites, one per bitmap - a tapered tip
+// and a straight shaft.
 //
 // Nothing else in the program writes here: the map view borrows $E000-$FF3F
 // and stops short of it, and the linker's own regions end at $CFFF.
@@ -238,7 +238,7 @@ static const uint16_t kSpriteVisibleEndYPixels =
 //
 // The tail fin (sprites.h) is the only thing in the program that expands
 // vertically, and it starts two lines *below* that - which is a measured
-// exemption for one fixed object on sprites 0-2, not a correction to the number
+// exemption for one fixed object on sprites 0-1, not a correction to the number
 // here. The derivation above is what an object that moves through the band
 // still has to obey, and sprites.cc's kSpriteFinDropLines is where the fin's
 // case is made and where the measurement is written down.

@@ -324,7 +324,7 @@ __forceinline void world_update_objects() {
   // position and takes no slot: it is the mark the moving horizon is read
   // against, not another object in the world.
   sprites_set_orientation();
-  // The tail fin, on the three the stack gives up while it is there. Neither of
+  // The tail fin, on the two the stack gives up while it is there. Neither of
   // these offers a position and neither is an object: they are parts of the
   // aeroplane, and each is drawn in the one view it is in front of the camera
   // in. Both are cleared by sprites_stack_reset() above, so a frame that skips

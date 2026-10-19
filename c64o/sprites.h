@@ -151,16 +151,16 @@ void sprites_set_orientation(void);
 // --- The tail fin ----------------------------------------------------------
 //
 // The vertical stabiliser, down the middle of the viewport in the back view:
-// three hardware sprites in a column, all three Y-expanded, drawn from two
-// bitmaps - a tapered tip and a straight shaft, the shaft used for the two
-// sprites below the tip. It is the aeroplane's own tail, so like the mark above
+// two hardware sprites in a column, both Y-expanded, drawn from two bitmaps -
+// a tapered tip and a straight shaft, the shaft used for the sprite below the
+// tip. It is the aeroplane's own tail, so like the mark above
 // it never moves and never culls, and like it this is a flag rather than a
 // position.
 //
-// It owns hardware sprites 0, 1 and 2 for the length of the viewport band, and
-// owns the *lowest* three on purpose: VIC priority is index order, so those are
+// It owns hardware sprites 0 and 1 for the length of the viewport band, and
+// owns the *lowest* two on purpose: VIC priority is index order, so those are
 // the indices that draw in front of every cloud and of the sun. While it is up
-// the stack starts above it and has four slots rather than seven; the entries
+// the stack starts above it and has five slots rather than seven; the entries
 // that lose are the farthest, which is the stack's own overflow rule.
 //
 // Two things it does not need, both by construction rather than by a test:

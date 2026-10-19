@@ -718,16 +718,18 @@ static void test_fin_art(void) {
   for (uint8_t row = 0; row < kSpriteHeightPixels; ++row) {
     int x0, w;
     fin_row_run(tip, row, &x0, &w);
-    if (row < kSpriteFinTipFirstRow) {
-      // Blank, which is what keeps the fin clear of the message row below.
-      assert(w == 0);
+    // Inked on every row - the tallest fin two sprites make - with the taper
+    // on top and the shaft's width below it.
+    if (row < kSpriteFinTipRows) {
+      assert(w == kSpriteFinTipWidths[row]);
     } else {
-      assert(w == kSpriteFinTipWidths[row - kSpriteFinTipFirstRow]);
+      assert(w == kSpriteFinBodyWidth);
     }
+    assert(w > 0);
     // Never wider than the sprite, and never wider than the row below it: the
     // fin tapers one way only.
     assert(w <= kSpriteWidthPixels);
-    if (row > kSpriteFinTipFirstRow) {
+    if (row > 0) {
       int px0, pw;
       fin_row_run(tip, row - 1, &px0, &pw);
       assert(w >= pw);
@@ -751,7 +753,7 @@ static void test_fin_art(void) {
 static void test_fin(void) {
   test_fin_art();
 
-  printf("  the back view carries the fin on sprites 0..2\n");
+  printf("  the back view carries the fin on sprites 0..1\n");
   view_state = VIEW_BACK;
   sprites_stack_reset();
   sprites_set_fin();
@@ -769,13 +771,12 @@ static void test_fin(void) {
     assert(spr_y(i) == (uint8_t)(kSpriteFinTopVY + i * kSpriteFinPitch));
     assert(spr_color(i) == kColorAircraft);
   }
-  // One tip on top, the shaft twice below it.
+  // One tip on top, the shaft below it.
+  assert(kSpriteFinCount == 2);
   assert(spr_ptr(0) == kFinSpriteBlock);
   assert(spr_ptr(1) == kFinSpriteBlock + 1);
-  assert(spr_ptr(2) == kFinSpriteBlock + 1);
-  // The three tile the column: each starts where the one above it ends.
+  // The two tile the column: the shaft starts where the tip ends.
   assert(spr_y(1) - spr_y(0) == 2 * kSpriteHeightPixels);
-  assert(spr_y(2) - spr_y(1) == 2 * kSpriteHeightPixels);
 
   printf("  and its lowest line is the viewport's, not the panel's\n");
   // mem.h kSpritesOffLeadExpandY, less the two lines kSpriteFinDropLines spends
@@ -784,8 +785,8 @@ static void test_fin(void) {
   // defends: on the viewport's last line it meets the panel, and one line lower
   // it draws into the panel and its DMA is inside the cycle-counted handler's
   // window. Neither would show up as a failing assertion anywhere else.
-  assert(spr_y(2) == kSpriteFinBottomVY);
-  const int fin_last_line = (int)spr_y(2) + 2 * kSpriteHeightPixels - 1;
+  assert(spr_y(1) == kSpriteFinBottomVY);
+  const int fin_last_line = (int)spr_y(1) + 2 * kSpriteHeightPixels - 1;
   const int viewport_last_line = kSpriteOffsetY + (int)kViewportEndYPixels - 1;
   assert(fin_last_line == viewport_last_line);
 
@@ -811,7 +812,7 @@ static void test_fin(void) {
                            kColorSun, 0));
   sprites_stack_commit();
   show_terrain();
-  // The nearest object there is still lands on index 3, behind all three fin
+  // The nearest object there is still lands on index 2, behind both fin
   // sprites. VIC priority is index order, so this is the assertion that the
   // tail is in front of the clouds.
   assert(spr_ptr(kSpriteFinCount) == 42);
@@ -820,7 +821,7 @@ static void test_fin(void) {
   // And the fin is untouched by a frame full of objects: it does not move.
   assert(spr_x(0) == kSpriteFinVX && spr_y(0) == kSpriteFinTopVY);
 
-  printf("  and it costs the stack three of its seven slots\n");
+  printf("  and it costs the stack two of its seven slots\n");
   sprites_stack_reset();
   sprites_set_fin();
   for (int i = 0; i < 7; ++i) {
@@ -829,9 +830,9 @@ static void test_fin(void) {
   }
   sprites_stack_commit();
   show_terrain();
-  // Four objects fit, nearest first, and index 7 is still the one the stack
+  // Five objects fit, nearest first, and index 7 is still the one the stack
   // never hands out.
-  for (uint8_t i = 0; i < 4; ++i) {
+  for (uint8_t i = 0; i < 5; ++i) {
     assert(spr_ptr((uint8_t)(kSpriteFinCount + i)) == (uint8_t)(i + 1));
   }
   assert(!enabled(kSpriteIdxOrient));

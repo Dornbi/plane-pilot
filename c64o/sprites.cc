@@ -465,25 +465,25 @@ void sprites_set_orientation(void) {
 
 // --- The tail fin -----------------------------------------------------------
 //
-// Three hardware sprites in a column down the middle of the viewport, all three
+// Two hardware sprites in a column down the middle of the viewport, both
 // Y-expanded, drawn from two bitmaps: a tapered tip on top and a straight shaft
-// used for the two below it. Like the orientation indicator it is furniture
+// below it. Like the orientation indicator it is furniture
 // rather than an object - it is bolted to the aeroplane, so it never moves and
 // never culls - and like it, it is a flag and a set of constants rather than a
 // stack entry.
 //
-// **Why the lowest three indices.** VIC sprite-to-sprite priority is index
+// **Why the lowest two indices.** VIC sprite-to-sprite priority is index
 // order, and the fin is four metres away while everything else the stack hands
-// out is a cloud or the sun. Taking 0, 1 and 2 is what puts it in front of all
+// out is a cloud or the sun. Taking 0 and 1 is what puts it in front of all
 // of them; anything higher and a distant cloud would draw over the tail. The
 // stack starts above the fin for as long as it is up, so the back view has
-// four slots for clouds instead of seven - the entries that lose are the
+// five slots for clouds instead of seven - the entries that lose are the
 // farthest, which is the stack's ordinary overflow rule.
 
-static const uint8_t kSpriteFinCount = 3;
+static const uint8_t kSpriteFinCount = 2;
 static const uint8_t kSpriteFinMask = (1 << kSpriteFinCount) - 1;
 
-// A Y-expanded sprite is 42 raster lines tall, so the three tile the column
+// A Y-expanded sprite is 42 raster lines tall, so the two tile the column
 // with no seam when they are 42 apart.
 static const uint8_t kSpriteFinPitch = 2 * kSpriteHeightPixels;
 
@@ -507,9 +507,9 @@ static_assert(kSpriteOffsetY == kRasterScreenYStart,
 // mem.h's limit is derived from, and measured with, *seven* sprites parked at
 // the swept Y, all seven of them still fetching across the split - that is the
 // case where the handler came out 55 cycles late and a row of terrain charset
-// was drawn over the panel. The fin is not that case. It is three sprites, and
-// they are indices 0, 1 and 2, whose data for a line is fetched in the tail
-// cycles of the line *before* it; the four slots the stack can still hand out
+// was drawn over the panel. The fin is not that case. It is two sprites, and
+// they are indices 0 and 1, whose data for a line is fetched in the tail
+// cycles of the line *before* it; the five slots the stack can still hand out
 // in this view are culled against kSpritesOffLead as they always were, so they
 // are finished by raster 159 and nothing of theirs is in flight here.
 //
@@ -519,15 +519,16 @@ static_assert(kSpriteOffsetY == kRasterScreenYStart,
 // two lines higher - over six frames in x64sc and three in xscpu64, whose
 // handler has its own NOP count and its own window. The fin never moves, so
 // unlike an object passing through the band there is no "sometimes" for it to
-// hide in: it is the same three sprites on the same three lines every frame.
+// hide in: it is the same sprites on the same lines every frame. (Measured
+// with a three-sprite fin on indices 0-2; the two-sprite fin's DMA is a subset
+// of that, and the slot it gave back to the stack is culled like the others.)
 //
 // None of that generalises. It is an exemption for one fixed object on the
 // lowest indices, not a new limit - docs/sprite_objects.md 0 says what a cloud
 // would have to re-derive before it could do the same.
 //
-// The other two sprites follow upwards, which puts the top one at 36 - in the
-// top border, where the border clips it, and where the tip's empty rows are
-// anyway.
+// The tip sprite sits one pitch above it, at 78, and is inked from its first
+// row, so the fin is the full 84 lines two Y-expanded sprites can give.
 static const uint8_t kSpriteFinPivotX = 12;
 static const uint8_t kSpriteFinVX =
     kScreenWidthPixels / 2 - kSpriteFinPivotX + kSpriteOffsetX;
@@ -556,41 +557,40 @@ static_assert(kSpriteFinBottomVY + kSpriteFinPitch - 1 <=
 // of both bitmaps is a horizontal run centred in the sprite, so "either way" is
 // nine numbers rather than 126 bytes of bitmap.
 //
-// The shaft is a constant width, which is what lets one bitmap serve two of the
-// three sprites: a taper repeated would step back to narrow at the seam. What
-// tapers is the tip, and it ends on the shaft's width so that seam is invisible
-// too.
+// Both sprites are inked from their first row to their last, which is the
+// tallest fin two sprites can make: the taper is the top rows of the tip
+// sprite, and the rest of the tip is the shaft. The shaft is a constant width,
+// so the seam between the two sprites is invisible.
 static const uint8_t kSpriteFinBodyWidth = 12;
 
-// The tip's first inked row. Everything above it is transparent, and that is
-// what keeps the fin out of the message strip: the message occupies row 0 of
-// the viewport and nothing else does, so a tip whose ink starts below it can
-// never draw over the text. The orientation indicator clears the same strip the
-// same way, by sitting below it rather than by testing for it - which is worth
-// more than a test here, because the alternative for a fixed object is to blink
-// the whole tail out whenever a message appears.
-static const uint8_t kSpriteFinTipFirstRow = 13;
-// Last entry spelled as the shaft's width rather than as 12, so the seam
-// between the two bitmaps matches by construction. A `const` array is not a
-// constant expression on either compiler, so this is the only way to say it at
-// compile time; sprites_test.cc checks the rest of the shape.
+// The taper, from the tip sprite's row 0 down. Last entry spelled as the
+// shaft's width rather than as 12, so the taper meets the shaft by
+// construction. A `const` array is not a constant expression on either
+// compiler, so this is the only way to say it at compile time; sprites_test.cc
+// checks the rest of the shape.
 static const uint8_t kSpriteFinTipWidths[] = {2,  4,  6, 6,
                                               8, 10, 10, kSpriteFinBodyWidth};
 static const uint8_t kSpriteFinTipRows = sizeof(kSpriteFinTipWidths);
 
-static const uint8_t kSpriteFinInkTopVY =
-    kSpriteFinTopVY + 2 * kSpriteFinTipFirstRow;
+// The fin's first inked line, which with the tip inked from row 0 is the top
+// sprite's own Y. That is what keeps the fin out of the message strip: the
+// message occupies row 0 of the viewport and nothing else does, so a fin whose
+// ink starts below it can never draw over the text. The orientation indicator
+// clears the same strip the same way, by sitting below it rather than by
+// testing for it - which is worth more than a test here, because the
+// alternative for a fixed object is to blink the whole tail out whenever a
+// message appears.
+static const uint8_t kSpriteFinInkTopVY = kSpriteFinTopVY;
 
-static_assert(kSpriteFinTipFirstRow + kSpriteFinTipRows == kSpriteHeightPixels,
-              "the fin tip's widths do not fill the rest of the sprite");
+static_assert(kSpriteFinTipRows <= kSpriteHeightPixels,
+              "the fin tip's taper is taller than the sprite");
 static_assert(kSpriteFinBodyWidth <= kSpriteWidthPixels,
               "the fin is wider than a sprite");
 static_assert(kSpriteFinInkTopVY >= kSpriteOffsetY + kMsgHeightPixels,
               "the fin's tip reaches into the message row");
 
 // One row of one bitmap: `width` pixels centred in the sprite's 24, and
-// nothing else. Width 0 leaves the row blank, which is what the tip's upper
-// rows ask for.
+// nothing else.
 static void _sprites_draw_fin_row(uint8_t *dst, uint8_t width) {
   dst[0] = 0;
   dst[1] = 0;
@@ -607,32 +607,23 @@ static void _sprites_draw_fin_row(uint8_t *dst, uint8_t width) {
 // needs, and cheap enough at a thousand-odd loop iterations on a screen
 // transition that pinning it to boot would buy nothing.
 //
-// **Two passes, and the second one is not a tidiness choice.** The obvious
-// shape is one pass with the tip's width per row read as
-//
-//     row < kSpriteFinTipFirstRow
-//         ? 0
-//         : kSpriteFinTipWidths[row - kSpriteFinTipFirstRow]
-//
-// and oscar64 v1.32.272-117 compiles that to `LDA kSpriteFinTipWidths-13,x`
-// with the guard discarded, so every row above the taper reads the thirteen
-// bytes in front of the array and draws whatever width it finds there. It is
-// the third face of the biased-index-into-a-const-array bug in bugs/ - the two
-// written up there are fixed and neither is this - and it is silent: the rows
-// above the taper came out as full-width bars, which on screen is a grey slab
-// across the top of the fin. Clearing every row first and then painting the
-// taper over the rows that have one indexes both arrays from zero, so there is
-// no bias for the compiler to fold. See bugs/const-array-ternary-guard/.
+// **Two passes: shaft everywhere, then the taper painted over the tip's top
+// rows.** Both arrays are indexed from zero that way, which is worth keeping
+// even now the taper starts on row 0: a one-pass version with a guarded,
+// biased index into kSpriteFinTipWidths is what oscar64 v1.32.272-117
+// miscompiled when the taper started on row 13 (the guard was discarded and
+// the rows above the taper read the bytes in front of the array). See
+// bugs/const-array-ternary-guard/.
 static void _sprites_draw_fin(void) {
   uint8_t *tip = kFinSpriteData;
   uint8_t *shaft = kFinSpriteData + 64;
   for (uint8_t row = 0; row < kSpriteHeightPixels; ++row) {
-    _sprites_draw_fin_row(tip, 0);
+    _sprites_draw_fin_row(tip, kSpriteFinBodyWidth);
     _sprites_draw_fin_row(shaft, kSpriteFinBodyWidth);
     tip += 3;
     shaft += 3;
   }
-  uint8_t *ink = kFinSpriteData + kSpriteFinTipFirstRow * 3;
+  uint8_t *ink = kFinSpriteData;
   for (uint8_t i = 0; i < kSpriteFinTipRows; ++i) {
     _sprites_draw_fin_row(ink, kSpriteFinTipWidths[i]);
     ink += 3;
@@ -745,7 +736,7 @@ void sprites_stack_commit(void) {
     enable |= kSpriteOrientBit;
   }
 
-  // The fin, into the three indices the loop above skipped rather than into
+  // The fin, into the two indices the loop above skipped rather than into
   // ones the fill has just parked - so it is written last for the same reason
   // the mark is, and reaches the same frame whether the stack overflowed or was
   // empty. One pointer variable rather than a table: the top sprite is the tip
@@ -840,8 +831,8 @@ inline void sprites_show_panel_top_sprites() {
   // - Sprite 7's colour. It is the vertical speed needle, the one instrument
   //   drawn in this band, and the terrain handler now writes all eight colours.
   // - $D017, for the same reason as $D01D: the back view's tail fin leaves the
-  //   three lowest sprites Y-expanded, and three of the instruments are those
-  //   three. Nothing shows it in the back view itself, which draws no
+  //   two lowest sprites Y-expanded, and two of the instruments are those
+  //   two. Nothing shows it in the back view itself, which draws no
   //   instruments at all - it shows on the frame the view switches away on,
   //   where the fin's expansion would still be set while the fuel, speed and
   //   roll needles are drawn.

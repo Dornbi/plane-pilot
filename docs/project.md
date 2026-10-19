@@ -480,17 +480,17 @@ re-expand the art the fill destroyed, the heading strip included. No instrument
 sprite, no lamp, no heading strip and no orientation mark is drawn while it is
 up; each of those already bails out on a `view_state != VIEW_CENTER` test.
 
-What the back view *adds* is the **tail fin**: three hardware sprites in a
-column down the middle of the viewport, all three Y-expanded, drawn from two
-bitmaps — a tapered tip and a straight shaft, the shaft used twice. Like the
+What the back view *adds* is the **tail fin**: two hardware sprites in a
+column down the middle of the viewport, both Y-expanded, drawn from two
+bitmaps — a tapered tip and a straight shaft. Like the
 orientation indicator it is furniture rather than an object, so it is a flag and
 a set of constants rather than a stack entry, and `sprites_stack_reset()` clears
 it every frame. Three things about it are load bearing:
 
-- **It owns sprites 0, 1 and 2.** VIC priority is index order, so the lowest
+- **It owns sprites 0 and 1.** VIC priority is index order, so the lowest
   indices are the ones that draw in front of every cloud and of the sun, which
   is where a tail four metres away belongs. The stack starts above it while it
-  is up and has four slots rather than seven; the entries that lose are the
+  is up and has five slots rather than seven; the entries that lose are the
   farthest, which is the stack's ordinary overflow rule.
 - **Its ink starts below viewport row 0**, which is the only row a message
   occupies, so it cannot draw over the text. That is a clearance rather than a
@@ -506,13 +506,14 @@ it every frame. Three things about it are load bearing:
 
   That is an exemption, and a measured one. `mem.h`'s limit was swept with
   *seven* sprites still fetching across the split, which is where the handler
-  came out 55 cycles late; the fin is three, on indices 0–2, whose data for a
-  line is fetched in the tail cycles of the line before it, and the four slots
+  came out 55 cycles late; the fin is two, on indices 0–1, whose data for a
+  line is fetched in the tail cycles of the line before it, and the five slots
   the stack can still hand out here are culled against `kSpritesOffLead` as
   always, so they are done by 159. With the stack full and every entry on the
   lowest line it is allowed, the panel comes out byte-identical to the build
   with the fin two lines higher — six frames in `x64sc`, three in `xscpu64`,
-  whose handler has its own NOP count. The fin never moves, so there is no
+  whose handler has its own NOP count (measured with the earlier three-sprite
+  fin; two is a subset of its DMA). The fin never moves, so there is no
   "sometimes" for it to hide in. It does not generalise: see
   [sprite_objects.md](sprite_objects.md) §0 for what a cloud would have to
   re-derive.
@@ -553,7 +554,7 @@ and the **orientation indicator** above it — a fixed bar with a gap in it at
 the centre of the viewport, in the front view only, which is what gives the
 moving horizon something to be read against. The side views park every needle
 but one at x = 0, where the left border hides it, and the back view parks all
-of them — and takes indices 0-2 for the tail fin, which is the other piece of
+of them — and takes indices 0-1 for the tail fin, which is the other piece of
 furniture the stack does not hand out (see `view.cc` above). Designed in
 [clouds.md](clouds.md) §1 and §1.9; the host suite is `test/sprites_test.cc`.
 
