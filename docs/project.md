@@ -50,7 +50,7 @@ program (`__MAX_RAM__`).
 | ------------- | ---------------------------------------------------------- |
 | `$0002–$005A` | oscar64's own zero page: registers, parameters, temporaries |
 | `$0060–$00FF` | zero page (oscar64 `zeropage` region)                      |
-| `$0200–$0240` | CPU stack (`#pragma stacksize(0x40)`); `$0200–$0288` in fpilot, whose traffic needs deeper static frames (`mem.h`) |
+| `$0200–$0240` | CPU stack (`#pragma stacksize(0x40)`); `$0200–$0288` in fpilot, whose opponents need deeper static frames (`mem.h`) |
 | `$0240–$0800` | `bss2`, a second BSS region; cleared by `mem_init()`, not by the startup code; from `$0288` in fpilot |
 | `$0860–$0A5F` | boot-only code (`_boot()`, `cpu_probe()`, `mem_init()`); once `main()` is past it, scratch for `box.cc`'s caches (`mem.h` `kBootScratch`) |
 | `$0A60–$CFFF` | code, data, bss, heap                                      |
@@ -837,13 +837,13 @@ C64; `make -C c64o test` runs those.
 - **Prototype and C64 viewports differ.** `renderer_engine.py` uses a 32 × 15
   character viewport; the C64 uses 40 × 14. The Python renderer is a design
   tool, not a mirror of the shipped renderer.
-- **Traffic is in fpilot only, and flies one straight line.**
+- **Opponents are in fpilot only, and fly one straight line.**
   [planes.md](planes.md) specifies aircraft sprites in full; `fpilot.prg`
   draws them (`opponent.cc`, §13), with the sprite buffers under I/O at
   `$D000`, time-shared with the map view's screen RAM and the title screen's
   aeroplane, so they cost the main region nothing. Its one aircraft flies the
   Scramble pass and nothing else: behaviour, guns and hits are still to
-  come, and `ppilot.prg` has no traffic.
+  come, and `ppilot.prg` has no opponents.
 - **A single polygon can cost more than the rest of the frame.** On the runway
   it is 43,064 cycles, a third of everything measured. See
   [framerate.md](framerate.md).

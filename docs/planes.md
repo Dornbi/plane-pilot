@@ -1,8 +1,8 @@
-# Other Aircraft — Traffic Sprites
+# Other Aircraft — Opponent Sprites
 
 **Status: built into `fpilot.prg`, on the `planes` branch (2026-10-18).**
 One aircraft flies the Scramble pass there (§13, "What landed"); it has no
-behaviour beyond that, and `ppilot.prg` has no traffic. The renderer also
+behaviour beyond that, and `ppilot.prg` has no opponents. The renderer also
 runs on its own:
 `c64o/planedemo.prg` draws one aircraft in default character mode with
 `c64o/planes.cc`, a C port of `lib/planes.py` held to it byte for byte on the
@@ -12,7 +12,7 @@ stack of [sprite_objects.md](sprite_objects.md) §2 exists in `c64o/sprites.cc`
 and serves the sun and the clouds, so §5's "hardware sprite indices" is a
 matter of calling `sprites_stack_add()` rather than of writing an allocator —
 and the stack has since learnt the two things §5 lists. §13 is the way into
-`fpilot.prg`, the game traffic is for, and what of it has landed.
+`fpilot.prg`, the game opponents are for, and what of it has landed.
 
 **Revised: polygons and 2 × 2 X+Y sprites.** The first version of this
 document drew an aircraft as three thick strokes in at most two X-expanded
@@ -22,7 +22,7 @@ numbers throughout are the new design's.
 
 This document specifies how other aircraft are drawn in the viewport. Scope is
 **graphics only**: the rendering pipeline, sprite and RAM allocation, the
-rasteriser and the caching scheme. Traffic behaviour (canned kinematic paths),
+rasteriser and the caching scheme. Opponent behaviour (canned kinematic paths),
 collision and the map screen are named where they touch the renderer but are
 not designed here.
 
@@ -71,7 +71,7 @@ Three places where this document supersedes or corrects it:
 
 | `sprite_objects.md` | Here |
 | :--- | :--- |
-| §0 "never expand along Y", as an absolute rule | Near traffic is the exception: Y as well as X, when a close aircraft is too tall for two sprites — steeply banked, inside ~100 m (§4). Clouds are not. |
+| §0 "never expand along Y", as an absolute rule | Near opponents are the exception: Y as well as X, when a close aircraft is too tall for two sprites — steeply banked, inside ~100 m (§4). Clouds are not. |
 | §6.2 proposes 6–8 pre-rendered airframe bitmaps | Superseded — aircraft carry one 64-byte block, the far-tier dot (§1). |
 | §5 measures 8 objects against a 19,705-cycle PAL frame and concludes it does not fit | Wrong denominator; the pipeline runs once per *sim* frame, ~98,500 cycles (§11). |
 
@@ -133,7 +133,7 @@ These apply to every sprite in the viewport, aircraft or not, unless noted:
   resolution.
 - **Y-expansion only together with X, and only when a close aircraft is too
   tall for two sprites.** Clouds and the sun never expand along Y; `$D017`
-  carries traffic bits only then (§4), and for the back view's fin, which
+  carries opponent bits only then (§4), and for the back view's fin, which
   predates this.
 - **One fixed colour per aircraft**, chosen once — no background-dependent
   switching (§8).
@@ -153,11 +153,11 @@ An object of size `S` at distance `D` therefore spans
 pixels = 256 · S / D
 ```
 
-**Traffic is drawn 1.5× oversize**, so an 11 m Cessna spans 16.5 m on screen.
+**Opponents are drawn 1.5× oversize**, so an 11 m Cessna spans 16.5 m on screen.
 At true scale a plane is under 4 px beyond 700 m, which is most of any
 encounter — it would be a dot for the whole approach and only become an
 aircraft in the last two seconds. The exaggeration buys back a factor of 1.5 in
-every distance below, at the cost of realism, and traffic that cannot be
+every distance below, at the cost of realism, and an opponent that cannot be
 identified is not worth drawing.
 
 | Span on screen | Distance | Time to close at 50 m/s |
@@ -173,10 +173,10 @@ it is a fixed dot — both in §4. The band where the silhouette actually change
 shape is therefore roughly 55 m to 1 km, and **the dot is still the common
 case**, which is why it gets a static bitmap rather than a rasterised one.
 
-### Traffic does not use the terrain's units
+### Opponents do not use the terrain's units
 
 `flight_eye_*` is 24.8 fixed point in metres and `world.cc` down-shifts by 9,
-so the terrain grid works in **2 m units**. Traffic must not: the grid needs
+so the terrain grid works in **2 m units**. Opponents must not: the grid needs
 kilometres of range and can afford metres of slop, while an aircraft a hundred
 metres away needs the opposite.
 
@@ -404,7 +404,8 @@ How late that is, for the default model, at the worst heading:
 | Banked 60° | 85 m | 66 lines |
 | Knife-edge | 102 m | 78 lines |
 
-Traffic in level flight, climbing, descending or in a gentle turn is never
+An opponent in level flight, climbing, descending or in a gentle turn is
+never
 Y-expanded, however close it comes.
 
 **The price is the one the horizontal rule avoids.** Y-expansion follows the
@@ -467,7 +468,7 @@ line a sprite may **start** on is 89, or **68** if it is Y-expanded.
 
 `sprites_stack_add()` handles this by testing the *last* hardware sprite of an
 entry and rejecting the entry if it starts too low: better than drawing a cloud
-with its lower half missing. A traffic bitmap is rasterised every frame, so it
+with its lower half missing. An opponent bitmap is rasterised every frame, so it
 can do better: **clamp the sprite's Y so that the last sprite row starts on the
 cut, and draw the aircraft lower inside the buffer.** The bottom of the buffer
 then sits at line 110 exactly — 89 + 21, or 68 + 42 — so what is lost is the
@@ -528,7 +529,7 @@ the roll.
 `$D000–$D3FF` is RAM under I/O that the VIC in bank 3 can read, and in
 flight nobody uses it. It is the map view's screen RAM while the map is open
 (`map.cc` `kMapScreenRam`) and the title aircraft's four blocks, pointers
-64–67, while the menu is (`mem.h` `kTitleSpriteData`). Traffic takes it for
+64–67, while the menu is (`mem.h` `kTitleSpriteData`). Opponents take it for
 the rest of the time, which costs the main region nothing.
 
 This section used to rule that out. Writing under I/O means switching `$01`
@@ -561,8 +562,8 @@ never sees, and the main region keeps running to `$D000`.
 Time-sharing costs two things, both on screen transitions rather than per
 frame:
 
-- `map_enter()` writes over all 1 KB, so `map_exit()` has to make the traffic
-  redraw — its caches invalidated, the dot rewritten — which is what
+- `map_enter()` writes over all 1 KB, so `map_exit()` has to make the opponents
+  redraw — their caches invalidated, the dot rewritten — which is what
   `box_invalidate()` and `view_invalidate_bitmap()` already do for theirs.
 - The menu writes the title into `$D000–$D0FF`, so the dot is written on every
   entry to the simulation rather than once at startup.
@@ -595,7 +596,7 @@ the near one wins, with no per-frame priority logic.
 The stack needs two things it does not have:
 
 - **Entries two sprites wide.** Today an entry is one sprite or a 1 × 2 column
-  (`bitmap`, `bitmap2`). Traffic needs 2 × 1 and 2 × 2 as well: up to four
+  (`bitmap`, `bitmap2`). Opponents need 2 × 1 and 2 × 2 as well: up to four
   pointers, the right-hand column at `x + 24·xs`, each with its own `$D010`
   bit because the two columns can straddle 255.
 - **Y-expansion per entry.** The committed frame already carries `expand_y`
@@ -632,7 +633,7 @@ the rasteriser's tables shrank from 144 bytes to 100.
 The C port is about three times the design, which used to be more than
 `ppilot.prg` had free. The RAM work since ([ram-loop.md](ram-loop.md)) has
 changed that: at b1cdfdf `ppilot.prg` has 11,014 bytes free (`make -C c64o
-pram`, largest run 10,250) and `fpilot.prg`, the game traffic is for, 14,528
+pram`, largest run 10,250) and `fpilot.prg`, the game opponents are for, 14,528
 (`make -C c64o fram`, largest run 13,322). Everything it shares with `ppilot`
 is already there and costs nothing: `vec_fastmul8p8` and its byte multiply
 `vec_mul8`, `vec_fracn` behind `vec_frac16`, the quarter-square tables. Adding
@@ -652,9 +653,9 @@ fill. In order of size:
   buffers and `world.cc`'s per-call tables in rows 14–24 of the main screen,
   which the VIC never fetches in flight (`mem.h` `scratch`, `$EA30–$EBE7`,
   420 of its 440 bytes taken); ppilot keeps them in `bss2`. The terrain and
-  the traffic are drawn one after the other, never at once, and the scratch
+  the opponents are drawn one after the other, never at once, and the scratch
   rule there — every byte written before it is read, within one call — is
-  what the traffic's scratch already keeps. Placed by hand, the way
+  what the opponents' scratch already keeps. Placed by hand, the way
   `kBootScratch`'s tenants are, it leaves fpilot's main region altogether.
   355 bytes, less the ~70 that §13's half-rate shape keeps across frames.
 
@@ -855,7 +856,7 @@ Colour is per sprite, so every sprite of a layout — up to four — must be set
 3. **Is the cycle cost acceptable as it stands**, or should §11's two cheapest
    levers go in from the start?
 
-Settled, and recorded here so they are not reopened: traffic is drawn **1.5×
+Settled, and recorded here so they are not reopened: opponents are drawn **1.5×
 oversize** (§2), the far tier uses a **static bitmap** (§4), the wing hub sits
 **20% of the aircraft length ahead of the centre** (§3), flat surfaces are
 **filled polygons and the fuselage a screen-space tube** (§1, §3), the
@@ -1021,7 +1022,7 @@ width, edge-on surfaces as lines, the slide, the cycle budget — and, through
 order of work's levers after them; behaviour beyond the Scramble pass is
 what is left.** `fpilot.prg` is
 `ppilot.cc` built with `-D__FPILOT__` and without the debug view, and it is
-where traffic goes first: it is the game that needs an aircraft to fight, and
+where opponents go first: it is the game that needs an aircraft to fight, and
 it has the most room. (ppilot now has room too, §5.) Everything below is
 fpilot-only unless it says otherwise. "What landed" says where the build
 went its own way; the subsections after it are the plan it followed.
@@ -1034,7 +1035,7 @@ went its own way; the subsections after it are the plan it followed.
 | 2 | `mem.h`, `opponent.cc` | The dot at 64 and the slot's two sets of four at 65-72; no sets by rank, with one slot. `$01` is banked around the fill only. fpilot's stack region grows to `$0288`: the static frames reach 132 bytes |
 | 5 | `sprites.cc` | `kSpriteFlagWide` and `kSpriteFlagExpandY`, with `bitmap2` as the second row's first block. One vertical cull serves both heights |
 | 6 | `sprites.cc` | Each sprite frame belongs to a screen buffer and goes up with it: no flip of its own, nothing in `mem.cc` |
-| Cap | `planes.h`, `opponent.cc` | The size cap is the view's `kmax`. A sweep of every attitude finds two sprites enough up to `k` 90, not 73 (`kPlaneKMaxTwoSprites`, 88, ~93 m). Traffic first used it; since 2026-10-19 it uses the model's own, `kPlaneKMax`, up to 2 × 2 from ~93 m in and frozen at ~54 m. A cap per slot cost ~150 bytes (oscar64 folds one constant view into the renderer), so traffic went to one slot: a second needs §5's sets by rank, as two four-sprite slots and the dot would take 17 of the 16 blocks |
+| Cap | `planes.h`, `opponent.cc` | The size cap is the view's `kmax`. A sweep of every attitude finds two sprites enough up to `k` 90, not 73 (`kPlaneKMaxTwoSprites`, 88, ~93 m). The opponent first used it; since 2026-10-19 it uses the model's own, `kPlaneKMax`, up to 2 × 2 from ~93 m in and frozen at ~54 m. A cap per slot cost ~150 bytes (oscar64 folds one constant view into the renderer), so the opponents went to one slot: a second needs §5's sets by rank, as two four-sprite slots and the dot would take 17 of the 16 blocks |
 | 9 | `planes.cc`, `opponent.cc` | Cut between the projection and the fill, not between polygons: under the cap the projection, ~17,000-20,000 cycles, already outweighs the fill. `planes_fill()` reads the vertex-cache key, so nothing shared has to survive between the halves |
 | — | `opponent.cc` | An aircraft wholly outside the viewport is skipped before it is projected: `planes_render()` gives up only 45° off the axis, the viewport is 32° and 12° |
 | Levers | `mem.h`, `planes_asm.cc` | The per-call scratch over the terrain's (`tscratch`, 224 bytes back). In assembly: the magnitudes × `k`, the fuselage outline, the vertex cache's key (self-modifying: a plain loop was no faster than the C), the flat vertices and the box, and a tighter span loop |

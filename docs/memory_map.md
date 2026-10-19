@@ -87,7 +87,7 @@ are not equally reachable:
   region means 51 bytes in use and 13 spare, not the other way round. Only
   the static frames ever use it - nothing reaches the dynamic stack - so the
   region was cut from `$0280` to `$0240` on 2026-10-17 and bss2 lowered to
-  match. fpilot's goes back up to `$0288`: its traffic puts `planes_render()`
+  match. fpilot's goes back up to `$0288`: its opponents put `planes_render()`
   and `_project()` under `sim_run()`, 132 bytes of frames at the deepest
   (`mem.h`, 2026-10-18). Should the frames outgrow it, the link fails with
   oscar64 error 3034. The table below predates both.

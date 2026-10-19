@@ -6,7 +6,7 @@
 #include "bool.h"
 #include "vec.h"
 
-// The traffic-sprite renderer of docs/planes.md, ported from its reference,
+// The opponent-sprite renderer of docs/planes.md, ported from its reference,
 // lib/planes.py, and held to it byte for byte by test/planes_test.cc.
 //
 // One call per aircraft per frame: project the polygon model, choose the

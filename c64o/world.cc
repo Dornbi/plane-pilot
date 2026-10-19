@@ -302,7 +302,8 @@ static const vec3_t kSunDirWorld = {0, 256, 64};
 // Rebuilds the viewport sprite frame. The sun is the only object today, and it
 // goes through the stack as an ordinary entry rather than owning a fixed sprite
 // index: an "infinite" depth sorts it behind everything, which is where it
-// belongs. Clouds (clouds.md) and traffic (planes.md) add themselves here too.
+// belongs. Clouds (clouds.md) and opponents (planes.md) add themselves here
+// too.
 __forceinline void world_update_objects() {
   sprites_stack_reset();
 #ifdef __ENABLE_CLOUDS__

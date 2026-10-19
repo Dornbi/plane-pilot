@@ -208,10 +208,10 @@ static void test_two_sprite_stack(void) {
 }
 
 static void test_wide_entries(void) {
-  printf("  a 2 x 2 traffic entry: rows of two, the right one a block on\n");
+  printf("  a 2 x 2 opponent entry: rows of two, the right one a block on\n");
   const uint8_t kFlags = kSpriteFlagExpandX | kSpriteFlagExpandY | kSpriteFlagWide;
   sprites_stack_reset();
-  // Top left (100, 10) in viewport pixels: pivot 0, as traffic places it.
+  // Top left (100, 10) in viewport pixels: pivot 0, as opponent.cc places it.
   assert(sprites_stack_add(300, 100, 10, 0, 0, 69, 71, kColorAircraft, kFlags));
   sprites_stack_add(0x7FFF, 60, 56, kSunPivotX, kSunPivotY, kSun, NB, kColorSun,
                     0);

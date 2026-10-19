@@ -130,7 +130,7 @@ void screen_restore_simulation(void) {
   }
   gfx_init_raster_irqs();
   sprites_init();
-  // The map's screen RAM is the traffic's sprite blocks (docs/planes.md §5).
+  // The map's screen RAM is the opponents' sprite blocks (docs/planes.md §5).
   opponent_invalidate();
 }
 

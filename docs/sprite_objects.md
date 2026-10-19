@@ -7,7 +7,7 @@ possibly projectiles — with the eight hardware sprites in the viewport band.
 [`c64o/sprites.cc`](../c64o/sprites.cc), designed in detail in
 [clouds.md](clouds.md) §1, which also supersedes §6.1 the way
 [planes.md](planes.md) supersedes §6.2. Clouds and the sun go through it,
-and so does traffic in `fpilot.prg` (planes.md §13), its third client.
+and so do opponents in `fpilot.prg` (planes.md §13), its third client.
 
 For how sprites are used today see [project.md](project.md); for the raster
 band split see `gfx.cc`. For the aircraft case in full — which supersedes §6.2
@@ -24,7 +24,7 @@ covers (`docs/project.md` §7, `c64o/title.cc`):
 - **Hires only. Never multicolour.** One colour per sprite, full horizontal
   resolution. `$D01C` stays zero.
 - **Never expand along Y.** X-expansion is available. **One exception, for
-  near traffic:** a close aircraft too tall for two sprites — steeply banked,
+  near opponents:** a close aircraft too tall for two sprites — steeply banked,
   inside ~100 m — expands along Y as well as X ([planes.md](planes.md) §4).
 
 The back view's tail fin (`c64o/sprites.cc`) is the one thing in the viewport
@@ -44,13 +44,13 @@ gets none of that: it moves through the band, so it would have to be culled
 against a line instead of parked on one, and §1.8's whole argument would need
 redoing.
 
-Traffic's exception is not the fin's. Aircraft are projected and do move
+Opponents' exception is not the fin's. Aircraft are projected and do move
 through the band, so the rule's arguments do apply to them — and they no longer
 hold. The shape argument (§3) was about thin lines and dithers: a near-horizontal
-stroke turns into a two-line staircase and a checkerboard into stripes. Traffic
-is now drawn as filled polygons, whose weight is carried by their area, and a
+stroke turns into a two-line staircase and a checkerboard into stripes. Opponents
+are now drawn as filled polygons, whose weight is carried by their area, and a
 2 × 2 sprite pixel is exactly the terrain's 2 × 2 dot. The DMA argument is met
-by rasterising: a traffic bitmap is redrawn every frame, so rather than being
+by rasterising: an opponent bitmap is redrawn every frame, so rather than being
 culled against `kSpritesOffLeadExpandY`'s line it slides above it inside its own
 buffer ([planes.md](planes.md) §4). Clouds have neither way out and stay
 unexpanded vertically.
@@ -155,7 +155,7 @@ pixel is 2 screen pixels wide, which is exactly one X-expanded sprite pixel.
 | Two hires stacked, X-expand | 48 × 42 | 24 × 42 | 1 world px | 1 each |
 
 The multicolour rows that used to appear here have been removed under §0, and
-so have the Y-expanded ones except for the one traffic uses: **2 × 2 hires,
+so have the Y-expanded ones except for the one opponents use: **2 × 2 hires,
 X- and Y-expanded: 96 × 84 screen pixels, 48 world pixels by 84 lines, each
 sprite pixel one world pixel by two lines** — see below.
 
@@ -178,8 +178,8 @@ costs nothing either way. See [planes.md](planes.md) §4.
 That is still the rule for clouds. Aircraft have since got Y-expansion back,
 taken together with X, because they are filled polygons now and the staircase
 argument was about lines ([planes.md](planes.md) §1) — but only as a last
-resort, when a close aircraft is too tall for two unexpanded sprites, so level
-traffic keeps one line per pixel however near it comes. Their horizontal pixel
+resort, when a close aircraft is too tall for two unexpanded sprites, so a level
+opponent keeps one line per pixel however near it comes. Their horizontal pixel
 size follows **distance** — 1:1, then X — and their sprite layout, 1 × 1 up to
 2 × 2, follows the bounding box; the layout changes no pixel.
 
@@ -384,9 +384,9 @@ conflict entirely and is still worth considering separately.
   (§6.1). The fifteenth block went to the orientation mark once
   [clouds.md](clouds.md) §3.5 showed the ladder could never select the smallest
   rung's own bitmap.
-- ~~Do aircraft need per-object colour at all, or is a single traffic colour
+- ~~Do aircraft need per-object colour at all, or is a single opponent colour
   enough to free the colour writes in the terrain handler?~~ **Answered** —
-  [planes.md](planes.md) §8: one fixed traffic colour, no background test. An
+  [planes.md](planes.md) §8: one fixed opponent colour, no background test. An
   above/below-the-horizon switch was designed and dropped, because a target
   crossing the horizon would change colour mid-manoeuvre. The terrain handler
   writes all eight colours anyway (§2), so nothing was freed either way.

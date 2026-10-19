@@ -60,7 +60,7 @@ cycles-baseline: runway=122384 approach=116327 cruise=138732 town=141890 lake=13
    poly fill loops). The bench covers the render only. Do not slow down the
    flight model or the sound either, even though they are not timed.
 4. **Keep every feature.** The debug view is already gone from fpilot. Nothing
-   else may be dropped: sound, music, the map, missions, clouds, traffic
+   else may be dropped: sound, music, the map, missions, clouds, opponent
    sprites, menu and help.
 5. **All link checks and tests must pass:** zp, irq, math, rom and boot
    checks, the host suites, target_test and `make test`.

@@ -201,7 +201,7 @@ static void _gfx_switch_to_terrain() {
 // RTI. So a main line that wants the RAM under I/O just writes $01 and carries
 // on: an interrupt in the middle sees I/O, and hands the RAM back when it is
 // done. That is what lets the title aircraft live at $D000 (mem.h), and it is
-// the premise of the traffic sprites' buffers in docs/planes.md §5.
+// the premise of the opponent sprites' buffers in docs/planes.md §5.
 //
 // It moves no handler, which is not obvious and matters for the panel-top
 // padding above. The dispatcher arms each interrupt a line early, and every

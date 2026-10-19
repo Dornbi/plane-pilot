@@ -40,7 +40,7 @@ static void _enter_simulation(uint8_t selected_mission) {
   view_state = VIEW_CENTER;
   msg_clear();
   flight_init_from_mission(selected_mission);
-  // Also rewrites the traffic's dot block, which the title's sprites were
+  // Also rewrites the opponents' dot block, which the title's sprites were
   // over until now.
   opponent_reset(selected_mission);
   msg_show(kMissionTitles[selected_mission]);

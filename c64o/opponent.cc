@@ -32,7 +32,7 @@ static_assert(kOpponentBlockDot == kTitleSpriteBlock,
 static const uint8_t kOpponentBlockFirst[kOpponentMax] = {kOpponentBlockDot + 1};
 static const uint8_t kOpponentSetBlocks[kOpponentMax] = {4};
 static_assert(kOpponentBlockDot + 1 + 2 * 4 <= (0xD400 - 0xC000) / 64,
-              "traffic blocks run past $D3FF into the sprite bitmaps");
+              "opponent blocks run past $D3FF into the sprite bitmaps");
 
 static inline uint8_t *_opponent_block(uint8_t block) {
   return (uint8_t *)(0xC000 + ((uint16_t)block << 6));
@@ -245,7 +245,7 @@ void opponent_add_sprites(void) {
       // far, so the body frame is the world's and its axes in camera space
       // are world_cam's columns - and of those planes_project() reads only
       // the screen components, y and z. Three vec_transform_inv() calls did
-      // the same for ~3,500 cycles a frame. Traffic that turns needs them
+      // the same for ~3,500 cycles a frame. An opponent that turns needs them
       // back, with an attitude per aircraft.
       mat3_t axes;
       axes.front.y = world_cam.left.x;

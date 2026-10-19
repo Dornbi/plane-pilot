@@ -1,4 +1,4 @@
-"""Tests for the traffic-sprite reference model (`lib/planes.py`).
+"""Tests for the opponent-sprite reference model (`lib/planes.py`).
 
 These lock down the invariants `docs/planes.md` argues for: a pixel size that
 depends on distance alone, a sprite layout nobody can see change, an apparent
@@ -205,7 +205,7 @@ class TestPixelSize(unittest.TestCase):
         draw(40, state=state)
         self.assertEqual(draw(600, state=state).tier.level, LEVEL_1X)
 
-    def test_dot_tier_for_distant_traffic(self):
+    def test_dot_tier_for_distant_opponent(self):
         r = draw(1500)
         self.assertTrue(r.tier.dot)
         self.assertIs(r.buf, planes.DOT_BITMAP)

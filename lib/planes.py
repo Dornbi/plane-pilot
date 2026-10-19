@@ -1,4 +1,4 @@
-"""Host-side reference model for the traffic-sprite renderer.
+"""Host-side reference model for the opponent-sprite renderer.
 
 Implements the pipeline specified in `docs/planes.md`: project an aircraft's
 polygon model, choose a pixel size from its distance and a sprite layout from
@@ -34,7 +34,7 @@ COLS = 24                  # sprite width, in sprite pixels
 ROWS = 21                  # sprite height, in sprite pixels
 BLOCK_BYTES = 63
 
-# Traffic uses quarter-metre units for the relative position, NOT the 2 m the
+# Opponents use quarter-metre units for the relative position, NOT the 2 m the
 # terrain grid uses. The grid needs kilometres of range; a nearby aircraft
 # needs precision. At 100 m and a few degrees off the nose the lateral offset
 # is only a handful of coarse units, so one unit of rounding swings the
@@ -256,7 +256,7 @@ class Model:
     cone_frac: float = 0.05          # where it starts tapering, of length ahead of centre
     tail_radius_frac: float = 0.015  # fuselage radius at the tail, of length
     # Size exaggeration. At true scale a plane is under 4 px beyond 700 m,
-    # which is most of any encounter; 1.5x makes traffic readable at realistic
+    # which is most of any encounter; 1.5x makes opponents readable at realistic
     # separations. The default 11 m span therefore draws as 16.5 m.
     scale: float = 1.5
 

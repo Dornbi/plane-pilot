@@ -21,7 +21,7 @@ Two things were built, and they are separable:
 
 1. **A sprite stack.** A general, distance-sorted allocator for the eight
    hardware sprites in the viewport band. The sun is its first client and
-   clouds its second; traffic ([planes.md](planes.md)), in fpilot, is its
+   clouds its second; opponents ([planes.md](planes.md)), in fpilot, are its
    third. This is [sprite_objects.md](sprite_objects.md) §2, and it landed on
    its own, before any cloud existed.
 2. **Clouds.** A hashed placement scheme, a group layout, and a distance-driven
@@ -509,7 +509,7 @@ more use and nothing else changes.
 the terrain grid works in **2 m units** and a `uint16_t` position wraps at
 131 km. Clouds use the same units.
 
-[planes.md](planes.md) §2 argues traffic must *not*, and the argument does not
+[planes.md](planes.md) §2 argues opponents must *not*, and the argument does not
 carry over. Its problem is that an aircraft a hundred metres away turns one
 unit of rounding into 7 px of frame-to-frame jitter. A cloud is never a hundred
 metres away in a way that matters — the nearest rung of the ladder is at

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the C64 traffic-sprite tables from the reference in lib/planes.py.
+"""Generate the C64 opponent-sprite tables from the reference in lib/planes.py.
 
   tools/generate_planes.py                  writes c64o/planedef.h
   tools/generate_planes.py --cases <path>   writes the host test's cases

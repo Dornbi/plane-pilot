@@ -33,7 +33,7 @@ PPILOTA_PROGRAM = ppilota
 #
 # No debug view: it is built without $(DEBUG) whatever that is set to, so the
 # D key, the stage counters behind it and the code that prints them are not
-# in it. That is about 1.9 KB, which traffic and combat need more.
+# in it. That is about 1.9 KB, which opponents and combat need more.
 FPILOT_PROGRAM = fpilot
 PPILOT_SRC = \
 		bcd.cc \
@@ -195,7 +195,7 @@ VECTEST_SRC = 	benchmark.h \
 		vec_lut.cc \
 		vectest.cc
 
-# The traffic-sprite renderer of docs/planes.md on its own: default character
+# The opponent-sprite renderer of docs/planes.md on its own: default character
 # mode, one aircraft on up to four sprites, keys to fly it, cycles on screen.
 # planedef.h is generated from lib/planes.py by `make planes` at the top.
 PLANEDEMO_PROGRAM = planedemo

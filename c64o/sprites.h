@@ -86,7 +86,7 @@ static const uint8_t kSpriteFlagAlignDither = 0x02;
 // Two sprites side by side rather than one: the right-hand one shows the block
 // after the left-hand one's, one sprite width (24, or 48 expanded) to its
 // right. With bitmap2 set as well it is a 2 x 2 block, the lower row starting
-// at bitmap2. Traffic (docs/planes.md §5) is the only user.
+// at bitmap2. Opponents (docs/planes.md §5) are the only user.
 static const uint8_t kSpriteFlagWide = 0x04;
 // Y-expanded: 42 raster lines a sprite, so the lower row of a 2-row entry is 42
 // below the upper one, and the entry is culled against the Y-expanded DMA cut

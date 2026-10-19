@@ -1,4 +1,4 @@
-// planedemo -- the traffic-sprite renderer of docs/planes.md on its own.
+// planedemo -- the opponent-sprite renderer of docs/planes.md on its own.
 //
 // Default character mode, the screen and the ROM font where the C64 starts
 // them, and one aircraft drawn with up to four hardware sprites by planes.cc.
@@ -125,7 +125,7 @@ static void _screen_init(void) {
     vic.spr_color[i] = kColorPlane;
   }
 
-  print_str(0, 11, STRL(SCREEN_STR("traffic sprite demo")));
+  print_str(0, 10, STRL(SCREEN_STR("opponent sprite demo")));
   print_str(22, 0, STRL(SCREEN_STR("+/- dist  a/d yaw  w/s pitch  q/e roll")));
   print_str(23, 0, STRL(SCREEN_STR("space spin m approach 1-6 view r reset")));
 }
