@@ -72,6 +72,11 @@ static const int32_t kOpponentBehind = 400L << 8;
 static const int32_t kOpponentLeft = 96L << 8;
 static const int32_t kOpponentPassZ = 96L << 8;
 
+// The pixel size, planes_frame_t::d, from which an aircraft is drawn in
+// kColorOpponentNear: about 540 m for the default model, and below
+// kOpponentNearD - 1, ~620 m, back to kColorOpponentFar.
+static const uint8_t kOpponentNearD = 8;
+
 // --- State ------------------------------------------------------------------
 
 #pragma bss(bss2)
@@ -87,6 +92,8 @@ static planes_state_t _opponent_planes[kOpponentMax];
 static uint8_t _opponent_front;
 // Bit i: slot i was projected anew last frame and is filled this one.
 static uint8_t _opponent_pending;
+// Bit i: slot i is near enough for kColorOpponentNear.
+static uint8_t _opponent_near;
 // The layout of what is in slot i's front set.
 static planes_layout_t _opponent_shown[kOpponentMax];
 // The aircraft being drawn, in camera space and quarter metres.
@@ -100,6 +107,7 @@ void opponent_invalidate(void) {
   }
   _opponent_front = 0;
   _opponent_pending = 0;
+  _opponent_near = 0;
   mmap_set(MMAP_RAM);
   planes_dot_bitmap((uint8_t *)0xD000);
   mmap_set(MMAP_NO_ROM);
@@ -286,9 +294,19 @@ void opponent_add_sprites(void) {
         flags |= kSpriteFlagExpandY;
       }
     }
+    // The colour, from the pixel size: near from about 8 pixels across, and
+    // back to far below 7, so that a chase holding the range on the line does
+    // not flicker.
+    if (f.d >= kOpponentNearD) {
+      _opponent_near |= bit;
+    } else if (f.d < kOpponentNearD - 1) {
+      _opponent_near &= (uint8_t)~bit;
+    }
+    uint8_t color =
+        (_opponent_near & bit) ? kColorOpponentNear : kColorOpponentFar;
     // Depth in the clouds' 2 m units, so that the two sort together.
     sprites_stack_add(_opponent_c.x >> 3, f.x, f.y, 0, 0, bitmap, bitmap2,
-                      kColorOpponent, flags);
+                      color, flags);
   }
 }
 

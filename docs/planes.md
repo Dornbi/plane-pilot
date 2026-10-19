@@ -135,8 +135,9 @@ These apply to every sprite in the viewport, aircraft or not, unless noted:
   tall for two sprites.** Clouds and the sun never expand along Y; `$D017`
   carries opponent bits only then (§4), and for the back view's fin, which
   predates this.
-- **One fixed colour per aircraft**, chosen once — no background-dependent
-  switching (§8).
+- **One colour per aircraft at a time, chosen by size** — black while it is
+  under about 8 pixels, dark grey nearer; no background-dependent switching
+  (§8).
 
 ---
 
@@ -795,24 +796,37 @@ drift across the screen and through the DMA cut.
 
 ## 8. Colour
 
-**One fixed colour, always.** No background test, no switching, no multicolour.
+**Two colours, by size.** No background test, no multicolour. A far aircraft —
+the dot, or a silhouette under about 8 pixels — is black; nearer it is dark
+grey (2026-10-19). The test is on `d`, §4's pixel size, with the levels' kind
+of hysteresis so that a chase holding the range on the line does not flicker:
 
 ```c
-vic.spr_color[idx] = kColorOpponent;      // kColorDarkGray
+if (d >= 8) near = true;          // ~540 m for the default model
+else if (d < 7) near = false;     // ~620 m
+color = near ? kColorOpponentNear // kColorDarkGray
+             : kColorOpponentFar; // kColorBlack
 ```
+
+A far aircraft is a few pixels, and black is what keeps those standing out;
+near, the shape carries it and the softer grey reads as an aircraft rather
+than a hole. `d` is a function of distance alone, so the switch happens at a
+range, not with an attitude. It does not depend on where the aircraft is
+against the horizon, which is what the draft below was dropped for.
 
 Light grey was the opening choice, medium grey the fallback if it proved too
 close to the sky gradient; fpilot settled on dark grey (2026-10-18, by
-eye). Medium grey is the tail fin's. Both read against blue sky, the cyan/light-blue
+eye), and on black for the far tier a day later. Medium grey is the tail
+fin's. Both read against blue sky, the cyan/light-blue
 gradient band and green ground without being as loud as white, which is the
 instrument colour and wants to stay unambiguous.
 
 An earlier draft switched colour on whether the aircraft was above or below the
 eye's altitude — a genuinely cheap test, one 32-bit comparison, no projection.
 It was dropped anyway: a target crossing the horizon would change colour
-mid-manoeuvre, which draws the eye to the wrong thing, and the constant colour
-is one less piece of state to keep consistent between the terrain and panel
-raster handlers.
+mid-manoeuvre, which draws the eye to the wrong thing. The size switch above
+changes colour too, but only as the aircraft closes or opens the range,
+together with a change of size the eye is already following.
 
 Colour is per sprite, so every sprite of a layout — up to four — must be set.
 
@@ -849,7 +863,8 @@ Colour is per sprite, so every sprite of a layout — up to four — must be set
 
 ## 10. Open questions
 
-1. ~~**Light grey or medium grey?**~~ Dark grey, chosen in fpilot (§8).
+1. ~~**Light grey or medium grey?**~~ Black under about 8 pixels, dark grey
+   nearer, chosen in fpilot (§8).
 2. **Does Y-expansion look right on a real screen?** The prototype draws it
    over the terrain's 2 × 2 lattice at the 10 Hz sim rate, which is as close as
    a browser gets; a VICE screenshot is the real test.

@@ -386,7 +386,8 @@ conflict entirely and is still worth considering separately.
   rung's own bitmap.
 - ~~Do aircraft need per-object colour at all, or is a single opponent colour
   enough to free the colour writes in the terrain handler?~~ **Answered** —
-  [planes.md](planes.md) §8: one fixed opponent colour, no background test. An
+  [planes.md](planes.md) §8: one colour per aircraft at a time, black under
+  about 8 pixels and dark grey nearer, no background test. An
   above/below-the-horizon switch was designed and dropped, because a target
   crossing the horizon would change colour mid-manoeuvre. The terrain handler
   writes all eight colours anyway (§2), so nothing was freed either way.
