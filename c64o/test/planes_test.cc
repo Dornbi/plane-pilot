@@ -40,7 +40,7 @@ static void hex(std::string &out, const uint8_t *bytes, int n) {
 }
 
 // Every case through planes_render(), or with `split` through its two
-// halves the way traffic.cc spreads a redraw over two frames: projected, then
+// halves the way opponent.cc spreads a redraw over two frames: projected, then
 // another aircraft projected over the shared vertex arrays, then filled; and
 // the drawn bitmap placed back at its own centre, which has to land where
 // the frame says it is.

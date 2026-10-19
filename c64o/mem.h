@@ -17,7 +17,7 @@
 // so oscar64 gives every function a static frame and never touches the
 // dynamic stack (SP is set at startup and read nowhere). The region only has
 // to hold the frames: about 51 bytes in ppilot, and 132 in fpilot, whose
-// traffic puts planes_render() and _project() under sim_run() (traffic.cc).
+// traffic puts planes_render() and _project() under sim_run() (opponent.cc).
 // Should they outgrow it the link fails with error 3034 (static stack usage
 // exceeds stack segment); raise this, the region top below and MEM_BSS2_START
 // together.

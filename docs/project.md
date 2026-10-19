@@ -839,7 +839,7 @@ C64; `make -C c64o test` runs those.
   tool, not a mirror of the shipped renderer.
 - **Traffic is in fpilot only, and flies one straight line.**
   [planes.md](planes.md) specifies aircraft sprites in full; `fpilot.prg`
-  draws them (`traffic.cc`, §13), with the sprite buffers under I/O at
+  draws them (`opponent.cc`, §13), with the sprite buffers under I/O at
   `$D000`, time-shared with the map view's screen RAM and the title screen's
   aeroplane, so they cost the main region nothing. Its one aircraft flies the
   Scramble pass and nothing else: behaviour, guns and hits are still to

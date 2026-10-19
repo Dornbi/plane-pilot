@@ -44,7 +44,7 @@ static const uint8_t kColorAircraft = kColorMedGray;
 // Other aircraft (docs/planes.md §8): one fixed colour. Dark grey: it reads
 // against the sky and the ground alike, and it is not the tail fin's medium
 // grey or a cloud's white.
-static const uint8_t kColorTraffic = kColorDarkGray;
+static const uint8_t kColorOpponent = kColorDarkGray;
 static const uint8_t kColorWater = kColorBlue;
 
 #endif /* COLOR_H */

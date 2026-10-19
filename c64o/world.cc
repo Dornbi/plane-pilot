@@ -14,7 +14,7 @@
 #include "roll.h"
 #include "spritedef.h"
 #include "sprites.h"
-#include "traffic.h"
+#include "opponent.h"
 #include "vec.h"
 
 // Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
@@ -310,7 +310,7 @@ __forceinline void world_update_objects() {
   clouds_add_candidates();
   bm_sub_end(BM_SUB_CLOUDS);
 #endif
-  traffic_add_sprites();
+  opponent_add_sprites();
   vec_transform_inv(&world_cam, &kSunDirWorld, &vec_v);
   if (vec_project_once()) {
     sprites_stack_add(0x7FFF, kScreenWidthPixels / 2 - vec_sx,

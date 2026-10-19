@@ -18,7 +18,7 @@
 #include "screen.h"
 #include "sound.h"
 #include "sprites.h"
-#include "traffic.h"
+#include "opponent.h"
 #include "view.h"
 #include "world.h"
 
@@ -42,7 +42,7 @@ static void _enter_simulation(uint8_t selected_mission) {
   flight_init_from_mission(selected_mission);
   // Also rewrites the traffic's dot block, which the title's sprites were
   // over until now.
-  traffic_reset(selected_mission);
+  opponent_reset(selected_mission);
   msg_show(kMissionTitles[selected_mission]);
 
   mem_switch_debug(false);
@@ -216,7 +216,7 @@ void sim_run(uint8_t selected_mission) {
     if (key_pressed(KSCAN_R)) {
       msg_clear();
       flight_init_from_mission(selected_mission);
-      traffic_reset(selected_mission);
+      opponent_reset(selected_mission);
       msg_show(kMissionTitles[selected_mission]);
       view_update_view(VIEW_CENTER);
       mem_switch_debug(false);
@@ -270,7 +270,7 @@ void sim_run(uint8_t selected_mission) {
     // cannot also be the frame that owes the model two steps. docs/flight.md
     // section 8 has the reasoning and the measurements on both sides of it.
     flight_advance();
-    traffic_step();
+    opponent_step();
     if (flight_crashed()) {
       // A crash is the end of the flight, so its message stays up until R or
       // Q. Completing a mission is not: flight.cc announces it for a few

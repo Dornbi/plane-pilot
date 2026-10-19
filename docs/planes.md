@@ -797,7 +797,7 @@ drift across the screen and through the DMA cut.
 **One fixed colour, always.** No background test, no switching, no multicolour.
 
 ```c
-vic.spr_color[idx] = kColorTraffic;      // kColorDarkGray
+vic.spr_color[idx] = kColorOpponent;      // kColorDarkGray
 ```
 
 Light grey was the opening choice, medium grey the fallback if it proved too
@@ -1030,20 +1030,20 @@ went its own way; the subsections after it are the plan it followed.
 
 | Step | Where | Against the plan |
 | :--- | :--- | :--- |
-| 1-4, 7 | `c64o/traffic.cc` | One slot in `bss2`, flying the Scramble pass (two at first; see Cap). No attitude yet: everything flies level and north, so the body axes in camera space are `world_cam`'s columns, no products. `-D__NO_TRAFFIC__` leaves it out |
-| 2 | `mem.h`, `traffic.cc` | The dot at 64 and the slot's two sets of four at 65-72; no sets by rank, with one slot. `$01` is banked around the fill only. fpilot's stack region grows to `$0288`: the static frames reach 132 bytes |
+| 1-4, 7 | `c64o/opponent.cc` | One slot in `bss2`, flying the Scramble pass (two at first; see Cap). No attitude yet: everything flies level and north, so the body axes in camera space are `world_cam`'s columns, no products. `-D__NO_OPPONENT__` leaves it out |
+| 2 | `mem.h`, `opponent.cc` | The dot at 64 and the slot's two sets of four at 65-72; no sets by rank, with one slot. `$01` is banked around the fill only. fpilot's stack region grows to `$0288`: the static frames reach 132 bytes |
 | 5 | `sprites.cc` | `kSpriteFlagWide` and `kSpriteFlagExpandY`, with `bitmap2` as the second row's first block. One vertical cull serves both heights |
 | 6 | `sprites.cc` | Each sprite frame belongs to a screen buffer and goes up with it: no flip of its own, nothing in `mem.cc` |
-| Cap | `planes.h`, `traffic.cc` | The size cap is the view's `kmax`. A sweep of every attitude finds two sprites enough up to `k` 90, not 73 (`kPlaneKMaxTwoSprites`, 88, ~93 m). Traffic first used it; since 2026-10-19 it uses the model's own, `kPlaneKMax`, up to 2 × 2 from ~93 m in and frozen at ~54 m. A cap per slot cost ~150 bytes (oscar64 folds one constant view into the renderer), so traffic went to one slot: a second needs §5's sets by rank, as two four-sprite slots and the dot would take 17 of the 16 blocks |
-| 9 | `planes.cc`, `traffic.cc` | Cut between the projection and the fill, not between polygons: under the cap the projection, ~17,000-20,000 cycles, already outweighs the fill. `planes_fill()` reads the vertex-cache key, so nothing shared has to survive between the halves |
-| — | `traffic.cc` | An aircraft wholly outside the viewport is skipped before it is projected: `planes_render()` gives up only 45° off the axis, the viewport is 32° and 12° |
+| Cap | `planes.h`, `opponent.cc` | The size cap is the view's `kmax`. A sweep of every attitude finds two sprites enough up to `k` 90, not 73 (`kPlaneKMaxTwoSprites`, 88, ~93 m). Traffic first used it; since 2026-10-19 it uses the model's own, `kPlaneKMax`, up to 2 × 2 from ~93 m in and frozen at ~54 m. A cap per slot cost ~150 bytes (oscar64 folds one constant view into the renderer), so traffic went to one slot: a second needs §5's sets by rank, as two four-sprite slots and the dot would take 17 of the 16 blocks |
+| 9 | `planes.cc`, `opponent.cc` | Cut between the projection and the fill, not between polygons: under the cap the projection, ~17,000-20,000 cycles, already outweighs the fill. `planes_fill()` reads the vertex-cache key, so nothing shared has to survive between the halves |
+| — | `opponent.cc` | An aircraft wholly outside the viewport is skipped before it is projected: `planes_render()` gives up only 45° off the axis, the viewport is 32° and 12° |
 | Levers | `mem.h`, `planes_asm.cc` | The per-call scratch over the terrain's (`tscratch`, 224 bytes back). In assembly: the magnitudes × `k`, the fuselage outline, the vertex cache's key (self-modifying: a plain loop was no faster than the C), the flat vertices and the box, and a tighter span loop |
 
 On the way, oscar64 folded `(uint8_t)(u + 16) >= 32` to `u >= 16`, which
-culled every aircraft behind the eye; `traffic.cc`'s range test is signed.
+culled every aircraft behind the eye; `opponent.cc`'s range test is signed.
 
 Measured over the Scramble pass, render cycles per frame against the same
-build with `-D__NO_TRAFFIC__`:
+build with `-D__NO_OPPONENT__`:
 
 | Frame | One frame | Half rate | With the levers |
 | :--- | ---: | ---: | ---: |
@@ -1097,7 +1097,7 @@ below, and the order of work at the end, are about that.
 ### Steps
 
 1. **Build.** `planes.cc` and `planes_asm.cc` into fpilot only, behind
-   `__FPILOT__` or an `__ENABLE_TRAFFIC__` the fpilot rule passes. All the
+   `__FPILOT__` or an `__ENABLE_OPPONENT__` the fpilot rule passes. All the
    link checks have to pass as they stand. Watch the zero page:
    oscar64 put `_vy` there by itself in planedemo, and `check_zeropage.py`
    still finds fpilot's runtime topping out at `$5B` against a region
@@ -1179,7 +1179,7 @@ the back view never shows it and the front view first does ~370 m ahead. In
 VICE it passes abeam about 35 steps after the start. The first build had it
 on the centreline, 24 m above the eye, where the back view's fin hid it. A host run of
 `flight.cc` with full throttle after a delay, rotating at 1,300 and climbing,
-against the enemy stepped as `traffic.cc` steps it (gap along x):
+against the enemy stepped as `opponent.cc` steps it (gap along x):
 
 | Throttle up after | Airborne | Largest gap | Within 100 m |
 | ---: | ---: | ---: | ---: |

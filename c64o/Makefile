@@ -28,7 +28,7 @@ PPILOTA_PROGRAM = ppilota
 # Fighter Pilot: a different game on the same engine, with air-to-air combat
 # and missions of its own. Also built from ppilot.cc, with -D__FPILOT__, which
 # swaps pmission.cc for fmission.cc (mission.h), puts its own name on the menu
-# and adds the other aircraft (traffic.h, docs/planes.md). Arcade flight model,
+# and adds the other aircraft (opponent.h, docs/planes.md). Arcade flight model,
 # as ppilot.
 #
 # No debug view: it is built without $(DEBUG) whatever that is set to, so the
@@ -123,15 +123,15 @@ PPILOT_SRC = \
 		world.cc \
 		world_map.cc
 
-# Other aircraft (docs/planes.md): fpilot only, see traffic.h.
-TRAFFIC_SRC = \
+# Other aircraft (docs/planes.md): fpilot only, see opponent.h.
+OPPONENT_SRC = \
 		planedef.h \
 		planes.h \
 		planes.cc \
 		planes_asm.h \
 		planes_asm.cc \
-		traffic.h \
-		traffic.cc
+		opponent.h \
+		opponent.cc
 
 POLYDEMO_PROGRAM = polydemo
 POLYDEMO_SRC = \
@@ -326,7 +326,7 @@ $(PPILOTA_PROGRAM).prg: $(PPILOT_SRC)
 
 # Not on FLIGHT_STAMP either, for the same reason: its model does not follow
 # FLIGHT_AOA.
-$(FPILOT_PROGRAM).prg: $(PPILOT_SRC) $(TRAFFIC_SRC)
+$(FPILOT_PROGRAM).prg: $(PPILOT_SRC) $(OPPONENT_SRC)
 	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(CLOUDS) -D__FPILOT__ -D__MAX_RAM__ -o=$(FPILOT_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(FPILOT_PROGRAM).asm
 	@$(IRQCHECK) $(FPILOT_PROGRAM).asm
