@@ -123,6 +123,12 @@ CPU_TEST_HDRS = ../cpu.h ../cpu.cc ../cia.h
 PLANES_TEST_SRC = planes_test.cc ../planes.cc
 PLANES_TEST_HDRS = ../planes.h ../planes_asm.h ../planedef.h ../vec.h planes_cases.h
 
+# planes_edge_test holds planes.cc to what the screen should show rather than to
+# the reference: the ink of every frame through the layout switches, the
+# hysteresis, the slide and the cache. Its header says what is checked.
+PLANES_EDGE_TEST_SRC = planes_edge_test.cc ../planes.cc
+PLANES_EDGE_TEST_HDRS = ../planes.h ../planes_asm.h ../planedef.h ../vec.h
+
 all: test
 
 flight_test: $(FLIGHT_TEST_SRC) $(FLIGHT_TEST_HDRS)
@@ -157,6 +163,9 @@ planes_cases.h: ../../tools/generate_planes.py ../../lib/planes.py
 
 planes_test: $(PLANES_TEST_SRC) $(PLANES_TEST_HDRS)
 	$(HOST_CC) $(HOST_CFLAGS) -o planes_test $(PLANES_TEST_SRC)
+
+planes_edge_test: $(PLANES_EDGE_TEST_SRC) $(PLANES_EDGE_TEST_HDRS)
+	$(HOST_CC) $(HOST_CFLAGS) -o planes_edge_test $(PLANES_EDGE_TEST_SRC)
 
 # Every suite's sources, for the syntax-only narrowing pass. Kept as one list
 # rather than reusing the per-suite variables because the pass does not link and
@@ -206,8 +215,8 @@ narrowing-update:
 	fi
 	@{ $(narrow_scan) ; } | $(NARROW_CHECK) --update $(NARROW_BASELINE)
 
-test: flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test planes_test narrowing $(TARGET_TEST)
-	@./flight_test > output.txt && ./msg_test >> output.txt && ./map_test >> output.txt && ./sound_test >> output.txt && ./music_test >> output.txt && ./mul_test >> output.txt && ./sprites_test >> output.txt && ./cpu_test >> output.txt && ./poly_test >> output.txt && ./planes_test >> output.txt && echo "ALL TESTS PASSED (flight_test, msg_test, map_test, sound_test, music_test, mul_test, sprites_test, cpu_test, poly_test, planes_test) -> test/output.txt"
+test: flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test planes_test planes_edge_test narrowing $(TARGET_TEST)
+	@./flight_test > output.txt && ./msg_test >> output.txt && ./map_test >> output.txt && ./sound_test >> output.txt && ./music_test >> output.txt && ./mul_test >> output.txt && ./sprites_test >> output.txt && ./cpu_test >> output.txt && ./poly_test >> output.txt && ./planes_test >> output.txt && ./planes_edge_test >> output.txt && echo "ALL TESTS PASSED (flight_test, msg_test, map_test, sound_test, music_test, mul_test, sprites_test, cpu_test, poly_test, planes_test, planes_edge_test) -> test/output.txt"
 
 # Both models, from clean, because the object files are not model-tagged.
 test-both:
@@ -215,7 +224,7 @@ test-both:
 	$(MAKE) clean && $(MAKE) test FLIGHT_AOA=1
 
 clean:
-	rm -rf flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test planes_test planes_cases.h planes_target_cases.h output.txt *.dSYM
+	rm -rf flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test planes_test planes_edge_test planes_cases.h planes_target_cases.h output.txt *.dSYM
 	rm -f target_test.prg target_test.asm target_test.lbl target_test.map target_test.int target_test.dbj
 
 .PHONY: all test test-both narrowing narrowing-update target-test flight_test msg_test map_test sound_test music_test mul_test sprites_test poly_test clean
