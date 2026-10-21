@@ -1281,6 +1281,15 @@ them would. An uneven split is worse than none: with one step per frame,
 alternating long and short frames is a game speed that alternates too. So the
 cut is balanced after the order of work's levers, on the costs they leave.
 
+*Until the new bitmap is filled the last one stands in, placed at the new
+centre - which is right only while it is recent. At first it was whatever
+the blocks last held: a chase that looked away and back at 600 m saw a frame
+of the aircraft at the size it had been close up, 66 × 26 pixels for 5 × 3.
+Since 2026-10-21 an aircraft that leaves the screen or drops to the dot
+forgets its bitmap, and a redraw drops it if the aircraft goes before the
+fill. The dot stands in for that one frame. `test/opponent_test.cc` holds every
+silhouette shown to one drawn within the last two frames.*
+
 ### At most two sprites
 
 Seven indices go round fast in combat — tracers and a hit flash want them as

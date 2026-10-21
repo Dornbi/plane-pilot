@@ -1,6 +1,12 @@
 #include "opponent.h"
 
+#ifdef __OSCAR64__
 #include <c64/memmap.h>
+#else
+// Host builds have no banking: test/opponent_test.cc's array stands in for
+// bank 3, RAM under I/O included.
+#define mmap_set(m)
+#endif
 
 #include "color.h"
 #include "flight.h"
@@ -34,8 +40,15 @@ static const uint8_t kOpponentSetBlocks[kOpponentMax] = {4};
 static_assert(kOpponentBlockDot + 1 + 2 * 4 <= (0xD400 - 0xC000) / 64,
               "opponent blocks run past $D3FF into the sprite bitmaps");
 
+#ifdef __OSCAR64__
+static uint8_t *const kOpponentBank = (uint8_t *)0xC000;
+#else
+// Host builds point this at an ordinary array, like mem.h's screen pointers.
+extern uint8_t *kOpponentBank;
+#endif
+
 static inline uint8_t *_opponent_block(uint8_t block) {
-  return (uint8_t *)(0xC000 + ((uint16_t)block << 6));
+  return kOpponentBank + ((uint16_t)block << 6);
 }
 
 // The viewport's centre, the last line a sprite may start on, plain and
@@ -109,7 +122,7 @@ void opponent_invalidate(void) {
   _opponent_pending = 0;
   _opponent_near = 0;
   mmap_set(MMAP_RAM);
-  planes_dot_bitmap((uint8_t *)0xD000);
+  planes_dot_bitmap(_opponent_block(kOpponentBlockDot));
   mmap_set(MMAP_NO_ROM);
 }
 
@@ -147,6 +160,21 @@ void opponent_step(void) {
 
 // Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
 #pragma optimize(push, nooutline)
+
+// Slot i is off screen, or only the dot, so its block sets no longer show
+// what it looks like. Until a new silhouette is filled it is shown as the
+// dot, never as the bitmap from the last time it was in view: that can be
+// any size, and a chase that looked away and back saw one frame of the
+// aircraft as close as it had been.
+static void _opponent_forget(uint8_t i, uint8_t bit) {
+  _opponent_shown[i].level = kPlaneLevelDot;
+  // A projection still to be filled is a bitmap that was never drawn, so
+  // nothing may come from the cache against it.
+  if (_opponent_pending & bit) {
+    _opponent_pending &= (uint8_t)~bit;
+    _opponent_planes[i].key_valid = false;
+  }
+}
 
 // d, a difference of two 24.8 positions, wrapped to the world - mask 0x7F for
 // x, which repeats every 128 units, 0xFF for y and z - in quarter metres
@@ -197,25 +225,24 @@ void opponent_add_sprites(void) {
     if (!_opponent_on[i]) {
       continue;
     }
-    vec3_t rel;
-    if (!_opponent_quarter(_opponent_x[i] - flight_eye_x, 0x7F, &rel.x) ||
-        !_opponent_quarter(_opponent_y[i] - flight_eye_y, 0xFF, &rel.y) ||
-        !_opponent_quarter(_opponent_z[i] - flight_eye_z, 0xFF, &rel.z)) {
-      continue;
-    }
-    vec_transform_inv(&world_cam, &rel, &_opponent_c);
-    // planes_render() says the same, but only after the axes below.
-    if (_opponent_c.x <= 64) {
-      continue;
-    }
-    // Wholly outside the viewport. planes_render() only gives up 45 degrees
-    // off the view axis, so an aircraft just over the top on the pass, or
-    // just off to one side, would be projected, and drawn or looked up in
-    // the cache, for nothing: 7,000-38,000 cycles a frame.
-    if (_opponent_off_screen()) {
-      continue;
-    }
     uint8_t bit = (uint8_t)(1 << i);
+    vec3_t rel;
+    bool seen = _opponent_quarter(_opponent_x[i] - flight_eye_x, 0x7F, &rel.x) &&
+                _opponent_quarter(_opponent_y[i] - flight_eye_y, 0xFF, &rel.y) &&
+                _opponent_quarter(_opponent_z[i] - flight_eye_z, 0xFF, &rel.z);
+    if (seen) {
+      vec_transform_inv(&world_cam, &rel, &_opponent_c);
+      // planes_render() says the same about x, but only after the axes
+      // below. Then wholly outside the viewport: planes_render() only gives
+      // up 45 degrees off the view axis, so an aircraft just over the top on
+      // the pass, or just off to one side, would be projected, and drawn or
+      // looked up in the cache, for nothing: 7,000-38,000 cycles a frame.
+      seen = _opponent_c.x > 64 && !_opponent_off_screen();
+    }
+    if (!seen) {
+      _opponent_forget(i, bit);
+      continue;
+    }
     uint8_t first = kOpponentBlockFirst[i];
     uint8_t set = kOpponentSetBlocks[i];
     uint8_t front = (_opponent_front & bit) ? (uint8_t)(first + set) : first;
@@ -263,11 +290,15 @@ void opponent_add_sprites(void) {
       axes.up.y = world_cam.left.z;
       axes.up.z = world_cam.up.z;
       planes_project(state, &kView, &_opponent_c, &axes, &f);
-      if (f.hidden != kPlaneShown) {
-        continue;
-      }
-      if (f.level != kPlaneLevelDot && !f.cached) {
-        // A new silhouette, filled next frame; until then the old bitmap.
+      if (f.hidden != kPlaneShown || f.level == kPlaneLevelDot) {
+        _opponent_forget(i, bit);
+      } else if (f.cached) {
+        // The front set holds the state's silhouette - after a forget too,
+        // as the state has not been projected since it was filled.
+        *shown = state->lay;
+      } else {
+        // A new silhouette, filled next frame; until then the old bitmap,
+        // or the dot if there is none.
         _opponent_pending |= bit;
         planes_place(shown, &kView, &f);
       }
