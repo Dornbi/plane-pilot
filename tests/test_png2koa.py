@@ -19,7 +19,9 @@ from tools.png2koa import (
 )
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PANEL_KOA = os.path.join(REPO_ROOT, "c64o", "panel.koa")
+# ppilot's and fpilot's, at the same layout (view.cc, `make panel`).
+PANEL_KOAS = [os.path.join(REPO_ROOT, "c64o", name)
+              for name in ("ppanel.koa", "fpanel.koa")]
 GFX_CC = os.path.join(REPO_ROOT, "c64o", "gfx.cc")
 MAKEFILE = os.path.join(REPO_ROOT, "Makefile")
 
@@ -275,15 +277,17 @@ class TestShippedPanel(unittest.TestCase):
     """
 
     def test_lamp_cells_carry_the_lamp_color_in_color_ram(self):
-        _, screen, color, _ = read_koa(PANEL_KOA)
-        for row, col in lamp_cells_from_gfx_cc():
-            idx = row * 40 + col
-            self.assertEqual(color[idx] & 0x0F, LAMP_COLOR,
-                             f"lamp cell at row {row} col {col} does not have the "
-                             f"lamp color in color RAM - gfx.cc would switch "
-                             f"color {color[idx] & 0x0F} instead")
-            self.assertNotEqual(screen[idx] >> 4, LAMP_COLOR)
-            self.assertNotEqual(screen[idx] & 0x0F, LAMP_COLOR)
+        for path in PANEL_KOAS:
+            name = os.path.basename(path)
+            _, screen, color, _ = read_koa(path)
+            for row, col in lamp_cells_from_gfx_cc():
+                idx = row * 40 + col
+                self.assertEqual(color[idx] & 0x0F, LAMP_COLOR,
+                                 f"{name}: lamp cell at row {row} col {col} does "
+                                 f"not have the lamp color in color RAM - gfx.cc "
+                                 f"would switch color {color[idx] & 0x0F} instead")
+                self.assertNotEqual(screen[idx] >> 4, LAMP_COLOR, name)
+                self.assertNotEqual(screen[idx] & 0x0F, LAMP_COLOR, name)
 
     def test_makefile_pins_exactly_the_lamp_cells(self):
         # Two hand-written lists of the same four cells, one in C and one in

@@ -27,9 +27,9 @@ PPILOT_PROGRAM = ppilot
 PPILOTA_PROGRAM = ppilota
 # Fighter Pilot: a different game on the same engine, with air-to-air combat
 # and missions of its own. Also built from ppilot.cc, with -D__FPILOT__, which
-# swaps pmission.cc for fmission.cc (mission.h), puts its own name on the menu
-# and adds the other aircraft (opponent.h, docs/planes.md). Arcade flight model,
-# as ppilot.
+# swaps pmission.cc for fmission.cc (mission.h), puts its own name on the menu,
+# embeds fpanel.koa for ppanel.koa (view.cc) and adds the other aircraft
+# (opponent.h, docs/planes.md). Arcade flight model, as ppilot.
 #
 # No debug view: it is built without $(DEBUG) whatever that is set to, so the
 # D key, the stage counters behind it and the code that prints them are not
@@ -85,7 +85,6 @@ PPILOT_SRC = \
 		msg.cc \
 		panel.h \
 		panel.cc \
-		panel.koa \
 		ppilot.cc \
 		poly.h \
 		poly.cc \
@@ -304,7 +303,7 @@ pram:
 fram:
 	$(RAMANALYSIS) $(FPILOT_PROGRAM).map
 
-$(PPILOT_PROGRAM).prg: $(PPILOT_SRC) $(FLIGHT_STAMP)
+$(PPILOT_PROGRAM).prg: $(PPILOT_SRC) ppanel.koa $(FLIGHT_STAMP)
 	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(DEBUG) $(CLOUDS) $(FLIGHT_MODEL) -D__MAX_RAM__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(PPILOT_PROGRAM).asm
 	@$(IRQCHECK) $(PPILOT_PROGRAM).asm
@@ -316,7 +315,7 @@ $(PPILOT_PROGRAM).prg: $(PPILOT_SRC) $(FLIGHT_STAMP)
 # construction. It does not depend on FLIGHT_STAMP: its model is fixed by its
 # own name, and the stamp exists for the case where FLIGHT_AOA moves ppilot.prg
 # from one model to the other under a name that does not change.
-$(PPILOTA_PROGRAM).prg: $(PPILOT_SRC)
+$(PPILOTA_PROGRAM).prg: $(PPILOT_SRC) ppanel.koa
 	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(DEBUG) $(CLOUDS) -D__FLIGHT_AOA__ -D__MAX_RAM__ -o=$(PPILOTA_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(PPILOTA_PROGRAM).asm
 	@$(IRQCHECK) $(PPILOTA_PROGRAM).asm
@@ -326,7 +325,7 @@ $(PPILOTA_PROGRAM).prg: $(PPILOT_SRC)
 
 # Not on FLIGHT_STAMP either, for the same reason: its model does not follow
 # FLIGHT_AOA.
-$(FPILOT_PROGRAM).prg: $(PPILOT_SRC) $(OPPONENT_SRC)
+$(FPILOT_PROGRAM).prg: $(PPILOT_SRC) $(OPPONENT_SRC) fpanel.koa
 	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(CLOUDS) -D__FPILOT__ -D__MAX_RAM__ -o=$(FPILOT_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(FPILOT_PROGRAM).asm
 	@$(IRQCHECK) $(FPILOT_PROGRAM).asm

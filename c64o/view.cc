@@ -20,18 +20,34 @@ static inline void oscar_expand_lzo(char *dst, const char *src) {}
 view_state_t view_state = VIEW_UNKNOWN;
 static view_state_t view_bitmap_state = VIEW_UNKNOWN;
 
+// Each game has its own dashboard art (the root Makefile's ppanel and fpanel
+// targets), at the same layout: gfx.cc pokes the same lamp cells in both.
 #pragma data(data_compr)
+#ifdef __FPILOT__
 static const char kViewPanelBitmapCompressed[] = {
-#embed 3904 4098 lzo "panel.koa"
+#embed 3904 4098 lzo "fpanel.koa"
 };
 
 static const char kViewPanelScreenCompressed[] = {
-#embed 440 8562 lzo "panel.koa"
+#embed 440 8562 lzo "fpanel.koa"
 };
 
 static const char kViewPanelColorCompressed[] = {
-#embed 440 9562 lzo "panel.koa"
+#embed 440 9562 lzo "fpanel.koa"
 };
+#else
+static const char kViewPanelBitmapCompressed[] = {
+#embed 3904 4098 lzo "ppanel.koa"
+};
+
+static const char kViewPanelScreenCompressed[] = {
+#embed 440 8562 lzo "ppanel.koa"
+};
+
+static const char kViewPanelColorCompressed[] = {
+#embed 440 9562 lzo "ppanel.koa"
+};
+#endif
 #pragma data(data)
 
 void view_update_cam() {

@@ -20,7 +20,7 @@ PANEL_FLAGS = --bg-color 0 --optimize-slots \
 # c64o/ (build output, gitignored) to bin/ (checked in, what README links to).
 PROGRAMS = ppilot ppilota fpilot polydemo vecdemo vectest
 
-.PHONY: help data chardefs gfx-chars sprites clouds planes map-tiles map-tiles-draft panel music map-preview cloud-preview render demo prg pram fram release test clean
+.PHONY: help data chardefs gfx-chars sprites clouds planes map-tiles map-tiles-draft panel ppanel fpanel music map-preview cloud-preview render demo prg pram fram release test clean
 
 help:
 	@echo "Data generation:"
@@ -31,7 +31,9 @@ help:
 	@echo "                     lib/spritedef.py and lib/titledef.py"
 	@echo "  make clouds      - c64o/clouddef.{h,cc} and lib/clouddef.py"
 	@echo "  make map-tiles   - c64o/mapdefs.{cc,h} from gfx/ppilot_map_tiles.png"
-	@echo "  make panel       - c64o/panel.koa from gfx/ppilot_panel_40.png"
+	@echo "  make panel       - both instrument panels: make ppanel fpanel"
+	@echo "  make ppanel      - c64o/ppanel.koa from gfx/ppilot_panel_40.png"
+	@echo "  make fpanel      - c64o/fpanel.koa from gfx/fpilot_panel_40.png"
 	@echo "  make music       - c64o/musicdef.{cc,h} and docs/sid-intro-theme.html from lib/music.py"
 	@echo "  make planes      - c64o/planedef.h, the opponent model, from lib/planes.py"
 	@echo ""
@@ -86,7 +88,9 @@ planes:
 map-tiles-draft:
 	$(PYTHON) tools/make_map_tiles_draft.py
 
-# The instrument panel. --embed names the three byte ranges view.cc actually
+# The instrument panels: ppanel for ppilot and ppilota, fpanel for fpilot
+# (view.cc picks one by __FPILOT__). Both share one layout and one set of
+# flags, so the lamps below sit in the same cells of either. --embed names the three byte ranges view.cc actually
 # embeds, so the optimizer works on what reaches the binary and nothing else.
 #
 # The five --pin-color-ram cells are the indicator lamps: nav left and right,
@@ -95,10 +99,17 @@ map-tiles-draft:
 # in the cell; without the pin the slot optimizer is free to put it in either
 # screen RAM nibble instead. Keep in sync with the lamp pointers in gfx.cc -
 # tests/test_png2koa.py checks that they still agree.
-panel:
+panel: ppanel fpanel
+
+ppanel:
 	$(PYTHON) tools/png2koa.py gfx/ppilot_panel_40.png gfx/ppilot_panel_40.koa \
 		out/ppilot_panel_40_pepto.png $(PANEL_FLAGS)
-	cp gfx/ppilot_panel_40.koa c64o/panel.koa
+	cp gfx/ppilot_panel_40.koa c64o/ppanel.koa
+
+fpanel:
+	$(PYTHON) tools/png2koa.py gfx/fpilot_panel_40.png gfx/fpilot_panel_40.koa \
+		out/fpilot_panel_40_pepto.png $(PANEL_FLAGS)
+	cp gfx/fpilot_panel_40.koa c64o/fpanel.koa
 
 # --- Preview and build -----------------------------------------------------
 

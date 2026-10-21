@@ -182,7 +182,9 @@ are in [tools/](../tools). The most important ones:
   [sid-intro-theme.html](sid-intro-theme.html). See [music.md](music.md).
 
 - [png2koa.py](../tools/png2koa.py): Converts the instrument panel art
-  `gfx/ppilot_panel_40.png` into `c64o/panel.koa`, with a lossless slot optimizer.
+  `gfx/ppilot_panel_40.png` into `c64o/ppanel.koa` (ppilot) and
+  `gfx/fpilot_panel_40.png` into `c64o/fpanel.koa` (fpilot), with a lossless
+  slot optimizer.
   The `--pin-color-ram` flags in the root Makefile are load bearing — see the
   comment on the `panel` target.
 

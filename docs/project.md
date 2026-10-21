@@ -14,7 +14,7 @@ The repository holds two related codebases:
   set, tile definitions and sprite data that the C64 code compiles in.
 
 Data flows one way: Python generates `chardefs`, `boxdefs`, `spritedef`,
-`clouddef`, `mapdefs`, `musicdef`, `gfx_chars.bin` and `panel.koa`; the C64 code
+`clouddef`, `mapdefs`, `musicdef`, `gfx_chars.bin` and the panels `ppanel.koa` and `fpanel.koa`; the C64 code
 consumes them. `make data` runs the lot.
 
 ---
@@ -451,7 +451,7 @@ nibble to the other, which killed the right-hand nav light silently. `make
 panel` therefore passes `--pin-color-ram 10@ROW,COL` for the four lamp cells,
 and nothing else — light red anywhere else in the panel is still placed for
 compression. `tests/test_png2koa.py` reads the lamp coordinates out of `gfx.cc`
-and checks both the shipped `panel.koa` and the Makefile's pin list against
+and checks the shipped `ppanel.koa` and `fpanel.koa` and the Makefile's pin list against
 them, since the same four cells are now written down in three places.
 The lamps also only update in the center view, like the heading strip: a side
 view replaces those cells with the fill pattern, which draws with color RAM
@@ -802,7 +802,7 @@ and generates the tables the C64 code compiles in.
 | `generate_clouds.py`    | `make clouds`     | `c64o/clouddef.{h,cc}` and `lib/clouddef.py` — cloud placement constants |
 | `generate_map_tiles.py` | `make map-tiles`  | `c64o/mapdefs.{h,cc}` from `gfx/ppilot_map_tiles.png`                    |
 | `generate_music.py`     | `make music`      | `c64o/musicdef.{h,cc}` and `docs/sid-intro-theme.html`                   |
-| `png2koa.py`            | `make panel`      | a `.koa` image from a 320×200 PNG — `c64o/panel.koa` from the panel art  |
+| `png2koa.py`            | `make panel`      | `.koa` images from 320×200 PNGs — `c64o/{ppanel,fpanel}.koa` from the panel art |
 | `render_map_preview.py` | `make map-preview`| `out/map_preview.png` — the tiles composited over `kWorldMap`            |
 | `render_cloud_preview.py` | `make cloud-preview` | `out/cloud_preview.png` plus the density and slot-demand tables     |
 | `analyze_ram.py`        | `make pram`       | the RAM breakdown in [memory_map.md](memory_map.md)                     |
