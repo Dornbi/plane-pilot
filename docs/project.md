@@ -838,13 +838,14 @@ C64; `make -C c64o test` runs those.
 - **Prototype and C64 viewports differ.** `renderer_engine.py` uses a 32 × 15
   character viewport; the C64 uses 40 × 14. The Python renderer is a design
   tool, not a mirror of the shipped renderer.
-- **Opponents are in fpilot only, and fly one straight line.**
+- **Opponents are in fpilot only, and fly fixed paths.**
   [planes.md](planes.md) specifies aircraft sprites in full; `fpilot.prg`
   draws them (`opponent.cc`, §13), with the sprite buffers under I/O at
   `$D000`, time-shared with the map view's screen RAM and the title screen's
-  aeroplane, so they cost the main region nothing. Its one aircraft flies the
-  Scramble pass and nothing else: behaviour, guns and hits are still to
-  come, and `ppilot.prg` has no opponents.
+  aeroplane, and the dot in the block below. Its two aircraft fly loops of
+  waypoints, level and at one speed - the Scramble pass and a patrol round
+  the city - and nothing else: behaviour, guns and hits are still to come,
+  and `ppilot.prg` has no opponents.
 - **A single polygon can cost more than the rest of the frame.** On the runway
   it is 43,064 cycles, a third of everything measured. See
   [framerate.md](framerate.md).

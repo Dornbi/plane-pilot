@@ -70,6 +70,10 @@ FIXED = [
     (0xFFFA, 0x10000, None, 'NMI / RESET / IRQ vectors'),
 ]
 
+# fpilot only: the block its main region gives up below I/O.
+OPPONENT_DOT = (0xCFC0, 0xD000, 'Core System & Drivers',
+                "opponents' dot, 1 sprite block (mem.h kOpponentDotBlock)")
+
 # Real hardware the program uses that is not part of the 64 KB budget, so it is
 # reported on its own rather than in the walk.
 OFF_BUDGET = [
@@ -424,10 +428,16 @@ def parse_map(map_path):
     # one from mem.h. Pointed at vecdemo or vectest - built without it, and
     # without a VIC to speak of - every address above $D000 below would be
     # invented. Say so rather than printing a confident wrong number.
-    if not any(name == 'main' and end == 0xD000 for _s, end, name in regions):
+    # fpilot's main region stops one block short, at $CFC0: that block is the
+    # opponents' dot (mem.h kOpponentDotBlock).
+    main_end = next((end for _s, end, name in regions if name == 'main'), None)
+    if main_end not in (0xD000, OPPONENT_DOT[0]):
         print(f"warning: {map_path} is not a __MAX_RAM__ build "
               f"(no main region up to $D000); the fixed allocations below "
               f"describe ppilot and do not apply.\n", file=sys.stderr)
+    if main_end == OPPONENT_DOT[0] and OPPONENT_DOT not in FIXED:
+        FIXED.append(OPPONENT_DOT)
+        FIXED.sort()
 
 
     categories = {

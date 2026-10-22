@@ -1,8 +1,9 @@
 # Other Aircraft — Opponent Sprites
 
 **Status: built into `fpilot.prg`, on the `planes` branch (2026-10-18).**
-One aircraft flies the Scramble pass there (§13, "What landed"); it has no
-behaviour beyond that, and `ppilot.prg` has no opponents. The renderer also
+Two aircraft fly fixed paths there (§13, "What landed" and "Two aircraft,
+on paths"); they have no behaviour beyond that, and `ppilot.prg` has no
+opponents. The renderer also
 runs on its own:
 `c64o/planedemo.prg` draws one aircraft in default character mode with
 `c64o/planes.cc`, a C port of `lib/planes.py` held to it byte for byte on the
@@ -577,8 +578,10 @@ the map left there.
 eight-block set and may use all four sprites; the second gets the four-block
 set and is capped at two sprites, a `kmax` of 88 (`planes.h`
 `kPlaneKMaxTwoSprites`) — it freezes at ~93 m. When the two swap rank they
-swap sets, and both redraw once. *As built (§13), there is one slot: the
-dot at 64, two sets of four at 65-72, and the model's own cap, up to 2 × 2.*
+swap sets, and both redraw once. *As built (§13), not by rank: two slots,
+each with two sets of four at 64-71 and 72-79, filling `$D000–$D3FF`, and the
+model's own cap, up to 2 × 2, for both. The dot is the 17th block, at
+`$CFC0`, off the end of the main region (§13, "Two aircraft, on paths").*
 
 Double buffering is not optional. The VIC fetches sprite data on the lines
 where the sprite is displayed; rewriting a block in place tears the image for
@@ -1046,8 +1049,8 @@ went its own way; the subsections after it are the plan it followed.
 
 | Step | Where | Against the plan |
 | :--- | :--- | :--- |
-| 1-4, 7 | `c64o/opponent.cc` | One slot in `bss2`, flying the Scramble pass (two at first; see Cap). No attitude yet: everything flies level and north, so the body axes in camera space are `world_cam`'s columns, no products. `-D__NO_OPPONENT__` leaves it out |
-| 2 | `mem.h`, `opponent.cc` | The dot at 64 and the slot's two sets of four at 65-72; no sets by rank, with one slot. `$01` is banked around the fill only. fpilot's stack region grows to `$0288`: the static frames reach 132 bytes |
+| 1-4, 7 | `c64o/opponent.cc` | One slot in `bss2`, flying the Scramble pass (two at first; see Cap). No attitude yet: everything flies level and north, so the body axes in camera space are `world_cam`'s columns, no products. `-D__NO_OPPONENT__` leaves it out. *Since 2026-10-22 two slots, each on a path of waypoints with a heading of its own (below)* |
+| 2 | `mem.h`, `opponent.cc` | The dot at 64 and the slot's two sets of four at 65-72; no sets by rank, with one slot. `$01` is banked around the fill only. fpilot's stack region grows to `$0288`: the static frames reach 132 bytes. *Since 2026-10-22 the dot is at 63, `$CFC0`, and the two slots' sets fill 64-79* |
 | 5 | `sprites.cc` | `kSpriteFlagWide` and `kSpriteFlagExpandY`, with `bitmap2` as the second row's first block. One vertical cull serves both heights |
 | 6 | `sprites.cc` | Each sprite frame belongs to a screen buffer and goes up with it: no flip of its own, nothing in `mem.cc` |
 | Cap | `planes.h`, `opponent.cc` | The size cap is the view's `kmax`. A sweep of every attitude finds two sprites enough up to `k` 90, not 73 (`kPlaneKMaxTwoSprites`, 88, ~93 m). The opponent first used it; since 2026-10-19 it uses the model's own, `kPlaneKMax`, up to 2 × 2 from ~93 m in and frozen at ~54 m. A cap per slot cost ~150 bytes (oscar64 folds one constant view into the renderer), so the opponents went to one slot: a second needs §5's sets by rank, as two four-sprite slots and the dot would take 17 of the 16 blocks |
@@ -1237,7 +1240,71 @@ Two things it raises:
 - **The mission text** has the bandits over the city, which at `(0x10,
   0x68)` is south-west of the runway, behind the take-off. The pass flies the
   other way. That is fine for a first integration, and the text can follow
-  the behaviour later.
+  the behaviour later. *Since 2026-10-22 a second aircraft patrols the city
+  (next section).*
+
+### Two aircraft, on paths
+
+*Built 2026-10-22.* Two slots, and each aircraft flies a loop of up to four
+waypoints (`opponent.cc` `kOpponentPaths`, per mission). Mission 01 keeps the
+pass as the first, and adds a patrol: a 3 km square round the city at
+3,500 ft, anticlockwise.
+
+**No flight model.** Every aircraft flies level, at its path's one height and
+the one airspeed, 1,500, and turns at one fixed rate. Its heading is a level
+unit vector, not an angle - no sine or cosine anywhere:
+
+- **Steering** is the cross product of the heading with the direction to the
+  waypoint: its sign says which side the waypoint is on, and against the dot
+  product it says whether the waypoint is within 1/32 rad of dead ahead,
+  where the aircraft flies straight. The direction is cut to six bits a
+  component first, so both products fit 16 bits and come from
+  `vec_fastmul8p8()` exactly.
+- **Turning** is `vec_turn3_xy()`'s small-angle step, 8/256 rad, then
+  `vec_normalize()`: ~375 m radius at 11.7 m a step. At a larger
+  `flight_step_shift` the same step comes every `1 << shift` steps rather than
+  a smaller one every step, since below 8 the step's product with a small
+  component truncates to nothing and the turn came out slower on a faster
+  machine.
+- **A waypoint is reached** within 512 m on both axes, no less than the
+  turn's radius: any circle the aircraft can fly round a waypoint passes
+  within a radius of it, so none is circled for ever. Corners are cut by
+  that much.
+- **Moving** is `_flight_move_forward()`'s, the airspeed doubled times the
+  heading. The pass is a path too: four waypoints 32 units apart straight
+  north, the fourth where it started, as the world repeats every 128 units.
+- **The bank** is drawn only, 30 degrees towards the turn, once a turn has
+  lasted two steps: a leg's one-step corrections would flick the wings.
+- **The body axes** in camera space are two-term dot products of the heading
+  with `world_cam`'s left and up rows, then the bank: 8 products, 16 while
+  banked, on the frames that project.
+
+Reacting to the player is the same machinery with a different point to steer
+at.
+
+**The dot moved to make room.** Two slots of two sets of four and the dot are
+17 blocks, and `$D000–$D3FF` holds 16. Rather than §5's sets by rank - a
+second view, ~150 bytes, a two-sprite cap on the farther aircraft and a
+redraw of both at every swap - fpilot's main region stops at `$CFC0` and the
+dot takes that block (`mem.h` `kOpponentDotBlock`). It is plain RAM, so it
+needs no banking and the title and the map no longer overwrite it.
+
+**One redraw in flight.** A frame either fills or projects, never both, and
+projects at most one slot anew: a slot whose turn it is not shows its last
+bitmap at this frame's centre, as a slot waiting for its fill does. The slot
+that did not start the last redraw goes first next time. So a frame costs
+what it costs with one aircraft, and while both change shape each redraws
+every four frames rather than two; a slot that hits its cache or is off
+screen never holds the other up. `test/opponent_test.cc` checks the rule on
+every frame, and holds each silhouette shown to one drawn within the last
+four frames while both are on screen.
+
+**Seven sprites.** Both aircraft at 2 × 2, within ~93 m of the player at
+once, make eight: the stack drops the farther one whole (`sprites.cc`). Not
+handled.
+
+RAM: fpilot from 8,367 to 6,677 bytes allocatable: the code is +1,375,
+the paths and the state +271, and the dot takes its block.
 
 ### The sprite frame runs ahead of the terrain
 
@@ -1288,7 +1355,8 @@ of the aircraft at the size it had been close up, 66 × 26 pixels for 5 × 3.
 Since 2026-10-21 an aircraft that leaves the screen or drops to the dot
 forgets its bitmap, and a redraw drops it if the aircraft goes before the
 fill. The dot stands in for that one frame. `test/opponent_test.cc` holds every
-silhouette shown to one drawn within the last two frames.*
+silhouette shown to one drawn within the last two frames, or four with two
+aircraft taking turns ("Two aircraft, on paths").*
 
 ### At most two sprites
 

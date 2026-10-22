@@ -1,4 +1,5 @@
-// Host test for opponent.cc: what each frame offers the sprite stack.
+// Host test for opponent.cc: what each frame offers the sprite stack, and
+// where the aircraft fly.
 //
 // planes_edge_test.cc says planes.cc draws the right thing for each frame.
 // This says opponent.cc shows it: a redraw takes two frames there (docs/
@@ -8,12 +9,20 @@
 // was in view can be any size, and once was: a chase that looked away and
 // back saw a frame of the aircraft as close as it had been.
 //
-// So the rule here, at every frame: the sprite offered is the dot, or a
-// silhouette the size of one drawn for this frame or one of the two before it,
-// with the aircraft on screen all the way since. "Drawn for" is planes.cc's
-// own answer - a copy of the slot's state with its cache thrown away, rendered
-// before opponent.cc renders the frame - so the hysteresis is the same and the
-// sizes compare exactly.
+// So the rule here, at every frame and for each slot: the sprite offered is
+// the dot, or a silhouette the size of one drawn for this frame or one of the
+// two before it, with the aircraft on screen all the way since. "Drawn for" is
+// planes.cc's own answer - a copy of the slot's state with its cache thrown
+// away, rendered before opponent.cc renders the frame - so the hysteresis is
+// the same and the sizes compare exactly. With two aircraft on screen the two
+// take turns at redrawing, one redraw in flight at a time, and a slot can
+// wait two frames more: the window is then this frame and the four before.
+// Every frame also checks the turns: nothing starts a redraw while another is
+// in flight.
+//
+// The paths are checked by flying them: the patrol goes round its waypoints in
+// order, near its square, without weaving on the legs; the pass flies dead
+// straight; and the bank leans the right way.
 //
 // opponent.cc is #included rather than linked, for its statics; the flight,
 // world and mission globals it reads, and the sprite stack it writes, are
@@ -38,6 +47,7 @@
 bool flight_paused = false;
 enum FlightStatus flight_status;
 uint8_t flight_step_shift = 0;
+uint8_t kFlightSubstepMask = 0;
 int32_t flight_eye_x, flight_eye_y, flight_eye_z;
 mat3_t world_cam;
 const uint8_t kMissionStartX[kMissionCount] = {};
@@ -53,20 +63,23 @@ struct offer_t {
   int16_t x, y;
   uint8_t bitmap, bitmap2, color, flags;
 };
-static offer_t _offer;
-static int _offers;
+static offer_t _offer[2];
 
-bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x, int8_t pivot_y,
-                       uint8_t bitmap, uint8_t bitmap2, uint8_t color, uint8_t flags) {
+static bool _test_offer(uint8_t slot, int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
+                        int8_t pivot_y, uint8_t bitmap, uint8_t bitmap2, uint8_t color,
+                        uint8_t flags) {
   (void)depth;
   (void)pivot_x;
   (void)pivot_y;
-  _offer = {true, x, y, bitmap, bitmap2, color, flags};
-  ++_offers;
+  _offer[slot] = {true, x, y, bitmap, bitmap2, color, flags};
   return true;
 }
 
+// opponent_add_sprites() offers each aircraft from inside its loop over the
+// slots, as `i`; the macro passes it on, so that each offer says whose it is.
+#define sprites_stack_add(...) _test_offer(i, __VA_ARGS__)
 #include "../opponent.cc"
+#undef sprites_stack_add
 
 // --- Checks -------------------------------------------------------------------
 
@@ -110,19 +123,19 @@ static size_t2 extent(const uint8_t *blocks[4], int cols, int rows, int xs, int 
 }
 
 // The offered sprite's extent, read from the blocks it names.
-static size_t2 offered_extent(void) {
-  int cols = (_offer.flags & kSpriteFlagWide) ? 2 : 1;
-  int rows = _offer.bitmap2 != kSpriteNoBitmap ? 2 : 1;
+static size_t2 offered_extent(const offer_t &o) {
+  int cols = (o.flags & kSpriteFlagWide) ? 2 : 1;
+  int rows = o.bitmap2 != kSpriteNoBitmap ? 2 : 1;
   const uint8_t *blocks[4];
-  blocks[0] = _opponent_block(_offer.bitmap);
-  blocks[1] = _opponent_block((uint8_t)(_offer.bitmap + 1));
+  blocks[0] = _opponent_block(o.bitmap);
+  blocks[1] = _opponent_block((uint8_t)(o.bitmap + 1));
   int lower = cols;
   if (rows == 2) {
-    blocks[lower] = _opponent_block(_offer.bitmap2);
-    blocks[lower + 1] = _opponent_block((uint8_t)(_offer.bitmap2 + 1));
+    blocks[lower] = _opponent_block(o.bitmap2);
+    blocks[lower + 1] = _opponent_block((uint8_t)(o.bitmap2 + 1));
   }
-  return extent(blocks, cols, rows, (_offer.flags & kSpriteFlagExpandX) ? 2 : 1,
-                (_offer.flags & kSpriteFlagExpandY) ? 2 : 1);
+  return extent(blocks, cols, rows, (o.flags & kSpriteFlagExpandX) ? 2 : 1,
+                (o.flags & kSpriteFlagExpandY) ? 2 : 1);
 }
 
 // --- The scene ----------------------------------------------------------------
@@ -154,19 +167,25 @@ struct where_t {
   bool away;  // off to the side, out of the viewport
 };
 
-// The frame's record, for the two after it.
+// The frame's record, for the ones after it.
 struct seen_t {
   bool offered;   // anything at all was offered
   bool sized;     // planes.cc draws a silhouette here, not the dot
   size_t2 size;
 };
 
+// Up to the last five frames a slot can be showing a bitmap from.
+static const int kHist = 5;
+
 struct scene_t {
-  seen_t hist[3];  // this frame, the one before, the one before that
+  int slots;                // 1, or 2 with both aircraft on
+  int window;               // frames back a silhouette may come from
+  seen_t hist[2][kHist];    // per slot: this frame, the one before, ...
   int frames, silhouettes, dots_standing_in;
 };
 
-static void place(const where_t &w) {
+// Slot `slot` at `w`, from an eye in the middle of the world.
+static void place(int slot, const where_t &w) {
   // Camera space, then world: the camera's axes are world_cam's rows.
   double cx = w.range;
   double cy = w.away ? 3.0 * w.range : -(double)w.px * w.range / 256.0;
@@ -176,77 +195,112 @@ static void place(const where_t &w) {
   rel[0] = (cx * m.front.x + cy * m.left.x + cz * m.up.x) / 256.0;
   rel[1] = (cx * m.front.y + cy * m.left.y + cz * m.up.y) / 256.0;
   rel[2] = (cx * m.front.z + cy * m.left.z + cz * m.up.z) / 256.0;
-  // Quarter metres to 24.8 metres, from an eye in the middle of the world.
+  // Quarter metres to 24.8 metres.
   flight_eye_x = 40L << 16;
   flight_eye_y = 100L << 16;
   flight_eye_z = 8L << 16;
-  _opponent_x[0] = flight_eye_x + (lround(rel[0]) << 6);
-  _opponent_y[0] = flight_eye_y + (lround(rel[1]) << 6);
-  _opponent_z[0] = flight_eye_z + (lround(rel[2]) << 6);
+  _opponent_x[slot] = flight_eye_x + (lround(rel[0]) << 6);
+  _opponent_y[slot] = flight_eye_y + (lround(rel[1]) << 6);
+  _opponent_z[slot] = flight_eye_z + (lround(rel[2]) << 6);
 }
 
-static void frame(scene_t &sc, const where_t &w, const char *what) {
-  place(w);
-  // planes.cc's answer for this frame, from the slot's latches as they are.
+// planes.cc's answer for slot `slot` this frame, from its latches as they are.
+static seen_t reference(int slot) {
   seen_t now = {false, false, {0, 0}};
-  {
-    vec3_t rel, c;
-    bool in = _opponent_quarter(_opponent_x[0] - flight_eye_x, 0x7F, &rel.x) &&
-              _opponent_quarter(_opponent_y[0] - flight_eye_y, 0xFF, &rel.y) &&
-              _opponent_quarter(_opponent_z[0] - flight_eye_z, 0xFF, &rel.z);
-    if (in) {
-      vec_transform_inv(&world_cam, &rel, &c);
-      mat3_t axes;
-      axes.front = make_vector(0, world_cam.left.x, world_cam.up.x);
-      axes.left = make_vector(0, world_cam.left.y, world_cam.up.y);
-      axes.up = make_vector(0, world_cam.left.z, world_cam.up.z);
-      static planes_state_t fresh;
-      static uint8_t blocks[4][kPlaneBlockStride];
-      fresh = _opponent_planes[0];
-      fresh.key_valid = false;
-      planes_frame_t f;
-      planes_render(&fresh, &kView, &c, &axes, blocks[0], &f);
-      if (f.hidden == kPlaneShown && f.level != kPlaneLevelDot) {
-        const uint8_t *b[4] = {blocks[0], blocks[1], blocks[2], blocks[3]};
-        now.sized = true;
-        now.size = extent(b, f.cols, f.rows, f.xs, f.ys);
+  vec3_t rel, c;
+  bool in = _opponent_quarter(_opponent_x[slot] - flight_eye_x, 0x7F, &rel.x) &&
+            _opponent_quarter(_opponent_y[slot] - flight_eye_y, 0xFF, &rel.y) &&
+            _opponent_quarter(_opponent_z[slot] - flight_eye_z, 0xFF, &rel.z);
+  if (in) {
+    vec_transform_inv(&world_cam, &rel, &c);
+    mat3_t axes;
+    _opponent_axes((uint8_t)slot, &axes);
+    static planes_state_t fresh;
+    static uint8_t blocks[4][kPlaneBlockStride];
+    fresh = _opponent_planes[slot];
+    fresh.key_valid = false;
+    planes_frame_t f;
+    planes_render(&fresh, &kView, &c, &axes, blocks[0], &f);
+    if (f.hidden == kPlaneShown && f.level != kPlaneLevelDot) {
+      const uint8_t *b[4] = {blocks[0], blocks[1], blocks[2], blocks[3]};
+      now.sized = true;
+      now.size = extent(b, f.cols, f.rows, f.xs, f.ys);
+    }
+  }
+  return now;
+}
+
+static int popcount(uint8_t v) {
+  int n = 0;
+  for (; v; v &= (uint8_t)(v - 1)) ++n;
+  return n;
+}
+
+static void frame(scene_t &sc, const where_t *w, const char *what) {
+  seen_t now[2];
+  for (int k = 0; k < sc.slots; ++k) {
+    place(k, w[k]);
+    now[k] = reference(k);
+  }
+
+  uint8_t before = _opponent_pending;
+  _offer[0].on = _offer[1].on = false;
+  opponent_add_sprites();
+  uint8_t after = _opponent_pending;
+  ++sc.frames;
+  CHECK(popcount(after) <= 1, "%s: frame %d, %d redraws in flight", what, sc.frames,
+        popcount(after));
+  CHECK(!before || !(after & ~before),
+        "%s: frame %d starts a redraw while another is filled", what, sc.frames);
+
+  for (int k = 0; k < sc.slots; ++k) {
+    const offer_t &o = _offer[k];
+    now[k].offered = o.on;
+    seen_t *hist = sc.hist[k];
+    for (int n = kHist - 1; n > 0; --n) hist[n] = hist[n - 1];
+    hist[0] = now[k];
+    if (!o.on || o.bitmap == kOpponentBlockDot) {
+      if (o.on && now[k].sized) ++sc.dots_standing_in;
+      continue;
+    }
+    ++sc.silhouettes;
+    CHECK(o.bitmap >= kOpponentBlockFirst[k] &&
+              o.bitmap < kOpponentBlockFirst[k] + 2 * kOpponentSetBlocks,
+          "%s: frame %d, slot %d shows block %d, not one of its own", what, sc.frames, k,
+          o.bitmap);
+    size_t2 shown = offered_extent(o);
+    bool recent = false;
+    for (int n = 0; n <= sc.window && hist[n].offered; ++n) {
+      if (hist[n].sized && hist[n].size == shown) {
+        recent = true;
+        break;
       }
     }
+    CHECK(recent,
+          "%s: frame %d, slot %d %d m out, shows a %dx%d silhouette; the last frames drew "
+          "%dx%d, %dx%d, %dx%d",
+          what, sc.frames, k, w[k].range / 4, shown.w, shown.h, hist[0].size.w,
+          hist[0].size.h, hist[1].offered ? hist[1].size.w : -1,
+          hist[1].offered ? hist[1].size.h : -1, hist[2].offered ? hist[2].size.w : -1,
+          hist[2].offered ? hist[2].size.h : -1);
   }
-
-  _offer.on = false;
-  opponent_add_sprites();
-  now.offered = _offer.on;
-  sc.hist[2] = sc.hist[1];
-  sc.hist[1] = sc.hist[0];
-  sc.hist[0] = now;
-  ++sc.frames;
-  if (!_offer.on || _offer.bitmap == kOpponentBlockDot) {
-    if (_offer.on && now.sized) ++sc.dots_standing_in;
-    return;
-  }
-  ++sc.silhouettes;
-  size_t2 shown = offered_extent();
-  bool recent = false;
-  for (int n = 0; n < 3 && sc.hist[n].offered; ++n) {
-    if (sc.hist[n].sized && sc.hist[n].size == shown) {
-      recent = true;
-      break;
-    }
-  }
-  CHECK(recent,
-        "%s: frame %d, %d m out, shows a %dx%d silhouette; the last three frames drew "
-        "%dx%d, %dx%d, %dx%d",
-        what, sc.frames, w.range / 4, shown.w, shown.h, sc.hist[0].size.w, sc.hist[0].size.h,
-        sc.hist[1].offered ? sc.hist[1].size.w : -1, sc.hist[1].offered ? sc.hist[1].size.h : -1,
-        sc.hist[2].offered ? sc.hist[2].size.w : -1, sc.hist[2].offered ? sc.hist[2].size.h : -1);
 }
 
-static void start(scene_t &sc, const mat3_t &cam) {
+static void frame(scene_t &sc, const where_t &w, const char *what) { frame(sc, &w, what); }
+
+static void start(scene_t &sc, const mat3_t &cam, int slots = 1) {
   world_cam = cam;
-  _opponent_on[0] = true;
+  for (int k = 0; k < 2; ++k) {
+    _opponent_on[k] = k < slots;
+    _opponent_head[k] = make_vector(256, 0, 0);
+    _opponent_turn[k] = 0;
+    _opponent_bank[k] = 0;
+  }
+  _opponent_first = 0;
   opponent_invalidate();
   memset(&sc, 0, sizeof(sc));
+  sc.slots = slots;
+  sc.window = slots == 1 ? 2 : 4;
 }
 
 // --- 1. Looking away from a close chase, and back --------------------------------
@@ -342,10 +396,186 @@ static void test_random(void) {
          frames, silhouettes, dots);
 }
 
+// --- 4. Two at once -------------------------------------------------------------
+//
+// The same walk for both slots, each its own, and each turning now and then
+// and banking, so that their axes change as well as their range.
+
+static void walk(where_t &w, int &away) {
+  int r = rnd(100);
+  if (away > 0) {
+    --away;
+    w.away = away > 0;
+  } else if (r < 3) {
+    away = 1 + (rnd(4) == 0 ? 1 : rnd(20));
+    w.away = true;
+  } else if (r < 6) {
+    w.range = (int)(200 * pow(30.0, rnd(1000) / 1000.0));
+    w.px = rnd(200) - 100;
+    w.py = rnd(50);
+  } else {
+    w.range = std::max(160, std::min(7000, w.range * (1000 + rnd(61) - 30) / 1000));
+    w.px = std::max(-120, std::min(120, w.px + rnd(5) - 2));
+    w.py = std::max(0, std::min(50, w.py + rnd(5) - 2));
+  }
+}
+
+static void test_two(void) {
+  static const int kCameras[][3] = {{0, 0, 0}, {90, 5, 0}, {200, -10, 25}, {315, 15, -60}};
+  int frames = 0, silhouettes = 0, dots = 0;
+  for (const auto &cam : kCameras) {
+    scene_t sc;
+    start(sc, camera(cam[0], cam[1], cam[2]), 2);
+    where_t w[2] = {{1600, -30, 10, false}, {900, 40, 20, false}};
+    int away[2] = {0, 0};
+    char what[64];
+    snprintf(what, sizeof(what), "two, camera %d %d %d", cam[0], cam[1], cam[2]);
+    for (int n = 0; n < 20000; ++n) {
+      for (int k = 0; k < 2; ++k) {
+        walk(w[k], away[k]);
+        if (rnd(10) == 0) {
+          _opponent_turn[k] = _opponent_bank[k] = (int8_t)(rnd(3) - 1);
+        }
+        if (_opponent_turn[k] != 0) {
+          vec3_t &h = _opponent_head[k];
+          int16_t s = _opponent_turn[k] > 0 ? kOpponentTurn : -kOpponentTurn;
+          int16_t hx = h.x, hy = h.y;
+          h.x = hx - vec_fastmul8p8(s, hy);
+          h.y = hy + vec_fastmul8p8(s, hx);
+          vec_normalize(&h);
+        }
+      }
+      frame(sc, w, what);
+    }
+    frames += sc.frames;
+    dots += sc.dots_standing_in;
+    silhouettes += sc.silhouettes;
+  }
+  CHECK(silhouettes > frames / 2, "two: only %d silhouettes in %d frames", silhouettes, frames);
+  printf("  two at once: %d frames, %d silhouettes, %d frames of the dot standing in\n",
+         frames, silhouettes, dots);
+}
+
+// --- 5. The paths ---------------------------------------------------------------
+
+// Metres from a waypoint coordinate, 8.8 units, to a position, 24.8.
+static double metres(uint16_t w, int32_t pos, bool wrap) {
+  double d = ((double)((int32_t)w << 8) - (double)pos) / 256.0;
+  if (wrap) {
+    d = fmod(d + 16384.0 + 65536.0, 32768.0) - 16384.0;
+  }
+  return d;
+}
+
+static void test_paths(void) {
+  int turning0 = 0;
+  for (uint8_t shift = 0; shift < 3; ++shift) {
+    flight_step_shift = shift;
+    kFlightSubstepMask = (uint8_t)((1 << shift) - 1);
+    flight_paused = false;
+    flight_status = FLIGHT_ONGOING;
+    opponent_reset(0);
+    const opponent_path_t &patrol = kOpponentPaths[0][1];
+    CHECK(_opponent_on[0] && _opponent_on[1], "paths: both aircraft are on");
+
+    // A lap of the patrol at shift 0 is ~1,100 steps; four of them.
+    const int steps = 4500 << shift;
+    int reached = 0, flips = 0, weaves = 0, straight_to_turn = 0, turning = 0;
+    int8_t last = 0, last_way = 0;
+    double worst_out = 0, worst_len = 0;
+    uint8_t next = _opponent_next[1];
+    int32_t y0 = _opponent_y[0];
+    for (int n = 0; n < steps; ++n) {
+      int32_t x0 = _opponent_x[0];
+      opponent_step();
+
+      // The pass: dead north, a full step a step, never turning.
+      CHECK(_opponent_head[0].x == 256 && _opponent_head[0].y == 0 && _opponent_turn[0] == 0,
+            "paths: the pass turned at step %d", n);
+      CHECK(_opponent_y[0] == y0 && _opponent_x[0] - x0 == ((kOpponentSpeed << 1) >> shift),
+            "paths: the pass moved %d, %d at step %d", (int)(_opponent_x[0] - x0),
+            (int)(_opponent_y[0] - y0), n);
+
+      // The patrol: waypoints in order, and the wings never rocked from one
+      // side to the other.
+      if (_opponent_next[1] != next) {
+        CHECK(_opponent_next[1] == (next + 1) % patrol.count,
+              "paths: the patrol skipped from waypoint %d to %d", next, _opponent_next[1]);
+        next = _opponent_next[1];
+        ++reached;
+      }
+      if (_opponent_turn[1] != 0) ++turning;
+      int8_t t = _opponent_bank[1];
+      if (t != 0 && last != 0 && t != last) ++flips;
+      if (t != 0 && last == 0) ++straight_to_turn;
+      if (t != 0) {
+        if (last_way != 0 && t != last_way) ++weaves;
+        last_way = t;
+      }
+      last = t;
+      const vec3_t &h = _opponent_head[1];
+      double len = sqrt((double)h.x * h.x + (double)h.y * h.y);
+      worst_len = std::max(worst_len, fabs(len - 256));
+      CHECK(h.z == 0, "paths: the patrol's heading has a z");
+      CHECK(_opponent_z[1] == (int32_t)patrol.z << 8, "paths: the patrol changed height");
+      // How far outside its square, in metres.
+      double nx = metres(patrol.x[0], _opponent_x[1], true);
+      double sx = metres(patrol.x[2], _opponent_x[1], true);
+      double wy = metres(patrol.y[1], _opponent_y[1], false);
+      double ey = metres(patrol.y[0], _opponent_y[1], false);
+      double out = std::max(std::max(-nx, sx), std::max(-wy, ey));
+      worst_out = std::max(worst_out, out);
+    }
+    CHECK(reached >= 4 * (int)patrol.count, "paths: shift %d, %d waypoints in %d steps", shift,
+          reached, steps);
+    CHECK(flips == 0, "paths: shift %d, the patrol rolled straight from one bank into the other "
+          "%d times", shift, flips);
+    // A banked turn at each corner, and now and then one on a leg: the
+    // corrections, mostly a step, are not drawn banked.
+    CHECK(straight_to_turn <= 2 * reached, "paths: shift %d, %d banks for %d waypoints", shift,
+          straight_to_turn, reached);
+    // The same turns on a faster machine: as many degrees a second, so as
+    // many steps again for each step the shift splits in two.
+    if (shift == 0) turning0 = turning;
+    CHECK(fabs((double)turning / (turning0 << shift) - 1) < 0.1,
+          "paths: shift %d, %d steps turning against %d at shift 0", shift, turning, turning0);
+    // vec_normalize() takes a seven-bit square root: good to about 1%.
+    CHECK(worst_len <= 4, "paths: shift %d, the heading's length is %.1f off", shift, worst_len);
+    // Corners are cut by the reach and rounded by the turn, ~375 m: not more
+    // than a kilometre outside.
+    CHECK(worst_out < 1000, "paths: shift %d, %.0f m outside the square", shift, worst_out);
+    printf("  paths, shift %d: %d waypoints in %d steps, %d banked turns, %d of them the other "
+           "way, %.0f m outside at most\n",
+           shift, reached, steps, straight_to_turn, weaves, worst_out);
+  }
+  flight_step_shift = 0;
+  kFlightSubstepMask = 0;
+
+  // The bank: from behind, level, a left turn drops the left wing (left's
+  // screen z goes down) and leans the top to the left (up's screen y up).
+  world_cam.front = make_vector(256, 0, 0);
+  world_cam.left = make_vector(0, 256, 0);
+  world_cam.up = make_vector(0, 0, 256);
+  _opponent_head[0] = make_vector(256, 0, 0);
+  for (int t = -1; t <= 1; ++t) {
+    _opponent_bank[0] = (int8_t)t;
+    mat3_t a;
+    _opponent_axes(0, &a);
+    CHECK(a.front.y == 0 && a.front.z == 0, "bank %d: the front moved, %d %d", t, a.front.y,
+          a.front.z);
+    CHECK(a.left.z == -t * kOpponentBankSin && a.up.y == t * kOpponentBankSin,
+          "bank %d: left.z %d, up.y %d", t, a.left.z, a.up.y);
+    CHECK(a.left.y == (t ? kOpponentBankCos : 256) && a.up.z == (t ? kOpponentBankCos : 256),
+          "bank %d: left.y %d, up.z %d", t, a.left.y, a.up.z);
+  }
+}
+
 int main() {
   test_look_back();
   test_through_the_dot();
   test_random();
+  test_two();
+  test_paths();
   if (_fails) {
     printf("opponent_test: %d checks FAILED\n", _fails);
     return 1;

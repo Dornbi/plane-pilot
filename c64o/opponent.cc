@@ -18,26 +18,26 @@
 #include "vec.h"
 #include "world.h"
 
-// docs/planes.md §13: the Scramble pass.
+// docs/planes.md §13: two aircraft, each flying a fixed path.
 
-// One slot: the Scramble pass flies one aircraft. A second needs §5's block
-// sets by rank - eight blocks and a four-sprite cap for the nearer, four and
-// a two-sprite cap for the other - since $D000-$D3FF holds 16 blocks, not the
-// 17 that two four-sprite slots and the dot would take.
-static const uint8_t kOpponentMax = 1;
+// Two slots, each with every sprite it can use: two sets of four blocks fill
+// $D000-$D3FF, and the dot has a block of its own below it (mem.h). The
+// rendering loop below takes them in turns, which is written for two.
+static const uint8_t kOpponentMax = 2;
 
 // --- Sprite blocks ----------------------------------------------------------
 //
-// $D000-$D33F, RAM under I/O that the VIC in bank 3 reads, time-shared with
-// the map view's screen RAM and the title aircraft (mem.h, docs/planes.md §5):
-// the dot's block, then the aircraft's two sets of four, front and back: up
-// to 2 x 2 sprites (kView below).
-static const uint8_t kOpponentBlockDot = (0xD000 - 0xC000) / 64;
-static_assert(kOpponentBlockDot == kTitleSpriteBlock,
-              "the dot is the first block at $D000, written as such below");
-static const uint8_t kOpponentBlockFirst[kOpponentMax] = {kOpponentBlockDot + 1};
-static const uint8_t kOpponentSetBlocks[kOpponentMax] = {4};
-static_assert(kOpponentBlockDot + 1 + 2 * 4 <= (0xD400 - 0xC000) / 64,
+// The dot at $CFC0, plain RAM off the end of the main region (mem.h
+// kOpponentDotBlock). Then $D000-$D3FF, RAM under I/O that the VIC in bank 3
+// reads, time-shared with the map view's screen RAM and the title aircraft
+// (mem.h, docs/planes.md §5): each slot's two sets of four, front and back,
+// for up to 2 x 2 sprites (kView below).
+static const uint8_t kOpponentBlockDot = kOpponentDotBlock;
+static const uint8_t kOpponentSetBlocks = 4;
+static const uint8_t kOpponentBlockFirst[kOpponentMax] = {
+    kTitleSpriteBlock, kTitleSpriteBlock + 2 * kOpponentSetBlocks};
+static_assert(kTitleSpriteBlock + kOpponentMax * 2 * kOpponentSetBlocks <=
+                  (0xD400 - 0xC000) / 64,
               "opponent blocks run past $D3FF into the sprite bitmaps");
 
 #ifdef __OSCAR64__
@@ -64,26 +64,70 @@ static_assert(kSpriteVisibleEndYPixels - 1 == 89 &&
                   kViewportEndYPixels - kSpritesOffLeadExpandY - 1 == 68,
               "the DMA cuts moved: check planes.h's description of them");
 
-// --- The Scramble pass ------------------------------------------------------
+// --- Paths ------------------------------------------------------------------
 //
-// Behind the player parked on runway 1 and off to its left, low and level and
-// heading north, so it overtakes alongside the runway and flies on north in a
-// straight line, slowly enough to catch after take-off (docs/planes.md §13,
-// "The first enemy").
+// No flight model: each aircraft flies level at one height and one airspeed,
+// straight at its next waypoint, and turns at one fixed rate when the
+// waypoint is off its nose. Once the waypoint is within kOpponentReach it
+// heads for the next, and after the last for the first again. It steers at
+// a point, not along the line between two: reacting to the player would only
+// change the point.
 //
-// Airspeed in the model's units: the player's half-throttle level trim, the
-// slowest it can fly level, so that a player who has caught it can sit behind
-// it. Below the 1,024 stall it would not be an aeroplane; above the player's
-// 2,054 cruise it could not be caught.
+// Positions in 8.8 world units, 256 m each, so that flight_eye_x = x << 8;
+// the height likewise, flight_eye_z = z << 8. x is north and +y west, as
+// everywhere. A path with no waypoints is no aircraft.
+static const uint8_t kOpponentWaypoints = 4;
+struct opponent_path_t {
+  uint8_t count;
+  uint16_t start_x, start_y;
+  // The heading it starts on: a level unit vector, 8.8.
+  int16_t head_x, head_y;
+  uint16_t z;
+  uint16_t x[kOpponentWaypoints], y[kOpponentWaypoints];
+};
+
+// Mission 01, Scramble.
+//
+// The pass: behind the player parked on runway 1 and off to its left, low and
+// level and heading north, so it overtakes alongside the runway and flies on
+// north, slowly enough to catch after take-off (docs/planes.md §13, "The first
+// enemy"). 400 m behind the player's 0x1C, and 96 m left of its centreline at
+// 0x3F and a half: the runway is one unit wide, so 64 m beyond its left edge.
+// 96 m up, 80 m above the eye of an aircraft on the ground (flight.cc
+// kFlightMinEyeZ, 32 m). Its waypoints are 32 units apart straight ahead,
+// and the fourth is where it started, 128 units on: the world repeats every
+// 128 units along x, so it flies north for ever.
+//
+// The patrol: the bandit the mission text is about, flying a 3 km square
+// round the city at (0x10, 0x68) at 3,500 ft (flight.cc's scale, 1,000 ft
+// to 0x0200), anticlockwise from its south-east corner.
+static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
+    {{4, 0x1A70, 0x3FE0, 256, 0, 0x0060,
+      {0x3A70, 0x5A70, 0x7A70, 0x9A70}, {0x3FE0, 0x3FE0, 0x3FE0, 0x3FE0}},
+     {4, 0x0A00, 0x6200, 256, 0, 0x0700,
+      {0x1600, 0x1600, 0x0A00, 0x0A00}, {0x6200, 0x6E00, 0x6E00, 0x6200}}},
+};
+
+// Airspeed in the model's units, the same for everyone: the player's
+// half-throttle level trim, the slowest it can fly level, so that a player
+// who has caught one can sit behind it. Below the 1,024 stall it would not be
+// an aeroplane; above the player's 2,054 cruise it could not be caught.
 static const int16_t kOpponentSpeed = 1500;
-// How far behind the player it starts, how far to the left, and how high:
-// 24.8 metres. The runway is one unit, 256 m, wide and the player starts on
-// its centreline, so its left edge is 128 m away; the pass is 64 m beyond
-// it. +y is west, which is left facing north. The height is 80 m above the
-// eye of an aircraft on the ground (flight.cc kFlightMinEyeZ, 32 m).
-static const int32_t kOpponentBehind = 400L << 8;
-static const int32_t kOpponentLeft = 96L << 8;
-static const int32_t kOpponentPassZ = 96L << 8;
+// The turn: vec_turn3_xy()'s small angle, 8 / 256 rad, 1.8 degrees a model
+// step at flight_step_shift 0. At 11.7 m a step that is a turn of ~375 m
+// radius, a quarter circle in 50 steps. At a larger shift the same angle
+// once every 1 << shift steps, not a smaller one every step: below 8 the
+// angle's product with a small component truncates to nothing, and the turn
+// would come out slower the faster the machine.
+static const int16_t kOpponentTurn = 8;
+// Closer than this on both axes, in metres, and the waypoint is reached. No
+// less than the turn's radius: a waypoint inside the circle the aircraft is
+// turning on would be circled for ever, and every such circle passes within
+// a radius of it.
+static const int16_t kOpponentReach = 512;
+// The bank while turning, drawn only: cos and sin of 30 degrees, 8.8.
+static const int16_t kOpponentBankCos = 222;
+static const int16_t kOpponentBankSin = 128;
 
 // The pixel size, planes_frame_t::d, from which an aircraft is drawn in
 // kColorOpponentNear: about 540 m for the default model, and below
@@ -94,17 +138,31 @@ static const uint8_t kOpponentNearD = 8;
 
 #pragma bss(bss2)
 static bool _opponent_on[kOpponentMax];
-// Position in flight_eye_*'s 24.8 metres. No attitude yet: everything flies
-// level and north (opponent_add_sprites()).
+static const opponent_path_t *_opponent_path[kOpponentMax];
+// The waypoint it is flying to.
+static uint8_t _opponent_next[kOpponentMax];
+// Position in flight_eye_*'s 24.8 metres.
 static int32_t _opponent_x[kOpponentMax];
 static int32_t _opponent_y[kOpponentMax];
 static int32_t _opponent_z[kOpponentMax];
-static int16_t _opponent_speed[kOpponentMax];
+// The heading: the front, a unit vector in 8.8. Always level, so z is 0, the
+// left is (-y, x, 0) and the up is the world's.
+static vec3_t _opponent_head[kOpponentMax];
+// Which way it turned on the last step: +1 left, -1 right, 0 straight. And
+// the bank drawn: the same, once a turn has lasted two steps, so that the
+// one-step corrections on a leg do not flick the wings.
+static int8_t _opponent_turn[kOpponentMax];
+static int8_t _opponent_bank[kOpponentMax];
+// Counts model steps, for the turns at a larger flight_step_shift.
+static uint8_t _opponent_substep;
 static planes_state_t _opponent_planes[kOpponentMax];
 // Bit i: which of slot i's two block sets is on screen.
 static uint8_t _opponent_front;
 // Bit i: slot i was projected anew last frame and is filled this one.
 static uint8_t _opponent_pending;
+// The slot that goes first next frame: the one that did not start the last
+// redraw (opponent_add_sprites()).
+static uint8_t _opponent_first;
 // Bit i: slot i is near enough for kColorOpponentNear.
 static uint8_t _opponent_near;
 // The layout of what is in slot i's front set.
@@ -121,40 +179,118 @@ void opponent_invalidate(void) {
   _opponent_front = 0;
   _opponent_pending = 0;
   _opponent_near = 0;
-  mmap_set(MMAP_RAM);
+  // Below I/O, so no banking. Written here all the same, not once at boot:
+  // it is in no linker region, so nothing loads or clears it.
   planes_dot_bitmap(_opponent_block(kOpponentBlockDot));
-  mmap_set(MMAP_NO_ROM);
 }
 
 void opponent_reset(uint8_t mission) {
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
-    _opponent_on[i] = false;
+    const opponent_path_t *p = &kOpponentPaths[mission][i];
+    _opponent_on[i] = p->count != 0;
+    _opponent_path[i] = p;
+    _opponent_next[i] = 0;
+    _opponent_x[i] = (int32_t)p->start_x << 8;
+    _opponent_y[i] = (int32_t)p->start_y << 8;
+    _opponent_z[i] = (int32_t)p->z << 8;
+    _opponent_head[i] = make_vector(p->head_x, p->head_y, 0);
+    _opponent_turn[i] = 0;
+    _opponent_bank[i] = 0;
   }
-  _opponent_on[0] = true;
-  _opponent_x[0] = ((int32_t)kMissionStartX[mission] << 16) - kOpponentBehind;
-  _opponent_y[0] =
-      ((int32_t)kMissionStartY[mission] << 16) + 0x8000 + kOpponentLeft;
-  _opponent_z[0] = kOpponentPassZ;
-  _opponent_speed[0] = kOpponentSpeed;
   opponent_invalidate();
+}
+
+// a * b + c * d, each in 8.8 with b and d no more than 256: every product
+// below, which are all two-term dot products, called rather than written out.
+static __noinline int16_t _opponent_dot(int16_t a, int16_t b, int16_t c, int16_t d) {
+  return vec_fastmul8p8(a, b) + vec_fastmul8p8(c, d);
+}
+
+// (v >> flight_step_shift), as flight.cc's _flight_step_s(): a loop, since
+// the 6502 has no variable shift.
+static __noinline int16_t _opponent_step_s(int16_t v) {
+  for (uint8_t n = flight_step_shift; n != 0; --n) {
+    v >>= 1;
+  }
+  return v;
+}
+
+// A waypoint coordinate, 8.8 units, less a position, 24.8, in metres and
+// wrapped to 32,768 m, the world's 128 units along x: taken in 2 m units,
+// which the int16_t wraps at 65,536, and halved. Along y the world is 256
+// units, but no aircraft is ever 64 units from its waypoint across.
+static __noinline int16_t _opponent_toward(uint16_t w, int32_t pos) {
+  int16_t d = (int16_t)((((int32_t)w << 8) - pos) >> 7);
+  return d >> 1;
+}
+
+// What flight.cc's _flight_move_forward() adds along one axis for a level
+// aircraft: the airspeed doubled times the heading's component, shifted by
+// the step size after the multiply.
+static __noinline void _opponent_move(int32_t *pos, int16_t h) {
+  *pos += _opponent_step_s(vec_fastmul8p8(kOpponentSpeed << 1, h));
 }
 
 void opponent_step(void) {
   if (flight_paused || flight_crashed()) {
     return;
   }
+  bool turns = (++_opponent_substep & kFlightSubstepMask) == 0;
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
     if (!_opponent_on[i]) {
       continue;
     }
-    // What flight.cc's _flight_move_forward() adds for a level aircraft
-    // heading north: front (256, 0, 0) leaves the product as it is, so it is
-    // the airspeed doubled and shifted by the step size.
-    int16_t step = _opponent_speed[i] << 1;
-    for (uint8_t n = flight_step_shift; n != 0; --n) {
-      step >>= 1;
+    const opponent_path_t *p = _opponent_path[i];
+    vec3_t *h = &_opponent_head[i];
+
+    // The waypoint, relative, in metres. Reached, and the next one is
+    // steered for from the next step on.
+    uint8_t w = _opponent_next[i];
+    int16_t dx = _opponent_toward(p->x[w], _opponent_x[i]);
+    int16_t dy = _opponent_toward(p->y[w], _opponent_y[i]);
+    if (dx < kOpponentReach && dx > -kOpponentReach && dy < kOpponentReach &&
+        dy > -kOpponentReach) {
+      if (++w == p->count) {
+        w = 0;
+      }
+      _opponent_next[i] = w;
     }
-    _opponent_x[i] += step;
+
+    // Steer: the waypoint's side of the nose, from the cross product of the
+    // heading and the direction to it, and whether it is near enough dead
+    // ahead to fly straight, from that against the dot product: within
+    // 1 / 32 rad, 1.8 degrees, wider than one step's turn, so a straight leg
+    // stays straight. The direction is cut down to six bits a component
+    // first, so both products fit 16 bits, and taken as 8.8 so that
+    // vec_fastmul8p8() forms them exactly, with no multiply linked for them.
+    while (dx > 63 || dx < -63 || dy > 63 || dy < -63) {
+      dx >>= 1;
+      dy >>= 1;
+    }
+    dx <<= 8;
+    dy <<= 8;
+    int16_t hx = h->x, hy = h->y;
+    int16_t cross = _opponent_dot(dy, hx, -dx, hy);
+    int16_t dot = _opponent_dot(dx, hx, dy, hy);
+    int16_t across = cross < 0 ? -cross : cross;
+    int8_t turn = 0;
+    if (dot <= 0 || across > (dot >> 5)) {
+      turn = cross >= 0 ? 1 : -1;
+      // The small-angle turn of vec_turn3_xy(), anticlockwise for a left
+      // turn: h += s * left. The step lengthens the vector a little, and the
+      // normalisation puts it back.
+      if (turns) {
+        int16_t s = turn > 0 ? kOpponentTurn : -kOpponentTurn;
+        h->x = hx - vec_fastmul8p8(s, hy);
+        h->y = hy + vec_fastmul8p8(s, hx);
+        vec_normalize(h);
+      }
+    }
+    _opponent_bank[i] = turn == _opponent_turn[i] ? turn : 0;
+    _opponent_turn[i] = turn;
+
+    _opponent_move(&_opponent_x[i], h->x);
+    _opponent_move(&_opponent_y[i], h->y);
   }
 }
 
@@ -220,8 +356,46 @@ static __noinline bool _opponent_off_screen(void) {
          az > (half >> 1) - (eighth >> 2) + px4 + kOpponentReachZ;
 }
 
+// Slot i's body axes in camera space, as planes_project() reads them: only
+// their screen components, y and z, which are each a dot product with
+// world_cam's left and up. The heading is level, so the front and left have
+// no z and the up is the world's, whose products are world_cam's own z
+// components. Then the bank, while turning: left and up turned about the
+// front by 30 degrees, towards the turn.
+static void _opponent_axes(uint8_t i, mat3_t *axes) {
+  int16_t hx = _opponent_head[i].x, hy = _opponent_head[i].y;
+  int8_t turn = _opponent_bank[i];
+  int16_t sn = turn > 0 ? kOpponentBankSin : -kOpponentBankSin;
+  // y, then z: the products with world_cam's left, then with its up.
+  const vec3_t *row = &world_cam.left;
+  for (uint8_t c = 0; c < 2; ++c) {
+    int16_t l = _opponent_dot(row->x, -hy, row->y, hx);
+    int16_t u = row->z;
+    (&axes->front.y)[c] = _opponent_dot(row->x, hx, row->y, hy);
+    if (turn != 0) {
+      // Banked left, the left wing goes down and the top towards the left.
+      int16_t l0 = l;
+      l = _opponent_dot(l0, kOpponentBankCos, u, -sn);
+      u = _opponent_dot(u, kOpponentBankCos, l0, sn);
+    }
+    (&axes->left.y)[c] = l;
+    (&axes->up.y)[c] = u;
+    row = &world_cam.up;
+  }
+}
+
+static_assert(kOpponentMax == 2, "the slots' turns below are written for two");
+
 void opponent_add_sprites(void) {
-  for (uint8_t i = 0; i < kOpponentMax; ++i) {
+  // One redraw at a time, across both slots: a slot may start one only on a
+  // frame that fills nothing and has not started another, so that the frame
+  // pays for one projection or one fill, as it does with one aircraft. A slot
+  // kept waiting shows its last bitmap at this frame's centre, as a slot
+  // waiting for its fill does. The slot that did not start the last redraw
+  // goes first, so the two take turns while both change.
+  bool busy = _opponent_pending != 0;
+  for (uint8_t n = 0; n < kOpponentMax; ++n) {
+    uint8_t i = n ^ _opponent_first;
     if (!_opponent_on[i]) {
       continue;
     }
@@ -244,9 +418,8 @@ void opponent_add_sprites(void) {
       continue;
     }
     uint8_t first = kOpponentBlockFirst[i];
-    uint8_t set = kOpponentSetBlocks[i];
-    uint8_t front = (_opponent_front & bit) ? (uint8_t)(first + set) : first;
-    uint8_t back = (_opponent_front & bit) ? first : (uint8_t)(first + set);
+    uint8_t front = (_opponent_front & bit) ? (uint8_t)(first + kOpponentSetBlocks) : first;
+    uint8_t back = (_opponent_front & bit) ? first : (uint8_t)(first + kOpponentSetBlocks);
     planes_state_t *state = &_opponent_planes[i];
     planes_layout_t *shown = &_opponent_shown[i];
 
@@ -275,20 +448,15 @@ void opponent_add_sprites(void) {
         continue;
       }
       planes_place(shown, &kView, &f);
+    } else if (busy) {
+      // The other slot's turn: what is on screen, where it is now.
+      if (!planes_centre(&kView, &_opponent_c, &f)) {
+        continue;
+      }
+      planes_place(shown, &kView, &f);
     } else {
-      // The body axes in camera space. Everything flies level and north so
-      // far, so the body frame is the world's and its axes in camera space
-      // are world_cam's columns - and of those planes_project() reads only
-      // the screen components, y and z. Three vec_transform_inv() calls did
-      // the same for ~3,500 cycles a frame. An opponent that turns needs them
-      // back, with an attitude per aircraft.
       mat3_t axes;
-      axes.front.y = world_cam.left.x;
-      axes.front.z = world_cam.up.x;
-      axes.left.y = world_cam.left.y;
-      axes.left.z = world_cam.up.y;
-      axes.up.y = world_cam.left.z;
-      axes.up.z = world_cam.up.z;
+      _opponent_axes(i, &axes);
       planes_project(state, &kView, &_opponent_c, &axes, &f);
       if (f.hidden != kPlaneShown || f.level == kPlaneLevelDot) {
         _opponent_forget(i, bit);
@@ -300,6 +468,8 @@ void opponent_add_sprites(void) {
         // A new silhouette, filled next frame; until then the old bitmap,
         // or the dot if there is none.
         _opponent_pending |= bit;
+        busy = true;
+        _opponent_first = i ^ 1;
         planes_place(shown, &kView, &f);
       }
     }

@@ -89,7 +89,13 @@
 #define MEM_BOOT_END 0x0A60
 #pragma section(bootcode, 0)
 #pragma region( boot, MEM_BOOT_START, MEM_BOOT_END, , , {bootcode} )
-#pragma region( main, MEM_BOOT_END, 0xD000, , , {code, data, data_box, data_compr, bss, heap} )
+// fpilot's opponents stop it 64 bytes short, at kOpponentDotData below.
+#if defined(__FPILOT__) && !defined(__NO_OPPONENT__)
+#define MEM_MAIN_END 0xCFC0
+#else
+#define MEM_MAIN_END 0xD000
+#endif
+#pragma region( main, MEM_BOOT_END, MEM_MAIN_END, , , {code, data, data_box, data_compr, bss, heap} )
 #endif
 // Zero page. Wider than oscar64's 0x80..0xFF default, in both directions.
 //
@@ -188,6 +194,16 @@ extern uint8_t *kFinSpriteData;
 // a block is 64 bytes. title.cc checks this against the generated
 // kTitleDefBitmapBase, which is what the sprite pointers are written from.
 static const uint8_t kTitleSpriteBlock = (0xD000 - 0xC000) / 64;
+#if defined(__FPILOT__) && !defined(__NO_OPPONENT__)
+// The opponents' dot (opponent.cc), the last block below I/O, off the end of
+// the main region. Two aircraft take all 16 blocks at $D000-$D3FF, two sets
+// of four each, and this is the 17th. Plain RAM, so nothing else writes it
+// and it needs no banking.
+static const uint8_t kOpponentDotBlock = (0xCFC0 - 0xC000) / 64;
+#ifdef __MAX_RAM__
+static_assert(MEM_MAIN_END == 0xCFC0, "the dot is the block the main region gave up");
+#endif
+#endif
 static const uint8_t kRasterScreenYStart = 50;
 
 // Sprites are switched off this many raster lines above the panel split, so
