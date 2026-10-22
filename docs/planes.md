@@ -1297,7 +1297,12 @@ what it costs with one aircraft, and while both change shape each redraws
 every four frames rather than two; a slot that hits its cache or is off
 screen never holds the other up. `test/opponent_test.cc` checks the rule on
 every frame, and holds each silhouette shown to one drawn within the last
-four frames while both are on screen.
+four frames while both are on screen. *As first committed the loop took its
+order from the variable it updated, so a slot that started a redraw was
+visited again at once, filled in the same frame, and the other slot was not
+offered at all: with both changing, each showed on every other frame. Fixed
+2026-10-22, and the test now also checks that every aircraft in view is
+offered.*
 
 **Seven sprites.** Both aircraft at 2 × 2, within ~93 m of the player at
 once, make eight: the stack drops the farther one whole (`sprites.cc`). Not

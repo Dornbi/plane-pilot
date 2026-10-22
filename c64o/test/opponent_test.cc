@@ -17,8 +17,8 @@
 // the same and the sizes compare exactly. With two aircraft on screen the two
 // take turns at redrawing, one redraw in flight at a time, and a slot can
 // wait two frames more: the window is then this frame and the four before.
-// Every frame also checks the turns: nothing starts a redraw while another is
-// in flight.
+// Every frame also checks the turns - no frame both fills one slot and starts
+// a redraw of another - and that every aircraft in view is offered.
 //
 // The paths are checked by flying them: the patrol goes round its waypoints in
 // order, near its square, without weaving on the legs; the pass flies dead
@@ -170,6 +170,7 @@ struct where_t {
 // The frame's record, for the ones after it.
 struct seen_t {
   bool offered;   // anything at all was offered
+  bool visible;   // planes.cc shows something here, the dot or a silhouette
   bool sized;     // planes.cc draws a silhouette here, not the dot
   size_t2 size;
 };
@@ -206,7 +207,7 @@ static void place(int slot, const where_t &w) {
 
 // planes.cc's answer for slot `slot` this frame, from its latches as they are.
 static seen_t reference(int slot) {
-  seen_t now = {false, false, {0, 0}};
+  seen_t now = {false, false, false, {0, 0}};
   vec3_t rel, c;
   bool in = _opponent_quarter(_opponent_x[slot] - flight_eye_x, 0x7F, &rel.x) &&
             _opponent_quarter(_opponent_y[slot] - flight_eye_y, 0xFF, &rel.y) &&
@@ -221,6 +222,7 @@ static seen_t reference(int slot) {
     fresh.key_valid = false;
     planes_frame_t f;
     planes_render(&fresh, &kView, &c, &axes, blocks[0], &f);
+    now.visible = f.hidden == kPlaneShown;
     if (f.hidden == kPlaneShown && f.level != kPlaneLevelDot) {
       const uint8_t *b[4] = {blocks[0], blocks[1], blocks[2], blocks[3]};
       now.sized = true;
@@ -244,18 +246,26 @@ static void frame(scene_t &sc, const where_t *w, const char *what) {
   }
 
   uint8_t before = _opponent_pending;
+  uint8_t sets = _opponent_front;
   _offer[0].on = _offer[1].on = false;
   opponent_add_sprites();
   uint8_t after = _opponent_pending;
+  // A fill flips the slot's front set.
+  bool filled = _opponent_front != sets;
   ++sc.frames;
   CHECK(popcount(after) <= 1, "%s: frame %d, %d redraws in flight", what, sc.frames,
         popcount(after));
-  CHECK(!before || !(after & ~before),
-        "%s: frame %d starts a redraw while another is filled", what, sc.frames);
+  CHECK(!filled || !(after & ~before),
+        "%s: frame %d starts a redraw and fills another", what, sc.frames);
 
   for (int k = 0; k < sc.slots; ++k) {
     const offer_t &o = _offer[k];
     now[k].offered = o.on;
+    // Clear of the bottom of the viewport, where a stale bitmap's slide can
+    // hide what a fresh one would show, every aircraft in view is offered.
+    CHECK(o.on || !now[k].visible || w[k].py < 0,
+          "%s: frame %d, slot %d %d m out is in view and not offered", what, sc.frames, k,
+          w[k].range / 4);
     seen_t *hist = sc.hist[k];
     for (int n = kHist - 1; n > 0; --n) hist[n] = hist[n - 1];
     hist[0] = now[k];

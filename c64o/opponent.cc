@@ -161,8 +161,14 @@ static uint8_t _opponent_front;
 // Bit i: slot i was projected anew last frame and is filled this one.
 static uint8_t _opponent_pending;
 // The slot that goes first next frame: the one that did not start the last
-// redraw (opponent_add_sprites()).
+// redraw (opponent_add_sprites()). And what it will be, written while this
+// frame's order still reads the old value; and whether a redraw is in flight
+// this frame. Statics rather than locals, for oscar64's zero page
+// temporaries, which grow with the call graph and have 4 bytes to spare
+// (mem.h, tools/check_zeropage.py).
 static uint8_t _opponent_first;
+static uint8_t _opponent_first_next;
+static bool _opponent_busy;
 // Bit i: slot i is near enough for kColorOpponentNear.
 static uint8_t _opponent_near;
 // The layout of what is in slot i's front set.
@@ -393,7 +399,8 @@ void opponent_add_sprites(void) {
   // kept waiting shows its last bitmap at this frame's centre, as a slot
   // waiting for its fill does. The slot that did not start the last redraw
   // goes first, so the two take turns while both change.
-  bool busy = _opponent_pending != 0;
+  _opponent_busy = _opponent_pending != 0;
+  _opponent_first_next = _opponent_first;
   for (uint8_t n = 0; n < kOpponentMax; ++n) {
     uint8_t i = n ^ _opponent_first;
     if (!_opponent_on[i]) {
@@ -448,7 +455,7 @@ void opponent_add_sprites(void) {
         continue;
       }
       planes_place(shown, &kView, &f);
-    } else if (busy) {
+    } else if (_opponent_busy) {
       // The other slot's turn: what is on screen, where it is now.
       if (!planes_centre(&kView, &_opponent_c, &f)) {
         continue;
@@ -468,8 +475,8 @@ void opponent_add_sprites(void) {
         // A new silhouette, filled next frame; until then the old bitmap,
         // or the dot if there is none.
         _opponent_pending |= bit;
-        busy = true;
-        _opponent_first = i ^ 1;
+        _opponent_busy = true;
+        _opponent_first_next = i ^ 1;
         planes_place(shown, &kView, &f);
       }
     }
@@ -509,6 +516,7 @@ void opponent_add_sprites(void) {
     sprites_stack_add(_opponent_c.x >> 3, f.x, f.y, 0, 0, bitmap, bitmap2,
                       color, flags);
   }
+  _opponent_first = _opponent_first_next;
 }
 
 #pragma optimize(pop)
