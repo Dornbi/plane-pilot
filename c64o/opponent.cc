@@ -16,6 +16,7 @@
 #include "planes.h"
 #include "sprites.h"
 #include "vec.h"
+#include "view.h"
 #include "world.h"
 
 // docs/planes.md §13: two aircraft, each flying a fixed path.
@@ -53,13 +54,20 @@ static inline uint8_t *_opponent_block(uint8_t block) {
 
 // The viewport's centre, the last line a sprite may start on, plain and
 // Y-expanded (mem.h), and the model's own size cap: the aircraft grows to
-// 2 x 2 sprites and holds its size from ~54 m. One view for every slot: a
-// view that varies costs ~150 bytes, since oscar64 folds a constant one into
-// the renderer.
+// 2 x 2 sprites and holds its size from ~54 m.
 static const planes_view_t kView = {
     kScreenWidthPixels / 2, kViewportEndYPixels / 2,
     kSpriteVisibleEndYPixels - 1,
     kViewportEndYPixels - kSpritesOffLeadExpandY - 1, kPlaneKMax};
+// The same, held to two sprites at every attitude: it stops growing at ~93 m
+// (planes.h kPlaneKMaxTwoSprites). For an aircraft that has to share the
+// stack's seven sprites with another (_opponent_cap()). Farther than
+// ~93 m it draws exactly what kView does, k never reaching either cap, so
+// it can be handed to an aircraft at range for nothing - not even a redraw.
+static const planes_view_t kViewTwo = {
+    kScreenWidthPixels / 2, kViewportEndYPixels / 2,
+    kSpriteVisibleEndYPixels - 1,
+    kViewportEndYPixels - kSpritesOffLeadExpandY - 1, kPlaneKMaxTwoSprites};
 static_assert(kSpriteVisibleEndYPixels - 1 == 89 &&
                   kViewportEndYPixels - kSpritesOffLeadExpandY - 1 == 68,
               "the DMA cuts moved: check planes.h's description of them");
@@ -161,20 +169,30 @@ static uint8_t _opponent_front;
 // Bit i: slot i was projected anew last frame and is filled this one.
 static uint8_t _opponent_pending;
 // The slot that goes first next frame: the one that did not start the last
-// redraw (opponent_add_sprites()). And what it will be, written while this
-// frame's order still reads the old value; and whether a redraw is in flight
-// this frame. Statics rather than locals, for oscar64's zero page
-// temporaries, which grow with the call graph and have 4 bytes to spare
-// (mem.h, tools/check_zeropage.py).
+// redraw (opponent_add_sprites()).
 static uint8_t _opponent_first;
-static uint8_t _opponent_first_next;
-static bool _opponent_busy;
 // Bit i: slot i is near enough for kColorOpponentNear.
 static uint8_t _opponent_near;
 // The layout of what is in slot i's front set.
 static planes_layout_t _opponent_shown[kOpponentMax];
-// The aircraft being drawn, in camera space and quarter metres.
+// The slot taken for the nearer while both are in view, and bit i: slot i is
+// drawn under kViewTwo this frame.
+static uint8_t _opponent_nearer;
+static uint8_t _opponent_capped;
+// The aircraft being culled or drawn, in camera space and quarter metres,
+// each slot's once it is in view, and the view it is drawn in. Statics
+// rather than locals, like the two below and the slot's state in
+// _opponent_draw(), read through _opponent_planes[i] rather than a pointer:
+// oscar64's zero page temporaries grow with the call graph and the
+// renderer's chain is the deepest, with 4 bytes to spare (mem.h,
+// tools/check_zeropage.py).
 static vec3_t _opponent_c;
+static vec3_t _opponent_cs[kOpponentMax];
+static const planes_view_t *_opponent_view;
+// opponent_add_sprites()'s: which slots are in view, and whether a redraw is
+// in flight this frame.
+static uint8_t _opponent_seen;
+static bool _opponent_busy;
 #pragma bss(bss)
 
 void opponent_invalidate(void) {
@@ -392,131 +410,196 @@ static void _opponent_axes(uint8_t i, mat3_t *axes) {
 
 static_assert(kOpponentMax == 2, "the slots' turns below are written for two");
 
-void opponent_add_sprites(void) {
-  // One redraw at a time, across both slots: a slot may start one only on a
-  // frame that fills nothing and has not started another, so that the frame
-  // pays for one projection or one fill, as it does with one aircraft. A slot
-  // kept waiting shows its last bitmap at this frame's centre, as a slot
-  // waiting for its fill does. The slot that did not start the last redraw
-  // goes first, so the two take turns while both change.
-  _opponent_busy = _opponent_pending != 0;
-  _opponent_first_next = _opponent_first;
-  for (uint8_t n = 0; n < kOpponentMax; ++n) {
-    uint8_t i = n ^ _opponent_first;
+// Which aircraft are in view, and where: bit i of the result for slot i, and
+// its camera-space position in _opponent_cs[i]. This, _opponent_cap() and
+// _opponent_draw() are functions of their own, out of
+// opponent_add_sprites(): in one they pushed oscar64's zero page
+// temporaries past the end of its area (mem.h).
+static __noinline uint8_t _opponent_cull(void) {
+  uint8_t seen = 0;
+  for (uint8_t i = 0; i < kOpponentMax; ++i) {
     if (!_opponent_on[i]) {
       continue;
     }
     uint8_t bit = (uint8_t)(1 << i);
     vec3_t rel;
-    bool seen = _opponent_quarter(_opponent_x[i] - flight_eye_x, 0x7F, &rel.x) &&
-                _opponent_quarter(_opponent_y[i] - flight_eye_y, 0xFF, &rel.y) &&
-                _opponent_quarter(_opponent_z[i] - flight_eye_z, 0xFF, &rel.z);
-    if (seen) {
+    if (_opponent_quarter(_opponent_x[i] - flight_eye_x, 0x7F, &rel.x) &&
+        _opponent_quarter(_opponent_y[i] - flight_eye_y, 0xFF, &rel.y) &&
+        _opponent_quarter(_opponent_z[i] - flight_eye_z, 0xFF, &rel.z)) {
       vec_transform_inv(&world_cam, &rel, &_opponent_c);
       // planes_render() says the same about x, but only after the axes
       // below. Then wholly outside the viewport: planes_render() only gives
       // up 45 degrees off the view axis, so an aircraft just over the top on
       // the pass, or just off to one side, would be projected, and drawn or
       // looked up in the cache, for nothing: 7,000-38,000 cycles a frame.
-      seen = _opponent_c.x > 64 && !_opponent_off_screen();
-    }
-    if (!seen) {
-      _opponent_forget(i, bit);
-      continue;
-    }
-    uint8_t first = kOpponentBlockFirst[i];
-    uint8_t front = (_opponent_front & bit) ? (uint8_t)(first + kOpponentSetBlocks) : first;
-    uint8_t back = (_opponent_front & bit) ? first : (uint8_t)(first + kOpponentSetBlocks);
-    planes_state_t *state = &_opponent_planes[i];
-    planes_layout_t *shown = &_opponent_shown[i];
-
-    // A redraw takes two frames, the projection in one and the fill in the
-    // next (docs/planes.md §13, "The silhouette at half rate"), so neither
-    // frame pays for both. The position is this frame's either way: the
-    // bitmap on screen is placed at this frame's centre.
-    planes_frame_t f;
-    if (_opponent_pending & bit) {
-      // The fill the last frame projected. It writes under I/O; the raster
-      // handlers bank I/O in for themselves (gfx.cc _gfx_isr), and nothing
-      // in planes_fill() touches it. Then the new bitmap is the front one:
-      // it goes on screen with this frame's characters, at
-      // mem_switch_buffer(), and by the time a later frame fills the other
-      // set the raster handler has stopped showing it - mem_switch_buffer()
-      // runs past raster 250 in its colour copy before it returns.
-      bool seen = planes_centre(&kView, &_opponent_c, &f);
-      mmap_set(MMAP_RAM);
-      planes_fill(state, _opponent_block(back));
-      mmap_set(MMAP_NO_ROM);
-      _opponent_pending &= (uint8_t)~bit;
-      _opponent_front ^= bit;
-      front = back;
-      *shown = state->lay;
-      if (!seen) {
+      if (_opponent_c.x > 64 && !_opponent_off_screen()) {
+        seen |= bit;
+        _opponent_cs[i] = _opponent_c;
         continue;
       }
-      planes_place(shown, &kView, &f);
-    } else if (_opponent_busy) {
-      // The other slot's turn: what is on screen, where it is now.
-      if (!planes_centre(&kView, &_opponent_c, &f)) {
-        continue;
-      }
-      planes_place(shown, &kView, &f);
-    } else {
-      mat3_t axes;
-      _opponent_axes(i, &axes);
-      planes_project(state, &kView, &_opponent_c, &axes, &f);
-      if (f.hidden != kPlaneShown || f.level == kPlaneLevelDot) {
-        _opponent_forget(i, bit);
-      } else if (f.cached) {
-        // The front set holds the state's silhouette - after a forget too,
-        // as the state has not been projected since it was filled.
-        *shown = state->lay;
-      } else {
-        // A new silhouette, filled next frame; until then the old bitmap,
-        // or the dot if there is none.
-        _opponent_pending |= bit;
-        _opponent_busy = true;
-        _opponent_first_next = i ^ 1;
-        planes_place(shown, &kView, &f);
-      }
     }
-    if (f.hidden != kPlaneShown) {
-      continue;
-    }
-
-    uint8_t bitmap = kOpponentBlockDot;
-    uint8_t bitmap2 = kSpriteNoBitmap;
-    uint8_t flags = 0;
-    if (f.level != kPlaneLevelDot) {
-      bitmap = front;
-      if (f.rows == 2) {
-        bitmap2 = (uint8_t)(front + f.cols);
-      }
-      if (f.cols == 2) {
-        flags |= kSpriteFlagWide;
-      }
-      if (f.xs == 2) {
-        flags |= kSpriteFlagExpandX;
-      }
-      if (f.ys == 2) {
-        flags |= kSpriteFlagExpandY;
-      }
-    }
-    // The colour, from the pixel size: near from about 8 pixels across, and
-    // back to far below 7, so that a chase holding the range on the line does
-    // not flicker.
-    if (f.d >= kOpponentNearD) {
-      _opponent_near |= bit;
-    } else if (f.d < kOpponentNearD - 1) {
-      _opponent_near &= (uint8_t)~bit;
-    }
-    uint8_t color =
-        (_opponent_near & bit) ? kColorOpponentNear : kColorOpponentFar;
-    // Depth in the clouds' 2 m units, so that the two sort together.
-    sprites_stack_add(_opponent_c.x >> 3, f.x, f.y, 0, 0, bitmap, bitmap2,
-                      color, flags);
+    _opponent_forget(i, bit);
   }
-  _opponent_first = _opponent_first_next;
+  return seen;
+}
+
+// Seven sprites for the stack (sprites.h kSpriteTerrainSlots), and two
+// aircraft at 2 x 2 would take eight: the farther would be dropped whole.
+// So while both are in view the farther is held to two sprites, which
+// changes nothing unless it is within ~93 m (kViewTwo); and in the back
+// view, where the fin takes two of the seven (sprites.cc kSpriteFinCount),
+// the nearer as well. Which is nearer goes by depth, and changes only once
+// the other is an eighth nearer, so that two at about the same range do
+// not trade sizes every frame. Sets _opponent_capped.
+static __noinline void _opponent_cap(uint8_t seen) {
+  uint8_t capped = 0;
+  if (seen == 3) {
+    int16_t dn = _opponent_cs[_opponent_nearer].x;
+    if (_opponent_cs[_opponent_nearer ^ 1].x < dn - (dn >> 3)) {
+      _opponent_nearer ^= 1;
+    }
+    capped = view_state == VIEW_BACK ? 3 : (uint8_t)(2 >> _opponent_nearer);
+  }
+  for (uint8_t i = 0; i < kOpponentMax; ++i) {
+    uint8_t bit = (uint8_t)(1 << i);
+    // Newly held to two, with more on screen or being filled: the dot until
+    // its turn to redraw comes round, never more than its share.
+    if ((capped & bit) && !(_opponent_capped & bit)) {
+      const planes_layout_t *lay = (_opponent_pending & bit)
+                                       ? &_opponent_planes[i].lay
+                                       : &_opponent_shown[i];
+      if (lay->level != kPlaneLevelDot && lay->cols + lay->rows > 3) {
+        _opponent_forget(i, bit);
+      }
+    }
+  }
+  _opponent_capped = capped;
+}
+
+// Slot i, in view at _opponent_cs[i]: its redraw, or the half of one that is
+// due, and its offer to the stack. `busy` if another slot has a redraw in
+// flight this frame; true if this one starts one.
+static __noinline bool _opponent_draw(uint8_t i, bool busy) {
+  uint8_t bit = (uint8_t)(1 << i);
+  bool started = false;
+  _opponent_view = (_opponent_capped & bit) ? &kViewTwo : &kView;
+  _opponent_c = _opponent_cs[i];
+  // The first block of the set on screen.
+  uint8_t front = kOpponentBlockFirst[i];
+  if (_opponent_front & bit) {
+    front += kOpponentSetBlocks;
+  }
+
+  // A redraw takes two frames, the projection in one and the fill in the
+  // next (docs/planes.md §13, "The silhouette at half rate"), so neither
+  // frame pays for both. The position is this frame's either way: the
+  // bitmap on screen is placed at this frame's centre.
+  planes_frame_t f;
+  if (_opponent_pending & bit) {
+    // The fill the last frame projected. It writes under I/O; the raster
+    // handlers bank I/O in for themselves (gfx.cc _gfx_isr), and nothing
+    // in planes_fill() touches it. Then the new bitmap is the front one:
+    // it goes on screen with this frame's characters, at
+    // mem_switch_buffer(), and by the time a later frame fills the other
+    // set the raster handler has stopped showing it - mem_switch_buffer()
+    // runs past raster 250 in its colour copy before it returns.
+    bool seen = planes_centre(_opponent_view, &_opponent_c, &f);
+    _opponent_front ^= bit;
+    front = kOpponentBlockFirst[i];
+    if (_opponent_front & bit) {
+      front += kOpponentSetBlocks;
+    }
+    mmap_set(MMAP_RAM);
+    planes_fill(&_opponent_planes[i], _opponent_block(front));
+    mmap_set(MMAP_NO_ROM);
+    _opponent_pending &= (uint8_t)~bit;
+    _opponent_shown[i] = _opponent_planes[i].lay;
+    if (!seen) {
+      return started;
+    }
+    planes_place(&_opponent_shown[i], _opponent_view, &f);
+  } else if (busy) {
+    // The other slot's turn: what is on screen, where it is now.
+    if (!planes_centre(_opponent_view, &_opponent_c, &f)) {
+      return started;
+    }
+    planes_place(&_opponent_shown[i], _opponent_view, &f);
+  } else {
+    mat3_t axes;
+    _opponent_axes(i, &axes);
+    planes_project(&_opponent_planes[i], _opponent_view, &_opponent_c, &axes, &f);
+    if (f.hidden != kPlaneShown || f.level == kPlaneLevelDot) {
+      _opponent_forget(i, bit);
+    } else if (f.cached) {
+      // The front set holds the state's silhouette - after a forget too,
+      // as the state has not been projected since it was filled.
+      _opponent_shown[i] = _opponent_planes[i].lay;
+    } else {
+      // A new silhouette, filled next frame; until then the old bitmap,
+      // or the dot if there is none.
+      _opponent_pending |= bit;
+      started = true;
+      planes_place(&_opponent_shown[i], _opponent_view, &f);
+    }
+  }
+  if (f.hidden != kPlaneShown) {
+    return started;
+  }
+
+  uint8_t bitmap = kOpponentBlockDot;
+  uint8_t bitmap2 = kSpriteNoBitmap;
+  uint8_t flags = 0;
+  if (f.level != kPlaneLevelDot) {
+    bitmap = front;
+    if (f.rows == 2) {
+      bitmap2 = (uint8_t)(front + f.cols);
+    }
+    if (f.cols == 2) {
+      flags |= kSpriteFlagWide;
+    }
+    if (f.xs == 2) {
+      flags |= kSpriteFlagExpandX;
+    }
+    if (f.ys == 2) {
+      flags |= kSpriteFlagExpandY;
+    }
+  }
+  // The colour, from the pixel size: near from about 8 pixels across, and
+  // back to far below 7, so that a chase holding the range on the line does
+  // not flicker.
+  if (f.d >= kOpponentNearD) {
+    _opponent_near |= bit;
+  } else if (f.d < kOpponentNearD - 1) {
+    _opponent_near &= (uint8_t)~bit;
+  }
+  uint8_t color =
+      (_opponent_near & bit) ? kColorOpponentNear : kColorOpponentFar;
+  // Depth in the clouds' 2 m units, so that the two sort together.
+  sprites_stack_add(_opponent_c.x >> 3, f.x, f.y, 0, 0, bitmap, bitmap2,
+                    color, flags);
+  return started;
+}
+
+void opponent_add_sprites(void) {
+  _opponent_seen = _opponent_cull();
+  _opponent_cap(_opponent_seen);
+
+  // One redraw at a time, across both slots: a slot may start one only on a
+  // frame that fills nothing and has not started another, so that the frame
+  // pays for one projection or one fill, as it does with one aircraft. A slot
+  // kept waiting shows its last bitmap at this frame's centre, as a slot
+  // waiting for its fill does. The slot that did not start the last redraw
+  // goes first, so the two take turns while both change. The order is fixed
+  // before the loop, which sets the next frame's.
+  _opponent_busy = _opponent_pending != 0;
+  uint8_t first = _opponent_first;
+  for (uint8_t n = 0; n < kOpponentMax; ++n) {
+    uint8_t i = n ^ first;
+    if ((_opponent_seen & (uint8_t)(1 << i)) && _opponent_draw(i, _opponent_busy)) {
+      _opponent_busy = true;
+      _opponent_first = i ^ 1;
+    }
+  }
 }
 
 #pragma optimize(pop)

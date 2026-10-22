@@ -1304,12 +1304,27 @@ offered at all: with both changing, each showed on every other frame. Fixed
 2026-10-22, and the test now also checks that every aircraft in view is
 offered.*
 
-**Seven sprites.** Both aircraft at 2 × 2, within ~93 m of the player at
-once, make eight: the stack drops the farther one whole (`sprites.cc`). Not
-handled.
+**Seven sprites.** Both aircraft at 2 × 2 make eight, and the stack drops
+the farther whole (`sprites.cc`). So while both are in view the farther is
+drawn under a second view, `kViewTwo`, whose cap is
+`kPlaneKMaxTwoSprites`: at most two sprites at any attitude. Beyond ~93 m
+that view draws exactly what the other does, `k` reaching neither cap, so
+it is handed to the farther aircraft whatever the range, without a redraw.
+In the back view the fin takes two of the seven, and both are held to two.
+Which is nearer goes by depth and changes only once the other is an eighth
+nearer, so two at about the same range do not trade sizes. An aircraft newly
+held to two while it shows, or is filling, more than two forgets its bitmap:
+the dot until its turn to redraw. `test/opponent_test.cc` checks the budget,
+seven less the fin, on every frame, and walks both aircraft round each
+other inside 125 m in both views.
 
 RAM: fpilot from 8,367 to 6,677 bytes allocatable: the code is +1,375,
-the paths and the state +271, and the dot takes its block.
+the paths and the state +271, and the dot takes its block. The second view
+and the cap took it to 6,053: ~100 bytes in the renderer, which no longer
+folds one constant view, and the rest in `opponent.cc`. That had to be split
+into `_opponent_cull()`, `_opponent_cap()` and `_opponent_draw()`, with a few
+locals made statics: in one function its temporaries ran past oscar64's
+zero page into the program's own at `$60` (`tools/check_zeropage.py`).
 
 ### The sprite frame runs ahead of the terrain
 

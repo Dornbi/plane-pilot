@@ -18,7 +18,9 @@
 // take turns at redrawing, one redraw in flight at a time, and a slot can
 // wait two frames more: the window is then this frame and the four before.
 // Every frame also checks the turns - no frame both fills one slot and starts
-// a redraw of another - and that every aircraft in view is offered.
+// a redraw of another - that every aircraft in view is offered, and that the
+// two fit the stack's seven sprites, less the back view's fin: the farther,
+// or in the back view both, held to two.
 //
 // The paths are checked by flying them: the patrol goes round its waypoints in
 // order, near its square, without weaving on the legs; the pass flies dead
@@ -40,11 +42,13 @@
 #include "../planes.h"
 #include "../sprites.h"
 #include "../vec.h"
+#include "../view.h"
 #include "../world.h"
 
 // --- What opponent.cc reads ---------------------------------------------------
 
 bool flight_paused = false;
+view_state_t view_state = VIEW_CENTER;
 enum FlightStatus flight_status;
 uint8_t flight_step_shift = 0;
 uint8_t kFlightSubstepMask = 0;
@@ -183,6 +187,8 @@ struct scene_t {
   int window;               // frames back a silhouette may come from
   seen_t hist[2][kHist];    // per slot: this frame, the one before, ...
   int frames, silhouettes, dots_standing_in;
+  int shared;        // both offered, more than four sprites between them
+  int four_and_two;  // one at 2 x 2 with the other held to two
 };
 
 // Slot `slot` at `w`, from an eye in the middle of the world.
@@ -205,8 +211,9 @@ static void place(int slot, const where_t &w) {
   _opponent_z[slot] = flight_eye_z + (lround(rel[2]) << 6);
 }
 
-// planes.cc's answer for slot `slot` this frame, from its latches as they are.
-static seen_t reference(int slot) {
+// planes.cc's answer for slot `slot` this frame, from its latches as they
+// were before opponent.cc drew the frame, and under the view it chose.
+static seen_t reference(int slot, const planes_state_t &latches, const planes_view_t &view) {
   seen_t now = {false, false, false, {0, 0}};
   vec3_t rel, c;
   bool in = _opponent_quarter(_opponent_x[slot] - flight_eye_x, 0x7F, &rel.x) &&
@@ -218,10 +225,10 @@ static seen_t reference(int slot) {
     _opponent_axes((uint8_t)slot, &axes);
     static planes_state_t fresh;
     static uint8_t blocks[4][kPlaneBlockStride];
-    fresh = _opponent_planes[slot];
+    fresh = latches;
     fresh.key_valid = false;
     planes_frame_t f;
-    planes_render(&fresh, &kView, &c, &axes, blocks[0], &f);
+    planes_render(&fresh, &view, &c, &axes, blocks[0], &f);
     now.visible = f.hidden == kPlaneShown;
     if (f.hidden == kPlaneShown && f.level != kPlaneLevelDot) {
       const uint8_t *b[4] = {blocks[0], blocks[1], blocks[2], blocks[3]};
@@ -238,11 +245,17 @@ static int popcount(uint8_t v) {
   return n;
 }
 
+// Hardware sprites an offer takes.
+static int sprites_of(const offer_t &o) {
+  if (!o.on) return 0;
+  return ((o.flags & kSpriteFlagWide) ? 2 : 1) * (o.bitmap2 != kSpriteNoBitmap ? 2 : 1);
+}
+
 static void frame(scene_t &sc, const where_t *w, const char *what) {
-  seen_t now[2];
+  static planes_state_t latches[2];
   for (int k = 0; k < sc.slots; ++k) {
     place(k, w[k]);
-    now[k] = reference(k);
+    latches[k] = _opponent_planes[k];
   }
 
   uint8_t before = _opponent_pending;
@@ -253,6 +266,30 @@ static void frame(scene_t &sc, const where_t *w, const char *what) {
   // A fill flips the slot's front set.
   bool filled = _opponent_front != sets;
   ++sc.frames;
+  seen_t now[2];
+  for (int k = 0; k < sc.slots; ++k) {
+    now[k] = reference(k, latches[k], (_opponent_capped & (1 << k)) ? kViewTwo : kView);
+  }
+
+  // The stack's seven, less the fin's two in the back view: both always fit.
+  int sprites = sprites_of(_offer[0]) + sprites_of(_offer[1]);
+  int budget = kSpriteTerrainSlots - (view_state == VIEW_BACK ? 2 : 0);
+  CHECK(sprites <= budget, "%s: frame %d offers %d sprites, %d fit", what, sc.frames, sprites,
+        budget);
+  if (_offer[0].on && _offer[1].on && sprites > 4) ++sc.shared;
+  // In front the one held to two is the farther, give or take the eighth
+  // that keeps two at about the same range from trading.
+  if (_opponent_capped == 1 || _opponent_capped == 2) {
+    int far = _opponent_capped == 1 ? 0 : 1;
+    int16_t dn = _opponent_cs[far ^ 1].x, df = _opponent_cs[far].x;
+    CHECK(df >= dn - (dn >> 3), "%s: frame %d holds slot %d to two at %d, the other at %d",
+          what, sc.frames, far, df, dn);
+  }
+  for (int k = 0; k < sc.slots; ++k) {
+    if (sprites_of(_offer[k]) == 4 && _offer[k ^ 1].on && sprites_of(_offer[k ^ 1]) == 2) {
+      ++sc.four_and_two;
+    }
+  }
   CHECK(popcount(after) <= 1, "%s: frame %d, %d redraws in flight", what, sc.frames,
         popcount(after));
   CHECK(!filled || !(after & ~before),
@@ -466,7 +503,47 @@ static void test_two(void) {
          frames, silhouettes, dots);
 }
 
-// --- 5. The paths ---------------------------------------------------------------
+// --- 5. Both close -------------------------------------------------------------
+//
+// Both inside ~125 m, where either alone would be 2 x 2, walking in and out
+// past each other so that the nearer changes, in the front view and the back.
+// The budget check in frame() is the point: in front the farther is held to
+// two sprites, behind both are.
+
+static void test_both_close(void) {
+  static const view_state_t kViews[] = {VIEW_CENTER, VIEW_BACK};
+  for (view_state_t v : kViews) {
+    view_state = v;
+    scene_t sc;
+    start(sc, camera(30, 5, 10), 2);
+    where_t w[2] = {{300, -40, 10, false}, {420, 40, 20, false}};
+    char what[64];
+    snprintf(what, sizeof(what), "both close, %s view", v == VIEW_BACK ? "back" : "front");
+    for (int n = 0; n < 6000; ++n) {
+      for (int k = 0; k < 2; ++k) {
+        w[k].range = std::max(170, std::min(500, w[k].range + rnd(31) - 15));
+        w[k].px = std::max(-90, std::min(90, w[k].px + rnd(5) - 2));
+        w[k].py = std::max(0, std::min(40, w[k].py + rnd(3) - 1));
+        if (rnd(20) == 0) {
+          _opponent_turn[k] = _opponent_bank[k] = (int8_t)(rnd(3) - 1);
+        }
+      }
+      frame(sc, w, what);
+    }
+    if (v == VIEW_BACK) {
+      CHECK(sc.four_and_two == 0, "%s: %d frames with one at 2 x 2", what, sc.four_and_two);
+    } else {
+      CHECK(sc.four_and_two > 300, "%s: only %d frames of one at 2 x 2 and one at two", what,
+            sc.four_and_two);
+    }
+    printf("  %s: %d frames, %d with more than four sprites between them, %d of 2 x 2 and "
+           "two\n",
+           what, sc.frames, sc.shared, sc.four_and_two);
+  }
+  view_state = VIEW_CENTER;
+}
+
+// --- 6. The paths ---------------------------------------------------------------
 
 // Metres from a waypoint coordinate, 8.8 units, to a position, 24.8.
 static double metres(uint16_t w, int32_t pos, bool wrap) {
@@ -585,6 +662,7 @@ int main() {
   test_through_the_dot();
   test_random();
   test_two();
+  test_both_close();
   test_paths();
   if (_fails) {
     printf("opponent_test: %d checks FAILED\n", _fails);
