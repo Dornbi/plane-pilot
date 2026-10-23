@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#include "bool.h"
+
 // Other aircraft: where they are, how they move, and the per-frame call that
 // draws them with planes.cc into sprite blocks under I/O and offers them to
 // the sprite stack. docs/planes.md §13 is the plan this follows.
@@ -32,6 +34,10 @@ void opponent_step(void);
 // each aircraft in view and offer it to the stack.
 void opponent_add_sprites(void);
 
+// The mission's WP_TARGETS_DOWN: every aircraft it sent is down, and the
+// mission has not failed. Nothing shoots yet, so for now never.
+bool opponent_targets_down(void);
+
 #pragma compile("opponent.cc")
 
 #else
@@ -40,6 +46,7 @@ inline void opponent_reset(uint8_t mission) {}
 inline void opponent_invalidate(void) {}
 inline void opponent_step(void) {}
 inline void opponent_add_sprites(void) {}
+inline bool opponent_targets_down(void) { return false; }
 
 #endif
 

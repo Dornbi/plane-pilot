@@ -12,6 +12,7 @@
 #include "flight.h"
 #include "mem.h"
 #include "mission.h"
+#include "msg.h"
 #include "planedef.h"
 #include "planes.h"
 #include "sprites.h"
@@ -74,19 +75,37 @@ static_assert(kSpriteVisibleEndYPixels - 1 == 89 &&
 
 // --- Paths ------------------------------------------------------------------
 //
-// No flight model: each aircraft flies level at one height and one airspeed,
-// straight at its next waypoint, and turns at one fixed rate when the
-// waypoint is off its nose. Once the waypoint is within kOpponentReach it
-// heads for the next, and after the last for the first again. It steers at
-// a point, not along the line between two: reacting to the player would only
-// change the point.
+// No flight model: each aircraft flies level at one height and its one
+// airspeed, straight at its next waypoint, and turns at one fixed rate when
+// the waypoint is off its nose. Once the waypoint is within kOpponentReach it
+// heads for the next. After the last, a loop starts again at the first and a
+// one-way path's aircraft is gone: it has left the map. It steers at a point,
+// not along the line between two: reacting to the player would only change
+// the point.
 //
 // Positions in 8.8 world units, 256 m each, so that flight_eye_x = x << 8;
 // the height likewise, flight_eye_z = z << 8. x is north and +y west, as
-// everywhere. A path with no waypoints is no aircraft.
+// everywhere. No leg, the start to the first waypoint included, may be 64
+// units or more along either axis (_opponent_toward()).
 static const uint8_t kOpponentWaypoints = 4;
+enum opponent_kind_t {
+  kOpponentNone = 0,
+  kOpponentLoop,
+  kOpponentOneWay,
+  // On the ground where it starts, and stays: no waypoints, no airspeed.
+  kOpponentParked,
+};
+// No waypoint fails the mission.
+static const uint8_t kOpponentNoFail = 0xFF;
 struct opponent_path_t {
+  uint8_t kind;
   uint8_t count;
+  // The waypoint whose reaching fails the mission, or kOpponentNoFail.
+  uint8_t fail;
+  // Airspeed in the model's units (flight.md): the player flies level at
+  // 1,476 on half throttle and ~2,500 on full below 4,000 ft, 2,350 at
+  // 5,000; it climbs at 1,450-1,600 and stalls at 1,024.
+  int16_t speed;
   uint16_t start_x, start_y;
   // The heading it starts on: a level unit vector, 8.8.
   int16_t head_x, head_y;
@@ -94,33 +113,51 @@ struct opponent_path_t {
   uint16_t x[kOpponentWaypoints], y[kOpponentWaypoints];
 };
 
-// Mission 01, Scramble.
+// Heights on flight.cc's scale, 1,000 ft to 0x0200; the ground is at 0.
+static const uint16_t kOpponent5000Ft = 0x0A00;
+static const uint16_t kOpponent3000Ft = 0x0600;
+
+// The missions (fmission.cc). Runway 1, home, is at (0x20, 0x3F), runway 2 at
+// (0x60, 0xBF) and the city at (0x10, 0x68). The player starts on runway 1
+// and takes ~11 s to get airborne, then ~3.3 min to climb to 4,000 ft at
+// full throttle, ~4.3 min to 5,000, where the thin air slows it.
 //
-// The pass: behind the player parked on runway 1 and off to its left, low and
-// level and heading north, so it overtakes alongside the runway and flies on
-// north, slowly enough to catch after take-off (docs/planes.md §13, "The first
-// enemy"). 400 m behind the player's 0x1C, and 96 m left of its centreline at
-// 0x3F and a half: the runway is one unit wide, so 64 m beyond its left edge.
-// 96 m up, 80 m above the eye of an aircraft on the ground (flight.cc
-// kFlightMinEyeZ, 32 m). Its waypoints are 32 units apart straight ahead,
-// and the fourth is where it started, 128 units on: the world repeats every
-// 128 units along x, so it flies north for ever.
+// 01, Recon: at 5,000 ft and 2,000, faster than the player climbs and slower
+// than it flies level up there. It comes in from the north edge of the map,
+// passes 6 km north-west of runway 1 at ~3.5 min, turns for the city, over it
+// at ~5 min, and leaves over the south edge at ~6.3 min: gone, and the
+// mission failed. A player who climbs out towards the city can be at its
+// height there a minute before it; one who chases it from the runway falls
+// behind while climbing.
 //
-// The patrol: the bandit the mission text is about, flying a 3 km square
-// round the city at (0x10, 0x68) at 3,500 ft (flight.cc's scale, 1,000 ft
-// to 0x0200), anticlockwise from its south-east corner.
+// 02, Bombers: two at 3,000 ft and 1,500, in loose formation - the second
+// 150 m to the left of and 200 m behind the first - come from the west along
+// the city's row and reach it after ~5.5 min, which fails the mission. Then
+// they fly on east and leave over the east edge. The player can be at
+// 3,000 ft over the city in ~2.5 min.
+//
+// 03, Ambush: two on the ground beside the south end of runway 2, 37 km
+// away, 24 m and 72 m off its west edge at y 0xC0, facing up it. Their
+// centres are 4 m up, about where an 11 m aircraft's is on its wheels.
 static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
-    {{4, 0x1A70, 0x3FE0, 256, 0, 0x0060,
-      {0x3A70, 0x5A70, 0x7A70, 0x9A70}, {0x3FE0, 0x3FE0, 0x3FE0, 0x3FE0}},
-     {4, 0x0A00, 0x6200, 256, 0, 0x0700,
-      {0x1600, 0x1600, 0x0A00, 0x0A00}, {0x6200, 0x6E00, 0x6E00, 0x6200}}},
+    {{kOpponentOneWay, 4, 3, 2000, 0x7E00, 0x5000, -256, 0, kOpponent5000Ft,
+      {0x5000, 0x3000, 0x1000, 0x0000}, {0x5000, 0x5000, 0x6800, 0x8000}},
+     {kOpponentNone}},
+    {{kOpponentOneWay, 4, 1, 1500, 0x1000, 0xC800, 0, -256, kOpponent3000Ft,
+      {0x1000, 0x1000, 0x1000, 0x1000}, {0x9800, 0x6800, 0x3400, 0x0000}},
+     {kOpponentOneWay, 4, 1, 1500, 0x1096, 0xC8C8, 0, -256, kOpponent3000Ft,
+      {0x1096, 0x1096, 0x1096, 0x1096}, {0x98C8, 0x68C8, 0x34C8, 0x00C8}}},
+    {{kOpponentParked, 0, kOpponentNoFail, 0, 0x5D00, 0xC018, 256, 0, 0x0004},
+     {kOpponentParked, 0, kOpponentNoFail, 0, 0x5D00, 0xC048, 256, 0, 0x0004}},
 };
 
-// Airspeed in the model's units, the same for everyone: the player's
-// half-throttle level trim, the slowest it can fly level, so that a player
-// who has caught one can sit behind it. Below the 1,024 stall it would not be
-// an aeroplane; above the player's 2,054 cruise it could not be caught.
-static const int16_t kOpponentSpeed = 1500;
+// What the message says when the mission fails, per mission.
+static const char *const kOpponentFailText[kMissionCount] = {
+    "MISSION FAILED - RECON ESCAPED",
+    "MISSION FAILED - CITY BOMBED",
+    0,
+};
+
 // The turn: vec_turn3_xy()'s small angle, 8 / 256 rad, 1.8 degrees a model
 // step at flight_step_shift 0. At 11.7 m a step that is a turn of ~375 m
 // radius, a quarter circle in 50 steps. At a larger shift the same angle
@@ -147,6 +184,11 @@ static const uint8_t kOpponentNearD = 8;
 #pragma bss(bss2)
 static bool _opponent_on[kOpponentMax];
 static const opponent_path_t *_opponent_path[kOpponentMax];
+// The mission, whether it has failed, and bit i: slot i was shot down - by
+// the guns still to come, so for now never.
+static uint8_t _opponent_mission;
+static bool _opponent_failed;
+static uint8_t _opponent_down;
 // The waypoint it is flying to.
 static uint8_t _opponent_next[kOpponentMax];
 // Position in flight_eye_*'s 24.8 metres.
@@ -208,10 +250,26 @@ void opponent_invalidate(void) {
   planes_dot_bitmap(_opponent_block(kOpponentBlockDot));
 }
 
+bool opponent_targets_down(void) {
+  if (_opponent_failed) {
+    return false;
+  }
+  for (uint8_t i = 0; i < kOpponentMax; ++i) {
+    if (kOpponentPaths[_opponent_mission][i].kind != kOpponentNone &&
+        !(_opponent_down & (uint8_t)(1 << i))) {
+      return false;
+    }
+  }
+  return true;
+}
+
 void opponent_reset(uint8_t mission) {
+  _opponent_mission = mission;
+  _opponent_failed = false;
+  _opponent_down = 0;
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
     const opponent_path_t *p = &kOpponentPaths[mission][i];
-    _opponent_on[i] = p->count != 0;
+    _opponent_on[i] = p->kind != kOpponentNone;
     _opponent_path[i] = p;
     _opponent_next[i] = 0;
     _opponent_x[i] = (int32_t)p->start_x << 8;
@@ -240,9 +298,10 @@ static __noinline int16_t _opponent_step_s(int16_t v) {
 }
 
 // A waypoint coordinate, 8.8 units, less a position, 24.8, in metres and
-// wrapped to 32,768 m, the world's 128 units along x: taken in 2 m units,
-// which the int16_t wraps at 65,536, and halved. Along y the world is 256
-// units, but no aircraft is ever 64 units from its waypoint across.
+// wrapped to 32,768 m, the world's 128 units along x: taken in half metres,
+// which the int16_t wraps at 65,536, and halved. Good to 64 units either way,
+// which is why no leg is that long. Along y the world is 256 units, and the
+// same 64 holds.
 static __noinline int16_t _opponent_toward(uint16_t w, int32_t pos) {
   int16_t d = (int16_t)((((int32_t)w << 8) - pos) >> 7);
   return d >> 1;
@@ -251,8 +310,18 @@ static __noinline int16_t _opponent_toward(uint16_t w, int32_t pos) {
 // What flight.cc's _flight_move_forward() adds along one axis for a level
 // aircraft: the airspeed doubled times the heading's component, shifted by
 // the step size after the multiply.
-static __noinline void _opponent_move(int32_t *pos, int16_t h) {
-  *pos += _opponent_step_s(vec_fastmul8p8(kOpponentSpeed << 1, h));
+static __noinline void _opponent_move(int32_t *pos, int16_t speed2, int16_t h) {
+  *pos += _opponent_step_s(vec_fastmul8p8(speed2, h));
+}
+
+static void _opponent_forget(uint8_t i, uint8_t bit);
+
+// The mission has failed: said once, and WP_TARGETS_DOWN never comes.
+static void _opponent_fail(void) {
+  if (!_opponent_failed) {
+    _opponent_failed = true;
+    msg_show(kOpponentFailText[_opponent_mission], 3 * MSG_DEFAULT_DURATION);
+  }
 }
 
 void opponent_step(void) {
@@ -265,6 +334,9 @@ void opponent_step(void) {
       continue;
     }
     const opponent_path_t *p = _opponent_path[i];
+    if (p->kind == kOpponentParked) {
+      continue;
+    }
     vec3_t *h = &_opponent_head[i];
 
     // The waypoint, relative, in metres. Reached, and the next one is
@@ -274,7 +346,16 @@ void opponent_step(void) {
     int16_t dy = _opponent_toward(p->y[w], _opponent_y[i]);
     if (dx < kOpponentReach && dx > -kOpponentReach && dy < kOpponentReach &&
         dy > -kOpponentReach) {
+      if (w == p->fail) {
+        _opponent_fail();
+      }
       if (++w == p->count) {
+        if (p->kind == kOpponentOneWay) {
+          // Off the map: gone, and nothing of it on screen.
+          _opponent_on[i] = false;
+          _opponent_forget(i, (uint8_t)(1 << i));
+          continue;
+        }
         w = 0;
       }
       _opponent_next[i] = w;
@@ -313,8 +394,9 @@ void opponent_step(void) {
     _opponent_bank[i] = turn == _opponent_turn[i] ? turn : 0;
     _opponent_turn[i] = turn;
 
-    _opponent_move(&_opponent_x[i], h->x);
-    _opponent_move(&_opponent_y[i], h->y);
+    int16_t speed2 = p->speed << 1;
+    _opponent_move(&_opponent_x[i], speed2, h->x);
+    _opponent_move(&_opponent_y[i], speed2, h->y);
   }
 }
 

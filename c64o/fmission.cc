@@ -3,78 +3,121 @@
 // fpilot's missions. The tables are pmission.cc's, with the same names and the
 // same encoding - see mission.h - so everything that reads them is shared.
 //
-// One mission for now. It flies with the ppilot aircraft and none of the
-// combat yet, so it is built only out of constraints flight.cc already
-// checks: get to the city above 3000ft, then come home.
+// Three interceptions, all from runway 1. What each sends against the player
+// is opponent.cc's kOpponentPaths, and what fails it, opponent.cc too. The
+// goal is the same for all three: every aircraft down (WP_TARGETS_DOWN), then
+// home. Nothing can shoot yet, so for now no mission can be completed - only
+// failed, where the mission says so.
 
 const uint8_t kWaypointDefault = 1;
-static const uint8_t kWaypointCity1 = 0;
+static const uint8_t kWaypointTargets = 0;
 static const uint8_t kWaypointLanded1 = 1;
+static const uint8_t kWaypointField2 = 2;
+static const uint8_t kWaypointLanded1b = 4;
 
 const uint8_t kMissionWpX[kMissionWpCount] = {
-    0x10, // 00 (City 1)
+    0x00, // 00 (Targets down, anywhere)
     0x20, // 01 (Runway 1)
+    0x60, // 02 (Runway 2)
+    0x00, // 03 (Targets down, anywhere)
+    0x20, // 04 (Runway 1)
 };
 
 const uint8_t kMissionWpY[kMissionWpCount] = {
-    0x68, // 00 (City 1)
+    0x00, // 00 (Targets down, anywhere)
     0x3F, // 01 (Runway 1)
+    0xBF, // 02 (Runway 2)
+    0x00, // 03 (Targets down, anywhere)
+    0x3F, // 04 (Runway 1)
 };
 
 const MissionWaypointConstraint kMissionWpConstraint[kMissionWpCount] = {
-    WP_MIN_3000FT, // 00 (City 1)
-    WP_LANDED,     // 01 (Runway 1)
+    WP_TARGETS_DOWN, // 00 (Targets down)
+    WP_LANDED,       // 01 (Runway 1)
+    WP_NOTHING,      // 02 (Runway 2): the ambush's navpoint
+    WP_TARGETS_DOWN, // 03 (Targets down)
+    WP_LANDED,       // 04 (Runway 1)
 };
 
 const uint8_t kMissionWpBegin[kMissionCount] = {
-    kWaypointCity1, // 01
+    kWaypointTargets, // 01
+    kWaypointTargets, // 02
+    kWaypointField2,  // 03
 };
 const uint8_t kMissionWpEnd[kMissionCount] = {
-    kWaypointLanded1 + 1, // 01
+    kWaypointLanded1 + 1,  // 01
+    kWaypointLanded1 + 1,  // 02
+    kWaypointLanded1b + 1, // 03
 };
 
 const char *const kMissionTitles[kMissionCount] = {
-    "01 SCRAMBLE", // 01
+    "01 RECON",   // 01
+    "02 BOMBERS", // 02
+    "03 AMBUSH",  // 03
 };
 
 const char *const kMissionDesc[kMissionCount] = {
-    "BANDITS OVER THE CITY! TAKE OFF,\n" // 01
-    "PATROL IT ABOVE 3000FT AND LAND.",  //
+    "RECON PLANE AT 5000FT, BOUND FOR\n"  // 01
+    "THE CITY. SHOOT IT DOWN AND LAND.",  //
+    "TWO BOMBERS AT 3000FT HEADING FOR\n" // 02
+    "THE CITY. STOP BOTH, THEN LAND.",    //
+    "TWO PLANES PARKED AT RUNWAY 2.\n"    // 03
+    "DESTROY THEM ON THE GROUND, LAND.",  //
 };
 
 // On runway 1, engine at idle, as ppilot's mission 01 starts.
 const uint8_t kMissionStartX[kMissionCount] = {
     0x1C, // 01
+    0x1C, // 02
+    0x1C, // 03
 };
 
 const uint8_t kMissionStartY[kMissionCount] = {
     0x3F, // 01
+    0x3F, // 02
+    0x3F, // 03
 };
 
 const uint8_t kMissionStartZ[kMissionCount] = {
     0x00, // 01
+    0x00, // 02
+    0x00, // 03
 };
 
 const uint8_t kMissionStartSpeed[kMissionCount] = {
     0x00, // 01
+    0x00, // 02
+    0x00, // 03
 };
 
 const uint8_t kMissionStartThrottle[kMissionCount] = {
     0x00, // 01
+    0x00, // 02
+    0x00, // 03
 };
 
+// About 15 minutes at full throttle. The longest, 03, is ~37 km each way:
+// ~80,000 of the 139,000 at a cruise of throttle 18.
 const uint8_t kMissionStartFuel[kMissionCount] = {
     0x22, // 01
+    0x22, // 02
+    0x22, // 03
 };
 
 const uint8_t kMissionWindX[kMissionCount] = {
     0x00, // 01
+    0x00, // 02
+    0x00, // 03
 };
 
 const uint8_t kMissionWindY[kMissionCount] = {
     0x00, // 01
+    0x00, // 02
+    0x00, // 03
 };
 
 bool mission_completed[kMissionCount] = {
     false, // 01
+    false, // 02
+    false, // 03
 };

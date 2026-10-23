@@ -5,6 +5,7 @@
 
 #include "fmath.h"
 #include "msg.h"
+#include "opponent.h"
 // For kSpriteDataCompressed / kSpriteScratchPath below. Nothing else here needs
 // it, and no other header in this file's chain pulls it in - without this the
 // borrowed path buffer only compiles when some earlier translation unit
@@ -705,8 +706,8 @@ static const char *const kFlightWaypointFault[] = {
     "CLIMB ABOVE 1000FT", // 2 WP_MIN_1000FT
     "CLIMB ABOVE 3000FT", // 3 WP_MIN_3000FT
     "GO BELOW 250FT",     // 4 WP_MAX_250FT
-    "FLY LOW INVERTED"    // 5 WP_UPSIDE_DOWN
-    ,
+    "FLY LOW INVERTED",   // 5 WP_UPSIDE_DOWN
+    "",                   // 6 WP_TARGETS_DOWN
 };
 
 // Both prefixes are nine characters and the longest fault text is fourteen,
@@ -800,6 +801,7 @@ static void _flight_check_mission_waypoints() {
       6, // 3 WP_MIN_3000FT
       0, // 4 WP_MAX_250FT    (handled below)
       0, // 5 WP_UPSIDE_DOWN  (handled below)
+      0, // 6 WP_TARGETS_DOWN (handled below)
   };
   bool met = pos_ok;
   if (met) {
@@ -820,6 +822,10 @@ static void _flight_check_mission_waypoints() {
       break;
     case WP_LANDED:
       met = model_on_ground && (flight_speed <= 0x0010);
+      break;
+    case WP_TARGETS_DOWN:
+      // fpilot's; opponent.h stubs it to false elsewhere.
+      met = opponent_targets_down();
       break;
     default:
       met = (uint8_t)(flight_eye_z >> 16) >= kWpMinAltHi[constraint];

@@ -554,6 +554,29 @@ static double metres(uint16_t w, int32_t pos, bool wrap) {
   return d;
 }
 
+// Two paths of the test's own, flown as opponent_reset() starts a mission's:
+// dead straight north for ever, the world repeating every 128 units of x,
+// and a 3 km square anticlockwise.
+static const opponent_path_t kStraight = {kOpponentLoop, 4, kOpponentNoFail, 1500,
+                                          0x1A70, 0x3FE0, 256, 0, 0x0060,
+                                          {0x3A70, 0x5A70, 0x7A70, 0x9A70},
+                                          {0x3FE0, 0x3FE0, 0x3FE0, 0x3FE0}};
+static const opponent_path_t kSquare = {kOpponentLoop, 4, kOpponentNoFail, 1500,
+                                        0x0A00, 0x6200, 256, 0, 0x0700,
+                                        {0x1600, 0x1600, 0x0A00, 0x0A00},
+                                        {0x6200, 0x6E00, 0x6E00, 0x6200}};
+
+static void fly(int slot, const opponent_path_t *p) {
+  _opponent_on[slot] = true;
+  _opponent_path[slot] = p;
+  _opponent_next[slot] = 0;
+  _opponent_x[slot] = (int32_t)p->start_x << 8;
+  _opponent_y[slot] = (int32_t)p->start_y << 8;
+  _opponent_z[slot] = (int32_t)p->z << 8;
+  _opponent_head[slot] = make_vector(p->head_x, p->head_y, 0);
+  _opponent_turn[slot] = _opponent_bank[slot] = 0;
+}
+
 static void test_paths(void) {
   int turning0 = 0;
   for (uint8_t shift = 0; shift < 3; ++shift) {
@@ -562,8 +585,9 @@ static void test_paths(void) {
     flight_paused = false;
     flight_status = FLIGHT_ONGOING;
     opponent_reset(0);
-    const opponent_path_t &patrol = kOpponentPaths[0][1];
-    CHECK(_opponent_on[0] && _opponent_on[1], "paths: both aircraft are on");
+    fly(0, &kStraight);
+    fly(1, &kSquare);
+    const opponent_path_t &patrol = kSquare;
 
     // A lap of the patrol at shift 0 is ~1,100 steps; four of them.
     const int steps = 4500 << shift;
@@ -579,7 +603,7 @@ static void test_paths(void) {
       // The pass: dead north, a full step a step, never turning.
       CHECK(_opponent_head[0].x == 256 && _opponent_head[0].y == 0 && _opponent_turn[0] == 0,
             "paths: the pass turned at step %d", n);
-      CHECK(_opponent_y[0] == y0 && _opponent_x[0] - x0 == ((kOpponentSpeed << 1) >> shift),
+      CHECK(_opponent_y[0] == y0 && _opponent_x[0] - x0 == ((kStraight.speed << 1) >> shift),
             "paths: the pass moved %d, %d at step %d", (int)(_opponent_x[0] - x0),
             (int)(_opponent_y[0] - y0), n);
 
@@ -657,6 +681,155 @@ static void test_paths(void) {
   }
 }
 
+// --- 7. The missions -------------------------------------------------------------
+//
+// Each flown as it starts, at shift 0, 6.25 steps a second: when and where
+// things happen against the timings fmission.cc and opponent.cc give, the
+// recon's escape and the bombers' arrival failing the mission once, the
+// bombers keeping formation, and the parked pair staying put. And every path
+// within the reach of _opponent_toward(): no leg 64 units long on either axis.
+
+static int _msgs = 0;
+static const char *_msg = "";
+void msg_show(const char *text, uint8_t duration, bool permanent) {
+  (void)duration;
+  (void)permanent;
+  _msg = text;
+  ++_msgs;
+}
+
+static double units(int32_t d) { return d / 65536.0; }
+
+static void test_missions(void) {
+  flight_step_shift = 0;
+  kFlightSubstepMask = 0;
+  flight_paused = false;
+  flight_status = FLIGHT_ONGOING;
+
+  // Every leg in reach.
+  for (int m = 0; m < kMissionCount; ++m) {
+    for (int k = 0; k < kOpponentMax; ++k) {
+      const opponent_path_t &p = kOpponentPaths[m][k];
+      if (p.kind == kOpponentNone) continue;
+      CHECK(p.fail == kOpponentNoFail || p.fail < p.count, "mission %d slot %d: fail at %d of %d",
+            m + 1, k, p.fail, p.count);
+      uint16_t px = p.start_x, py = p.start_y;
+      for (int w = 0; w < p.count; ++w) {
+        int dx = (int16_t)(p.x[w] - px), dy = (int16_t)(p.y[w] - py);
+        // x repeats every 128 units, 0x8000 in 8.8.
+        dx = ((dx + 0x4000) & 0x7FFF) - 0x4000;
+        CHECK(abs(dx) < 0x4000 - 0x400 && abs(dy) < 0x4000 - 0x400,
+              "mission %d slot %d: leg %d is %.1f, %.1f units", m + 1, k, w, dx / 256.0,
+              dy / 256.0);
+        px = p.x[w];
+        py = p.y[w];
+      }
+    }
+  }
+
+  // 01: the recon.
+  {
+    _msgs = 0;
+    opponent_reset(0);
+    CHECK(_opponent_on[0] && !_opponent_on[1], "recon: one aircraft");
+    double nearest = 1e9;
+    int nearest_at = 0, city_at = -1, gone_at = -1, failed_at = -1;
+    for (int n = 0; n < 4000 && gone_at < 0; ++n) {
+      uint8_t w = _opponent_next[0];
+      opponent_step();
+      if (!_opponent_on[0]) {
+        gone_at = n;
+      } else if (w == 2 && _opponent_next[0] == 3) {
+        city_at = n;
+      }
+      if (_opponent_failed && failed_at < 0) failed_at = n;
+      if (_opponent_on[0]) {
+        double dx = units(_opponent_x[0] - (0x20L << 16)), dy = units(_opponent_y[0] - (0x3FL << 16));
+        double d = sqrt(dx * dx + dy * dy);
+        if (d < nearest) {
+          nearest = d;
+          nearest_at = n;
+        }
+        CHECK(_opponent_z[0] == (int32_t)kOpponent5000Ft << 8, "recon: changed height");
+      }
+    }
+    CHECK(fabs(nearest_at / 6.25 / 60 - 3.5) < 0.4 && nearest * 0.256 > 4 && nearest * 0.256 < 8,
+          "recon: nearest runway 1 at %.1f min, %.1f km", nearest_at / 6.25 / 60, nearest * 0.256);
+    CHECK(fabs(city_at / 6.25 / 60 - 5.0) < 0.4, "recon: over the city at %.1f min",
+          city_at / 6.25 / 60);
+    CHECK(gone_at > 0 && fabs(gone_at / 6.25 / 60 - 6.3) < 0.4, "recon: gone at %.1f min",
+          gone_at / 6.25 / 60);
+    CHECK(failed_at == gone_at && _msgs == 1 && !strcmp(_msg, kOpponentFailText[0]),
+          "recon: failed at step %d, gone at %d, %d messages, \"%s\"", failed_at, gone_at, _msgs,
+          _msg);
+    CHECK(!opponent_targets_down(), "recon: escaped, yet the targets are down");
+    printf("  recon: passes %.1f km from runway 1 at %.1f min, over the city at %.1f, gone at "
+           "%.1f\n",
+           nearest * 0.256, nearest_at / 6.25 / 60, city_at / 6.25 / 60, gone_at / 6.25 / 60);
+
+    // Shot down before it got away - by hand, as nothing shoots yet.
+    opponent_reset(0);
+    CHECK(!opponent_targets_down(), "recon: down at the start");
+    _opponent_down = 1;
+    CHECK(opponent_targets_down(), "recon: shot down, but the targets are not down");
+  }
+
+  // 02: the bombers.
+  {
+    _msgs = 0;
+    opponent_reset(1);
+    CHECK(_opponent_on[0] && _opponent_on[1], "bombers: two aircraft");
+    double close = 1e9, far = 0;
+    int city_at = -1, failed_at = -1, gone = 0;
+    for (int n = 0; n < 6000 && gone < 2; ++n) {
+      uint8_t w = _opponent_next[0];
+      opponent_step();
+      if (w == 1 && _opponent_next[0] == 2) city_at = n;
+      if (_opponent_failed && failed_at < 0) failed_at = n;
+      gone = !_opponent_on[0] + !_opponent_on[1];
+      if (city_at < 0 && _opponent_on[0] && _opponent_on[1]) {
+        double dx = (_opponent_x[1] - _opponent_x[0]) / 256.0;
+        double dy = (_opponent_y[1] - _opponent_y[0]) / 256.0;
+        double d = sqrt(dx * dx + dy * dy);
+        close = std::min(close, d);
+        far = std::max(far, d);
+      }
+    }
+    // 150 m and 200 m apart: 250 m, and both turn alike.
+    CHECK(close > 200 && far < 300, "bombers: %.0f-%.0f m apart on the way in", close, far);
+    CHECK(fabs(city_at / 6.25 / 60 - 5.5) < 0.4, "bombers: over the city at %.1f min",
+          city_at / 6.25 / 60);
+    CHECK(failed_at == city_at && _msgs == 1 && !strcmp(_msg, kOpponentFailText[1]),
+          "bombers: failed at step %d, over the city at %d, %d messages", failed_at, city_at,
+          _msgs);
+    CHECK(gone == 2, "bombers: never left");
+    _opponent_down = 3;
+    CHECK(!opponent_targets_down(), "bombers: the city was bombed, yet the targets are down");
+    opponent_reset(1);
+    _opponent_down = 1;
+    CHECK(!opponent_targets_down(), "bombers: one down is not both");
+    _opponent_down = 3;
+    CHECK(opponent_targets_down(), "bombers: both down, but the targets are not down");
+    printf("  bombers: %.0f-%.0f m apart, over the city at %.1f min\n", close, far,
+           city_at / 6.25 / 60);
+  }
+
+  // 03: the ambush.
+  {
+    _msgs = 0;
+    opponent_reset(2);
+    int32_t x0 = _opponent_x[0], y1 = _opponent_y[1];
+    for (int n = 0; n < 3000; ++n) opponent_step();
+    CHECK(_opponent_on[0] && _opponent_on[1] && _opponent_x[0] == x0 && _opponent_y[1] == y1 &&
+              _opponent_turn[0] == 0 && !_opponent_failed && _msgs == 0,
+          "ambush: the parked aircraft moved");
+    CHECK(units(_opponent_x[0]) > 0x5C && units(_opponent_x[0]) < 0x64 &&
+              units(_opponent_y[0]) > 0xC0 && units(_opponent_y[1]) < 0xC0 + 0.5,
+          "ambush: not beside runway 2");
+    CHECK(!opponent_targets_down(), "ambush: down at the start");
+  }
+}
+
 int main() {
   test_look_back();
   test_through_the_dot();
@@ -664,6 +837,7 @@ int main() {
   test_two();
   test_both_close();
   test_paths();
+  test_missions();
   if (_fails) {
     printf("opponent_test: %d checks FAILED\n", _fails);
     return 1;

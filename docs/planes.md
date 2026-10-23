@@ -1248,10 +1248,11 @@ Two things it raises:
 *Built 2026-10-22.* Two slots, and each aircraft flies a loop of up to four
 waypoints (`opponent.cc` `kOpponentPaths`, per mission). Mission 01 keeps the
 pass as the first, and adds a patrol: a 3 km square round the city at
-3,500 ft, anticlockwise.
+3,500 ft, anticlockwise. *Since 2026-10-23 the missions are the three of the
+next section, and a path may also be one-way or parked.*
 
 **No flight model.** Every aircraft flies level, at its path's one height and
-the one airspeed, 1,500, and turns at one fixed rate. Its heading is a level
+one airspeed (*the same 1,500 for all at first*), and turns at one fixed rate. Its heading is a level
 unit vector, not an angle - no sine or cosine anywhere:
 
 - **Steering** is the cross product of the heading with the direction to the
@@ -1273,6 +1274,8 @@ unit vector, not an angle - no sine or cosine anywhere:
 - **Moving** is `_flight_move_forward()`'s, the airspeed doubled times the
   heading. The pass is a path too: four waypoints 32 units apart straight
   north, the fourth where it started, as the world repeats every 128 units.
+  `_opponent_toward()` is good to 64 units either way, so no leg may be that
+  long.
 - **The bank** is drawn only, 30 degrees towards the turn, once a turn has
   lasted two steps: a leg's one-step corrections would flick the wings.
 - **The body axes** in camera space are two-term dot products of the heading
@@ -1325,6 +1328,48 @@ folds one constant view, and the rest in `opponent.cc`. That had to be split
 into `_opponent_cull()`, `_opponent_cap()` and `_opponent_draw()`, with a few
 locals made statics: in one function its temporaries ran past oscar64's
 zero page into the program's own at `$60` (`tools/check_zeropage.py`).
+
+### Three missions
+
+*Built 2026-10-23.* fpilot's one mission gave way to three, all from runway
+1 (`fmission.cc`; `kOpponentPaths` for what each sends):
+
+| Mission | Opponents | Fails when |
+| :--- | :--- | :--- |
+| 01 Recon | One at 5,000 ft and 2,000: in from the north edge, past runway 1 (6 km at ~3.5 min), over the city at ~5 min, out over the south edge at ~6.3 min | it leaves the map |
+| 02 Bombers | Two at 3,000 ft and 1,500, the second 150 m left of and 200 m behind the first: along the city's row from the west, over it at ~5.5 min, then on east and off the map | the first reaches the city |
+| 03 Ambush | Two parked beside the south end of runway 2, 37 km away | never |
+
+The timings are against the player's own, from host runs of `flight.cc`:
+airborne in ~11 s, then at full throttle ~1,300 ft a minute up to 4,000 ft,
+where thinner air cuts it (~3.3 min there, ~4.3 to 5,000). Level, it flies
+~2,500 below 4,000 ft and 2,350 at 5,000. So the recon outruns a climbing
+player and is caught only level, and only by one who climbed out towards
+the city rather than after it; the bombers can be met over the city with
+three minutes in hand. Untried by hand: there is nothing to shoot with yet.
+
+**Paths.** Each has a kind - a loop; one-way, whose aircraft is gone at its
+last waypoint; or parked, which has no waypoints and never moves - its own
+airspeed, and optionally a waypoint whose reaching fails the mission. The
+wingman keeps formation because its path is the leader's moved by the same
+offset: both turn alike.
+
+**The goal** is a new constraint, `WP_TARGETS_DOWN` (`mission.h`): met once
+every aircraft the mission sent is shot down (`opponent_targets_down()`),
+then land on runway 1. Nothing shoots yet, so `_opponent_down` is never set
+and no mission can be completed. A failure shows a message once, `MISSION
+FAILED - RECON ESCAPED` or `- CITY BOMBED`, and after it the goal is never
+met. 03 has runway 2 as a navpoint before it.
+
+Parked aircraft are drawn with the flying ones' renderer, low over the
+ground: from behind and low, wings edge-on, they are thin lines until close.
+Over the runway in a dive they will meet the DMA cut (§4) as they move down
+the screen.
+
+RAM: fpilot from 6,053 to 5,258 bytes free. The path table is 136 bytes
+more, `opponent_step()`'s one-way, parked and failure logic ~100, and most
+of the rest is flight and menu code that folded to constants while there
+was one mission.
 
 ### The sprite frame runs ahead of the terrain
 

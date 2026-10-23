@@ -15,6 +15,8 @@ enum MissionWaypointConstraint {
   // Inverted, and low enough for it to be a pass rather than a distant roll:
   // both halves are in flight.cc, next to the altitude they share.
   WP_UPSIDE_DOWN = 5,
+  // fpilot: every aircraft the mission sent is down (opponent.cc), anywhere.
+  WP_TARGETS_DOWN = 6,
 };
 
 // The mission table is the one thing ppilot and fpilot do not share: the rest
@@ -23,8 +25,8 @@ enum MissionWaypointConstraint {
 // fmission.cc, whose tables have the same names and layout as the ones
 // in pmission.cc, ppilot's. Only the two counts below differ.
 #ifdef __FPILOT__
-static const uint8_t kMissionWpCount = 2;
-static const uint8_t kMissionCount = 1;
+static const uint8_t kMissionWpCount = 5;
+static const uint8_t kMissionCount = 3;
 #else
 static const uint8_t kMissionWpCount = 16;
 static const uint8_t kMissionCount = 10;
