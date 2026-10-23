@@ -1359,7 +1359,16 @@ every aircraft the mission sent is shot down (`opponent_targets_down()`),
 then land on runway 1. Nothing shoots yet, so `_opponent_down` is never set
 and no mission can be completed. A failure shows a message once, `MISSION
 FAILED - RECON ESCAPED` or `- CITY BOMBED`, and after it the goal is never
-met. 03 has runway 2 as a navpoint before it.
+met.
+
+**Navpoints.** *Since 2026-10-23* every mission has two: 1 on the targets,
+2 on runway 1. The targets' waypoint is met anywhere, so its position in the
+tables is (0, 0), which elsewhere means no navpoint; `flight.cc` gives this
+one a navpoint anyway, and `opponent.cc` (`_opponent_track()`) moves it every
+step onto the one target left flying or parked, or midway between two. The
+map's digit and the nav guidance read the navpoint arrays as they are, so
+both follow. A target that has left the map leaves the navpoint where it was
+last seen.
 
 Parked aircraft are drawn with the flying ones' renderer, low over the
 ground: from behind and low, wings edge-on, they are thin lines until close.
@@ -1369,7 +1378,7 @@ the screen.
 RAM: fpilot from 6,053 to 5,258 bytes free. The path table is 136 bytes
 more, `opponent_step()`'s one-way, parked and failure logic ~100, and most
 of the rest is flight and menu code that folded to constants while there
-was one mission.
+was one mission. The navpoints took it to 5,106.
 
 ### The sprite frame runs ahead of the terrain
 

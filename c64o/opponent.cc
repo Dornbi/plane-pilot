@@ -97,6 +97,8 @@ enum opponent_kind_t {
 };
 // No waypoint fails the mission.
 static const uint8_t kOpponentNoFail = 0xFF;
+// The mission has no navpoint on its targets.
+static const uint8_t kOpponentNoNav = 0xFF;
 struct opponent_path_t {
   uint8_t kind;
   uint8_t count;
@@ -189,6 +191,9 @@ static const opponent_path_t *_opponent_path[kOpponentMax];
 static uint8_t _opponent_mission;
 static bool _opponent_failed;
 static uint8_t _opponent_down;
+// The navpoint of the mission's WP_TARGETS_DOWN waypoint, which follows the
+// targets, or kOpponentNoNav.
+static uint8_t _opponent_nav;
 // The waypoint it is flying to.
 static uint8_t _opponent_next[kOpponentMax];
 // Position in flight_eye_*'s 24.8 metres.
@@ -263,10 +268,54 @@ bool opponent_targets_down(void) {
   return true;
 }
 
+// Moves the targets' navpoint onto them: the one still flying or parked, or
+// midway between two - half their difference, which is the short way round
+// across the world's edges as long as they are close, as a formation is. Where
+// there are none left it stays where they were last.
+static void _opponent_track(void) {
+  if (_opponent_nav == kOpponentNoNav) {
+    return;
+  }
+  uint16_t x = 0, y = 0;
+  uint8_t n = 0;
+  for (uint8_t i = 0; i < kOpponentMax; ++i) {
+    if (!_opponent_on[i] || (_opponent_down & (uint8_t)(1 << i))) {
+      continue;
+    }
+    // Navpoints are 8.8 world units, positions 24.8 metres.
+    uint16_t px = (uint16_t)(_opponent_x[i] >> 8);
+    uint16_t py = (uint16_t)(_opponent_y[i] >> 8);
+    if (n++ == 0) {
+      x = px;
+      y = py;
+    } else {
+      x += (uint16_t)((int16_t)(px - x) >> 1);
+      y += (uint16_t)((int16_t)(py - y) >> 1);
+    }
+  }
+  if (n != 0) {
+    flight_nav_point_x[_opponent_nav] = x;
+    flight_nav_point_y[_opponent_nav] = y;
+  }
+}
+
 void opponent_reset(uint8_t mission) {
   _opponent_mission = mission;
   _opponent_failed = false;
   _opponent_down = 0;
+  // Which navpoint is the targets': flight_init_from_mission() gives one to
+  // each waypoint with a position, and to WP_TARGETS_DOWN, in order.
+  _opponent_nav = kOpponentNoNav;
+  uint8_t nav = 0;
+  for (uint8_t w = kMissionWpBegin[mission]; w < kMissionWpEnd[mission]; ++w) {
+    if (kMissionWpConstraint[w] == WP_TARGETS_DOWN) {
+      _opponent_nav = nav;
+      break;
+    }
+    if (kMissionWpX[w] != 0 || kMissionWpY[w] != 0) {
+      ++nav;
+    }
+  }
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
     const opponent_path_t *p = &kOpponentPaths[mission][i];
     _opponent_on[i] = p->kind != kOpponentNone;
@@ -279,6 +328,7 @@ void opponent_reset(uint8_t mission) {
     _opponent_turn[i] = 0;
     _opponent_bank[i] = 0;
   }
+  _opponent_track();
   opponent_invalidate();
 }
 
@@ -398,6 +448,7 @@ void opponent_step(void) {
     _opponent_move(&_opponent_x[i], speed2, h->x);
     _opponent_move(&_opponent_y[i], speed2, h->y);
   }
+  _opponent_track();
 }
 
 // Per-frame path: the outliner (-Oo) would trade cycles for bytes here.

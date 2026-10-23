@@ -487,7 +487,9 @@ void flight_init() {
 static uint8_t _flight_add_nav_point(uint8_t wp_idx) {
   uint8_t wx = kMissionWpX[wp_idx];
   uint8_t wy = kMissionWpY[wp_idx];
-  if (wx == 0 && wy == 0) {
+  // A waypoint met anywhere has no navpoint, except fpilot's targets: they
+  // are somewhere, and opponent.cc moves the navpoint to wherever that is.
+  if (wx == 0 && wy == 0 && kMissionWpConstraint[wp_idx] != WP_TARGETS_DOWN) {
     return 0;
   }
   uint8_t n = flight_num_nav_points;

@@ -16,6 +16,8 @@ enum MissionWaypointConstraint {
   // both halves are in flight.cc, next to the altitude they share.
   WP_UPSIDE_DOWN = 5,
   // fpilot: every aircraft the mission sent is down (opponent.cc), anywhere.
+  // Its position in the tables is (0, 0) as for any waypoint met anywhere,
+  // but it still gets a navpoint: opponent.cc keeps that on the targets.
   WP_TARGETS_DOWN = 6,
 };
 
@@ -25,7 +27,7 @@ enum MissionWaypointConstraint {
 // fmission.cc, whose tables have the same names and layout as the ones
 // in pmission.cc, ppilot's. Only the two counts below differ.
 #ifdef __FPILOT__
-static const uint8_t kMissionWpCount = 5;
+static const uint8_t kMissionWpCount = 2;
 static const uint8_t kMissionCount = 3;
 #else
 static const uint8_t kMissionWpCount = 16;

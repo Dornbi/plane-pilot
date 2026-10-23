@@ -5,49 +5,40 @@
 //
 // Three interceptions, all from runway 1. What each sends against the player
 // is opponent.cc's kOpponentPaths, and what fails it, opponent.cc too. The
-// goal is the same for all three: every aircraft down (WP_TARGETS_DOWN), then
-// home. Nothing can shoot yet, so for now no mission can be completed - only
-// failed, where the mission says so.
+// goal is the same for all three, so they share one slice of the waypoints:
+// every aircraft down (WP_TARGETS_DOWN), then home. Navpoint 1 is on the
+// targets, wherever they are - the one, or midway between two - and
+// navpoint 2 is runway 1. Nothing can shoot yet, so for now no mission can be
+// completed - only failed, where the mission says so.
 
 const uint8_t kWaypointDefault = 1;
 static const uint8_t kWaypointTargets = 0;
 static const uint8_t kWaypointLanded1 = 1;
-static const uint8_t kWaypointField2 = 2;
-static const uint8_t kWaypointLanded1b = 4;
 
 const uint8_t kMissionWpX[kMissionWpCount] = {
-    0x00, // 00 (Targets down, anywhere)
+    0x00, // 00 (Targets down, anywhere; the navpoint follows them)
     0x20, // 01 (Runway 1)
-    0x60, // 02 (Runway 2)
-    0x00, // 03 (Targets down, anywhere)
-    0x20, // 04 (Runway 1)
 };
 
 const uint8_t kMissionWpY[kMissionWpCount] = {
-    0x00, // 00 (Targets down, anywhere)
+    0x00, // 00 (Targets down, anywhere; the navpoint follows them)
     0x3F, // 01 (Runway 1)
-    0xBF, // 02 (Runway 2)
-    0x00, // 03 (Targets down, anywhere)
-    0x3F, // 04 (Runway 1)
 };
 
 const MissionWaypointConstraint kMissionWpConstraint[kMissionWpCount] = {
     WP_TARGETS_DOWN, // 00 (Targets down)
     WP_LANDED,       // 01 (Runway 1)
-    WP_NOTHING,      // 02 (Runway 2): the ambush's navpoint
-    WP_TARGETS_DOWN, // 03 (Targets down)
-    WP_LANDED,       // 04 (Runway 1)
 };
 
 const uint8_t kMissionWpBegin[kMissionCount] = {
     kWaypointTargets, // 01
     kWaypointTargets, // 02
-    kWaypointField2,  // 03
+    kWaypointTargets, // 03
 };
 const uint8_t kMissionWpEnd[kMissionCount] = {
-    kWaypointLanded1 + 1,  // 01
-    kWaypointLanded1 + 1,  // 02
-    kWaypointLanded1b + 1, // 03
+    kWaypointLanded1 + 1, // 01
+    kWaypointLanded1 + 1, // 02
+    kWaypointLanded1 + 1, // 03
 };
 
 const char *const kMissionTitles[kMissionCount] = {

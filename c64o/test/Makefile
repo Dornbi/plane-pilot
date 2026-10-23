@@ -134,7 +134,8 @@ PLANES_EDGE_TEST_HDRS = ../planes.h ../planes_asm.h ../planedef.h ../vec.h
 # fpilot's, so __FPILOT__; its sprite blocks are an array (opponent.cc
 # kOpponentBank). Not in the narrowing pass: without __FPILOT__ opponent.h
 # stubs out the functions opponent.cc defines.
-OPPONENT_TEST_SRC = opponent_test.cc ../planes.cc ../vec.cc ../vec_lut.cc ../fmath.cc
+OPPONENT_TEST_SRC = opponent_test.cc ../fmission.cc ../planes.cc ../vec.cc ../vec_lut.cc \
+		../fmath.cc
 OPPONENT_TEST_HDRS = ../opponent.cc ../opponent.h ../planes.h ../planes_asm.h \
 		../planedef.h ../vec.h ../flight.h ../mission.h ../sprites.h ../world.h \
 		../mem.h ../color.h

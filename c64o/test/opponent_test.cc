@@ -26,9 +26,9 @@
 // order, near its square, without weaving on the legs; the pass flies dead
 // straight; and the bank leans the right way.
 //
-// opponent.cc is #included rather than linked, for its statics; the flight,
-// world and mission globals it reads, and the sprite stack it writes, are
-// defined here. Its sprite blocks sit in kOpponentBank, which on the host is
+// opponent.cc is #included rather than linked, for its statics; the flight
+// and world globals it reads, and the sprite stack it writes, are defined
+// here, and the missions are fmission.cc's own. Its sprite blocks sit in kOpponentBank, which on the host is
 // the array below.
 
 #include <algorithm>
@@ -54,8 +54,8 @@ uint8_t flight_step_shift = 0;
 uint8_t kFlightSubstepMask = 0;
 int32_t flight_eye_x, flight_eye_y, flight_eye_z;
 mat3_t world_cam;
-const uint8_t kMissionStartX[kMissionCount] = {};
-const uint8_t kMissionStartY[kMissionCount] = {};
+uint16_t flight_nav_point_x[kMaxNavPoints];
+uint16_t flight_nav_point_y[kMaxNavPoints];
 
 static uint8_t _bank[0x4000];
 uint8_t *kOpponentBank = _bank;
@@ -732,6 +732,7 @@ static void test_missions(void) {
     _msgs = 0;
     opponent_reset(0);
     CHECK(_opponent_on[0] && !_opponent_on[1], "recon: one aircraft");
+    CHECK(_opponent_nav == 0, "recon: the targets' navpoint is %d, not 1", _opponent_nav + 1);
     double nearest = 1e9;
     int nearest_at = 0, city_at = -1, gone_at = -1, failed_at = -1;
     for (int n = 0; n < 4000 && gone_at < 0; ++n) {
@@ -744,6 +745,12 @@ static void test_missions(void) {
       }
       if (_opponent_failed && failed_at < 0) failed_at = n;
       if (_opponent_on[0]) {
+        // Navpoint 1 on the recon, to the metre.
+        CHECK(flight_nav_point_x[0] == (uint16_t)(_opponent_x[0] >> 8) &&
+                  flight_nav_point_y[0] == (uint16_t)(_opponent_y[0] >> 8),
+              "recon: navpoint 1 at %04x %04x, the recon at %04x %04x", flight_nav_point_x[0],
+              flight_nav_point_y[0], (unsigned)(_opponent_x[0] >> 8) & 0xFFFF,
+              (unsigned)(_opponent_y[0] >> 8) & 0xFFFF);
         double dx = units(_opponent_x[0] - (0x20L << 16)), dy = units(_opponent_y[0] - (0x3FL << 16));
         double d = sqrt(dx * dx + dy * dy);
         if (d < nearest) {
@@ -763,6 +770,11 @@ static void test_missions(void) {
           "recon: failed at step %d, gone at %d, %d messages, \"%s\"", failed_at, gone_at, _msgs,
           _msg);
     CHECK(!opponent_targets_down(), "recon: escaped, yet the targets are down");
+    // Gone, the navpoint stays where it was last: near the south edge.
+    uint16_t last_x = flight_nav_point_x[0];
+    for (int n = 0; n < 50; ++n) opponent_step();
+    CHECK(flight_nav_point_x[0] == last_x && (last_x < 0x0400 || last_x > 0x7C00),
+          "recon: navpoint 1 at %04x after it left", flight_nav_point_x[0]);
     printf("  recon: passes %.1f km from runway 1 at %.1f min, over the city at %.1f, gone at "
            "%.1f\n",
            nearest * 0.256, nearest_at / 6.25 / 60, city_at / 6.25 / 60, gone_at / 6.25 / 60);
@@ -779,6 +791,7 @@ static void test_missions(void) {
     _msgs = 0;
     opponent_reset(1);
     CHECK(_opponent_on[0] && _opponent_on[1], "bombers: two aircraft");
+    CHECK(_opponent_nav == 0, "bombers: the targets' navpoint is %d, not 1", _opponent_nav + 1);
     double close = 1e9, far = 0;
     int city_at = -1, failed_at = -1, gone = 0;
     for (int n = 0; n < 6000 && gone < 2; ++n) {
@@ -787,6 +800,18 @@ static void test_missions(void) {
       if (w == 1 && _opponent_next[0] == 2) city_at = n;
       if (_opponent_failed && failed_at < 0) failed_at = n;
       gone = !_opponent_on[0] + !_opponent_on[1];
+      if (_opponent_on[0] && _opponent_on[1]) {
+        // Navpoint 1 midway between them, give or take the halving's metre.
+        int mx = (int)((_opponent_x[0] + _opponent_x[1]) / 2 >> 8);
+        int my = (int)((_opponent_y[0] + _opponent_y[1]) / 2 >> 8);
+        CHECK(abs((int16_t)(flight_nav_point_x[0] - mx)) <= 1 &&
+                  abs((int16_t)(flight_nav_point_y[0] - my)) <= 1,
+              "bombers: navpoint 1 at %04x %04x, midway is %04x %04x", flight_nav_point_x[0],
+              flight_nav_point_y[0], mx & 0xFFFF, my & 0xFFFF);
+      } else if (_opponent_on[1]) {
+        CHECK(flight_nav_point_y[0] == (uint16_t)(_opponent_y[1] >> 8),
+              "bombers: navpoint 1 not on the one left");
+      }
       if (city_at < 0 && _opponent_on[0] && _opponent_on[1]) {
         double dx = (_opponent_x[1] - _opponent_x[0]) / 256.0;
         double dy = (_opponent_y[1] - _opponent_y[0]) / 256.0;
@@ -827,6 +852,14 @@ static void test_missions(void) {
               units(_opponent_y[0]) > 0xC0 && units(_opponent_y[1]) < 0xC0 + 0.5,
           "ambush: not beside runway 2");
     CHECK(!opponent_targets_down(), "ambush: down at the start");
+    // Midway between the two, beside runway 2.
+    CHECK(flight_nav_point_x[0] == 0x5D00 && flight_nav_point_y[0] == 0xC030,
+          "ambush: navpoint 1 at %04x %04x", flight_nav_point_x[0], flight_nav_point_y[0]);
+    // One shot down: on the other.
+    _opponent_down = 1;
+    opponent_step();
+    CHECK(flight_nav_point_y[0] == 0xC048, "ambush: navpoint 1 at %04x with one down",
+          flight_nav_point_y[0]);
   }
 }
 
