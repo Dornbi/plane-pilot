@@ -732,7 +732,8 @@ static const char *_flight_join(const char *prefix, const char *suffix) {
   return _flight_status_text;
 }
 
-__forceinline const char *flight_status_text(enum FlightStatus status, bool crashed) {
+__forceinline const char *flight_status_text(enum FlightStatus status,
+                                             bool crashed) {
   if (status == FLIGHT_MISSION_COMPLETED) {
 #ifdef __FPILOT__
     // Against its "GOALS COMPLETED!" below, which comes first.
@@ -855,7 +856,7 @@ static void _flight_check_mission_waypoints() {
         }
       } else
 #endif
-      if (nav_n != 0) {
+          if (nav_n != 0) {
         static char nav_reached_buf[] = "WAYPOINT 1 REACHED";
         nav_reached_buf[9] = '0' + nav_n;
         msg_show(nav_reached_buf);
@@ -1420,7 +1421,7 @@ void flight_advance() {
     } else {
       model_turn_rem = 0;
     }
-#else // !__FLIGHT_AOA__
+#else  // !__FLIGHT_AOA__
 
     // Rotation (only when airborne)
     if (!model_on_ground) {
@@ -1488,17 +1489,14 @@ void flight_advance() {
 
 // The airborne attitude step for an input is
 // vec_rotate_step(input - FLIGHT_INPUT_ROLL_LEFT).
-static_assert(FLIGHT_INPUT_ROLL_RIGHT - FLIGHT_INPUT_ROLL_LEFT ==
-                      VEC_STEP_ROLL_RIGHT &&
-                  FLIGHT_INPUT_PITCH_UP - FLIGHT_INPUT_ROLL_LEFT ==
-                      VEC_STEP_PITCH_UP &&
-                  FLIGHT_INPUT_PITCH_DOWN - FLIGHT_INPUT_ROLL_LEFT ==
-                      VEC_STEP_PITCH_DOWN &&
-                  FLIGHT_INPUT_YAW_LEFT - FLIGHT_INPUT_ROLL_LEFT ==
-                      VEC_STEP_YAW_LEFT &&
-                  FLIGHT_INPUT_YAW_RIGHT - FLIGHT_INPUT_ROLL_LEFT ==
-                      VEC_STEP_YAW_RIGHT,
-              "the rotation inputs must be in vec_step_t order");
+static_assert(
+    FLIGHT_INPUT_ROLL_RIGHT - FLIGHT_INPUT_ROLL_LEFT == VEC_STEP_ROLL_RIGHT &&
+        FLIGHT_INPUT_PITCH_UP - FLIGHT_INPUT_ROLL_LEFT == VEC_STEP_PITCH_UP &&
+        FLIGHT_INPUT_PITCH_DOWN - FLIGHT_INPUT_ROLL_LEFT ==
+            VEC_STEP_PITCH_DOWN &&
+        FLIGHT_INPUT_YAW_LEFT - FLIGHT_INPUT_ROLL_LEFT == VEC_STEP_YAW_LEFT &&
+        FLIGHT_INPUT_YAW_RIGHT - FLIGHT_INPUT_ROLL_LEFT == VEC_STEP_YAW_RIGHT,
+    "the rotation inputs must be in vec_step_t order");
 
 void flight_input(enum flight_input_t input) {
   if (input == FLIGHT_INPUT_TOGGLE_NAV) {
@@ -1509,9 +1507,18 @@ void flight_input(enum flight_input_t input) {
       }
       _flight_update_nav();
 
+#ifdef __FPILOT__
+      // fpilot's two navpoints are named for what they are. Every mission has
+      // the same two (fmission.cc): 1 on the targets, kept on them by
+      // opponent.cc, and 2 on the runway to land on - which
+      // test/fpilot_test.cc holds each mission to, rather than this looking
+      // them up for ~90 bytes.
+      msg_show(flight_nav == 0 ? "TARGET SELECTED" : "HOME BASE SELECTED");
+#else
       static char nav_msg_buf[] = "NAVPOINT 1 SELECTED";
       nav_msg_buf[9] = '0' + (flight_nav + 1);
       msg_show(nav_msg_buf);
+#endif
     }
     return;
   }
@@ -1572,11 +1579,11 @@ void flight_input(enum flight_input_t input) {
       // Nose wheel steering, so it needs the wheels to be turning. A parked
       // aircraft cannot pivot on the spot.
       if (flight_speed > 0) {
-        vec_rotate_step((input == FLIGHT_INPUT_ROLL_LEFT ||
-                         input == FLIGHT_INPUT_YAW_LEFT)
-                            ? VEC_STEP_YAW_LEFT
-                            : VEC_STEP_YAW_RIGHT,
-                        &flight_cam);
+        vec_rotate_step(
+            (input == FLIGHT_INPUT_ROLL_LEFT || input == FLIGHT_INPUT_YAW_LEFT)
+                ? VEC_STEP_YAW_LEFT
+                : VEC_STEP_YAW_RIGHT,
+            &flight_cam);
         model_need_normalize = true;
       }
       break;

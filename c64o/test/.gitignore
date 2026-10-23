@@ -13,5 +13,6 @@ planes_test
 planes_edge_test
 opponent_test
 fpilot_test
+mission_test
 planes_cases.h
 planes_target_cases.h

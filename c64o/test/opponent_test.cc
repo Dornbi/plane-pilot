@@ -733,8 +733,7 @@ static void test_missions(void) {
     opponent_reset(0);
     CHECK(_opponent_on[0] && !_opponent_on[1], "recon: one aircraft");
     CHECK(_opponent_nav == 0, "recon: the targets' navpoint is %d, not 1", _opponent_nav + 1);
-    double nearest = 1e9;
-    int nearest_at = 0, city_at = -1, gone_at = -1, failed_at = -1;
+    int city_at = -1, gone_at = -1, failed_at = -1;
     for (int n = 0; n < 4000 && gone_at < 0; ++n) {
       uint8_t w = _opponent_next[0];
       opponent_step();
@@ -751,18 +750,12 @@ static void test_missions(void) {
               "recon: navpoint 1 at %04x %04x, the recon at %04x %04x", flight_nav_point_x[0],
               flight_nav_point_y[0], (unsigned)(_opponent_x[0] >> 8) & 0xFFFF,
               (unsigned)(_opponent_y[0] >> 8) & 0xFFFF);
-        double dx = units(_opponent_x[0] - (0x20L << 16)), dy = units(_opponent_y[0] - (0x3FL << 16));
-        double d = sqrt(dx * dx + dy * dy);
-        if (d < nearest) {
-          nearest = d;
-          nearest_at = n;
-        }
         CHECK(_opponent_z[0] == (int32_t)kOpponent5000Ft << 8, "recon: changed height");
       }
     }
-    CHECK(fabs(nearest_at / 6.25 / 60 - 3.5) < 0.4 && nearest * 0.256 > 4 && nearest * 0.256 < 8,
-          "recon: nearest runway 1 at %.1f min, %.1f km", nearest_at / 6.25 / 60, nearest * 0.256);
-    CHECK(fabs(city_at / 6.25 / 60 - 5.0) < 0.4, "recon: over the city at %.1f min",
+    // Head-on past the player's start, over the city at ~5.5 min, off the
+    // south edge at ~6.3.
+    CHECK(fabs(city_at / 6.25 / 60 - 5.5) < 0.4, "recon: over the city at %.1f min",
           city_at / 6.25 / 60);
     CHECK(gone_at > 0 && fabs(gone_at / 6.25 / 60 - 6.3) < 0.4, "recon: gone at %.1f min",
           gone_at / 6.25 / 60);
@@ -775,9 +768,8 @@ static void test_missions(void) {
     for (int n = 0; n < 50; ++n) opponent_step();
     CHECK(flight_nav_point_x[0] == last_x && (last_x < 0x0400 || last_x > 0x7C00),
           "recon: navpoint 1 at %04x after it left", flight_nav_point_x[0]);
-    printf("  recon: passes %.1f km from runway 1 at %.1f min, over the city at %.1f, gone at "
-           "%.1f\n",
-           nearest * 0.256, nearest_at / 6.25 / 60, city_at / 6.25 / 60, gone_at / 6.25 / 60);
+    printf("  recon: over the city at %.1f min, gone at %.1f min\n", city_at / 6.25 / 60,
+           gone_at / 6.25 / 60);
 
     // Shot down before it got away - by hand, as nothing shoots yet.
     opponent_reset(0);
@@ -822,7 +814,7 @@ static void test_missions(void) {
     }
     // 150 m and 200 m apart: 250 m, and both turn alike.
     CHECK(close > 200 && far < 300, "bombers: %.0f-%.0f m apart on the way in", close, far);
-    CHECK(fabs(city_at / 6.25 / 60 - 5.5) < 0.4, "bombers: over the city at %.1f min",
+    CHECK(fabs(city_at / 6.25 / 60 - 4.7) < 0.4, "bombers: over the city at %.1f min",
           city_at / 6.25 / 60);
     CHECK(failed_at == city_at && _msgs == 1 && !strcmp(_msg, kOpponentFailText[1]),
           "bombers: failed at step %d, over the city at %d, %d messages", failed_at, city_at,

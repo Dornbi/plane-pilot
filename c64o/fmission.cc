@@ -8,8 +8,10 @@
 // goal is the same for all three, so they share one slice of the waypoints:
 // every aircraft down (WP_TARGETS_DOWN), then home. Navpoint 1 is on the
 // targets, wherever they are - the one, or midway between two - and
-// navpoint 2 is runway 1. Nothing can shoot yet, so for now no mission can be
-// completed - only failed, where the mission says so.
+// navpoint 2 is runway 1. flight.cc names them by number when they are
+// selected, TARGET and HOME BASE, so every mission keeps that order.
+// Nothing can shoot yet, so for now no mission can be completed - only
+// failed, where the mission says so.
 
 const uint8_t kWaypointDefault = 1;
 static const uint8_t kWaypointTargets = 0;
@@ -56,39 +58,45 @@ const char *const kMissionDesc[kMissionCount] = {
     "THE PARKED PLANES.",                 //
 };
 
-// On runway 1, engine at idle, as ppilot's mission 01 starts.
+// Where each starts: close to its targets, within ~90 s of them in every
+// mission (test/mission_test.cc), heading north as every start does
+// (flight_init_from_mission()). 01 and 03 in the air at cruise - throttle 18,
+// whose level trim is ~2,170 (0x88 << 4) - 01 at 2,500 ft, 9 km south of the
+// north edge, under the recon's way in; 03 at 1,000 ft 8 km short of runway
+// 2, lined up beside it. 02 scrambles: on runway 1, engine at idle, the bombers coming
+// south towards it.
 const uint8_t kMissionStartX[kMissionCount] = {
-    0x1C, // 01
+    0x5C, // 01
     0x1C, // 02
-    0x1C, // 03
+    0x3D, // 03
 };
 
 const uint8_t kMissionStartY[kMissionCount] = {
-    0x3F, // 01
+    0x5F, // 01
     0x3F, // 02
-    0x3F, // 03
+    0xC0, // 03
 };
 
 const uint8_t kMissionStartZ[kMissionCount] = {
-    0x00, // 01
+    0x05, // 01
     0x00, // 02
-    0x00, // 03
+    0x02, // 03
 };
 
 const uint8_t kMissionStartSpeed[kMissionCount] = {
-    0x00, // 01
+    0x88, // 01
     0x00, // 02
-    0x00, // 03
+    0x88, // 03
 };
 
 const uint8_t kMissionStartThrottle[kMissionCount] = {
-    0x00, // 01
+    0x12, // 01
     0x00, // 02
-    0x00, // 03
+    0x12, // 03
 };
 
-// About 15 minutes at full throttle. The longest, 03, is ~37 km each way:
-// ~80,000 of the 139,000 at a cruise of throttle 18.
+// About 15 minutes at full throttle. The longest way home, from runway 2 in
+// 03, is ~37 km: ~40,000 of the 139,000 at a cruise of throttle 18.
 const uint8_t kMissionStartFuel[kMissionCount] = {
     0x22, // 01
     0x22, // 02

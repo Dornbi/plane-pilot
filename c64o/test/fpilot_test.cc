@@ -5,7 +5,7 @@
 // in the menu; MISSION COMPLETED! when the pilot then lands on runway 1,
 // which marks it twice. A later attempt that gets only as far as the goals
 // keeps the two. And every mission has its two navpoints, the targets' and
-// runway 1's.
+// runway 1's, in that order, selected as "TARGET" and "HOME BASE".
 //
 // flight.cc is linked as fpilot builds it, -D__FPILOT__, with fmission.cc.
 // What it asks opponent.cc - whether the targets are down - and what it tells
@@ -52,8 +52,22 @@ int main() {
           "mission %d: %d navpoints, 2 at %04x %04x", m + 1, flight_num_nav_points,
           flight_nav_point_x[1], flight_nav_point_y[1]);
 
-    // Parked on runway 1, which is where it ends: nothing until the targets
-    // are down.
+    // Selecting them: the runway is a navpoint, the targets an enemy.
+    flight_input(FLIGHT_INPUT_TOGGLE_NAV);
+    CHECK(!strcmp(_msg, "HOME BASE SELECTED"), "mission %d: selecting 2 says \"%s\"", m + 1,
+          _msg);
+    flight_input(FLIGHT_INPUT_TOGGLE_NAV);
+    CHECK(!strcmp(_msg, "TARGET SELECTED"), "mission %d: selecting 1 says \"%s\"", m + 1,
+          _msg);
+    // flight.cc names them by number, so the mission has to have them in
+    // that order: the targets' waypoint first, then landing on runway 1.
+    int w = kMissionWpBegin[m];
+    CHECK(kMissionWpEnd[m] - w == 2 && kMissionWpConstraint[w] == WP_TARGETS_DOWN &&
+              kMissionWpConstraint[w + 1] == WP_LANDED,
+          "mission %d: navpoints not the targets', then home", m + 1);
+
+    // Nothing until the targets are down - even parked on runway 1, where
+    // 02 starts and every mission ends.
     for (int n = 0; n < 20; ++n) flight_advance();
     CHECK(mission_completed[m] == 0 && flight_current_wp == 0,
           "mission %d: completed with the targets up", m + 1);
@@ -66,7 +80,12 @@ int main() {
           "mission %d: targets down: level %d, \"%s\", status %d", m + 1, mission_completed[m],
           _msg, flight_status);
 
-    // Still on runway 1: landed, so the mission.
+    // Then parked on runway 1 - where 02 starts, so as it starts, but still
+    // flying this mission with its goals met: landed, so the mission.
+    uint8_t wp = flight_current_wp;
+    flight_init_from_mission(1);
+    flight_active_mission_idx = (uint8_t)m;
+    flight_current_wp = wp;
     flight_advance();
     CHECK(mission_completed[m] == kMissionCompleted && kMissionCompleted == 2 &&
               !strcmp(_msg, "MISSION COMPLETED!") && flight_status == FLIGHT_MISSION_COMPLETED,

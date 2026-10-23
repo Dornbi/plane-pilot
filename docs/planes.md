@@ -1331,22 +1331,34 @@ zero page into the program's own at `$60` (`tools/check_zeropage.py`).
 
 ### Three missions
 
-*Built 2026-10-23.* fpilot's one mission gave way to three, all from runway
-1 (`fmission.cc`; `kOpponentPaths` for what each sends):
+*Built 2026-10-23.* fpilot's one mission gave way to three (`fmission.cc`;
+`kOpponentPaths` for what each sends). *Revised the same day after play:
+the recon slower, 01 and 03 started in the air, and every mission bringing
+the player within 2 km of its targets inside 90 s.*
 
-| Mission | Opponents | Fails when |
-| :--- | :--- | :--- |
-| 01 Recon | One at 5,000 ft and 2,000: in from the north edge, past runway 1 (6 km at ~3.5 min), over the city at ~5 min, out over the south edge at ~6.3 min | it leaves the map |
-| 02 Bombers | Two at 3,000 ft and 1,500, the second 150 m left of and 200 m behind the first: along the city's row from the west, over it at ~5.5 min, then on east and off the map | the first reaches the city |
-| 03 Ambush | Two parked beside the south end of runway 2, 37 km away | never |
+| Mission | Start | Opponents | Fails when |
+| :--- | :--- | :--- | :--- |
+| 01 Recon | In the air at 2,500 ft and cruise, 9 km south of the north edge | One at 5,000 ft and 1,750 (2,000 at first): in from the north edge head-on, past the player 2,500 ft above after ~45 s, over the city at ~5.4 min, off the south edge at ~6.2 | it leaves the map |
+| 02 Bombers | On runway 1, engine at idle | Two at 3,000 ft and 1,500, the second 150 m left of and 200 m behind the first: south towards runway 1 from 12 km, 1 km past its north end, then the city at ~4.7 min, then off the south edge | the first reaches the city |
+| 03 Ambush | In the air at 1,000 ft and cruise, 8 km short of runway 2 | Two parked beside its south end, dead ahead | never |
 
-The timings are against the player's own, from host runs of `flight.cc`:
-airborne in ~11 s, then at full throttle ~1,300 ft a minute up to 4,000 ft,
-where thinner air cuts it (~3.3 min there, ~4.3 to 5,000). Level, it flies
-~2,500 below 4,000 ft and 2,350 at 5,000. So the recon outruns a climbing
-player and is caught only level, and only by one who climbed out towards
-the city rather than after it; the bombers can be met over the city with
-three minutes in hand. Untried by hand: there is nothing to shoot with yet.
+Every start faces north (`flight_init_from_mission()` has no heading), so
+each lays its targets out ahead or coming towards it. `test/mission_test.cc`
+flies flight.cc and opponent.cc together from each start with a plain
+pilot - full throttle, straight on, holding height or climbing out - and
+holds each to 2 km inside 90 s: 33 s, 73 s and 51 s. For 01 the climb is
+the challenge, and a second pilot checks it is one that can be won: turning
+after the recon at the pass and only then climbing to its height, banking
+towards it, it is within 500 m at 3.8 min, 2.4 min before the recon leaves
+(one climbing towards it from the start, at 3.1). It and
+`test/fpilot_test.cc` build with the arcade flight model whatever the rest
+use, as fpilot does.
+
+The player's figures, from host runs of `flight.cc`: airborne from the
+runway in ~11 s, then at full throttle ~1,300 ft a minute up to 4,000 ft,
+where thinner air cuts it. Level, it flies ~2,500 below 4,000 ft and 2,350
+at 5,000; cruise, throttle 18, trims at ~2,170. Untried by hand beyond 01:
+there is nothing to shoot with yet.
 
 **Paths.** Each has a kind - a loop; one-way, whose aircraft is gone at its
 last waypoint; or parked, which has no waypoints and never moves - its own
@@ -1371,7 +1383,9 @@ tables is (0, 0), which elsewhere means no navpoint; `flight.cc` gives this
 one a navpoint anyway, and `opponent.cc` (`_opponent_track()`) moves it every
 step onto the one target left flying or parked, or midway between two. The
 map's digit and the nav guidance read the navpoint arrays as they are, so
-both follow. A target that has left the map leaves the navpoint where it was
+both follow. Selecting the two says `TARGET SELECTED` and `HOME BASE
+SELECTED` rather than `NAVPOINT 1` and `2`: by number, as every mission has
+the two in that order (`test/fpilot_test.cc` checks). A target that has left the map leaves the navpoint where it was
 last seen.
 
 Parked aircraft are drawn with the flying ones' renderer, low over the
@@ -1383,7 +1397,8 @@ RAM: fpilot from 6,053 to 5,258 bytes free. The path table is 136 bytes
 more, `opponent_step()`'s one-way, parked and failure logic ~100, and most
 of the rest is flight and menu code that folded to constants while there
 was one mission. The navpoints took it to 5,106, the two levels and the
-briefings as they now read to 5,061.
+briefings as they now read to 5,061, the navpoints' names and the new
+starts to 4,980.
 
 ### The sprite frame runs ahead of the terrain
 

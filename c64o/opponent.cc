@@ -120,35 +120,37 @@ static const uint16_t kOpponent5000Ft = 0x0A00;
 static const uint16_t kOpponent3000Ft = 0x0600;
 
 // The missions (fmission.cc). Runway 1, home, is at (0x20, 0x3F), runway 2 at
-// (0x60, 0xBF) and the city at (0x10, 0x68). The player starts on runway 1
-// and takes ~11 s to get airborne, then ~3.3 min to climb to 4,000 ft at
-// full throttle, ~4.3 min to 5,000, where the thin air slows it.
+// (0x60, 0xBF) and the city at (0x10, 0x68). Each puts the player within
+// 2 km of its targets inside ~90 s (test/mission_test.cc), heading north as
+// every start does.
 //
-// 01, Recon: at 5,000 ft and 2,000, faster than the player climbs and slower
-// than it flies level up there. It comes in from the north edge of the map,
-// passes 6 km north-west of runway 1 at ~3.5 min, turns for the city, over it
-// at ~5 min, and leaves over the south edge at ~6.3 min: gone, and the
-// mission failed. A player who climbs out towards the city can be at its
-// height there a minute before it; one who chases it from the runway falls
-// behind while climbing.
+// 01, Recon: at 5,000 ft and 1,750, faster than the player climbs and slower
+// than it flies level up there. It comes in from the north edge head-on to
+// the player, 2,500 ft below, passing 128 m to one side after ~45 s; then on
+// south over the city at ~5.5 min and out over the south edge at ~6.3 min,
+// gone with the mission failed. The climb is the challenge. A pilot who
+// climbs towards it from the start is within 500 m of it at ~3.1 min; one
+// who turns after it at the pass and only then climbs, at ~3.8 min, still
+// 2.4 min before it leaves (test/mission_test.cc). 2,000 at first, from the
+// runway, which play found too hard.
 //
 // 02, Bombers: two at 3,000 ft and 1,500, in loose formation - the second
-// 150 m to the left of and 200 m behind the first - come from the west along
-// the city's row and reach it after ~5.5 min, which fails the mission. Then
-// they fly on east and leave over the east edge. The player can be at
-// 3,000 ft over the city in ~2.5 min.
+// 150 m to the left of and 200 m behind the first - come south towards
+// runway 1 as the player scrambles from it, pass 1 km north of it, turn for
+// the city and reach it after ~4.8 min, which fails the mission. Then they
+// leave over the south edge.
 //
-// 03, Ambush: two on the ground beside the south end of runway 2, 37 km
-// away, 24 m and 72 m off its west edge at y 0xC0, facing up it. Their
-// centres are 4 m up, about where an 11 m aircraft's is on its wheels.
+// 03, Ambush: two on the ground beside the south end of runway 2, 24 m and
+// 72 m off its west edge at y 0xC0, facing up it, 8 km ahead of the player.
+// Their centres are 4 m up, about where an 11 m aircraft's is on its wheels.
 static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
-    {{kOpponentOneWay, 4, 3, 2000, 0x7E00, 0x5000, -256, 0, kOpponent5000Ft,
-      {0x5000, 0x3000, 0x1000, 0x0000}, {0x5000, 0x5000, 0x6800, 0x8000}},
+    {{kOpponentOneWay, 4, 3, 1750, 0x7E00, 0x6000, -256, 0, kOpponent5000Ft,
+      {0x5C00, 0x3000, 0x1000, 0x0000}, {0x6000, 0x6400, 0x6800, 0x6800}},
      {kOpponentNone}},
-    {{kOpponentOneWay, 4, 1, 1500, 0x1000, 0xC800, 0, -256, kOpponent3000Ft,
-      {0x1000, 0x1000, 0x1000, 0x1000}, {0x9800, 0x6800, 0x3400, 0x0000}},
-     {kOpponentOneWay, 4, 1, 1500, 0x1096, 0xC8C8, 0, -256, kOpponent3000Ft,
-      {0x1096, 0x1096, 0x1096, 0x1096}, {0x98C8, 0x68C8, 0x34C8, 0x00C8}}},
+    {{kOpponentOneWay, 3, 1, 1500, 0x4C00, 0x4000, -256, 0, kOpponent3000Ft,
+      {0x2800, 0x1000, 0x0000}, {0x4000, 0x6800, 0x6800}},
+     {kOpponentOneWay, 3, 1, 1500, 0x4CC8, 0x3F6A, -256, 0, kOpponent3000Ft,
+      {0x28C8, 0x10C8, 0x00C8}, {0x3F6A, 0x676A, 0x676A}}},
     {{kOpponentParked, 0, kOpponentNoFail, 0, 0x5D00, 0xC018, 256, 0, 0x0004},
      {kOpponentParked, 0, kOpponentNoFail, 0, 0x5D00, 0xC048, 256, 0, 0x0004}},
 };
