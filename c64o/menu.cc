@@ -44,7 +44,13 @@ static void _menu_render_items(uint8_t scroll_offset) {
     uint8_t i = scroll_offset + v;
     print_str(row, 2, kMissionTitles[i], strlen(kMissionTitles[i]));
     print_lines(row + 1, 4, kMissionDesc[i]);
-    mem_screen_row_ptrs[row][38] = mission_completed[i] ? '@' : '.';
+    // A check mark a level of completion (mission.h), right-aligned. The
+    // second only where there are two levels, which folds away in ppilot.
+    uint8_t done = mission_completed[i];
+    mem_screen_row_ptrs[row][38] = done ? '@' : '.';
+    if (kMissionCompleted >= 2 && done >= 2) {
+      mem_screen_row_ptrs[row][37] = '@';
+    }
     row += kMissionRowStep;
   }
 

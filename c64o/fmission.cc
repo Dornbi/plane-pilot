@@ -42,18 +42,18 @@ const uint8_t kMissionWpEnd[kMissionCount] = {
 };
 
 const char *const kMissionTitles[kMissionCount] = {
-    "01 RECON",   // 01
-    "02 BOMBERS", // 02
-    "03 AMBUSH",  // 03
+    "01 RECON",       // 01
+    "02 BOMBER RAID", // 02
+    "03 AMBUSH",      // 03
 };
 
 const char *const kMissionDesc[kMissionCount] = {
-    "RECON PLANE AT 5000FT, BOUND FOR\n"  // 01
-    "THE CITY. SHOOT IT DOWN AND LAND.",  //
-    "TWO BOMBERS AT 3000FT HEADING FOR\n" // 02
-    "THE CITY. STOP BOTH, THEN LAND.",    //
-    "TWO PLANES PARKED AT RUNWAY 2.\n"    // 03
-    "DESTROY THEM ON THE GROUND, LAND.",  //
+    "THE ENEMY IS COLLECTING RECON.\n"    // 01
+    "INTERCEPT AND DESTROY IT.",          //
+    "BOMBERS ARE RAIDING THE CITY!\n"     // 02
+    "CATCH THEM BEFORE THEY DO DAMAGE.",  //
+    "AMBUSH THE ENEMY BASE AND DESTROY\n" // 03
+    "THE PARKED PLANES.",                 //
 };
 
 // On runway 1, engine at idle, as ppilot's mission 01 starts.
@@ -107,8 +107,8 @@ const uint8_t kMissionWindY[kMissionCount] = {
     0x00, // 03
 };
 
-bool mission_completed[kMissionCount] = {
-    false, // 01
-    false, // 02
-    false, // 03
+uint8_t mission_completed[kMissionCount] = {
+    0, // 01
+    0, // 02
+    0, // 03
 };

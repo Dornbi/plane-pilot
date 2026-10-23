@@ -1356,7 +1356,11 @@ offset: both turn alike.
 
 **The goal** is a new constraint, `WP_TARGETS_DOWN` (`mission.h`): met once
 every aircraft the mission sent is shot down (`opponent_targets_down()`),
-then land on runway 1. Nothing shoots yet, so `_opponent_down` is never set
+then land on runway 1. *Since 2026-10-23* those are two levels of
+completing it, kept per mission as the best of every attempt
+(`mission_completed[]`): `GOALS COMPLETED!` and one check mark in the menu
+for the targets, `MISSION COMPLETED!` and two for getting home after them.
+ppilot's missions still have one level and one mark. Nothing shoots yet, so `_opponent_down` is never set
 and no mission can be completed. A failure shows a message once, `MISSION
 FAILED - RECON ESCAPED` or `- CITY BOMBED`, and after it the goal is never
 met.
@@ -1378,7 +1382,8 @@ the screen.
 RAM: fpilot from 6,053 to 5,258 bytes free. The path table is 136 bytes
 more, `opponent_step()`'s one-way, parked and failure logic ~100, and most
 of the rest is flight and menu code that folded to constants while there
-was one mission. The navpoints took it to 5,106.
+was one mission. The navpoints took it to 5,106, the two levels and the
+briefings as they now read to 5,061.
 
 ### The sprite frame runs ahead of the terrain
 

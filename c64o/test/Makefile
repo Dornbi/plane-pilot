@@ -140,6 +140,13 @@ OPPONENT_TEST_HDRS = ../opponent.cc ../opponent.h ../planes.h ../planes_asm.h \
 		../planedef.h ../vec.h ../flight.h ../mission.h ../sprites.h ../world.h \
 		../mem.h ../color.h
 
+# fpilot_test links flight.cc as fpilot builds it, with fmission.cc and
+# __FPILOT__, for the two levels of completing a mission; what it would ask
+# opponent.cc and tell msg.cc is stubbed.
+FPILOT_TEST_SRC = fpilot_test.cc host_vec.cc ../flight.cc ../fmission.cc ../world_map.cc \
+		../vec.cc ../vec_lut.cc ../fmath.cc
+FPILOT_TEST_HDRS = ../flight.h ../mission.h ../opponent.h ../vec.h ../fmath.h ../msg.h
+
 all: test
 
 flight_test: $(FLIGHT_TEST_SRC) $(FLIGHT_TEST_HDRS)
@@ -180,6 +187,9 @@ planes_edge_test: $(PLANES_EDGE_TEST_SRC) $(PLANES_EDGE_TEST_HDRS)
 
 opponent_test: $(OPPONENT_TEST_SRC) $(OPPONENT_TEST_HDRS)
 	$(HOST_CC) $(HOST_CFLAGS) -D__FPILOT__ -o opponent_test $(OPPONENT_TEST_SRC)
+
+fpilot_test: $(FPILOT_TEST_SRC) $(FPILOT_TEST_HDRS)
+	$(HOST_CC) $(HOST_CFLAGS) -D__FPILOT__ -o fpilot_test $(FPILOT_TEST_SRC)
 
 # Every suite's sources, for the syntax-only narrowing pass. Kept as one list
 # rather than reusing the per-suite variables because the pass does not link and
@@ -229,8 +239,8 @@ narrowing-update:
 	fi
 	@{ $(narrow_scan) ; } | $(NARROW_CHECK) --update $(NARROW_BASELINE)
 
-test: flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test planes_test planes_edge_test opponent_test narrowing $(TARGET_TEST)
-	@./flight_test > output.txt && ./msg_test >> output.txt && ./map_test >> output.txt && ./sound_test >> output.txt && ./music_test >> output.txt && ./mul_test >> output.txt && ./sprites_test >> output.txt && ./cpu_test >> output.txt && ./poly_test >> output.txt && ./planes_test >> output.txt && ./planes_edge_test >> output.txt && ./opponent_test >> output.txt && echo "ALL TESTS PASSED (flight_test, msg_test, map_test, sound_test, music_test, mul_test, sprites_test, cpu_test, poly_test, planes_test, planes_edge_test, opponent_test) -> test/output.txt"
+test: flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test planes_test planes_edge_test opponent_test fpilot_test narrowing $(TARGET_TEST)
+	@./flight_test > output.txt && ./msg_test >> output.txt && ./map_test >> output.txt && ./sound_test >> output.txt && ./music_test >> output.txt && ./mul_test >> output.txt && ./sprites_test >> output.txt && ./cpu_test >> output.txt && ./poly_test >> output.txt && ./planes_test >> output.txt && ./planes_edge_test >> output.txt && ./opponent_test >> output.txt && ./fpilot_test >> output.txt && echo "ALL TESTS PASSED (flight_test, msg_test, map_test, sound_test, music_test, mul_test, sprites_test, cpu_test, poly_test, planes_test, planes_edge_test, opponent_test, fpilot_test) -> test/output.txt"
 
 # Both models, from clean, because the object files are not model-tagged.
 test-both:
@@ -238,7 +248,7 @@ test-both:
 	$(MAKE) clean && $(MAKE) test FLIGHT_AOA=1
 
 clean:
-	rm -rf flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test planes_test planes_edge_test opponent_test planes_cases.h planes_target_cases.h output.txt *.dSYM
+	rm -rf flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test planes_test planes_edge_test opponent_test fpilot_test planes_cases.h planes_target_cases.h output.txt *.dSYM
 	rm -f target_test.prg target_test.asm target_test.lbl target_test.map target_test.int target_test.dbj
 
 .PHONY: all test test-both narrowing narrowing-update target-test flight_test msg_test map_test sound_test music_test mul_test sprites_test poly_test clean

@@ -244,15 +244,15 @@ const uint8_t kMissionWindY[kMissionCount] = {
     0x00, // 10
 };
 
-bool mission_completed[kMissionCount] = {
-    false, // 01
-    false, // 02
-    false, // 03
-    false, // 04
-    false, // 05
-    false, // 06
-    false, // 07
-    false, // 08
-    false, // 09
-    false, // 10
+uint8_t mission_completed[kMissionCount] = {
+    0, // 01
+    0, // 02
+    0, // 03
+    0, // 04
+    0, // 05
+    0, // 06
+    0, // 07
+    0, // 08
+    0, // 09
+    0, // 10
 };

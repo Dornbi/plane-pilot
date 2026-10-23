@@ -734,7 +734,12 @@ static const char *_flight_join(const char *prefix, const char *suffix) {
 
 __forceinline const char *flight_status_text(enum FlightStatus status, bool crashed) {
   if (status == FLIGHT_MISSION_COMPLETED) {
+#ifdef __FPILOT__
+    // Against its "GOALS COMPLETED!" below, which comes first.
+    return "MISSION COMPLETED!";
+#else
     return "MISSION COMPLETE!";
+#endif
   }
   return _flight_join(crashed ? "CRASHED: " : "WARNING: ",
                       kFlightFaultText[status]);
@@ -839,6 +844,17 @@ static void _flight_check_mission_waypoints() {
     uint8_t cur_wp = flight_current_wp++;
     if ((uint8_t)(wp_idx + 1) < wp_end) {
       uint8_t nav_n = flight_waypoint_nav[cur_wp];
+#ifdef __FPILOT__
+      // Every opponent down: the first of fpilot's two levels (mission.h),
+      // as much of a moment as the second, and kept even if the pilot never
+      // gets home.
+      if (constraint == WP_TARGETS_DOWN) {
+        msg_show("GOALS COMPLETED!", kFlightMissionCompleteDuration);
+        if (mission_completed[flight_active_mission_idx] < kMissionGoals) {
+          mission_completed[flight_active_mission_idx] = kMissionGoals;
+        }
+      } else
+#endif
       if (nav_n != 0) {
         static char nav_reached_buf[] = "WAYPOINT 1 REACHED";
         nav_reached_buf[9] = '0' + nav_n;
@@ -854,7 +870,7 @@ static void _flight_check_mission_waypoints() {
       flight_status = FLIGHT_MISSION_COMPLETED;
       msg_show(flight_status_text(FLIGHT_MISSION_COMPLETED, false),
                kFlightMissionCompleteDuration);
-      mission_completed[flight_active_mission_idx] = true;
+      mission_completed[flight_active_mission_idx] = kMissionCompleted;
     }
   } else if (pos_ok && (wx != 0 || wy != 0)) {
     // Over the waypoint but the constraint is not satisfied: say which one,

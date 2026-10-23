@@ -62,7 +62,18 @@ extern const uint8_t kMissionWindY[kMissionCount];
 
 extern const uint8_t kMissionWpBegin[kMissionCount];
 extern const uint8_t kMissionWpEnd[kMissionCount];
-extern bool mission_completed[kMissionCount];
+
+// How far each mission has been got, the best of every attempt: 0 not at
+// all; in ppilot 1 for completed; in fpilot 1 for its goals completed - every
+// opponent shot down (WP_TARGETS_DOWN) - and 2 for the mission, the goals and
+// then home. The menu shows one check mark a level.
+static const uint8_t kMissionGoals = 1;
+#ifdef __FPILOT__
+static const uint8_t kMissionCompleted = 2;
+#else
+static const uint8_t kMissionCompleted = 1;
+#endif
+extern uint8_t mission_completed[kMissionCount];
 
 #ifdef __FPILOT__
 #pragma compile("fmission.cc")
