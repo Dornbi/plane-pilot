@@ -117,8 +117,11 @@ enum opponent_kind_t {
 };
 // No waypoint fails the mission.
 static const uint8_t kOpponentNoFail = 0xFF;
-// The mission has no navpoint on its targets.
-static const uint8_t kOpponentNoNav = 0xFF;
+// The navpoint of the missions' WP_TARGETS_DOWN waypoint, which follows the
+// targets: navpoint 1. Every mission has it first, then home (fmission.cc),
+// and flight.cc names them TARGET and HOME BASE by number for the same reason
+// (test/fpilot_test.cc checks the order).
+static const uint8_t kOpponentNav = 0;
 struct opponent_path_t {
   uint8_t kind;
   uint8_t count;
@@ -268,9 +271,6 @@ static uint8_t _opponent_hits[kOpponentMax];
 // the frames it has left.
 static uint8_t _opponent_smoke;
 static uint8_t _opponent_smoke_t;
-// The navpoint of the mission's WP_TARGETS_DOWN waypoint, which follows the
-// targets, or kOpponentNoNav.
-static uint8_t _opponent_nav;
 // The waypoint it is flying to.
 static uint8_t _opponent_next[kOpponentMax];
 // Position in flight_eye_*'s 24.8 half metres.
@@ -396,9 +396,6 @@ bool opponent_targets_down(void) {
 // across the world's edges as long as they are close, as a formation is. Where
 // there are none left it stays where they were last.
 static void _opponent_track(void) {
-  if (_opponent_nav == kOpponentNoNav) {
-    return;
-  }
   uint16_t x = 0, y = 0;
   uint8_t n = 0;
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
@@ -417,8 +414,8 @@ static void _opponent_track(void) {
     }
   }
   if (n != 0) {
-    flight_nav_point_x[_opponent_nav] = x;
-    flight_nav_point_y[_opponent_nav] = y;
+    flight_nav_point_x[kOpponentNav] = x;
+    flight_nav_point_y[kOpponentNav] = y;
   }
 }
 
@@ -428,19 +425,6 @@ void opponent_reset(uint8_t mission) {
   _opponent_down = 0;
   _opponent_smoke = kOpponentNoSmoke;
   _opponent_substep = 0;
-  // Which navpoint is the targets': flight_init_from_mission() gives one to
-  // each waypoint with a position, and to WP_TARGETS_DOWN, in order.
-  _opponent_nav = kOpponentNoNav;
-  uint8_t nav = 0;
-  for (uint8_t w = kMissionWpBegin[mission]; w < kMissionWpEnd[mission]; ++w) {
-    if (kMissionWpConstraint[w] == WP_TARGETS_DOWN) {
-      _opponent_nav = nav;
-      break;
-    }
-    if (kMissionWpX[w] != 0 || kMissionWpY[w] != 0) {
-      ++nav;
-    }
-  }
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
     const opponent_path_t *p = &kOpponentPaths[mission][i];
     _opponent_on[i] = p->kind != kOpponentNone;
