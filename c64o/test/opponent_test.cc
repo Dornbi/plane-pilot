@@ -876,10 +876,14 @@ static void test_missions(void) {
     for (int n = 0; n < 6000; ++n) opponent_step();
     CHECK(_opponent_on[0] && _opponent_on[1] && !_opponent_failed && _msgs == 0,
           "scramble: an aircraft left, or the mission failed");
-    CHECK(_opponent_z[1] == (int32_t)0x0700 << 8, "scramble: the patrol changed height");
-    // Still round the city at (0x10, 0x68), within its 3 km square.
-    CHECK(fabs(units(_opponent_x[1]) - 0x10) < 8 && fabs(units(_opponent_y[1]) - 0x68) < 8,
-          "scramble: the patrol is at %.1f, %.1f", units(_opponent_x[1]), units(_opponent_y[1]));
+    // Both still low and on their lines either side of runway 1's, the
+    // second still 368 m behind the first.
+    for (int i = 0; i < 2; ++i)
+      CHECK(_opponent_z[i] == (int32_t)0x0060 << 8 && _opponent_y[i] == (i ? 0x3F20 : 0x3FE0) << 8,
+            "scramble: aircraft %d left its line at %.1f, height %.1f", i + 1,
+            units(_opponent_y[i]), units(_opponent_z[i]));
+    CHECK(((_opponent_x[0] - _opponent_x[1]) >> 8 & 0x7FFF) == 0x170,
+          "scramble: the second is %.1f units behind", units(_opponent_x[0] - _opponent_x[1]));
     _opponent_down = 3;
     CHECK(opponent_targets_down(), "scramble: both down, but the targets are not down");
   }

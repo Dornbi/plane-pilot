@@ -1347,7 +1347,7 @@ parked pair side by side off the runway's edge, facing it.*
 | 01 Recon intercept | In the air at 2,500 ft and cruise, heading north, 9 km south of the north edge | One at 5,000 ft and 1,750 (2,000 at first): in from the north edge head-on, past the player 2,500 ft above after ~45 s, over the city at ~5.4 min, off the south edge at ~6.2 | it leaves the map |
 | 02 Bomber raid | On runway 1, engine at idle, heading north | Two at 3,000 ft and 1,500, the second 150 m left of and 200 m behind the first: south towards runway 1 from 11 km, 1 km past its north end, then the city at ~4.4 min, then off the south edge | the first reaches the city |
 | 03 Ambush | In the air at 1,000 ft and cruise, heading east, 3.6 km west of the targets and midway between them | Two parked beside runway 2's south end, side by side 200 m apart, both 150 m off its west edge and facing it | never |
-| 04 Scramble | On runway 1, engine at idle, heading north | The first mission's two, at 1,500: one low from 400 m behind, overtaking alongside the runway and flying north for ever; one round a 3 km square about the city at 3,500 ft | never |
+| 04 Scramble | On runway 1, engine at idle, heading north | The first mission's pass, flown by two at 1,500, low: from 400 m behind on the runway's left and 768 m behind on its right, overtaking alongside it and flying north for ever | never |
 
 A start has a heading, in quarter turns left of north
 (`kMissionStartTurns`, fpilot only; `flight_init_from_mission()` turns the

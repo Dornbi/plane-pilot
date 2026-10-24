@@ -127,9 +127,9 @@ int main() {
   static const char *const kNames[] = {"recon", "bombers", "ambush", "scramble"};
   static_assert(sizeof(kNames) / sizeof(kNames[0]) == kMissionCount, "a name a mission");
   // Seconds to the targets on screen, from the start in the air or the
-  // lift-off; 0 for none. 04's come from behind: the pass from 400 m back
-  // down the runway, overtaking only a pilot slower off it than this one, and
-  // the patrol round the city to the south-west, as in fpilot's first mission.
+  // lift-off; 0 for none. 04's come from behind: the pair from 400 m and
+  // 768 m back down the runway, overtaking only a pilot slower off it than
+  // this one.
   static const int kInView[] = {10, 20, 10, 0};
   for (int m = 0; m < kMissionCount; ++m) {
     flight_init_from_mission(m);
