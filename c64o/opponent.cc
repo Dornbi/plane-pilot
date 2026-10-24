@@ -194,12 +194,10 @@ static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
       {0x3900, 0x5900, 0x7900, 0x9900}, {0x3F20, 0x3F20, 0x3F20, 0x3F20}}},
 };
 
-// What the message says when the mission fails, per mission.
-static const char *const kOpponentFailText[kMissionCount] = {
+// What the message says when the mission fails, for the missions that can.
+static const char *const kOpponentFailText[2] = {
     "MISSION FAILED - RECON ESCAPED",
     "MISSION FAILED - CITY BOMBED",
-    0,
-    0,
 };
 
 // The turn: vec_turn3_xy()'s small angle, 8 / 256 rad, 1.8 degrees a model
@@ -306,7 +304,7 @@ static bool _opponent_busy;
 void opponent_invalidate(void) {
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
     planes_state_init(&_opponent_planes[i]);
-    _opponent_shown[i] = _opponent_planes[i].lay;
+    _opponent_shown[i].level = kPlaneLevelDot;
   }
   _opponent_front = 0;
   _opponent_pending = 0;
@@ -790,16 +788,19 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
   bool far = (_opponent_far & bit) != 0;
   _opponent_view = far ? &kViewFar : (_opponent_capped & bit) ? &kViewTwo : &kView;
   _opponent_c = _opponent_cs[i];
+  // A redraw takes two frames, the projection in one and the fill in the
+  // next (docs/planes.md §13, "The silhouette at half rate"), so neither
+  // frame pays for both. The position is this frame's either way: the
+  // bitmap on screen is placed at this frame's centre.
+  if (_opponent_pending & bit) {
+    _opponent_front ^= bit;
+    busy = true;
+  }
   // The first block of the set on screen.
   uint8_t front = kOpponentBlockFirst[i];
   if (_opponent_front & bit) {
     front += kOpponentSetBlocks;
   }
-
-  // A redraw takes two frames, the projection in one and the fill in the
-  // next (docs/planes.md §13, "The silhouette at half rate"), so neither
-  // frame pays for both. The position is this frame's either way: the
-  // bitmap on screen is placed at this frame's centre.
   if (_opponent_pending & bit) {
     // The fill the last frame projected. It writes under I/O; the raster
     // handlers bank I/O in for themselves (gfx.cc _gfx_isr), and nothing
@@ -808,23 +809,15 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
     // mem_switch_buffer(), and by the time a later frame fills the other
     // set the raster handler has stopped showing it - mem_switch_buffer()
     // runs past raster 250 in its colour copy before it returns.
-    bool seen = planes_centre(_opponent_view, &_opponent_c, &_opponent_f);
-    _opponent_front ^= bit;
-    front = kOpponentBlockFirst[i];
-    if (_opponent_front & bit) {
-      front += kOpponentSetBlocks;
-    }
     mmap_set(MMAP_RAM);
     planes_fill(&_opponent_planes[i], _opponent_block(front));
     mmap_set(MMAP_NO_ROM);
     _opponent_pending &= (uint8_t)~bit;
     _opponent_shown[i] = _opponent_planes[i].lay;
-    if (!seen) {
-      return started;
-    }
-    planes_place(&_opponent_shown[i], _opponent_view, &_opponent_f);
-  } else if (busy) {
-    // The other slot's turn: what is on screen, where it is now.
+  }
+  if (busy) {
+    // What is on screen (just filled, or while the other slot redraws), where
+    // it is now.
     if (!planes_centre(_opponent_view, &_opponent_c, &_opponent_f)) {
       return started;
     }
