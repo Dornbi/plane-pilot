@@ -481,17 +481,17 @@ void sprites_set_orientation(void) {
 // never culls - and like it, it is a flag and a set of constants rather than a
 // stack entry.
 //
-// **Why the lowest two indices after the mark's.** VIC sprite-to-sprite
-// priority is index order, and the fin is four metres away while everything
-// else the stack hands out is a cloud, the sun or an opponent. Taking 1 and 2
-// is what puts it in front of all of them; anything higher and a distant cloud
-// would draw over the tail. 0 is the orientation indicator's, which is never
-// up in the back view. The stack starts above the fin for as long as it is
-// up, so the back view has five slots for clouds instead of seven - the
+// **Why the lowest two indices.** VIC sprite-to-sprite priority is index
+// order, and the fin is four metres away while everything else the stack
+// hands out is a cloud, the sun or an opponent. Taking 0 and 1 is what puts it
+// in front of all of them; anything higher and a distant cloud would draw over
+// the tail. 0 is the orientation indicator's in the front view, and the mark
+// is never up in the back. The stack starts above the fin for as long as it
+// is up, so the back view has six slots for clouds instead of seven - the
 // entries that lose are the farthest, which is the stack's ordinary overflow
 // rule.
 
-static const uint8_t kSpriteFinFirst = kSpriteStackFirst;
+static const uint8_t kSpriteFinFirst = 0;
 static const uint8_t kSpriteFinCount = 2;
 static const uint8_t kSpriteFinMask = ((1 << kSpriteFinCount) - 1)
                                       << kSpriteFinFirst;
@@ -521,7 +521,7 @@ static_assert(kSpriteOffsetY == kRasterScreenYStart,
 // the swept Y, all seven of them still fetching across the split - that is the
 // case where the handler came out 55 cycles late and a row of terrain charset
 // was drawn over the panel. The fin is not that case. It is two sprites, and
-// they are indices 1 and 2, whose data for a line is fetched in the tail
+// they are indices 0 and 1, whose data for a line is fetched in the tail
 // cycles of the line *before* it; the five slots the stack can still hand out
 // in this view are culled against kSpritesOffLead as they always were, so they
 // are finished by raster 159 and nothing of theirs is in flight here.
@@ -534,7 +534,10 @@ static_assert(kSpriteOffsetY == kRasterScreenYStart,
 // unlike an object passing through the band there is no "sometimes" for it to
 // hide in: it is the same sprites on the same lines every frame. (Measured
 // with a three-sprite fin on indices 0-2; the two-sprite fin's DMA is a subset
-// of that, and the slot it gave back to the stack is culled like the others.)
+// of that, and the slot it gave back to the stack is culled like the others.
+// Measured again for the stack's six slots on 2-7, eight sprites in the band:
+// all six on the lowest line beside the fin, and the panel pixel identical to
+// the frame without them, in x64sc and xscpu64.)
 //
 // None of that generalises. It is an exemption for one fixed object on the
 // lowest indices, not a new limit - docs/sprite_objects.md 0 says what a cloud
@@ -660,7 +663,7 @@ void sprites_stack_commit(void) {
   volatile sprite_frame_t *f =
       mem_using_alt_buffer ? &_sprites_frame_b : &_sprites_frame_a;
 
-  // Above the mark's index, and above the fin when it is up, so that those
+  // Above the mark's index, or the fin's two when it is up, so that those
   // keep the lowest indices and with them the priority - see the tail fin
   // section. The shift is by a constant either way, which is what the two
   // assignments are for.
@@ -756,10 +759,9 @@ void sprites_stack_commit(void) {
   f->ptr[kSpriteIdxOrient] = orient_ptr;
   f->color[kSpriteIdxOrient] = orient_color;
 
-  // The fin, into the two indices the loop above skipped rather than into
-  // ones the fill has just parked - so it is written last for the same reason
-  // the mark is, and reaches the same frame whether the stack overflowed or was
-  // empty. One pointer variable rather than a table: the top sprite is the tip
+  // The fin, into the two indices the loop above skipped - over the mark's
+  // parked 0 - so it is written last, and reaches the same frame whether the
+  // stack overflowed or was empty. One pointer variable rather than a table: the top sprite is the tip
   // and everything below it is the shaft, which is the whole of the art.
   if (_sprites_fin_on) {
     uint8_t sy = kSpriteFinTopVY;
@@ -852,7 +854,7 @@ inline void sprites_show_panel_top_sprites() {
   // - Sprite 0's colour. It is the vertical speed needle, the one instrument
   //   drawn in this band, and the terrain handler now writes all eight colours.
   // - $D017, for the same reason as $D01D: the back view's tail fin leaves
-  //   sprites 1 and 2 Y-expanded, and two of the instruments are those
+  //   sprites 0 and 1 Y-expanded, and two of the instruments are those
   //   two. Nothing shows it in the back view itself, which draws no
   //   instruments at all - it shows on the frame the view switches away on,
   //   where the fin's expansion would still be set while the fuel, speed and

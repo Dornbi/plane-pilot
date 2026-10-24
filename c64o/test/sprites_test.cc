@@ -763,7 +763,7 @@ static void test_fin_art(void) {
 static void test_fin(void) {
   test_fin_art();
 
-  printf("  the back view carries the fin on sprites 1..2\n");
+  printf("  the back view carries the fin on sprites 0..1\n");
   view_state = VIEW_BACK;
   sprites_stack_reset();
   sprites_set_fin();
@@ -823,7 +823,7 @@ static void test_fin(void) {
                            kColorSun, 0));
   sprites_stack_commit();
   show_terrain();
-  // The nearest object there is still lands on index 3, behind both fin
+  // The nearest object there is still lands on index 2, behind both fin
   // sprites. VIC priority is index order, so this is the assertion that the
   // tail is in front of the clouds.
   const uint8_t above = kSpriteFinFirst + kSpriteFinCount;
@@ -833,7 +833,7 @@ static void test_fin(void) {
   // And the fin is untouched by a frame full of objects: it does not move.
   assert(spr_x(tip) == kSpriteFinVX && spr_y(tip) == kSpriteFinTopVY);
 
-  printf("  and it costs the stack two of its seven slots\n");
+  printf("  and it costs the stack one of its seven slots\n");
   sprites_stack_reset();
   sprites_set_fin();
   for (int i = 0; i < 7; ++i) {
@@ -842,13 +842,11 @@ static void test_fin(void) {
   }
   sprites_stack_commit();
   show_terrain();
-  // Five objects fit, nearest first, and index 0 is still the one the stack
-  // never hands out.
-  for (uint8_t i = 0; i < 5; ++i) {
+  // Six objects fit, nearest first, above the fin: all eight indices are up.
+  for (uint8_t i = 0; i < 6; ++i) {
     assert(spr_ptr((uint8_t)(above + i)) == (uint8_t)(i + 1));
   }
-  assert(!enabled(kSpriteIdxOrient));
-  assert(spr_enable() == 0xFE);
+  assert(spr_enable() == 0xFF);
 
   printf("  the other three views do not carry it\n");
   static const view_state_t kFrontAndSides[3] = {VIEW_LEFT, VIEW_CENTER,
@@ -864,7 +862,7 @@ static void test_fin(void) {
   }
 
   printf("  and the panel band takes the expansion back\n");
-  // Two of the instrument needles are sprites 1..2, so a $D017 the panel band
+  // Two of the instrument needles are sprites 0..1, so a $D017 the panel band
   // inherited would stretch them on the frame the view switches away on.
   view_state = VIEW_BACK;
   sprites_stack_reset();

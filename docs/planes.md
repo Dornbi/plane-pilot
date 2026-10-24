@@ -618,7 +618,7 @@ The stack needs two things it does not have:
 The budget is seven indices. The nearest plane at four, the second at two and
 the sun make seven: while a close plane is banked, the clouds get none, and
 the stack drops them because they are farther. In the back view the fin holds
-indices 1–2, which leaves five.
+indices 0–1, which leaves six.
 
 ### Budget
 
@@ -1320,7 +1320,9 @@ drawn under a second view, `kViewTwo`, whose cap is
 `kPlaneKMaxTwoSprites`: at most two sprites at any attitude. Beyond ~47 m
 that view draws exactly what the other does, `k` reaching neither cap, so
 it is handed to the farther aircraft whatever the range, without a redraw.
-In the back view the fin takes two of the seven, and both are held to two.
+In the back view the fin takes 0 and 1, leaving the stack six - still room
+for four and two, so the same rule holds there. (Until 2026-10-24 it left
+five, and both were held to two.)
 Which is nearer goes by depth and changes only once the other is an eighth
 nearer, so two at about the same range do not trade sizes. An aircraft newly
 held to two while it shows, or is filling, more than two forgets its bitmap:

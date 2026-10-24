@@ -472,8 +472,11 @@ drawn whole, down to raster 160 — two lines above the panel.
 orientation indicator drew behind everything - the sun or an opponent passing
 the middle of the screen covered it. On 0 it is in front of all of them. The
 needle moved with it, since the two share the index, and the fuel needle took
-7; the tail fin moved from 0–1 to 1–2, still ahead of every stack entry and
-inside the 0–2 its split exemption was measured on. Everything below holds
+7. The tail fin keeps 0–1 - the mark is never up in the back view - and the
+stack starts above it at 2, so the back view has six slots, not five. Eight
+sprites in the band at once was new, so it was measured: the stack full at
+the lowest line it may start on, beside the fin, leaves the panel pixel
+identical in `x64sc` and `xscpu64`. Everything below holds
 with 0 for 7: the needle's sprite is fetched late in the line before it, and
 its Y is still never above 171.
 

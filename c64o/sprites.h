@@ -162,12 +162,12 @@ void sprites_set_orientation(void);
 // it never moves and never culls, and like it this is a flag rather than a
 // position.
 //
-// It owns hardware sprites 1 and 2 for the length of the viewport band, the
-// lowest two after the mark's 0, and on purpose: VIC priority is index order,
-// so those are the indices that draw in front of every cloud and of the sun.
-// The mark is never up with it. While it is up the stack starts above it and
-// has five slots rather than seven; the entries that lose are the farthest,
-// which is the stack's own overflow rule.
+// It owns hardware sprites 0 and 1 for the length of the viewport band, and
+// owns the *lowest* two on purpose: VIC priority is index order, so those are
+// the indices that draw in front of every cloud and of the sun. 0 is the
+// mark's in the front view; the mark is never up with the fin. While the fin
+// is up the stack starts above it and has six slots rather than seven; the
+// entries that lose are the farthest, which is the stack's own overflow rule.
 //
 // Two things it does not need, both by construction rather than by a test:
 //

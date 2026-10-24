@@ -37,7 +37,7 @@ cost: a Y-expanded sprite's DMA runs 42 raster lines rather than 21, so it needs
 twice the clearance above the panel split, which is `mem.h`'s
 `kSpritesOffLeadExpandY`. The fin then starts two lines below even that, at
 raster 120, so that its last line is the viewport's last line and it meets the
-panel — which is allowed only because it is two sprites on indices 1–2 that
+panel — which is allowed only because it is two sprites on indices 0–1 that
 never move, and only because it was measured that way with the stack full on
 both emulators (`c64o/sprites.cc`, `kSpriteFinDropLines`). A cloud that expanded
 gets none of that: it moves through the band, so it would have to be culled

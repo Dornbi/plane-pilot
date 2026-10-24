@@ -17,7 +17,6 @@
 #include "planes.h"
 #include "sprites.h"
 #include "vec.h"
-#include "view.h"
 #include "world.h"
 
 // docs/planes.md §13: two aircraft, each flying a fixed path.
@@ -650,9 +649,9 @@ static __noinline uint8_t _opponent_cull(void) {
 // Seven sprites for the stack (sprites.h kSpriteTerrainSlots), and two
 // aircraft at 2 x 2 would take eight: the farther would be dropped whole.
 // So while both are in view the farther is held to two sprites, which
-// changes nothing unless it is within ~115 m (kViewTwo); and in the back
-// view, where the fin takes two of the seven (sprites.cc kSpriteFinCount),
-// the nearer as well. Which is nearer goes by depth, and changes only once
+// changes nothing unless it is within ~115 m (kViewTwo). The back view's fin
+// takes 0 and 1 (sprites.cc kSpriteFinCount), which leaves the stack six:
+// still room for four and two. Which is nearer goes by depth, and changes only once
 // the other is an eighth nearer, so that two at about the same range do
 // not trade sizes every frame; one in the far range is the farther. Sets
 // _opponent_capped.
@@ -667,7 +666,7 @@ static __noinline void _opponent_cap(uint8_t seen) {
             : _opponent_cs[n ^ 1].x < dn - (dn >> 3)) {
       _opponent_nearer ^= 1;
     }
-    capped = view_state == VIEW_BACK ? 3 : (uint8_t)(2 >> _opponent_nearer);
+    capped = (uint8_t)(2 >> _opponent_nearer);
   }
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
     uint8_t bit = (uint8_t)(1 << i);

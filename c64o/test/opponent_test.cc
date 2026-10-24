@@ -272,9 +272,10 @@ static void frame(scene_t &sc, const where_t *w, const char *what) {
     now[k] = reference(k, latches[k], (_opponent_capped & (1 << k)) ? kViewTwo : kView);
   }
 
-  // The stack's seven, less the fin's two in the back view: both always fit.
+  // The stack's seven, less the one the fin takes beyond the mark's index in
+  // the back view: both always fit.
   int sprites = sprites_of(_offer[0]) + sprites_of(_offer[1]);
-  int budget = kSpriteTerrainSlots - (view_state == VIEW_BACK ? 2 : 0);
+  int budget = kSpriteTerrainSlots - (view_state == VIEW_BACK ? 1 : 0);
   CHECK(sprites <= budget, "%s: frame %d offers %d sprites, %d fit", what, sc.frames, sprites,
         budget);
   if (_offer[0].on && _offer[1].on && sprites > 4) ++sc.shared;
@@ -515,8 +516,8 @@ static void test_two(void) {
 //
 // Both inside ~60 m, where either alone would be 2 x 2, walking in and out
 // past each other so that the nearer changes, in the front view and the back.
-// The budget check in frame() is the point: in front the farther is held to
-// two sprites, behind both are.
+// The budget check in frame() is the point: the farther is held to two
+// sprites, in front and behind alike.
 
 static void test_both_close(void) {
   static const view_state_t kViews[] = {VIEW_CENTER, VIEW_BACK};
@@ -538,12 +539,8 @@ static void test_both_close(void) {
       }
       frame(sc, w, what);
     }
-    if (v == VIEW_BACK) {
-      CHECK(sc.four_and_two == 0, "%s: %d frames with one at 2 x 2", what, sc.four_and_two);
-    } else {
-      CHECK(sc.four_and_two > 300, "%s: only %d frames of one at 2 x 2 and one at two", what,
-            sc.four_and_two);
-    }
+    CHECK(sc.four_and_two > 300, "%s: only %d frames of one at 2 x 2 and one at two", what,
+          sc.four_and_two);
     printf("  %s: %d frames, %d with more than four sprites between them, %d of 2 x 2 and "
            "two\n",
            what, sc.frames, sc.shared, sc.four_and_two);
