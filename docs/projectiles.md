@@ -319,6 +319,22 @@ the crash, so a stall still sounds while firing.
 - **Cost.** fpilot 2,152 → 1,487 bytes free, now real: 665 for the smoke,
   the budget rule and the ground. ppilot is unchanged at 11,080, which is
   likewise now real.
+- **Two bugs found in play, fixed 2026-10-24.**
+  - *Nothing was hit on the C64,* though every host test hit. oscar64
+    miscompiled the per-step eye update: a loop over the axes passed the
+    axis to a helper in A and, from the second time round, left the loop's
+    byte offset there instead. So the y axis read the eye's z, and the
+    rounds' eye jumped half a unit, 64 m, sideways for good. The tracers
+    were drawn from the same eye and so still looked right. `_gun_track()`
+    is now called once an axis with the eye spelled out.
+  - `gun_test` now starts the eye half a unit into y, as missions do, and
+    checks the rounds' eye keeps up on every axis.
+  - A VICE run with a target placed dead ahead confirms it: smoke, "TARGET
+    DOWN", "GOALS COMPLETED!".
+  - *Space fired as soon as a mission started,* because the same Space
+    started it from the menu and was still held. The guns now fire only
+    after the trigger has been let go once since the mission started
+    (`_gun_armed`).
 - **Still to do:**
   - phase 4, the gun's sound;
   - phase 5, opponent guns;

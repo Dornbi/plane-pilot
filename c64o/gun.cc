@@ -72,28 +72,43 @@ static uint8_t _gun_last;
 static uint8_t _gun_wait;
 static uint8_t _gun_side;
 static uint8_t _gun_substep;
+// The trigger has been released since gun_reset().
+static bool _gun_armed;
 uint8_t gun_player_hits;
 #pragma bss(bss)
 
 static int16_t _gun_abs(int16_t v) { return v < 0 ? -v : v; }
 
-// flight_eye_* axis c.
-static int32_t _gun_flight_eye(uint8_t c) {
-  return c == 0 ? flight_eye_x : c == 1 ? flight_eye_y : flight_eye_z;
-}
-
 void gun_reset(void) {
   for (uint8_t r = 0; r < kRoundMax; ++r) {
     _round_age[r] = 0;
   }
-  for (uint8_t c = 0; c < 3; ++c) {
-    _gun_eye[c] = _gun_flight_eye(c);
-  }
+  _gun_eye[0] = flight_eye_x;
+  _gun_eye[1] = flight_eye_y;
+  _gun_eye[2] = flight_eye_z;
   _gun_last = kRoundNone;
   _gun_wait = 0;
   _gun_side = 0;
   _gun_substep = 0;
+  _gun_armed = false;
   gun_player_hits = 0;
+}
+
+// Axis c of the eye's step, `eye` being flight_eye_* on that axis: what it
+// moved, in sixteenths, into _gun_moved[c]. What the shift loses is kept in
+// _gun_eye, so nothing drifts; the eye moves at most 15 m a step, so the
+// difference fits int16 before the shift.
+//
+// Called once an axis with the eye spelled out, never from a loop over c
+// that picks flight_eye_* by c: oscar64 compiled that loop to pass the axis
+// in A and, from the second time round, left the loop's byte offset there
+// instead - 4 and 8 for 1 and 2 - so the y axis read the eye's z, and every
+// target came out half a unit, 64 m, to one side.
+static __noinline void _gun_track(uint8_t c, int32_t eye) {
+  int16_t d = (int16_t)(eye - _gun_eye[c]);
+  _gun_moved[c] = d >> 5;
+  _gun_eye[c] += (int16_t)(d & ~31);
+  _gun_t[c] = 0;
 }
 
 // Axis c of a world position less the eye, in sixteenths of a metre the
@@ -230,15 +245,10 @@ void gun_step(bool trigger) {
   if (flight_paused || flight_crashed()) {
     return;
   }
-  // The eye has moved since the last step: take it off every round. What
-  // the shift loses is kept in _gun_eye, so nothing drifts. The eye moves
-  // at most 15 m a step, so the difference fits int16 before the shift.
-  for (uint8_t c = 0; c < 3; ++c) {
-    int16_t d = (int16_t)(_gun_flight_eye(c) - _gun_eye[c]);
-    _gun_moved[c] = d >> 5;
-    _gun_eye[c] += (int16_t)(d & ~31);
-    _gun_t[c] = 0;
-  }
+  // The eye has moved since the last step: take it off every round.
+  _gun_track(0, flight_eye_x);
+  _gun_track(1, flight_eye_y);
+  _gun_track(2, flight_eye_z);
   // Anyone else's rounds into the player, at the eye, which is 0 in the
   // rounds' frame; then the player's into the opponents; and every round
   // left on a step.
@@ -280,9 +290,15 @@ void gun_step(bool trigger) {
   }
   // After the rounds have moved, so a new one is drawn where it leaves the
   // wing before its first step takes it 48 m on.
+  // Not until the trigger has been let go once since the mission started:
+  // Space also starts it from the menu, and is still held on its first
+  // frames.
+  if (!trigger) {
+    _gun_armed = true;
+  }
   if (_gun_wait != 0) {
     --_gun_wait;
-  } else if (trigger) {
+  } else if (trigger && _gun_armed) {
     _gun_fire();
     _gun_wait = kGunInterval - 1;
   }

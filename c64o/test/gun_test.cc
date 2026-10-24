@@ -92,9 +92,17 @@ static void level_north(void) {
   world_cam = flight_cam;
 }
 
+// gun_reset(), and one step with the trigger released: the guns do not fire
+// until it has been let go once (gun.cc _gun_armed).
+static void reset_guns(void) {
+  gun_reset();
+  gun_step(false);
+}
+
 static void start(int16_t speed) {
   flight_eye_x = 40L << 16;
-  flight_eye_y = 100L << 16;
+  // Half a unit in, as flight_init_from_mission() puts the eye.
+  flight_eye_y = (100L << 16) + 0x8000;
   flight_eye_z = 4L << 16;
   flight_speed = speed;
   flight_vspeed = 0;
@@ -104,7 +112,7 @@ static void start(int16_t speed) {
   memset(_target_on, 0, sizeof(_target_on));
   memset(_strikes, 0, sizeof(_strikes));
   _smoke_on = false;
-  gun_reset();
+  reset_guns();
 }
 
 // One model step: the eye moves as flight.cc moves it, then the guns.
@@ -249,7 +257,7 @@ static void test_wrap(void) {
   // The eye just south of the seam at x 0, the target one world (128
   // units) on: the same place.
   flight_eye_x = (128L << 16) - 50 * kMetre;
-  gun_reset();
+  reset_guns();
   place_target(0, 200, 0, -1.5);
   _target[0][0] += 128L << 16;
   for (int n = 0; n < 20; ++n) {
@@ -377,7 +385,7 @@ static void test_ground(void) {
   // 10 m up, nose 20 degrees down: the rounds go into the ground ~30 m out.
   start(1500);
   flight_eye_z = 20L << 8;
-  gun_reset();
+  reset_guns();
   flight_cam.front = make_vector(241, 0, -88);
   flight_cam.up = make_vector(88, 0, 241);
   world_cam = flight_cam;
@@ -394,7 +402,7 @@ static void test_ground(void) {
   // Level, a round 10 m up flies its whole life.
   start(1500);
   flight_eye_z = 20L << 8;
-  gun_reset();
+  reset_guns();
   step(true);
   r = _gun_last;
   for (steps = 0; _round_age[r] != 0 && steps < 20; ++steps) step(false);
@@ -431,6 +439,33 @@ static void test_smoke(void) {
   CHECK(_offers == 2 && gun_tracer_up(), "%d offers for smoke and a tracer", _offers);
 }
 
+static void test_armed(void) {
+  printf("  the trigger held from the start fires nothing until let go\n");
+  start(1500);
+  gun_reset();
+  for (int n = 0; n < 4; ++n) step(true);
+  CHECK(_gun_last == kRoundNone, "fired with the trigger held since the start");
+  step(false);
+  step(true);
+  CHECK(_gun_last != kRoundNone, "no round once let go and pressed again");
+}
+
+static void test_eye(void) {
+  printf("  the rounds' eye keeps up with flight_eye_* on every axis\n");
+  start(2400);
+  flight_vspeed = 300;
+  flight_cam.front = make_vector(181, 181, 0);
+  flight_cam.left = make_vector(-181, 181, 0);
+  for (int n = 0; n < 50; ++n) {
+    step(n % 3 == 0);
+    int32_t e[3] = {flight_eye_x, flight_eye_y, flight_eye_z};
+    for (int c = 0; c < 3; ++c) {
+      int32_t d = e[c] - _gun_eye[c];
+      CHECK(d >= 0 && d < 32, "step %d axis %d: the rounds' eye %ld behind", n, c, (long)d);
+    }
+  }
+}
+
 static void test_paused(void) {
   printf("  paused or crashed, nothing moves and nothing fires\n");
   start(1500);
@@ -456,6 +491,8 @@ int main() {
   test_tracer();
   test_ground();
   test_smoke();
+  test_armed();
+  test_eye();
   test_paused();
   if (_fails) {
     printf("gun_test: %d checks FAILED\n", _fails);
