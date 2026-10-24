@@ -337,15 +337,13 @@ static uint8_t _gun_dir(int16_t dx, int16_t dy) {
   return dy > 0 ? (uint8_t)((16 - k) & 15) : k;
 }
 
-// The point in _gun_rel3 - relative to the eye like a round - in camera
-// space and eighth metres in _gun_c, and where it is on screen in _gun_sx,
-// _gun_sy; false if it is not in the view's cone.
-static vec3_t _gun_rel3;
+// Transforms _gun_c (initialized to a point relative to the eye in eighth
+// metres) into camera space in place, and projects where it is on screen into
+// _gun_sx, _gun_sy; false if it is not in the view's cone.
 static vec3_t _gun_c;
 static int16_t _gun_sx, _gun_sy;
 static __noinline bool _gun_view(void) {
-  vec3_t rel = make_vector(_gun_rel3.x >> 1, _gun_rel3.y >> 1, _gun_rel3.z >> 1);
-  vec_transform_inv(&world_cam, &rel, &_gun_c);
+  vec_transform_inv(&world_cam, &_gun_c, &_gun_c);
   if (_gun_c.x <= 64 || _gun_abs(_gun_c.y) >= _gun_c.x ||
       _gun_abs(_gun_c.z) >= _gun_c.x) {
     return false;
@@ -353,15 +351,6 @@ static __noinline bool _gun_view(void) {
   _gun_sx = kScreenWidthPixels / 2 - vec_div8p8(_gun_c.y, _gun_c.x);
   _gun_sy = kViewportEndYPixels / 2 - vec_div8p8(_gun_c.z, _gun_c.x);
   return true;
-}
-
-// Round r, as _gun_view().
-static bool _gun_camera(uint8_t r) {
-  uint8_t i = r;
-  for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {
-    (&_gun_rel3.x)[c] = _round_p[i];
-  }
-  return _gun_view();
 }
 
 // The round worth drawing: the player's newest while firing, else the
@@ -399,9 +388,10 @@ static void _gun_smoke(void) {
   if (!opponent_smoke(_gun_p, h) || !_gun_rel3_to()) {
     return;
   }
-  _gun_rel3.x = _gun_t[0] - vec_fastmul8p8(h[0], kSmokeBack);
-  _gun_rel3.y = _gun_t[1] - vec_fastmul8p8(h[1], kSmokeBack);
-  _gun_rel3.z = _gun_t[2] + kSmokeUp;
+  for (uint8_t c = 0; c < 2; ++c) {
+    (&_gun_c.x)[c] = (_gun_t[c] - vec_fastmul8p8(h[c], kSmokeBack)) >> 1;
+  }
+  _gun_c.z = (_gun_t[2] + kSmokeUp) >> 1;
   if (!_gun_view()) {
     return;
   }
@@ -421,7 +411,14 @@ static void _gun_smoke(void) {
 void gun_add_sprites(void) {
   _gun_smoke();
   uint8_t r = _gun_shown();
-  if (r == kRoundNone || !_gun_camera(r)) {
+  if (r == kRoundNone) {
+    return;
+  }
+  uint8_t i = r;
+  for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {
+    (&_gun_c.x)[c] = _round_p[i] >> 1;
+  }
+  if (!_gun_view()) {
     return;
   }
   // Which way it is going on screen, exactly: the screen point is
@@ -431,12 +428,12 @@ void gun_add_sprites(void) {
   // a step, and whole pixels put its needle anywhere - mostly upright. The
   // velocity in eighth metres too, at most ~500, against a round within
   // ~1.3 km, ~10,000, keeps the products in int16 with room to spare.
-  vec3_t v, w;
-  uint8_t i = r;
+  vec3_t w;
+  i = r;
   for (uint8_t a = 0; a < 3; ++a, i += kRoundMax) {
-    (&v.x)[a] = _round_v[i] >> 1;
+    (&w.x)[a] = _round_v[i] >> 1;
   }
-  vec_transform_inv(&world_cam, &v, &w);
+  vec_transform_inv(&world_cam, &w, &w);
   int16_t dx = vec_fastmul8p8(_gun_c.y, w.x) - vec_fastmul8p8(w.y, _gun_c.x);
   int16_t dy = vec_fastmul8p8(_gun_c.z, w.x) - vec_fastmul8p8(w.z, _gun_c.x);
   uint8_t bitmap = kSpriteDefShortArmBitmap;

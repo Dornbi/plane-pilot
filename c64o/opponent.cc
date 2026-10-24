@@ -619,13 +619,13 @@ static __noinline uint8_t _opponent_camera(uint8_t i) {
       range = kOpponentFar;
     }
   }
-  vec3_t rel;
   for (uint8_t c = 0; c < 3; ++c) {
     uint16_t u = (uint8_t)_opponent_s[c], f = (uint16_t)_opponent_d[c];
-    (&rel.x)[c] = range == kOpponentNear ? (int16_t)((u << 10) + (f >> 6))
-                                         : (int16_t)((u << 8) + (f >> 8));
+    (&_opponent_c.x)[c] = range == kOpponentNear
+                              ? (int16_t)((u << 10) + (f >> 6))
+                              : (int16_t)((u << 8) + (f >> 8));
   }
-  vec_transform_inv(&world_cam, &rel, &_opponent_c);
+  vec_transform_inv(&world_cam, &_opponent_c, &_opponent_c);
   return range;
 }
 
