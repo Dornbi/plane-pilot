@@ -21,9 +21,14 @@ void gun_reset(void);
 // meets, then fires the next round if `trigger` is held.
 void gun_step(bool trigger);
 
-// Per frame, after opponent_add_sprites(): the round worth seeing, as a
-// tracer, offered to the sprite stack.
-void gun_add_sprite(void);
+// Per frame, after opponent_add_sprites(): the smoke behind the last aircraft
+// hit, and the round worth seeing, as a tracer, offered to the sprite stack.
+void gun_add_sprites(void);
+
+// Whether gun_add_sprites() will want a sprite this frame - a round in flight
+// worth drawing, if it is in view - for opponent.cc's count of what the
+// aircraft must share the stack with.
+bool gun_tracer_up(void);
 
 // Hits the player has taken. Only opponents' rounds can land them, and
 // nothing fires those yet.
@@ -35,7 +40,8 @@ extern uint8_t gun_player_hits;
 
 inline void gun_reset(void) {}
 inline void gun_step(bool trigger) {}
-inline void gun_add_sprite(void) {}
+inline void gun_add_sprites(void) {}
+inline bool gun_tracer_up(void) { return false; }
 
 #endif
 

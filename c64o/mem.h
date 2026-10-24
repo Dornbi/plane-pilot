@@ -96,6 +96,12 @@
 #define MEM_MAIN_END 0xD000
 #endif
 #pragma region( main, MEM_BOOT_END, MEM_MAIN_END, , , {code, data, data_box, data_compr, bss, heap} )
+// No heap: nothing calls malloc() or new. oscar64 otherwise keeps 1,024 bytes
+// at the end of the region for it whatever is left, and fails the link with
+// "Cannot place heap section" once less than that is - so the free figures
+// tools/analyze_ram.py reports, which count the heap as free, were a
+// kilobyte more than code could use.
+#pragma heapsize(0)
 #endif
 // Zero page. Wider than oscar64's 0x80..0xFF default, in both directions.
 //

@@ -43,8 +43,9 @@ bool sprites_stack_add(int16_t, int16_t, int16_t, int8_t, int8_t, uint8_t, uint8
 }
 void msg_show(const char *, uint8_t, bool) {}
 
-// opponent.cc, for where the aircraft are.
+// opponent.cc, for where the aircraft are, and gun.cc, to shoot them.
 #include "../opponent.cc"
+#include "../gun.cc"
 
 static int _fails = 0;
 
@@ -71,21 +72,36 @@ static double distance(int i) {
 
 static double degrees(double y, double x) { return atan2(y, x) * 180 / M_PI; }
 
+// The point (dx, dy, dz), world half metres from the eye, along the
+// aircraft's front, left and up.
+static double along(const vec3_t &a, double dx, double dy, double dz) {
+  return (a.x * dx + a.y * dy + a.z * dz) / 256.0;
+}
+
 // 01: holds the start's height until the recon is past overhead, then turns
 // after it in a 45 degree bank and climbs to its height, and chases it there.
 // When it first gets within 250 m of it, in steps, and when the recon left.
-static void chase(int *caught_at, int *gone_at) {
+//
+// With `guns`, it also shoots: inside 400 m it puts its nose on the recon in
+// height as well, and holds Space while the recon is within 500 m and about
+// 3.5 degrees of the nose. When the recon went down, in steps.
+static void chase(bool guns, int *caught_at, int *gone_at, int *down_at) {
   flight_init_from_mission(0);
   opponent_reset(0);
+  gun_reset();
   const int32_t hold_z = flight_eye_z;
   bool passed = false;
-  *caught_at = *gone_at = -1;
-  for (int n = 0; n < (int)(kStepsPerSecond * 600) && *gone_at < 0; ++n) {
+  *caught_at = *gone_at = *down_at = -1;
+  for (int n = 0; n < (int)(kStepsPerSecond * 600) && *gone_at < 0 && *down_at < 0; ++n) {
     flight_throttle = 24;
     double dx = (double)(_opponent_x[0] - flight_eye_x) / 256.0;
     double dy = (double)(_opponent_y[0] - flight_eye_y) / 256.0;
     double dz = (double)(_opponent_z[0] - flight_eye_z) / 256.0;
     passed = passed || dx < 0;
+    double ahead = along(flight_cam.front, dx, dy, dz);
+    double side = along(flight_cam.left, dx, dy, dz);
+    double above = along(flight_cam.up, dx, dy, dz);
+    bool aiming = guns && passed && ahead > 0 && ahead < 800;
     // Bank towards the recon's bearing once it is past - left for a target
     // to the left, a left roll being positive here - and wings level when
     // it is near dead ahead.
@@ -101,7 +117,13 @@ static void chase(int *caught_at, int *gone_at) {
     }
     // Height: the start's until the pass, then climbing at pitch 80 to the
     // recon's, then holding that.
-    if (passed && dz > 0) {
+    if (aiming) {
+      if (above > ahead / 64) {
+        flight_input(FLIGHT_INPUT_PITCH_UP);
+      } else if (above < -ahead / 64) {
+        flight_input(FLIGHT_INPUT_PITCH_DOWN);
+      }
+    } else if (passed && dz > 0) {
       if (flight_cam.front.z < 80) {
         flight_input(FLIGHT_INPUT_PITCH_UP);
       } else if (flight_cam.front.z > 88) {
@@ -117,10 +139,13 @@ static void chase(int *caught_at, int *gone_at) {
     }
     flight_advance();
     opponent_step();
+    gun_step(aiming && ahead > 80 && ahead < 1000 && fabs(side) < ahead / 16 &&
+             fabs(above) < ahead / 16);
     CHECK(!flight_crashed(), "chase: crashed at %.0f s", n / kStepsPerSecond);
     if (flight_crashed()) return;
     if (passed && *caught_at < 0 && sqrt(dx * dx + dy * dy + dz * dz) < 500) *caught_at = n;
     if (!_opponent_on[0]) *gone_at = n;
+    if (_opponent_down & 1) *down_at = n;
   }
 }
 
@@ -188,14 +213,27 @@ int main() {
     if (gone_at >= 0) printf(", all gone at %.1f min", gone_at / kStepsPerSecond / 60);
     printf("\n");
   }
-  int caught_at, gone_at;
-  chase(&caught_at, &gone_at);
+  int caught_at, gone_at, down_at;
+  chase(false, &caught_at, &gone_at, &down_at);
   CHECK(caught_at >= 0 && gone_at - caught_at >= 60 * kStepsPerSecond,
         "chase: within 250 m of the recon at %.1f min, and it left at %.1f",
         caught_at / kStepsPerSecond / 60, gone_at / kStepsPerSecond / 60);
   printf("  recon, climbing only after the pass: within 250 m at %.1f min, %.1f min before it "
          "leaves\n",
          caught_at / kStepsPerSecond / 60, (gone_at - caught_at) / kStepsPerSecond / 60);
+
+  // End to end, with the guns: the same chase shoots the recon down before
+  // it leaves, and the mission takes it as its goals completed - three hits
+  // through gun.cc, opponent_strike() and flight.cc's WP_TARGETS_DOWN.
+  mission_completed[0] = 0;
+  chase(true, &caught_at, &gone_at, &down_at);
+  // flight.cc meets the waypoint on its next step.
+  for (int n = 0; n < 4; ++n) flight_advance();
+  CHECK(down_at >= 0 && !_opponent_failed && mission_completed[0] == kMissionGoals,
+        "guns: recon down at %.1f min, failed %d, level %d", down_at / kStepsPerSecond / 60,
+        _opponent_failed, mission_completed[0]);
+  printf("  recon, shot down by the same pilot with guns: at %.1f min\n",
+         down_at / kStepsPerSecond / 60);
 
   if (_fails) {
     printf("mission_test: %d checks FAILED\n", _fails);

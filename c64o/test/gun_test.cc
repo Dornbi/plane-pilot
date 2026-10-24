@@ -40,6 +40,17 @@ bool opponent_target(uint8_t i, int32_t *p) {
   return true;
 }
 void opponent_strike(uint8_t i) { ++_strikes[i]; }
+// The smoking aircraft, when a case puts one up.
+static bool _smoke_on;
+static int32_t _smoke_p[3];
+static int16_t _smoke_h[2];
+bool opponent_smoke(int32_t *p, int16_t *h) {
+  if (!_smoke_on) return false;
+  for (int c = 0; c < 3; ++c) p[c] = _smoke_p[c];
+  h[0] = _smoke_h[0];
+  h[1] = _smoke_h[1];
+  return true;
+}
 
 // The last sprite offered, and how many were.
 struct offer_t {
@@ -92,6 +103,7 @@ static void start(int16_t speed) {
   level_north();
   memset(_target_on, 0, sizeof(_target_on));
   memset(_strikes, 0, sizeof(_strikes));
+  _smoke_on = false;
   gun_reset();
 }
 
@@ -282,10 +294,10 @@ static void test_tracer(void) {
   printf("  the newest round is drawn: from a wing, low, stretched, yellow\n");
   start(1500);
   _offers = 0;
-  gun_add_sprite();
+  gun_add_sprites();
   CHECK(_offers == 0, "a tracer with no round in flight");
   step(true);
-  gun_add_sprite();
+  gun_add_sprites();
   CHECK(_offers == 1, "%d offers for one round", _offers);
   // 20 m ahead, 4 m left and 1.5 m down: ~51 px left of the centre, ~19 below.
   CHECK(_offer.x > 160 - 60 && _offer.x < 160 - 40 && _offer.y > 56 + 12 && _offer.y < 56 + 25,
@@ -304,7 +316,7 @@ static void test_tracer(void) {
   int16_t x0 = _offer.x;
   step(true);
   step(true);
-  gun_add_sprite();
+  gun_add_sprites();
   CHECK(_offer.x > 160 + 40, "second round, the right wing's, drawn at %d", _offer.x);
   (void)x0;
 
@@ -312,7 +324,7 @@ static void test_tracer(void) {
   start(0);
   step(true);
   for (int n = 0; n < 8; ++n) step(false);
-  gun_add_sprite();
+  gun_add_sprites();
   CHECK(_offer.flags == 0 && _offer.bitmap >= kSpriteDefShortArmBitmap,
         "far round flags %d bitmap %d", _offer.flags, _offer.bitmap);
 
@@ -322,8 +334,67 @@ static void test_tracer(void) {
   world_cam.front = make_vector(-256, 0, 0);
   world_cam.left = make_vector(0, -256, 0);
   _offers = 0;
-  gun_add_sprite();
+  gun_add_sprites();
   CHECK(_offers == 0, "a round behind the camera drawn");
+}
+
+static void test_ground(void) {
+  printf("  rounds stop at the ground\n");
+  // 10 m up, nose 20 degrees down: the rounds go into the ground ~30 m out.
+  start(1500);
+  flight_eye_z = 20L << 8;
+  gun_reset();
+  flight_cam.front = make_vector(241, 0, -88);
+  flight_cam.up = make_vector(88, 0, 241);
+  world_cam = flight_cam;
+  step(true);
+  uint8_t r = _gun_last;
+  int steps = 0;
+  while (_round_age[r] != 0 && steps < 20) {
+    CHECK(flight_eye_z / 512.0 + up_m(r) > -15, "round %.1f m below the ground",
+          -(flight_eye_z / 512.0 + up_m(r)));
+    step(false);
+    ++steps;
+  }
+  CHECK(steps < 4, "a round into the ground flew %d steps", steps);
+  // Level, a round 10 m up flies its whole life.
+  start(1500);
+  flight_eye_z = 20L << 8;
+  gun_reset();
+  step(true);
+  r = _gun_last;
+  for (steps = 0; _round_age[r] != 0 && steps < 20; ++steps) step(false);
+  CHECK(steps == kRoundLife, "a level round 10 m up flew %d steps", steps);
+}
+
+static void test_smoke(void) {
+  printf("  smoke: one black cloud blob, 25 m behind the smoking aircraft\n");
+  start(1500);
+  _offers = 0;
+  gun_add_sprites();
+  CHECK(_offers == 0, "smoke with none up");
+  // 200 m ahead, flying away north: its smoke is 175 m out, 4 m up.
+  _smoke_on = true;
+  _smoke_p[0] = flight_eye_x + 200 * kMetre;
+  _smoke_p[1] = flight_eye_y;
+  _smoke_p[2] = flight_eye_z;
+  _smoke_h[0] = 256;
+  _smoke_h[1] = 0;
+  gun_add_sprites();
+  CHECK(_offers == 1, "%d offers for the smoke", _offers);
+  CHECK(_offer.color == kColorBlack &&
+            _offer.flags == (kSpriteFlagExpandX | kSpriteFlagAlignDither),
+        "smoke colour %d flags %d", _offer.color, _offer.flags);
+  CHECK(_offer.depth > 170 && _offer.depth < 180, "smoke at depth %d", _offer.depth);
+  // The largest single-sprite rung inside ~186 m.
+  CHECK(_offer.bitmap == kSpriteDefCloudRung[4].bitmap, "smoke bitmap %d", _offer.bitmap);
+  CHECK(_offer.x == 160 && _offer.y < 56, "smoke drawn at %d, %d", _offer.x, _offer.y);
+  // 600 m out, the smallest; and with a tracer as well, two offers.
+  _smoke_p[0] = flight_eye_x + 625 * kMetre;
+  step(true);
+  _offers = 0;
+  gun_add_sprites();
+  CHECK(_offers == 2 && gun_tracer_up(), "%d offers for smoke and a tracer", _offers);
 }
 
 static void test_paused(void) {
@@ -349,6 +420,8 @@ int main() {
   test_incoming();
   test_dir();
   test_tracer();
+  test_ground();
+  test_smoke();
   test_paused();
   if (_fails) {
     printf("gun_test: %d checks FAILED\n", _fails);

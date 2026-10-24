@@ -1,7 +1,8 @@
 # Projectiles (`projectiles.md`)
 
 Guns for fpilot, the player's first and the opponents' provided for.
-*Since 2026-10-24* §9's phases 1 and 2 are built (`c64o/gun.cc`): see §11.
+*Since 2026-10-24* §9's phases 1–3 are built (`c64o/gun.cc`), with smoke and
+an end-to-end test: see §11 and §12.
 The rest of this is the plan they follow. Everything here is fpilot only (`__FPILOT__`);
 ppilot does not change. Lengths are on the current scale, 128 m to the
 world unit ([map.md](map.md) §4, "The scale").
@@ -250,7 +251,7 @@ the crash, so a stall still sounds while firing.
   help line included; ppilot is unchanged. That is about 2.2 KB of code,
   more than §8's estimate:
   - most of it is `gun_step()`, `_gun_camera()`, `_gun_fire()` and
-    `gun_add_sprite()`, at ~260–350 bytes each;
+    `gun_add_sprites()`, at ~260–350 bytes each;
   - the rounds take 96 bytes, plus ~40 of state.
 - **Tests.**
   - `test/gun_test.cc` checks:
@@ -265,8 +266,52 @@ the crash, so a stall still sounds while firing.
     - all 16 needle angles;
     - the tracer offered.
   - `test/opponent_test.cc` checks the strikes.
+- **Still to do:** see §12.
+
+## 12. Smoke, the ground, and end to end
+
+*Added 2026-10-24.*
+
+- **Smoke.** From its first hit an aircraft trails smoke. It is one sprite
+  in all, behind the last aircraft hit.
+  - The sprite is a cloud blob drawn black (`kColorBlack`, X-expanded and
+    dithered like a cloud). It uses the ladder's single-sprite rungs 1–4,
+    sized for a ~16 m puff: rung 4 inside ~186 m, down to rung 1 past
+    ~292 m.
+  - It sits 25 m behind the aircraft along its heading and 4 m above.
+  - `opponent.cc` keeps the state and reports it (`opponent_smoke()`);
+    `gun.cc` draws it through the tracer's projection, in
+    `gun_add_sprites()`.
+  - A downed aircraft stops where it is, and its smoke hangs there for
+    `kSmokeLinger`, 40 steps (~6 s), so a kill shows as well as a hit.
+  - Nothing is drawn past ~2 km, the range of the rounds' frame.
+- **The sprite budget,** phase 3 brought forward because the smoke needs it
+  without any opponent firing. `_opponent_cap()` counts the smoke and a
+  tracer (`gun_tracer_up()`): 4 + 2 aircraft still fit in front with one of
+  them, but not with both, and not behind with either. Then both aircraft
+  are held to two sprites.
+- **Rounds stop at the ground.** A round below z 0 is freed. The eye's
+  height comes through the same helper that takes targets into the rounds'
+  frame; above ~2 km no round can reach the ground anyway.
+- **End to end,** in `test/mission_test.cc`, which now includes `gun.cc`:
+  - mission 01's chase pilot also aims inside 400 m, nose on the recon in
+    height as well as bearing;
+  - it holds Space while the recon is within 500 m and about 3.5° of the
+    nose;
+  - it shoots the recon down at 3.5 min, before it leaves;
+  - flight.cc then records the mission's goals as completed
+    (`mission_completed[0] == kMissionGoals`).
+- **The heap.** The first smoke build failed to link with "Cannot place heap
+  section" while the map still showed ~1.2 KB free.
+  - oscar64 always keeps 1,024 bytes of heap at the end of the main region,
+    and nothing here calls `malloc()`. `mem.h` now sets `#pragma
+    heapsize(0)`.
+  - `tools/analyze_ram.py` counts the heap as free, so every free figure
+    before this was a kilobyte more than code could use.
+- **Cost.** fpilot 2,152 → 1,487 bytes free, now real: 665 for the smoke,
+  the budget rule and the ground. ppilot is unchanged at 11,080, which is
+  likewise now real.
 - **Still to do:**
-  - phase 3, the back-view cap with a tracer up, which matters only once
-    opponents fire;
   - phase 4, the gun's sound;
-  - phase 5, opponent guns.
+  - phase 5, opponent guns;
+  - what a hit on the player does.

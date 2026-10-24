@@ -313,7 +313,7 @@ __forceinline void world_update_objects() {
   bm_sub_end(BM_SUB_CLOUDS);
 #endif
   opponent_add_sprites();
-  gun_add_sprite();
+  gun_add_sprites();
   vec_transform_inv(&world_cam, &kSunDirWorld, &vec_v);
   if (vec_project_once()) {
     sprites_stack_add(0x7FFF, kScreenWidthPixels / 2 - vec_sx,

@@ -250,6 +250,9 @@ void gun_step(bool trigger) {
     }
   }
   _gun_hit_opponents();
+  // The ground, z 0, in the rounds' frame: a round below it is gone. Past
+  // int16's reach the eye is too high for a round to get down there.
+  int16_t ground = _gun_rel(-_gun_eye[2], 2, 0) ? _gun_t[0] : -32767;
   for (uint8_t r = 0; r < kRoundMax; ++r) {
     if (_round_age[r] == 0) {
       continue;
@@ -257,6 +260,9 @@ void gun_step(bool trigger) {
     uint8_t i = r;
     for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {
       _round_p[i] += _gun_step_s(_round_v[i]) - _gun_moved[c];
+    }
+    if (_round_p[2 * kRoundMax + r] < ground) {
+      _round_age[r] = 0;
     }
   }
   // Ages, and the trigger, once a whole step: at a larger flight_step_shift
@@ -325,22 +331,13 @@ static uint8_t _gun_dir(int16_t dx, int16_t dy) {
   return dy > 0 ? (uint8_t)((16 - k) & 15) : k;
 }
 
-// Round r, `ahead` steps of its velocity on (-1, 0 or 1), in camera space and
-// eighth metres, and where that is on screen in _gun_sx, _gun_sy; false if it
-// is not in the view's cone.
+// The point in _gun_rel3 - relative to the eye like a round - in camera
+// space and eighth metres, and where it is on screen in _gun_sx, _gun_sy;
+// false if it is not in the view's cone.
+static vec3_t _gun_rel3;
 static int16_t _gun_sx, _gun_sy;
-static __noinline bool _gun_camera(uint8_t r, int8_t ahead, vec3_t *cam) {
-  vec3_t rel;
-  uint8_t i = r;
-  for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {
-    int16_t e = _round_p[i];
-    if (ahead > 0) {
-      e += _round_v[i];
-    } else if (ahead < 0) {
-      e -= _round_v[i];
-    }
-    (&rel.x)[c] = e >> 1;
-  }
+static __noinline bool _gun_view(vec3_t *cam) {
+  vec3_t rel = make_vector(_gun_rel3.x >> 1, _gun_rel3.y >> 1, _gun_rel3.z >> 1);
   vec_transform_inv(&world_cam, &rel, cam);
   if (cam->x <= 64 || _gun_abs(cam->y) >= cam->x ||
       _gun_abs(cam->z) >= cam->x) {
@@ -349,6 +346,21 @@ static __noinline bool _gun_camera(uint8_t r, int8_t ahead, vec3_t *cam) {
   _gun_sx = kScreenWidthPixels / 2 - vec_div8p8(cam->y, cam->x);
   _gun_sy = kViewportEndYPixels / 2 - vec_div8p8(cam->z, cam->x);
   return true;
+}
+
+// Round r, `ahead` steps of its velocity on (-1, 0 or 1), as _gun_view().
+static __noinline bool _gun_camera(uint8_t r, int8_t ahead, vec3_t *cam) {
+  uint8_t i = r;
+  for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {
+    int16_t e = _round_p[i];
+    if (ahead > 0) {
+      e += _round_v[i];
+    } else if (ahead < 0) {
+      e -= _round_v[i];
+    }
+    (&_gun_rel3.x)[c] = e;
+  }
+  return _gun_view(cam);
 }
 
 // The round worth drawing: the player's newest while firing, else the
@@ -368,7 +380,52 @@ static uint8_t _gun_shown(void) {
   return shown;
 }
 
-void gun_add_sprite(void) {
+bool gun_tracer_up(void) { return _gun_shown() != kRoundNone; }
+
+// --- Smoke --------------------------------------------------------------------
+//
+// One sprite, behind the aircraft opponent.cc says is smoking: a cloud blob
+// drawn black, from the cloud ladder's single-sprite rungs, 1 to 4, picked
+// for a ~16 m puff rather than the clouds' 96 m - rung 4 inside ~186 m, down
+// to rung 1 past ~292 m, in metres.
+static const int16_t kSmokeRungDepth[3] = {292, 228, 186};
+// 25 m behind the aircraft along its heading, and 4 m above.
+static const int16_t kSmokeBack = 25 * 16;
+static const int16_t kSmokeUp = 4 * 16;
+
+static void _gun_smoke(void) {
+  int32_t p[3];
+  int16_t h[2];
+  if (!opponent_smoke(p, h)) {
+    return;
+  }
+  for (uint8_t c = 0; c < 3; ++c) {
+    if (!_gun_rel(p[c] - _gun_eye[c], c, c)) {
+      return;
+    }
+  }
+  _gun_rel3.x = _gun_t[0] - vec_fastmul8p8(h[0], kSmokeBack);
+  _gun_rel3.y = _gun_t[1] - vec_fastmul8p8(h[1], kSmokeBack);
+  _gun_rel3.z = _gun_t[2] + kSmokeUp;
+  vec3_t c;
+  if (!_gun_view(&c)) {
+    return;
+  }
+  int16_t depth = c.x >> 3;
+  uint8_t rung = 1;
+  for (uint8_t k = 0; k < 3; ++k) {
+    if (depth <= kSmokeRungDepth[k]) {
+      ++rung;
+    }
+  }
+  const sprite_cloud_rung_t *meta = &kSpriteDefCloudRung[rung];
+  sprites_stack_add(depth, _gun_sx, _gun_sy, meta->pivot_x, meta->pivot_y,
+                    meta->bitmap, kSpriteNoBitmap, kColorBlack,
+                    kSpriteFlagExpandX | kSpriteFlagAlignDither);
+}
+
+void gun_add_sprites(void) {
+  _gun_smoke();
   uint8_t r = _gun_shown();
   if (r == kRoundNone) {
     return;

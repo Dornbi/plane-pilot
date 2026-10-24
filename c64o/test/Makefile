@@ -142,7 +142,7 @@ OPPONENT_TEST_HDRS = ../opponent.cc ../opponent.h ../planes.h ../planes_asm.h \
 
 # gun_test #includes ../gun.cc, for its statics, and fakes what it asks of
 # opponent.cc and the sprite stack. fpilot's, so __FPILOT__.
-GUN_TEST_SRC = gun_test.cc ../vec.cc ../vec_lut.cc ../fmath.cc
+GUN_TEST_SRC = gun_test.cc ../vec.cc ../vec_lut.cc ../fmath.cc ../spritedef.cc
 GUN_TEST_HDRS = ../gun.cc ../gun.h ../opponent.h ../vec.h ../flight.h ../sprites.h \
 		../spritedef.h ../world.h ../mem.h ../color.h
 
@@ -159,12 +159,13 @@ FPILOT_TEST_SRC = fpilot_test.cc host_vec.cc ../flight.cc ../fmission.cc ../worl
 FPILOT_TEST_HDRS = ../flight.h ../mission.h ../opponent.h ../vec.h ../fmath.h ../msg.h
 
 # mission_test flies fpilot's missions with flight.cc and opponent.cc
-# together, from each start, to hold them to reaching the targets in 90 s.
-# opponent.cc is #included for its statics; its drawing and messages are
-# stubbed.
+# together, from each start, to hold them to reaching the targets in 90 s,
+# and shoots the recon down end to end. opponent.cc and gun.cc are #included
+# for their statics; their drawing and messages are stubbed.
 MISSION_TEST_SRC = mission_test.cc host_vec.cc ../flight.cc ../fmission.cc ../world_map.cc \
-		../planes.cc ../vec.cc ../vec_lut.cc ../fmath.cc
-MISSION_TEST_HDRS = ../flight.h ../mission.h ../opponent.h ../opponent.cc ../planes.h \
+		../planes.cc ../vec.cc ../vec_lut.cc ../fmath.cc ../spritedef.cc
+MISSION_TEST_HDRS = ../flight.h ../mission.h ../opponent.h ../opponent.cc ../gun.h ../gun.cc \
+		../planes.h \
 		../vec.h ../fmath.h ../msg.h
 
 all: test

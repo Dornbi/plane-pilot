@@ -49,9 +49,15 @@ bool opponent_targets_down(void);
 // not down.
 bool opponent_target(uint8_t i, int32_t *p);
 
-// Slot i is hit. The third hit downs it: it is no longer drawn or a target,
-// and it counts towards WP_TARGETS_DOWN.
+// Slot i is hit. It trails smoke from now on, and the third hit downs it: it
+// stops, is no longer drawn or a target, and counts towards WP_TARGETS_DOWN.
 void opponent_strike(uint8_t i);
+
+// For gun.cc, which draws it: the smoking aircraft's position, as
+// opponent_target() gives it, and its heading's x and y, 8.8 - the last one
+// hit, or for a few seconds after it went down, where it fell. False if no
+// smoke is up.
+bool opponent_smoke(int32_t *p, int16_t *h);
 
 #pragma compile("opponent.cc")
 
@@ -64,6 +70,7 @@ inline void opponent_add_sprites(void) {}
 inline bool opponent_targets_down(void) { return false; }
 inline bool opponent_target(uint8_t i, int32_t *p) { return false; }
 inline void opponent_strike(uint8_t i) {}
+inline bool opponent_smoke(int32_t *p, int16_t *h) { return false; }
 
 #endif
 

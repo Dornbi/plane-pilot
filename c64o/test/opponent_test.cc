@@ -60,6 +60,10 @@ uint16_t flight_nav_point_y[kMaxNavPoints];
 static uint8_t _bank[0x4000];
 uint8_t *kOpponentBank = _bank;
 
+// gun.cc's say in the sprite budget: whether a tracer is up.
+static bool _tracer_up = false;
+bool gun_tracer_up(void) { return _tracer_up; }
+
 // --- What it writes -----------------------------------------------------------
 
 struct offer_t {
@@ -913,6 +917,62 @@ static void test_missions(void) {
     CHECK(opponent_targets_down(), "strikes: both down, but the targets are not down");
     opponent_reset(3);
     CHECK(opponent_target(0, p) && !opponent_targets_down(), "strikes: a reset left them down");
+  }
+
+  // The smoke: none until a hit, then behind the last slot hit; a downed
+  // slot stops where it is, and its smoke hangs there kSmokeLinger steps.
+  {
+    opponent_reset(3);
+    int32_t p[3];
+    int16_t h[2];
+    CHECK(!opponent_smoke(p, h), "smoke: up before any hit");
+    opponent_strike(1);
+    CHECK(opponent_smoke(p, h) && p[0] == _opponent_x[1] && h[0] == 256 && h[1] == 0,
+          "smoke: not on the slot hit, heading north");
+    opponent_strike(0);
+    CHECK(opponent_smoke(p, h) && p[0] == _opponent_x[0], "smoke: not on the last slot hit");
+    opponent_step();
+    int32_t x0 = _opponent_x[0];
+    for (int k = 1; k < kOpponentHitsToDown; ++k) opponent_strike(0);
+    for (int n = 0; n < kSmokeLinger - 1; ++n) opponent_step();
+    (void)x0;
+    CHECK(opponent_smoke(p, h) && p[0] == _opponent_x[0], "smoke: gone before it lingered");
+    int32_t fell = _opponent_x[0];
+    opponent_step();
+    CHECK(!opponent_smoke(p, h), "smoke: still up %d steps after the slot went down",
+          kSmokeLinger);
+    CHECK(_opponent_x[0] == fell, "smoke: a downed slot moved on");
+  }
+
+  // The budget with smoke and a tracer: in front, four and two and one of
+  // them; with both, or behind with either, both aircraft held to two.
+  {
+    opponent_reset(3);
+    _opponent_cs[0] = make_vector(800, 0, 0);
+    _opponent_cs[1] = make_vector(1600, 0, 0);
+    _opponent_far = 0;
+    static const struct {
+      view_state_t view;
+      bool smoke, tracer;
+      uint8_t capped;
+    } kCases[] = {
+        {VIEW_CENTER, false, false, 2}, {VIEW_CENTER, true, false, 2},
+        {VIEW_CENTER, false, true, 2},  {VIEW_CENTER, true, true, 3},
+        {VIEW_BACK, false, false, 2},   {VIEW_BACK, false, true, 3},
+        {VIEW_BACK, true, false, 3},
+    };
+    for (const auto &k : kCases) {
+      view_state = k.view;
+      _opponent_smoke = k.smoke ? 1 : kOpponentNoSmoke;
+      _tracer_up = k.tracer;
+      _opponent_nearer = 0;
+      _opponent_cap(3);
+      CHECK(_opponent_capped == k.capped, "budget: view %d smoke %d tracer %d holds %d, not %d",
+            k.view, k.smoke, k.tracer, _opponent_capped, k.capped);
+    }
+    view_state = VIEW_CENTER;
+    _tracer_up = false;
+    opponent_reset(3);
   }
 }
 

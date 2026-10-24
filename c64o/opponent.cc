@@ -10,6 +10,7 @@
 
 #include "color.h"
 #include "flight.h"
+#include "gun.h"
 #include "mem.h"
 #include "mission.h"
 #include "msg.h"
@@ -17,6 +18,7 @@
 #include "planes.h"
 #include "sprites.h"
 #include "vec.h"
+#include "view.h"
 #include "world.h"
 
 // docs/planes.md §13: two aircraft, each flying a fixed path.
@@ -221,6 +223,13 @@ static const int16_t kOpponentBankSin = 128;
 // kOpponentNearD - 1, ~720 m, back to kColorOpponentFar.
 static const uint8_t kOpponentNearD = 8;
 
+// Smoke: one sprite, behind the last aircraft hit, which gun.cc draws
+// (docs/projectiles.md §12). kOpponentNoSmoke when none has been: 0, so that
+// the zeroed bss means none.
+static const uint8_t kOpponentNoSmoke = 0;
+// Model steps a downed aircraft's smoke hangs where it fell: ~6 s.
+static const uint8_t kSmokeLinger = 40;
+
 // --- State ------------------------------------------------------------------
 
 #pragma bss(bss2)
@@ -233,6 +242,10 @@ static uint8_t _opponent_mission;
 static bool _opponent_failed;
 static uint8_t _opponent_down;
 static uint8_t _opponent_hits[kOpponentMax];
+// 1 + the slot trailing smoke - the last one hit - or kOpponentNoSmoke; and once
+// it is down, the steps its smoke still hangs where it fell.
+static uint8_t _opponent_smoke;
+static uint8_t _opponent_smoke_t;
 // The navpoint of the mission's WP_TARGETS_DOWN waypoint, which follows the
 // targets, or kOpponentNoNav.
 static uint8_t _opponent_nav;
@@ -310,10 +323,25 @@ bool opponent_target(uint8_t i, int32_t *p) {
 }
 
 void opponent_strike(uint8_t i) {
+  _opponent_smoke = (uint8_t)(i + 1);
   if (++_opponent_hits[i] == kOpponentHitsToDown) {
     _opponent_down |= (uint8_t)(1 << i);
+    _opponent_smoke_t = kSmokeLinger;
     msg_show("TARGET DOWN");
   }
+}
+
+bool opponent_smoke(int32_t *p, int16_t *h) {
+  if (_opponent_smoke == kOpponentNoSmoke) {
+    return false;
+  }
+  uint8_t i = (uint8_t)(_opponent_smoke - 1);
+  p[0] = _opponent_x[i];
+  p[1] = _opponent_y[i];
+  p[2] = _opponent_z[i];
+  h[0] = _opponent_head[i].x;
+  h[1] = _opponent_head[i].y;
+  return true;
 }
 
 bool opponent_targets_down(void) {
@@ -364,6 +392,7 @@ void opponent_reset(uint8_t mission) {
   _opponent_mission = mission;
   _opponent_failed = false;
   _opponent_down = 0;
+  _opponent_smoke = kOpponentNoSmoke;
   // Which navpoint is the targets': flight_init_from_mission() gives one to
   // each waypoint with a position, and to WP_TARGETS_DOWN, in order.
   _opponent_nav = kOpponentNoNav;
@@ -441,12 +470,19 @@ void opponent_step(void) {
     return;
   }
   bool turns = (++_opponent_substep & kFlightSubstepMask) == 0;
+  // A downed aircraft's smoke hangs where it fell, kSmokeLinger steps.
+  if (turns && _opponent_smoke != kOpponentNoSmoke &&
+      (_opponent_down & (uint8_t)(1 << (_opponent_smoke - 1))) &&
+      --_opponent_smoke_t == 0) {
+    _opponent_smoke = kOpponentNoSmoke;
+  }
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
     if (!_opponent_on[i]) {
       continue;
     }
     const opponent_path_t *p = _opponent_path[i];
-    if (p->kind == kOpponentParked) {
+    // Parked, or down: it stays where it is.
+    if (p->kind == kOpponentParked || (_opponent_down & (uint8_t)(1 << i))) {
       continue;
     }
     vec3_t *h = &_opponent_head[i];
@@ -645,7 +681,7 @@ static __noinline uint8_t _opponent_cull(void) {
       continue;
     }
     uint8_t bit = (uint8_t)(1 << i);
-    // Down, and gone: smoke and a fall are still to come.
+    // Down, and gone: only its smoke stays (opponent_smoke()).
     uint8_t range =
         (_opponent_down & bit) ? (uint8_t)kOpponentOut : _opponent_camera(i);
     // planes_render() says the same about x, but only after the axes
@@ -672,11 +708,13 @@ static __noinline uint8_t _opponent_cull(void) {
 // aircraft at 2 x 2 would take eight: the farther would be dropped whole.
 // So while both are in view the farther is held to two sprites, which
 // changes nothing unless it is within ~115 m (kViewTwo). The back view's fin
-// takes 0 and 1 (sprites.cc kSpriteFinCount), which leaves the stack six:
-// still room for four and two. Which is nearer goes by depth, and changes only once
-// the other is an eighth nearer, so that two at about the same range do
-// not trade sizes every frame; one in the far range is the farther. Sets
-// _opponent_capped.
+// takes 0 and 1 (sprites.cc kSpriteFinCount), which leaves the stack six.
+// The smoke and a tracer (gun.cc) take one each: four and two still fit in
+// front with one of them, not with both, nor behind with either - and then
+// both aircraft are held to two. Which is nearer goes by depth, and changes
+// only once the other is an eighth nearer, so that two at about the same
+// range do not trade sizes every frame; one in the far range is the farther.
+// Sets _opponent_capped.
 static __noinline void _opponent_cap(uint8_t seen) {
   uint8_t capped = 0;
   if (seen == 3) {
@@ -688,7 +726,11 @@ static __noinline void _opponent_cap(uint8_t seen) {
             : _opponent_cs[n ^ 1].x < dn - (dn >> 3)) {
       _opponent_nearer ^= 1;
     }
-    capped = (uint8_t)(2 >> _opponent_nearer);
+    uint8_t extra =
+        (uint8_t)(_opponent_smoke != kOpponentNoSmoke) + (uint8_t)gun_tracer_up();
+    capped = extra > (view_state == VIEW_BACK ? 0 : 1)
+                 ? 3
+                 : (uint8_t)(2 >> _opponent_nearer);
   }
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
     uint8_t bit = (uint8_t)(1 << i);
