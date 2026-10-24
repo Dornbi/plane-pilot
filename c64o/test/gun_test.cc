@@ -328,6 +328,40 @@ static void test_tracer(void) {
   CHECK(_offer.flags == 0 && _offer.bitmap >= kSpriteDefShortArmBitmap,
         "far round flags %d bitmap %d", _offer.flags, _offer.bitmap);
 
+  printf("  near or far, the needle follows the round's motion on screen\n");
+  // The exact direction, from the round's position and velocity in metres
+  // (level and north, so camera space is world space), against the needle
+  // drawn, at every age of a round from each wing: within one of the 16
+  // steps. Not from the difference of two whole-pixel positions, which a
+  // far round barely moves, and which once stood its needle upright.
+  for (int side = 0; side < 2; ++side) {
+    start(1500);
+    _gun_side = (uint8_t)side;
+    step(true);
+    uint8_t r = _gun_last;
+    for (int age = 0; _round_age[r] != 0; ++age) {
+      _offers = 0;
+      gun_add_sprites();
+      if (_offers == 1) {
+        double x = ahead_m(r), y = left_m(r), z = up_m(r);
+        double vx = _round_v[r] / 16.0, vy = _round_v[kRoundMax + r] / 16.0,
+               vz = _round_v[2 * kRoundMax + r] / 16.0;
+        double dx = y * vx - vy * x, dy = z * vx - vz * x;
+        bool expanded = _offer.flags & kSpriteFlagExpandX;
+        if (expanded) dx /= 2;
+        double a = atan2(dx, -dy) * 180 / M_PI;  // clockwise from up
+        int want = (int)lround(fmod(a + 360, 180) / 11.25) % 16;
+        int base = _offer.bitmap >= kSpriteDefShortArmBitmap ? kSpriteDefShortArmBitmap
+                                                             : kSpriteDefLongArmBitmap;
+        int got = _offer.bitmap - base;
+        int diff = (got - want + 16) % 16;
+        CHECK(diff <= 1 || diff >= 15, "side %d age %d, %.0f m out: needle %d, not %d", side,
+              age, x, got, want);
+      }
+      step(false);
+    }
+  }
+
   printf("  looking back, the player's rounds are not drawn\n");
   start(1500);
   step(true);

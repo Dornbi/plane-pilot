@@ -348,17 +348,11 @@ static __noinline bool _gun_view(vec3_t *cam) {
   return true;
 }
 
-// Round r, `ahead` steps of its velocity on (-1, 0 or 1), as _gun_view().
-static __noinline bool _gun_camera(uint8_t r, int8_t ahead, vec3_t *cam) {
+// Round r, as _gun_view().
+static bool _gun_camera(uint8_t r, vec3_t *cam) {
   uint8_t i = r;
   for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {
-    int16_t e = _round_p[i];
-    if (ahead > 0) {
-      e += _round_v[i];
-    } else if (ahead < 0) {
-      e -= _round_v[i];
-    }
-    (&_gun_rel3.x)[c] = e;
+    (&_gun_rel3.x)[c] = _round_p[i];
   }
   return _gun_view(cam);
 }
@@ -430,21 +424,25 @@ void gun_add_sprites(void) {
   if (r == kRoundNone) {
     return;
   }
-  // Which way it is going on screen: the line to where it will be a step on,
-  // or for one coming at the eye, to where it was a step ago - a line has no
-  // direction, so either serves.
   vec3_t c;
-  bool other = _gun_camera(r, 1, &c) || _gun_camera(r, -1, &c);
-  int16_t x2 = _gun_sx, y2 = _gun_sy;
-  if (!_gun_camera(r, 0, &c)) {
+  if (!_gun_camera(r, &c)) {
     return;
   }
-  // Straight up if neither end could be seen.
-  int16_t dx = 0, dy = -1;
-  if (other) {
-    dx = x2 - _gun_sx;
-    dy = y2 - _gun_sy;
+  // Which way it is going on screen, exactly: the screen point is
+  // (-y/x, -z/x) scaled, and its rate of change along the velocity v is
+  // (y vx - vy x, z vx - vz x) over a positive x squared. Not the difference
+  // to where the round will be a step on: a far round moves a pixel or less
+  // a step, and whole pixels put its needle anywhere - mostly upright. The
+  // velocity in eighth metres too, at most ~500, against a round within
+  // ~1.3 km, ~10,000, keeps the products in int16 with room to spare.
+  vec3_t v, w;
+  uint8_t i = r;
+  for (uint8_t a = 0; a < 3; ++a, i += kRoundMax) {
+    (&v.x)[a] = _round_v[i] >> 1;
   }
+  vec_transform_inv(&world_cam, &v, &w);
+  int16_t dx = vec_fastmul8p8(c.y, w.x) - vec_fastmul8p8(w.y, c.x);
+  int16_t dy = vec_fastmul8p8(c.z, w.x) - vec_fastmul8p8(w.z, c.x);
   uint8_t bitmap = kSpriteDefShortArmBitmap;
   uint8_t flags = 0;
   if (c.x < kTracerLong) {

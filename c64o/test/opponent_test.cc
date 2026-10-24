@@ -919,8 +919,9 @@ static void test_missions(void) {
     CHECK(opponent_target(0, p) && !opponent_targets_down(), "strikes: a reset left them down");
   }
 
-  // The smoke: none until a hit, then behind the last slot hit; a downed
-  // slot stops where it is, and its smoke hangs there kSmokeLinger steps.
+  // The smoke: none until a hit, then behind the last slot hit for kSmokeHit
+  // frames, each hit starting them again; a downed slot stops where it is,
+  // and its smoke hangs there kSmokeDown frames.
   {
     opponent_reset(3);
     int32_t p[3];
@@ -931,16 +932,17 @@ static void test_missions(void) {
           "smoke: not on the slot hit, heading north");
     opponent_strike(0);
     CHECK(opponent_smoke(p, h) && p[0] == _opponent_x[0], "smoke: not on the last slot hit");
+    for (int n = 0; n < kSmokeHit - 1; ++n) opponent_step();
+    CHECK(opponent_smoke(p, h), "smoke: gone before %d frames after a hit", kSmokeHit);
     opponent_step();
-    int32_t x0 = _opponent_x[0];
+    CHECK(!opponent_smoke(p, h), "smoke: still up %d frames after a hit", kSmokeHit);
     for (int k = 1; k < kOpponentHitsToDown; ++k) opponent_strike(0);
-    for (int n = 0; n < kSmokeLinger - 1; ++n) opponent_step();
-    (void)x0;
+    for (int n = 0; n < kSmokeDown - 1; ++n) opponent_step();
     CHECK(opponent_smoke(p, h) && p[0] == _opponent_x[0], "smoke: gone before it lingered");
     int32_t fell = _opponent_x[0];
     opponent_step();
-    CHECK(!opponent_smoke(p, h), "smoke: still up %d steps after the slot went down",
-          kSmokeLinger);
+    CHECK(!opponent_smoke(p, h), "smoke: still up %d frames after the slot went down",
+          kSmokeDown);
     CHECK(_opponent_x[0] == fell, "smoke: a downed slot moved on");
   }
 

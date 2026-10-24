@@ -242,11 +242,15 @@ the crash, so a stall still sounds while firing.
 - **Hit test as planned (§3)**, with the box tested at four points per step.
   Targets are taken the short way round the world, so a round still hits
   across the x seam.
-- **The tracer as planned (§4).** The direction is the line from the round
-  to where it will be a step on. A round coming at the eye uses where it was
-  a step ago instead; a line has no direction, so either serves. In VICE a
-  burst shows as yellow streaks from the lower left and right in turn,
-  running in towards the mark.
+- **The tracer as planned (§4).** In VICE a burst shows as yellow streaks
+  from the lower left and right in turn, running in towards the mark.
+  - The direction is the exact rate of change of the round's screen point
+    along its velocity: `(y vx - vy x, z vx - vz x)` in camera space.
+  - It was first the line to where the round would be a step on. A far
+    round moves a pixel or less a step, so whole pixels stood its needle
+    upright.
+  - `gun_test` now holds every drawn needle, near and far, to the exact
+    motion within one step of the 16.
 - **Cost.** fpilot went from 4,601 to 2,152 bytes free, 2,449 in all, the
   help line included; ppilot is unchanged. That is about 2.2 KB of code,
   more than §8's estimate:
@@ -272,8 +276,9 @@ the crash, so a stall still sounds while firing.
 
 *Added 2026-10-24.*
 
-- **Smoke.** From its first hit an aircraft trails smoke. It is one sprite
-  in all, behind the last aircraft hit.
+- **Smoke.** A hit aircraft trails smoke for `kSmokeHit`, 14 frames
+  (~2 s), and each hit starts the count again. It is one sprite in all,
+  behind the last aircraft hit.
   - The sprite is a cloud blob drawn black (`kColorBlack`, X-expanded and
     dithered like a cloud). It uses the ladder's single-sprite rungs 1–4,
     sized for a ~16 m puff: rung 4 inside ~186 m, down to rung 1 past
@@ -283,7 +288,10 @@ the crash, so a stall still sounds while firing.
     `gun.cc` draws it through the tracer's projection, in
     `gun_add_sprites()`.
   - A downed aircraft stops where it is, and its smoke hangs there for
-    `kSmokeLinger`, 40 steps (~6 s), so a kill shows as well as a hit.
+    `kSmokeDown`, 35 frames (~5 s), so a kill shows as well as a hit.
+  - Both are counted in rendered frames, one a call of `opponent_step()`,
+    not in whole model steps, so a faster machine shows it for less time.
+    The seconds are at the 6–8 frames a second of a stock C64.
   - Nothing is drawn past ~2 km, the range of the rounds' frame.
 - **The sprite budget,** phase 3 brought forward because the smoke needs it
   without any opponent firing. `_opponent_cap()` counts the smoke and a

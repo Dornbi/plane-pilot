@@ -227,8 +227,11 @@ static const uint8_t kOpponentNearD = 8;
 // (docs/projectiles.md §12). kOpponentNoSmoke when none has been: 0, so that
 // the zeroed bss means none.
 static const uint8_t kOpponentNoSmoke = 0;
-// Model steps a downed aircraft's smoke hangs where it fell: ~6 s.
-static const uint8_t kSmokeLinger = 40;
+// Frames the smoke lasts: ~2 s after a hit, ~5 s where a downed aircraft
+// fell, at the 6-8 a second a stock C64 renders. Frames rather than model
+// steps, so a faster machine shows it for less time, not for more frames.
+static const uint8_t kSmokeHit = 14;
+static const uint8_t kSmokeDown = 35;
 
 // --- State ------------------------------------------------------------------
 
@@ -242,8 +245,8 @@ static uint8_t _opponent_mission;
 static bool _opponent_failed;
 static uint8_t _opponent_down;
 static uint8_t _opponent_hits[kOpponentMax];
-// 1 + the slot trailing smoke - the last one hit - or kOpponentNoSmoke; and once
-// it is down, the steps its smoke still hangs where it fell.
+// 1 + the slot trailing smoke - the last one hit - or kOpponentNoSmoke; and
+// the frames it has left.
 static uint8_t _opponent_smoke;
 static uint8_t _opponent_smoke_t;
 // The navpoint of the mission's WP_TARGETS_DOWN waypoint, which follows the
@@ -324,9 +327,10 @@ bool opponent_target(uint8_t i, int32_t *p) {
 
 void opponent_strike(uint8_t i) {
   _opponent_smoke = (uint8_t)(i + 1);
+  _opponent_smoke_t = kSmokeHit;
   if (++_opponent_hits[i] == kOpponentHitsToDown) {
     _opponent_down |= (uint8_t)(1 << i);
-    _opponent_smoke_t = kSmokeLinger;
+    _opponent_smoke_t = kSmokeDown;
     msg_show("TARGET DOWN");
   }
 }
@@ -470,10 +474,8 @@ void opponent_step(void) {
     return;
   }
   bool turns = (++_opponent_substep & kFlightSubstepMask) == 0;
-  // A downed aircraft's smoke hangs where it fell, kSmokeLinger steps.
-  if (turns && _opponent_smoke != kOpponentNoSmoke &&
-      (_opponent_down & (uint8_t)(1 << (_opponent_smoke - 1))) &&
-      --_opponent_smoke_t == 0) {
+  // The smoke runs out: this is one call a frame.
+  if (_opponent_smoke != kOpponentNoSmoke && --_opponent_smoke_t == 0) {
     _opponent_smoke = kOpponentNoSmoke;
   }
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
