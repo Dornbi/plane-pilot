@@ -471,9 +471,9 @@ static uint8_t _bottom_adj;         // offset of the lower row of blocks, less 6
 static uint8_t _lo[42], _hi[42];    // each row's extent while a polygon is traced
 static uint8_t _fs, _fn;            // the polygon: first vertex, count
 
-static uint8_t _y0, _y1, _fi, _xt, _yt, _xe, _ye, _dy, _cnt, _row;
-static uint8_t _dxl, _dxh, _sl, _sh, _hl, _hh, _xbl, _xbh;
-static uint8_t _pa, _pb, _t, _base, _jb;
+static uint8_t _y0, _y1, _fi, _xt, _yt, _xe, _dy, _row;
+static uint8_t _dxl, _dxh, _sl, _sh, _xbl, _xbh;
+static uint8_t _pb, _t, _base, _jb;
 #ifdef __FPILOT__
 #pragma bss(bss)
 #endif
@@ -550,37 +550,30 @@ static void _fill_poly(void) {
         lda _planes_ly, y;
         cmp _planes_ly, x;
         bcs L_a_top;
-        lda _planes_lx, y;
-        sta _xt;
-        lda _planes_ly, y;
-        sta _yt;
-        lda _planes_lx, x;
-        sta _xe;
-        lda _planes_ly, x;
-        sta _ye;
-        jmp L_ends;
+        stx _t;
+        tya;
+        tax;
+        ldy _t;
     L_a_top:
+        lda _planes_ly, x;
+        cmp _buf_h;
+        bcc L_top_in;
+        jmp L_next;
+    L_top_in:
+        sta _yt;
         lda _planes_lx, x;
         sta _xt;
-        lda _planes_ly, x;
-        sta _yt;
         lda _planes_lx, y;
         sta _xe;
         lda _planes_ly, y;
-        sta _ye;
-    L_ends:
-        lda _ye;
         sec;
         sbc _yt;
         sta _dy;
         bne L_slanted;
         // Level: one row, end to end.
-        lda _yt;
-        sta _row;
+        ldx _yt;
         lda _xt;
-        sta _pa;
-        lda _xe;
-        sta _pb;
+        ldy _xe;
         jsr L_put;
         jmp L_next;
 
@@ -598,20 +591,14 @@ static void _fill_poly(void) {
         lda _dxl;
         ror;
         sta _sh;
+        tax;
         lda #0;
         ror;
         sta _sl;
-        lda _dy;
-        cmp #1;
-        bne L_not_one;
-        // dy 1: no middle row, and the first row's half step is dx * 128.
-        lda _sl;
-        sta _hl;
-        lda _sh;
-        sta _hh;
-        jmp L_first;
-    L_not_one:
-        cmp #2;
+        ldy _dy;
+        dey;
+        beq L_first;
+        dey;
         beq L_halve;
         // dy 3 and on: slope = trunc(dx * 65536 / dy / 256) from the
         // reciprocal table, |dx| * hi + hi(|dx| * lo), the sign last.
@@ -627,13 +614,13 @@ static void _fill_poly(void) {
         lda kPlaneRecip + 42, y;  // striped: the high bytes, see below
         sta vec_mul8_b;
         lda kPlaneRecip, y;
-        sta _pa;
+        sta _pb;
         lda _t;
         jsr vec_mul8;
         sta _sh;
         lda vec_mul8_lo;
         sta _sl;
-        lda _pa;
+        lda _pb;
         sta vec_mul8_b;
         lda _t;
         jsr vec_mul8;
@@ -656,49 +643,23 @@ static void _fill_poly(void) {
         lda _sh;
         cmp #$80;
         ror;
-        sta _hh;
+        tax;
         lda _sl;
         ror;
-        sta _hl;
 
     L_first:
         // The top row takes half a step, from xt * 256 + 128. dx's sign says
-        // which end of every row is the left one; rows only go down, so the
-        // first at or below the buffer ends the edge.
-        ldx _yt;
-        cpx _buf_h;
-        bcc L_first_in;
-        jmp L_next;
-    L_first_in:
-        lda #128;
+        // which end of every middle row is the left one; rows only go down, so
+        // the first at or below the buffer ends the edge.
         clc;
-        adc _hl;
+        adc #128;
         sta _xbl;
-        lda _xt;
-        adc _hh;
+        txa;
+        adc _xt;
         sta _xbh;
-        bit _dxh;
-        bmi L_first_neg;
-        lda _xt;
-        cmp _lo, x;
-        bcs L_fp_hi;
-        sta _lo, x;
-    L_fp_hi:
-        lda _xbh;
-        cmp _hi, x;
-        bcc L_middle;
-        sta _hi, x;
-        jmp L_middle;
-    L_first_neg:
-        lda _xbh;
-        cmp _lo, x;
-        bcs L_fn_hi;
-        sta _lo, x;
-    L_fn_hi:
-        lda _xt;
-        cmp _hi, x;
-        bcc L_middle;
-        sta _hi, x;
+        ldx _yt;
+        ldy _xt;
+        jsr L_put;
 
         // The middle rows a whole step each, from the last row's end.
     L_middle:
@@ -710,7 +671,7 @@ static void _fill_poly(void) {
     L_mid_pos:
         inx;
         cpx _buf_h;
-        bcs L_mid_out;
+        bcs L_next;
         lda _xbh;
         cmp _lo, x;
         bcs L_mp_step;
@@ -729,13 +690,11 @@ static void _fill_poly(void) {
     L_mp_next:
         dey;
         bne L_mid_pos;
-        jmp L_last;
-    L_mid_out:
-        jmp L_next;
+        beq L_last;
     L_mid_neg:
         inx;
         cpx _buf_h;
-        bcs L_mid_out;
+        bcs L_next;
         lda _xbh;
         cmp _hi, x;
         bcc L_mn_step;
@@ -757,31 +716,12 @@ static void _fill_poly(void) {
 
         // The bottom row ends on the end point.
     L_last:
-        ldx _ye;
+        inx;
         cpx _buf_h;
         bcs L_next;
-        bit _dxh;
-        bmi L_last_neg;
         lda _xbh;
-        cmp _lo, x;
-        bcs L_lp_hi;
-        sta _lo, x;
-    L_lp_hi:
-        lda _xe;
-        cmp _hi, x;
-        bcc L_next;
-        sta _hi, x;
-        jmp L_next;
-    L_last_neg:
-        lda _xe;
-        cmp _lo, x;
-        bcs L_ln_hi;
-        sta _lo, x;
-    L_ln_hi:
-        lda _xbh;
-        cmp _hi, x;
-        bcc L_next;
-        sta _hi, x;
+        ldy _xe;
+        jsr L_put;
     L_next:
         inc _fi;
         lda _fi;
@@ -836,16 +776,9 @@ static void _fill_poly(void) {
         and #7;
         tay;
         lda kPlaneLeftMask, y;
+        sta _t;
         cpx _jb;
-        bne L_bytes;
-        // Most spans are inside one byte: both masks on it.
-        sta _t;
-        lda _pb;
-        and #7;
-        tay;
-        lda kPlaneRightMask, y;
-        and _t;
-        sta _t;
+        beq L_right;
         lda kPlaneByteOffset, x;
         clc;
         adc _base;
@@ -853,16 +786,8 @@ static void _fill_poly(void) {
         lda (_blk), y;
         ora _t;
         sta (_blk), y;
-        jmp L_span_next;
-    L_bytes:
+        lda #$ff;
         sta _t;
-        lda kPlaneByteOffset, x;
-        clc;
-        adc _base;
-        tay;
-        lda (_blk), y;
-        ora _t;
-        sta (_blk), y;
         inx;
         cpx _jb;
         beq L_right;
@@ -881,6 +806,7 @@ static void _fill_poly(void) {
         and #7;
         tay;
         lda kPlaneRightMask, y;
+        and _t;
         sta _t;
         lda kPlaneByteOffset, x;
         clc;
@@ -898,31 +824,20 @@ static void _fill_poly(void) {
     L_done:
         rts;
 
-        // Widen row _row's extent to take pixels _pa and _pb, in either
-        // order, if the row is inside the buffer.
+        // Widen row X's extent (X < _buf_h) to take pixels A and Y, in either
+        // order. Preserves X.
     L_put:
-        ldx _row;
-        cpx _buf_h;
-        bcs L_put_done;
-        lda _pa;
-        cmp _pb;
-        bcc L_put_ab;
-        lda _pb;
+        sty _t;
+        cmp _t;
+        bcc L_put_ay;
+        tay;
+        lda _t;
+    L_put_ay:
         cmp _lo, x;
-        bcs L_put_ba_hi;
+        bcs L_put_hi;
         sta _lo, x;
-    L_put_ba_hi:
-        lda _pa;
-        cmp _hi, x;
-        bcc L_put_done;
-        sta _hi, x;
-        rts;
-    L_put_ab:
-        cmp _lo, x;
-        bcs L_put_ab_hi;
-        sta _lo, x;
-    L_put_ab_hi:
-        lda _pb;
+    L_put_hi:
+        tya;
         cmp _hi, x;
         bcc L_put_done;
         sta _hi, x;
