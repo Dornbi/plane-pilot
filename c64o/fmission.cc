@@ -59,7 +59,7 @@ const char *const kMissionDesc[kMissionCount] = {
     "CATCH THEM BEFORE THEY DO DAMAGE.",  //
     "AMBUSH THE ENEMY BASE AND DESTROY\n" // 03
     "THE PARKED PLANES.",                 //
-    "BANDITS ARE ATTACKING THE FIELD!\n"  // 04
+    "BANDITS ARE ATTACKING THE FIELD.\n"  // 04
     "DEFEND IT AS QUICKLY AS YOU CAN!",   //
 };
 
