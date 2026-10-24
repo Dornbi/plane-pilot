@@ -1340,13 +1340,13 @@ the recon slower, 01 and 03 started in the air, and every mission bringing
 the player within 2 km of its targets inside 90 s. Revised again 2026-10-24:
 targets on screen within 10 s of the start (20 s of the lift-off in 02), the
 opponents drawn bigger and seen from twice as far, a start heading, and the
-parked pair spread out and facing the runway.*
+parked pair side by side off the runway's edge, facing it.*
 
 | Mission | Start | Opponents | Fails when |
 | :--- | :--- | :--- | :--- |
 | 01 Recon intercept | In the air at 2,500 ft and cruise, heading north, 9 km south of the north edge | One at 5,000 ft and 1,750 (2,000 at first): in from the north edge head-on, past the player 2,500 ft above after ~45 s, over the city at ~5.4 min, off the south edge at ~6.2 | it leaves the map |
 | 02 Bomber raid | On runway 1, engine at idle, heading north | Two at 3,000 ft and 1,500, the second 150 m left of and 200 m behind the first: south towards runway 1 from 11 km, 1 km past its north end, then the city at ~4.4 min, then off the south edge | the first reaches the city |
-| 03 Ambush | In the air at 1,000 ft and cruise, heading east, 4.8 km west of the targets and in line with them | Two parked beside runway 2's south end, 80 m and 220 m off its west edge, facing it | never |
+| 03 Ambush | In the air at 1,000 ft and cruise, heading east, 3.6 km west of the targets and midway between them | Two parked beside runway 2's south end, side by side 120 m apart, both 150 m off its west edge and facing it | never |
 
 A start has a heading, in quarter turns left of north
 (`kMissionStartTurns`, fpilot only; `flight_init_from_mission()` turns the
@@ -1357,7 +1357,7 @@ climbing out - and holds each to two rules: the targets on screen in the
 front view, as opponent.cc's cull decides, if only as the dot, within 10 s
 of the start, or for 02 within 20 s of the lift-off; and within 2 km inside
 90 s. They come on screen at 2.6 s, 14 s after the lift-off at 10 s, and at
-once; and within 2 km at 33 s, 66 s and 24 s.
+once; and within 2 km at 33 s, 66 s and 14 s.
 
 Heights are on a scale where 1,000 ft is 512 m, and the viewport reaches
 ~12 degrees above and below the nose, so a target well above or below is in

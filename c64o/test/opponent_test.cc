@@ -844,6 +844,9 @@ static void test_missions(void) {
     _msgs = 0;
     opponent_reset(2);
     int32_t x0 = _opponent_x[0], y1 = _opponent_y[1];
+    CHECK(_opponent_y[0] == _opponent_y[1] && _opponent_head[0].y == -256 &&
+              _opponent_head[1].y == -256,
+          "ambush: not side by side, facing the runway");
     for (int n = 0; n < 3000; ++n) opponent_step();
     CHECK(_opponent_on[0] && _opponent_on[1] && _opponent_x[0] == x0 && _opponent_y[1] == y1 &&
               _opponent_turn[0] == 0 && !_opponent_failed && _msgs == 0,
@@ -858,8 +861,8 @@ static void test_missions(void) {
     // One shot down: on the other.
     _opponent_down = 1;
     opponent_step();
-    CHECK(flight_nav_point_y[0] == 0xC0DC, "ambush: navpoint 1 at %04x with one down",
-          flight_nav_point_y[0]);
+    CHECK(flight_nav_point_x[0] == 0x5D3C, "ambush: navpoint 1 at %04x with one down",
+          flight_nav_point_x[0]);
   }
 }
 

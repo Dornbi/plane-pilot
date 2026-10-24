@@ -63,8 +63,8 @@ const char *const kMissionDesc[kMissionCount] = {
 // lift-off in 02 - and within 2 km inside ~90 s (test/mission_test.cc). 01
 // and 03 in the air at cruise - throttle 18, whose level trim is ~2,170
 // (0x88 << 4). 01 at 2,500 ft heading north, 9 km south of the north edge,
-// under the recon's way in; 03 at 1,000 ft heading east, 4.8 km west of the
-// parked aircraft at runway 2, in line with them. 02 scrambles: on runway 1
+// under the recon's way in; 03 at 1,000 ft heading east, 3.6 km west of the
+// parked aircraft at runway 2, midway between them. 02 scrambles: on runway 1
 // heading north, engine at idle, the bombers coming south towards it.
 const uint8_t kMissionStartX[kMissionCount] = {
     0x5C, // 01
@@ -75,7 +75,7 @@ const uint8_t kMissionStartX[kMissionCount] = {
 const uint8_t kMissionStartY[kMissionCount] = {
     0x5F, // 01
     0x3F, // 02
-    0xD3, // 03
+    0xCE, // 03
 };
 
 const uint8_t kMissionStartTurns[kMissionCount] = {

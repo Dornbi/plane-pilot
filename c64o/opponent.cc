@@ -161,9 +161,9 @@ static const uint16_t kOpponent3000Ft = 0x0600;
 // it, turn for the city and reach it after ~4.4 min, which fails the
 // mission. Then they leave over the south edge.
 //
-// 03, Ambush: two on the ground beside the south end of runway 2, 80 m and
-// 220 m off its west edge at y 0xC0, facing it, and the player coming in
-// from the west in line with them, 4.8 km out. Their centres are 13 m up,
+// 03, Ambush: two on the ground beside the south end of runway 2, side by
+// side 120 m apart, both 150 m off its west edge at y 0xC0 and facing it, and
+// the player coming in from the west between them, 3.6 km out. Their centres are 13 m up,
 // about where a ~55 m aircraft's (kOpponentKn) is on its wheels.
 static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
     {{kOpponentOneWay, 4, 3, 1750, 0x7E00, 0x6000, -256, 0, kOpponent5000Ft,
@@ -173,8 +173,8 @@ static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
       {0x2800, 0x1000, 0x0000}, {0x4000, 0x6800, 0x6800}},
      {kOpponentOneWay, 3, 1, 1500, 0x48C8, 0x3F6A, -256, 0, kOpponent3000Ft,
       {0x28C8, 0x10C8, 0x00C8}, {0x3F6A, 0x676A, 0x676A}}},
-    {{kOpponentParked, 0, kOpponentNoFail, 0, 0x5D00, 0xC050, 0, -256, 0x000D},
-     {kOpponentParked, 0, kOpponentNoFail, 0, 0x5D00, 0xC0DC, 0, -256, 0x000D}},
+    {{kOpponentParked, 0, kOpponentNoFail, 0, 0x5CC4, 0xC096, 0, -256, 0x000D},
+     {kOpponentParked, 0, kOpponentNoFail, 0, 0x5D3C, 0xC096, 0, -256, 0x000D}},
 };
 
 // What the message says when the mission fails, per mission.
