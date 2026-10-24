@@ -125,14 +125,18 @@ static const uint8_t kToggleKeyV = kToggleKeyG << 1;
 #endif
 static_assert(sizeof(kToggleKeys) <= 8, "toggle mask is one byte");
 
-// The held-down flight keys. A table plus one loop rather than a dozen
+// The held-down flight and view keys. A table plus one loop rather than a dozen
 // `if (key_pressed(K)) flight_input(I);` pairs: each pair costs a JSR, a
 // branch and two constant loads, and this runs at ~10 Hz where a loop's
-// index arithmetic is free.
+// index arithmetic is free. The view keys share it: an input with
+// kHeldKeyView set is a view_update_view() state rather than a flight input.
 struct held_key_t {
   uint8_t scan;
   uint8_t input;
 };
+static const uint8_t kHeldKeyView = 0x80;
+static_assert(FLIGHT_INPUT_BRAKE < kHeldKeyView && VIEW_BACK < kHeldKeyView,
+              "inputs and views must stay clear of the view flag");
 static const held_key_t kHeldKeys[] = {
     {KSCAN_J, FLIGHT_INPUT_ROLL_LEFT},
     {KSCAN_L, FLIGHT_INPUT_ROLL_RIGHT},
@@ -143,6 +147,10 @@ static const held_key_t kHeldKeys[] = {
     {KSCAN_PLUS, FLIGHT_INPUT_THROTTLE_UP},
     {KSCAN_MINUS, FLIGHT_INPUT_THROTTLE_DOWN},
     {KSCAN_B, FLIGHT_INPUT_BRAKE},
+    {KSCAN_1, kHeldKeyView | VIEW_LEFT},
+    {KSCAN_2, kHeldKeyView | VIEW_CENTER},
+    {KSCAN_3, kHeldKeyView | VIEW_RIGHT},
+    {KSCAN_4, kHeldKeyView | VIEW_BACK},
 };
 static const uint8_t kHeldKeyCount = sizeof(kHeldKeys) / sizeof(kHeldKeys[0]);
 
@@ -224,11 +232,6 @@ void sim_run(uint8_t selected_mission) {
       view_update_view(VIEW_CENTER);
       mem_switch_debug(false);
     }
-    for (uint8_t i = 0; i < kHeldKeyCount; ++i) {
-      if (keys_pressed(kHeldKeys[i].scan)) {
-        flight_input(kHeldKeys[i].input);
-      }
-    }
     if (toggle_edges & kToggleKeyF) {
       flight_input(FLIGHT_INPUT_TOGGLE_FLAP);
     }
@@ -238,17 +241,15 @@ void sim_run(uint8_t selected_mission) {
     if (toggle_edges & kToggleKeyN) {
       flight_input(FLIGHT_INPUT_TOGGLE_NAV);
     }
-    if (key_pressed(KSCAN_1)) {
-      view_update_view(VIEW_LEFT);
-    }
-    if (key_pressed(KSCAN_2)) {
-      view_update_view(VIEW_CENTER);
-    }
-    if (key_pressed(KSCAN_3)) {
-      view_update_view(VIEW_RIGHT);
-    }
-    if (key_pressed(KSCAN_4)) {
-      view_update_view(VIEW_BACK);
+    for (uint8_t i = 0; i < kHeldKeyCount; ++i) {
+      if (keys_pressed(kHeldKeys[i].scan)) {
+        uint8_t input = kHeldKeys[i].input;
+        if (input & kHeldKeyView) {
+          view_update_view((view_state_t)(input & ~kHeldKeyView));
+        } else {
+          flight_input(input);
+        }
+      }
     }
     // Only the opening half of the toggle lives here; the map's own key
     // handling above closes it, M included.
