@@ -74,6 +74,7 @@ static void _pair_products(void) {
         iny;
         cpy _ap_end;
         bne L_pair;
+        sty _ap;
   }
   // clang-format on
 }
@@ -435,10 +436,12 @@ static void _tube(void) {
   // clang-format on
 }
 
+static __noinline int16_t _planes_abs(int16_t v) { return v < 0 ? -v : v; }
+
 void _planes_tube(int16_t ux, int16_t uy, uint8_t at) {
   _ux_neg = ux < 0 ? 0xFF : 0x00;
   _uy_neg = uy < 0 ? 0xFF : 0x00;
-  uint16_t mx = (uint16_t)(ux < 0 ? -ux : ux), my = (uint16_t)(uy < 0 ? -uy : uy);
+  uint16_t mx = (uint16_t)_planes_abs(ux), my = (uint16_t)_planes_abs(uy);
   _ux_lo = (uint8_t)mx;
   _ux_hi = (uint8_t)(mx >> 8);
   _uy_lo = (uint8_t)my;
@@ -447,17 +450,22 @@ void _planes_tube(int16_t ux, int16_t uy, uint8_t at) {
   _tube();
 }
 
-void _planes_axis_products(const vec3_t *a, uint8_t first, uint8_t end) {
-  uint16_t my = (uint16_t)(a->y < 0 ? -a->y : a->y), mz = (uint16_t)(a->z < 0 ? -a->z : a->z);
-  _ay_lo = (uint8_t)my;
-  _ay_hi = (uint8_t)(my >> 8);
-  _ay_m = a->y < 0 ? 0x00 : 0xFF;
-  _az_lo = (uint8_t)mz;
-  _az_hi = (uint8_t)(mz >> 8);
-  _az_m = a->z < 0 ? 0x00 : 0xFF;
-  _ap = first;
-  _ap_end = end;
-  _pair_products();
+void _planes_axis_products(const mat3_t *axes) {
+  _planes_tx[0] = 0;
+  _planes_ty[0] = 0;
+  _ap = 1;
+  const vec3_t *a = &axes->front;
+  for (uint8_t i = 1; i < 4; ++i, ++a) {
+    uint16_t my = (uint16_t)_planes_abs(a->y), mz = (uint16_t)_planes_abs(a->z);
+    _ay_lo = (uint8_t)my;
+    _ay_hi = (uint8_t)(my >> 8);
+    _ay_m = a->y < 0 ? 0x00 : 0xFF;
+    _az_lo = (uint8_t)mz;
+    _az_hi = (uint8_t)(mz >> 8);
+    _az_m = a->z < 0 ? 0x00 : 0xFF;
+    _ap_end = kPlaneAxisPairs[i];
+    _pair_products();
+  }
 }
 
 // ---------------------------------------------------------------------------

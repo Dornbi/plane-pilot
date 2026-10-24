@@ -90,7 +90,7 @@ uint8_t _planes_lx[kPlaneVertMax], _planes_ly[kPlaneVertMax];
 // fraction and exact division. lib/planes.py's fdiv is vec_div8p8's
 // trunc(a * 256 / b): the centre, and the fuselage's unit normal.
 
-static inline int16_t _abs16(int16_t a) { return a < 0 ? (int16_t)-a : a; }
+static __noinline int16_t _abs16(int16_t a) { return a < 0 ? (int16_t)-a : a; }
 
 #ifndef __OSCAR64__
 // lib/planes.py smul(u, r) for a unit component u (|u| <= 256) and 0 <= r < 256:
@@ -188,14 +188,19 @@ void _planes_mags(uint8_t k) {
   }
 }
 
-void _planes_axis_products(const vec3_t *a, uint8_t first, uint8_t end) {
-  for (uint8_t p = first; p < end; ++p) {
-    int8_t ox = (int8_t)vec_fastmul8p8(a->y, _planes_pv[p]);
-    int8_t oy = (int8_t)vec_fastmul8p8(a->z, _planes_pv[p]);
-    _planes_tx[p] = (int8_t)-ox;
-    _planes_tx[16 + p] = ox;
-    _planes_ty[p] = (int8_t)-oy;
-    _planes_ty[16 + p] = oy;
+void _planes_axis_products(const mat3_t *axes) {
+  _planes_tx[0] = 0;
+  _planes_ty[0] = 0;
+  const vec3_t *a = &axes->front;
+  for (uint8_t i = 0; i < 3; ++i, ++a) {
+    for (uint8_t p = kPlaneAxisPairs[i]; p < kPlaneAxisPairs[i + 1]; ++p) {
+      int8_t ox = (int8_t)vec_fastmul8p8(a->y, _planes_pv[p]);
+      int8_t oy = (int8_t)vec_fastmul8p8(a->z, _planes_pv[p]);
+      _planes_tx[p] = (int8_t)-ox;
+      _planes_tx[16 + p] = ox;
+      _planes_ty[p] = (int8_t)-oy;
+      _planes_ty[16 + p] = oy;
+    }
   }
 }
 
@@ -314,14 +319,7 @@ static void _project(uint16_t k, const mat3_t *axes) {
   }
   PROFILE_END(8, kProfMags);
   PROFILE_START();
-  // Term 0 is the zero every vertex without that axis adds; nothing else
-  // writes it, and in fpilot the array is scratch (mem.h).
-  _planes_tx[0] = 0;
-  _planes_ty[0] = 0;
-  const vec3_t *row = &axes->front;
-  for (uint8_t i = 0; i < 3; ++i, ++row) {
-    _planes_axis_products(row, kPlaneAxisPairs[i], kPlaneAxisPairs[i + 1]);
-  }
+  _planes_axis_products(axes);
   PROFILE_END(9, kProfPairs);
   PROFILE_START();
   _planes_flat();
