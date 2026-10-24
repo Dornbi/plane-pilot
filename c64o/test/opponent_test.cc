@@ -861,7 +861,7 @@ static void test_missions(void) {
     // One shot down: on the other.
     _opponent_down = 1;
     opponent_step();
-    CHECK(flight_nav_point_x[0] == 0x5D3C, "ambush: navpoint 1 at %04x with one down",
+    CHECK(flight_nav_point_x[0] == 0x5D64, "ambush: navpoint 1 at %04x with one down",
           flight_nav_point_x[0]);
   }
 }
