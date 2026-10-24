@@ -487,8 +487,9 @@ orientation indicator it is furniture rather than an object, so it is a flag and
 a set of constants rather than a stack entry, and `sprites_stack_reset()` clears
 it every frame. Three things about it are load bearing:
 
-- **It owns sprites 0 and 1.** VIC priority is index order, so the lowest
-  indices are the ones that draw in front of every cloud and of the sun, which
+- **It owns sprites 1 and 2.** VIC priority is index order, so the lowest
+  indices after the orientation indicator's 0 - which is never up in the back
+  view - are the ones that draw in front of every cloud and of the sun, which
   is where a tail four metres away belongs. The stack starts above it while it
   is up and has five slots rather than seven; the entries that lose are the
   farthest, which is the stack's ordinary overflow rule.
@@ -506,7 +507,7 @@ it every frame. Three things about it are load bearing:
 
   That is an exemption, and a measured one. `mem.h`'s limit was swept with
   *seven* sprites still fetching across the split, which is where the handler
-  came out 55 cycles late; the fin is two, on indices 0–1, whose data for a
+  came out 55 cycles late; the fin is two, on indices 1–2, whose data for a
   line is fetched in the tail cycles of the line before it, and the five slots
   the stack can still hand out here are culled against `kSpritesOffLead` as
   always, so they are done by 159. With the stack full and every entry on the
@@ -549,12 +550,14 @@ committed frame is double buffered, because the terrain raster handler programs
 it. The sun is an ordinary client at `INT16_MAX` depth; clouds are the other
 one; [planes.md](planes.md) is meant to be the third.
 
-Seven slots, not eight: index 7 is the vertical-speed needle below the split
+Seven slots, not eight: index 0 is the vertical-speed needle below the split
 and the **orientation indicator** above it — a fixed bar with a gap in it at
 the centre of the viewport, in the front view only, which is what gives the
-moving horizon something to be read against. The side views park every needle
+moving horizon something to be read against. Index 0 draws in front of every
+other sprite, so the sun, a cloud or an opponent passes behind the mark; the
+stack hands out 1–7. The side views park every needle
 but one at x = 0, where the left border hides it, and the back view parks all
-of them — and takes indices 0-1 for the tail fin, which is the other piece of
+of them — and takes indices 1-2 for the tail fin, which is the other piece of
 furniture the stack does not hand out (see `view.cc` above). Designed in
 [clouds.md](clouds.md) §1 and §1.9; the host suite is `test/sprites_test.cc`.
 

@@ -61,10 +61,12 @@ void sprites_set_fuel(uint32_t fuel);
 
 static const uint8_t kSpriteStackSize = 8;
 
-// How many hardware sprites the terrain band's *stack* may hand out. One short
-// of the eight, because sprite 7 is the vertical-speed needle below the split
-// and the orientation indicator above it - see sprites_set_orientation() below
-// - so clouds and the sun share the other seven.
+// How many hardware sprites the terrain band's *stack* may hand out, and the
+// first of them. One short of the eight, because sprite 0 is the
+// vertical-speed needle below the split and the orientation indicator above it
+// - see sprites_set_orientation() below - so clouds, the sun and opponents
+// share 1-7. Sprite 0 rather than 7 because VIC priority is index order: the
+// mark is drawn in front of everything the stack hands out.
 //
 // It is *not* short because the needle would be corrupted otherwise, which is
 // what this comment used to say and what docs/clouds.md §1.9 was written to
@@ -72,6 +74,7 @@ static const uint8_t kSpriteStackSize = 8;
 // kSpritesOffLead now stops a viewport sprite starting below 139, so its DMA
 // is over by 160 - eleven lines of margin, measured. See docs/clouds.md §1.9.
 static const uint8_t kSpriteTerrainSlots = 7;
+static const uint8_t kSpriteStackFirst = 1;
 
 // bitmap2 value meaning "this entry is a single sprite".
 static const uint8_t kSpriteNoBitmap = 0xFF;
@@ -132,10 +135,12 @@ void sprites_stack_commit(void);
 // flight lays the horizon along the bar and through the gap, pitch slides it
 // off, roll tilts it across.
 //
-// It owns hardware sprite 7 for the length of the viewport band, which is the
-// index the stack above never hands out. The panel band takes the same sprite
-// back for the vertical-speed needle at the split, and may, because a viewport
-// sprite's DMA is over by raster 160 and the needle's Y is never above 171 -
+// It owns hardware sprite 0 for the length of the viewport band, which is the
+// index the stack above never hands out - and the one that draws in front of
+// every other sprite, so a cloud or an opponent passing the middle of the
+// screen goes behind the mark. The panel band takes the same sprite back for
+// the vertical-speed needle at the split, and may, because a viewport sprite's
+// DMA is over by raster 160 and the needle's Y is never above 171 -
 // docs/clouds.md §1.9, which reserved this slot for exactly this.
 //
 // The front view only: it says nothing about an attitude read out of a side
@@ -144,7 +149,7 @@ void sprites_stack_commit(void);
 //
 // Per frame, like the stack: sprites_stack_reset() clears the mark, this sets
 // it, sprites_stack_commit() publishes it. A frame that never calls this leaves
-// sprite 7 disabled, which is what keeps the mark out of the frames the debug
+// sprite 0 disabled, which is what keeps the mark out of the frames the debug
 // view and the band handlers program for themselves.
 void sprites_set_orientation(void);
 
@@ -157,11 +162,12 @@ void sprites_set_orientation(void);
 // it never moves and never culls, and like it this is a flag rather than a
 // position.
 //
-// It owns hardware sprites 0 and 1 for the length of the viewport band, and
-// owns the *lowest* two on purpose: VIC priority is index order, so those are
-// the indices that draw in front of every cloud and of the sun. While it is up
-// the stack starts above it and has five slots rather than seven; the entries
-// that lose are the farthest, which is the stack's own overflow rule.
+// It owns hardware sprites 1 and 2 for the length of the viewport band, the
+// lowest two after the mark's 0, and on purpose: VIC priority is index order,
+// so those are the indices that draw in front of every cloud and of the sun.
+// The mark is never up with it. While it is up the stack starts above it and
+// has five slots rather than seven; the entries that lose are the farthest,
+// which is the stack's own overflow rule.
 //
 // Two things it does not need, both by construction rather than by a test:
 //

@@ -63,7 +63,7 @@ That engine is now real: `sprites_stack_reset()` / `_add()` / `_commit()` in
 by `c64o/test/sprites_test.cc`. An aircraft becomes a third client of it — one
 `sprites_stack_add()` per plane, with the depth doing the priority work §5
 spells out. Three consequences: the stack hands out seven indices rather than
-eight ([clouds.md](clouds.md) §1.9 keeps index 7 for the panel band and the
+eight ([clouds.md](clouds.md) §1.9 keeps index 0 for the panel band and the
 orientation mark); it does not yet wrap a sprite round the left edge (§1.6
 there), so a plane leaving the left of the viewport will pop the way a cloud
 does; and it has to learn entries two sprites wide and Y-expanded (§5).
@@ -618,7 +618,7 @@ The stack needs two things it does not have:
 The budget is seven indices. The nearest plane at four, the second at two and
 the sun make seven: while a close plane is banked, the clouds get none, and
 the stack drops them because they are farther. In the back view the fin holds
-indices 0–2, which leaves four.
+indices 1–2, which leaves five.
 
 ### Budget
 

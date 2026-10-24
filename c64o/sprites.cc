@@ -60,14 +60,17 @@ static const uint8_t kSpriteThrottlePivotY = 166;
 static const uint8_t kSpriteFuelPivotX = 56;
 static const uint8_t kSpriteFuelPivotY = 166;
 
-static const uint8_t kSpriteIdxFuel = 0;
+// The vertical-speed needle is drawn above the split and the other seven
+// below it, so it shares its index with the orientation indicator's
+// (sprites.h).
+static const uint8_t kSpriteIdxVSpeed = 0;
 static const uint8_t kSpriteIdxSpeed = 1;
 static const uint8_t kSpriteIdxRoll = 2;
 static const uint8_t kSpriteIdxPitch = 3;
 static const uint8_t kSpriteIdxAlt1 = 4;
 static const uint8_t kSpriteIdxAlt2 = 5;
 static const uint8_t kSpriteIdxThrottle = 6;
-static const uint8_t kSpriteIdxVSpeed = 7;
+static const uint8_t kSpriteIdxFuel = 7;
 
 struct sprite_xy_t {
   uint8_t x;
@@ -413,9 +416,15 @@ bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
 
 // --- The orientation indicator ---------------------------------------------
 
-// Hardware sprite 7, and the bit that is its own in $D015.
-static const uint8_t kSpriteIdxOrient = 7;
+// Hardware sprite 0, and the bit that is its own in $D015: in front of
+// every sprite the stack hands out, and the needle's index below the split.
+static const uint8_t kSpriteIdxOrient = 0;
 static const uint8_t kSpriteOrientBit = 1 << kSpriteIdxOrient;
+static_assert(kSpriteIdxOrient == kSpriteIdxVSpeed,
+              "the mark and the needle share the one index the stack skips");
+static_assert(kSpriteStackFirst == kSpriteIdxOrient + 1 &&
+                  kSpriteStackFirst + kSpriteTerrainSlots == kSpriteStackSize,
+              "the stack hands out every index but the mark's");
 
 // The mark is a bar with a gap in the middle - xxxxxxxx--------xxxxxxxx on one
 // row - drawn by tools/generate_sprites.py into the first block of the sprite
@@ -472,16 +481,20 @@ void sprites_set_orientation(void) {
 // never culls - and like it, it is a flag and a set of constants rather than a
 // stack entry.
 //
-// **Why the lowest two indices.** VIC sprite-to-sprite priority is index
-// order, and the fin is four metres away while everything else the stack hands
-// out is a cloud or the sun. Taking 0 and 1 is what puts it in front of all
-// of them; anything higher and a distant cloud would draw over the tail. The
-// stack starts above the fin for as long as it is up, so the back view has
-// five slots for clouds instead of seven - the entries that lose are the
-// farthest, which is the stack's ordinary overflow rule.
+// **Why the lowest two indices after the mark's.** VIC sprite-to-sprite
+// priority is index order, and the fin is four metres away while everything
+// else the stack hands out is a cloud, the sun or an opponent. Taking 1 and 2
+// is what puts it in front of all of them; anything higher and a distant cloud
+// would draw over the tail. 0 is the orientation indicator's, which is never
+// up in the back view. The stack starts above the fin for as long as it is
+// up, so the back view has five slots for clouds instead of seven - the
+// entries that lose are the farthest, which is the stack's ordinary overflow
+// rule.
 
+static const uint8_t kSpriteFinFirst = kSpriteStackFirst;
 static const uint8_t kSpriteFinCount = 2;
-static const uint8_t kSpriteFinMask = (1 << kSpriteFinCount) - 1;
+static const uint8_t kSpriteFinMask = ((1 << kSpriteFinCount) - 1)
+                                      << kSpriteFinFirst;
 
 // A Y-expanded sprite is 42 raster lines tall, so the two tile the column
 // with no seam when they are 42 apart.
@@ -508,7 +521,7 @@ static_assert(kSpriteOffsetY == kRasterScreenYStart,
 // the swept Y, all seven of them still fetching across the split - that is the
 // case where the handler came out 55 cycles late and a row of terrain charset
 // was drawn over the panel. The fin is not that case. It is two sprites, and
-// they are indices 0 and 1, whose data for a line is fetched in the tail
+// they are indices 1 and 2, whose data for a line is fetched in the tail
 // cycles of the line *before* it; the five slots the stack can still hand out
 // in this view are culled against kSpritesOffLead as they always were, so they
 // are finished by raster 159 and nothing of theirs is in flight here.
@@ -647,14 +660,15 @@ void sprites_stack_commit(void) {
   volatile sprite_frame_t *f =
       mem_using_alt_buffer ? &_sprites_frame_b : &_sprites_frame_a;
 
-  // Above the fin when it is up, so that it keeps the lowest indices and with
-  // them the priority - see the tail fin section. The shift is by a constant
-  // either way, which is what the two assignments are for.
-  uint8_t idx = 0;
-  uint8_t bit = 1;
+  // Above the mark's index, and above the fin when it is up, so that those
+  // keep the lowest indices and with them the priority - see the tail fin
+  // section. The shift is by a constant either way, which is what the two
+  // assignments are for.
+  uint8_t idx = kSpriteStackFirst;
+  uint8_t bit = 1 << kSpriteStackFirst;
   if (_sprites_fin_on) {
-    idx = kSpriteFinCount;
-    bit = 1 << kSpriteFinCount;
+    idx = kSpriteFinFirst + kSpriteFinCount;
+    bit = 1 << (kSpriteFinFirst + kSpriteFinCount);
   }
   uint8_t msbx = 0;
   uint8_t expand = 0;
@@ -667,9 +681,9 @@ void sprites_stack_commit(void) {
     uint8_t cols = (flags & kSpriteFlagWide) ? 2 : 1;
     uint8_t slots =
         (c->bitmap2 == kSpriteNoBitmap) ? cols : (uint8_t)(cols << 1);
-    // kSpriteTerrainSlots, not kSpriteStackSize: index 7 belongs to the
+    // Up to the last index: the one skipped, 0, belongs to the mark and the
     // vertical-speed needle (sprites.h).
-    if (idx + slots > kSpriteTerrainSlots) {
+    if (idx + slots > kSpriteStackSize) {
       // The list is sorted, so everything after this is farther still.
       break;
     }
@@ -723,18 +737,24 @@ void sprites_stack_commit(void) {
     f->color[idx] = kColorInstrument;
     ++idx;
   }
-  // Sprite 7, after the fill above rather than inside the loop: it is the one
-  // index the stack never hands out, so the orientation indicator takes it
-  // whether the stack overflowed or was empty. A frame that set no marker
-  // leaves it as the fill wrote it - parked, disabled, and the needle's colour
-  // untouched.
+  // Sprite 0, the one index the stack never hands out, so the orientation
+  // indicator takes it whether the stack overflowed or was empty. A frame
+  // that sets no marker parks it like the fill above, disabled and in the
+  // needle's colour.
+  uint8_t orient_x = 0, orient_y = 0;
+  uint8_t orient_ptr = kSpriteDefSun.bitmap_idx;
+  uint8_t orient_color = kColorInstrument;
   if (_sprites_orient_on) {
-    f->pos[kSpriteIdxOrient << 1] = kSpriteOrientVX;
-    f->pos[(kSpriteIdxOrient << 1) + 1] = kSpriteOrientVY;
-    f->ptr[kSpriteIdxOrient] = kSpriteDefOrient.bitmap_idx;
-    f->color[kSpriteIdxOrient] = kColorOrientation;
+    orient_x = kSpriteOrientVX;
+    orient_y = kSpriteOrientVY;
+    orient_ptr = kSpriteDefOrient.bitmap_idx;
+    orient_color = kColorOrientation;
     enable |= kSpriteOrientBit;
   }
+  f->pos[kSpriteIdxOrient << 1] = orient_x;
+  f->pos[(kSpriteIdxOrient << 1) + 1] = orient_y;
+  f->ptr[kSpriteIdxOrient] = orient_ptr;
+  f->color[kSpriteIdxOrient] = orient_color;
 
   // The fin, into the two indices the loop above skipped rather than into
   // ones the fill has just parked - so it is written last for the same reason
@@ -744,7 +764,8 @@ void sprites_stack_commit(void) {
   if (_sprites_fin_on) {
     uint8_t sy = kSpriteFinTopVY;
     uint8_t ptr = kFinSpriteBlock;
-    for (uint8_t i = 0; i < kSpriteFinCount; ++i) {
+    for (uint8_t i = kSpriteFinFirst; i < kSpriteFinFirst + kSpriteFinCount;
+         ++i) {
       f->pos[i << 1] = kSpriteFinVX;
       f->pos[(i << 1) + 1] = sy;
       f->ptr[i] = ptr;
@@ -828,10 +849,10 @@ inline void sprites_show_panel_top_sprites() {
   // - $D01D. Parking at x = 0 hides a 24 pixel sprite, because the left border
   //   ends at 24 and the VIC compares X per raster line. It does *not* hide an
   //   X-expanded one, which is 48 wide and would poke 24 pixels into the panel.
-  // - Sprite 7's colour. It is the vertical speed needle, the one instrument
+  // - Sprite 0's colour. It is the vertical speed needle, the one instrument
   //   drawn in this band, and the terrain handler now writes all eight colours.
-  // - $D017, for the same reason as $D01D: the back view's tail fin leaves the
-  //   two lowest sprites Y-expanded, and two of the instruments are those
+  // - $D017, for the same reason as $D01D: the back view's tail fin leaves
+  //   sprites 1 and 2 Y-expanded, and two of the instruments are those
   //   two. Nothing shows it in the back view itself, which draws no
   //   instruments at all - it shows on the frame the view switches away on,
   //   where the fin's expansion would still be set while the fuel, speed and
@@ -848,7 +869,7 @@ inline void sprites_show_panel_top_sprites() {
 #ifdef __OSCAR64__
 #pragma unroll(full)
 #endif
-  for (uint8_t i = 0; i < 7; i++) {
+  for (uint8_t i = 1; i < 8; i++) {
     vic.spr_pos[i].x = 0;
   }
   vic.spr_msbx = 0;
@@ -858,7 +879,7 @@ inline void sprites_show_panel_top_sprites() {
     vic.spr_pos[kSpriteIdxVSpeed].y =
         _sprites_instrument_xy[kSpriteIdxVSpeed].y;
   } else {
-    vic.spr_pos[7].x = 0;
+    vic.spr_pos[kSpriteIdxVSpeed].x = 0;
   }
   *(kScreenRamMain + 1016 + kSpriteIdxVSpeed) =
       _sprites_instrument_idx[kSpriteIdxVSpeed];
@@ -878,18 +899,19 @@ inline void sprites_show_panel_bottom_sprites() {
     vic.spr_color[i] = kColorInstrument;
   } while (i != 0);
   if (view_state == VIEW_CENTER) {
-    uint8_t j = 14;
+    // Sprites 1-7: 0 is the vertical-speed needle the band above placed.
+    uint8_t j = 16;
     do {
       --j;
       kVicSpritePos[j] = ((volatile uint8_t *)_sprites_instrument_xy)[j];
-    } while (j != 0);
-    uint8_t k = 7;
+    } while (j != 2);
+    uint8_t k = 8;
     do {
       --k;
       uint8_t ptr = _sprites_instrument_idx[k];
       *(kScreenRamMain + 1016 + k) = ptr;
       *(kScreenRamAlt + 1016 + k) = ptr;
-    } while (k != 0);
+    } while (k != 1);
     vic.spr_msbx = (1 << kSpriteIdxThrottle);
   } else if (view_state == VIEW_LEFT) {
     vic.spr_pos[kSpriteIdxFuel].x = _sprites_instrument_xy[kSpriteIdxFuel].x;

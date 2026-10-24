@@ -159,7 +159,7 @@ panel code.
 | Handler | Raster | Today | After |
 | :--- | :--- | :--- | :--- |
 | `_gfx_switch_to_terrain` | 250 | sun only: 1 position, 1 pointer pair, 1 colour | all 8: positions, pointer pairs, colours, `$D010`, `$D01D` |
-| `_gfx_switch_to_panel_top` | 161 | parks 0–6, places 7 | also clears `$D01D`, also restores sprite 7's colour |
+| `_gfx_switch_to_panel_top` | 161 | parks 0–6, places 7 | also clears `$D01D`, also restores sprite 7's colour (*since 2026-10-24* the needle is sprite 0: parks 1–7, places 0) |
 | `_switch_to_panel_bottom` | 186 | places instruments, patches one colour by `#if` | restores all 8 instrument colours unconditionally |
 
 ```c
@@ -466,6 +466,16 @@ drawn whole, down to raster 160 — two lines above the panel.
 ### 1.9. Sprite 7 belongs to the vertical-speed needle
 
 **The terrain band uses indices 0–6. `kSpriteTerrainSlots = 7`.**
+
+*Since 2026-10-24 the reserved index is 0, not 7, and the stack hands out
+1–7 (`kSpriteStackFirst`).* VIC priority is index order, so on 7 the
+orientation indicator drew behind everything - the sun or an opponent passing
+the middle of the screen covered it. On 0 it is in front of all of them. The
+needle moved with it, since the two share the index, and the fuel needle took
+7; the tail fin moved from 0–1 to 1–2, still ahead of every stack entry and
+inside the 0–2 its split exemption was measured on. Everything below holds
+with 0 for 7: the needle's sprite is fetched late in the line before it, and
+its Y is still never above 171.
 
 A hardware sprite cannot be reused until the VIC has finished with it, and the
 panel band repositions sprite 7 — the vertical-speed needle, the one instrument
@@ -1470,7 +1480,7 @@ whether a handler touches oscar64's runtime zero page (§1.4 — that is
 - check the panel band is clean with a large cloud straddling raster 161: the
   `$D01D` clear (§1.4) is the thing being tested and its failure is 24 pixels of
   white in the instrument panel;
-- check sprite 7 is the right colour while a cloud is up — the other half of
+- check sprite 7 (0 since 2026-10-24) is the right colour while a cloud is up — the other half of
   §1.4.
 
 ---

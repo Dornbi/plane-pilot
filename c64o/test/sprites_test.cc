@@ -110,6 +110,11 @@ static void show_terrain(void) {
 
 static bool enabled(uint8_t i) { return (spr_enable() >> i) & 1; }
 
+// The stack's first index, and a mask of its entries counted from it: index 0
+// is the orientation indicator's and the needle's, and the stack starts above.
+static const uint8_t F = kSpriteStackFirst;
+static uint8_t stack(uint8_t mask) { return (uint8_t)(mask << F); }
+
 // --- Cases -----------------------------------------------------------------
 
 static void test_empty_frame(void) {
@@ -129,7 +134,7 @@ static void test_empty_frame(void) {
 }
 
 static void test_single_object(void) {
-  printf("  one object lands on index 0\n");
+  printf("  one object lands on the stack's first index, 1\n");
   sprites_stack_reset();
   assert(sprites_stack_add(0x7FFF, 160, 56, kSunPivotX, kSunPivotY, kSun, NB,
                            kColorSun, 0));
@@ -138,11 +143,11 @@ static void test_single_object(void) {
 
   // Centre (160, 56) in viewport screen pixels, less the pivot, plus the VIC's
   // own origin: x = 160 - 12 + 24, y = 56 - 10 + 50.
-  assert(spr_x(0) == 172);
-  assert(spr_y(0) == 96);
-  assert(spr_ptr(0) == kSun);
-  assert(spr_color(0) == kColorSun);
-  assert(spr_enable() == 0x01);
+  assert(spr_x(F) == 172);
+  assert(spr_y(F) == 96);
+  assert(spr_ptr(F) == kSun);
+  assert(spr_color(F) == kColorSun);
+  assert(spr_enable() == stack(0x01));
   assert(spr_expand() == 0x00);
   assert(spr_msbx() == 0x00);
 }
@@ -155,8 +160,8 @@ static void test_msbx(void) {
                     0);
   sprites_stack_commit();
   show_terrain();
-  assert(spr_x(0) == (uint8_t)(300 - 12 + 24)); // 312 & 0xff
-  assert(spr_msbx() == 0x01);
+  assert(spr_x(F) == (uint8_t)(300 - 12 + 24)); // 312 & 0xff
+  assert(spr_msbx() == stack(0x01));
 }
 
 static void test_nearest_first(void) {
@@ -170,13 +175,13 @@ static void test_nearest_first(void) {
   sprites_stack_add(2000, 130, 50, kSunPivotX, kSunPivotY, 20, NB, 1, 0);
   sprites_stack_commit();
   show_terrain();
-  assert(spr_ptr(0) == 10);
-  assert(spr_ptr(1) == 20);
-  assert(spr_ptr(2) == 30);
+  assert(spr_ptr(F) == 10);
+  assert(spr_ptr(F + 1) == 20);
+  assert(spr_ptr(F + 2) == 30);
   // INT16_MAX sorts behind everything, which is the whole of what makes the sun
   // an ordinary entry.
-  assert(spr_ptr(3) == kSun);
-  assert(spr_enable() == 0x0F);
+  assert(spr_ptr(F + 3) == kSun);
+  assert(spr_enable() == stack(0x0F));
 }
 
 static void test_two_sprite_stack(void) {
@@ -191,20 +196,20 @@ static void test_two_sprite_stack(void) {
   sprites_stack_commit();
   show_terrain();
 
-  assert(spr_ptr(0) == 85);
-  assert(spr_ptr(1) == 86);
-  assert(spr_x(0) == spr_x(1));
+  assert(spr_ptr(F) == 85);
+  assert(spr_ptr(F + 1) == 86);
+  assert(spr_x(F) == spr_x(F + 1));
   // Exactly one sprite height apart, or the two halves show a seam.
-  assert((uint8_t)(spr_y(1) - spr_y(0)) == kSpriteHeightPixels);
-  assert(spr_color(0) == spr_color(1));
+  assert((uint8_t)(spr_y(F + 1) - spr_y(F)) == kSpriteHeightPixels);
+  assert(spr_color(F) == spr_color(F + 1));
   // Expansion is per sprite, so both halves need the bit; the sun must not.
-  assert(spr_expand() == 0x03);
-  assert(spr_ptr(2) == kSun);
-  assert(spr_enable() == 0x07);
+  assert(spr_expand() == stack(0x03));
+  assert(spr_ptr(F + 2) == kSun);
+  assert(spr_enable() == stack(0x07));
   // pivot_x doubles under expansion and pivot_y does not - an expanded sprite
   // pixel is two screen pixels wide and one raster line tall.
-  assert(spr_x(0) == (uint8_t)(160 - 2 * 12 + 24));
-  assert(spr_y(0) == (uint8_t)(56 - 20 + 50));
+  assert(spr_x(F) == (uint8_t)(160 - 2 * 12 + 24));
+  assert(spr_y(F) == (uint8_t)(56 - 20 + 50));
 }
 
 static void test_wide_entries(void) {
@@ -219,14 +224,14 @@ static void test_wide_entries(void) {
   show_terrain();
   // Row by row, left to right; X-expanded columns are 48 apart and
   // Y-expanded rows 42.
-  assert(spr_x(0) == 124 && spr_y(0) == 60 && spr_ptr(0) == 69);
-  assert(spr_x(1) == 172 && spr_y(1) == 60 && spr_ptr(1) == 70);
-  assert(spr_x(2) == 124 && spr_y(2) == 102 && spr_ptr(2) == 71);
-  assert(spr_x(3) == 172 && spr_y(3) == 102 && spr_ptr(3) == 72);
-  assert(spr_expand() == 0x0F);
-  assert(spr_expand_y() == 0x0F);
-  assert(spr_ptr(4) == kSun);
-  assert(spr_enable() == 0x1F);
+  assert(spr_x(F) == 124 && spr_y(F) == 60 && spr_ptr(F) == 69);
+  assert(spr_x(F + 1) == 172 && spr_y(F + 1) == 60 && spr_ptr(F + 1) == 70);
+  assert(spr_x(F + 2) == 124 && spr_y(F + 2) == 102 && spr_ptr(F + 2) == 71);
+  assert(spr_x(F + 3) == 172 && spr_y(F + 3) == 102 && spr_ptr(F + 3) == 72);
+  assert(spr_expand() == stack(0x0F));
+  assert(spr_expand_y() == stack(0x0F));
+  assert(spr_ptr(F + 4) == kSun);
+  assert(spr_enable() == stack(0x1F));
 
   printf("  and each column carries its own ninth X bit\n");
   sprites_stack_reset();
@@ -234,11 +239,11 @@ static void test_wide_entries(void) {
                            kSpriteFlagExpandX | kSpriteFlagWide));
   sprites_stack_commit();
   show_terrain();
-  assert(spr_x(0) == 254 && spr_ptr(0) == 69);
-  assert(spr_x(1) == (uint8_t)(254 + 48) && spr_ptr(1) == 70);
-  assert(spr_msbx() == 0x02);
+  assert(spr_x(F) == 254 && spr_ptr(F) == 69);
+  assert(spr_x(F + 1) == (uint8_t)(254 + 48) && spr_ptr(F + 1) == 70);
+  assert(spr_msbx() == stack(0x02));
   assert(spr_expand_y() == 0x00);
-  assert(spr_enable() == 0x03);
+  assert(spr_enable() == stack(0x03));
 
   printf("  a Y-expanded entry is culled at the Y-expanded cut\n");
   // The first line a Y-expanded sprite may not start on (mem.h).
@@ -265,7 +270,7 @@ static void test_wide_entries(void) {
   sprites_stack_add(200, 100, 10, 0, 0, 69, 71, kColorAircraft, kFlags);
   sprites_stack_commit();
   show_terrain();
-  assert(spr_enable() == 0x0F);
+  assert(spr_enable() == stack(0x0F));
   assert(spr_expand_y() == 0x00);
 }
 
@@ -279,16 +284,16 @@ static void test_overflow(void) {
   }
   sprites_stack_commit();
   show_terrain();
-  // Seven, not eight: index 7 is the vertical-speed needle's and the terrain
-  // band never takes it (sprites.h, docs/clouds.md §1.9).
-  assert(spr_enable() == 0x7F);
+  // Seven, not eight: index 0 is the vertical-speed needle's and the terrain
+  // band's stack never takes it (sprites.h, docs/clouds.md §1.9).
+  assert(spr_enable() == stack(0x7F));
   assert(!enabled(kSpriteIdxVSpeed));
   for (int i = 0; i < kSpriteTerrainSlots; ++i) {
-    assert(spr_ptr(i) == (uint8_t)(9 - i));
+    assert(spr_ptr(F + i) == (uint8_t)(9 - i));
   }
   // Bitmaps 1 and 2 were the farthest of the nine and are the ones that go.
   for (int i = 0; i < kSpriteTerrainSlots; ++i) {
-    assert(spr_ptr(i) != 1 && spr_ptr(i) != 2);
+    assert(spr_ptr(F + i) != 1 && spr_ptr(F + i) != 2);
   }
   // A full stack refuses anything farther than everything in it, rather than
   // displacing something nearer.
@@ -305,9 +310,9 @@ static void test_overflow(void) {
   sprites_stack_add(200, 160, 56, 12, 20, 85, 86, 1, 0);
   sprites_stack_commit();
   show_terrain();
-  assert(spr_enable() == 0x3F);
-  assert(!enabled(6));
-  assert(spr_x(6) == 0 && spr_y(6) == 0);
+  assert(spr_enable() == stack(0x3F));
+  assert(!enabled(F + 6));
+  assert(spr_x(F + 6) == 0 && spr_y(F + 6) == 0);
 }
 
 static void test_no_index_used_twice(void) {
@@ -320,11 +325,11 @@ static void test_no_index_used_twice(void) {
   sprites_stack_commit();
   show_terrain();
 
-  assert(spr_ptr(0) == 87 && spr_ptr(1) == 88); // nearer pair first
-  assert(spr_ptr(2) == 85 && spr_ptr(3) == 86);
-  assert(spr_ptr(4) == kSun);
-  assert(spr_enable() == 0x1F);
-  assert(spr_expand() == 0x0F); // the four cloud halves, not the sun
+  assert(spr_ptr(F) == 87 && spr_ptr(F + 1) == 88); // nearer pair first
+  assert(spr_ptr(F + 2) == 85 && spr_ptr(F + 3) == 86);
+  assert(spr_ptr(F + 4) == kSun);
+  assert(spr_enable() == stack(0x1F));
+  assert(spr_expand() == stack(0x0F)); // the four cloud halves, not the sun
 
   bool seen[256];
   memset(seen, 0, sizeof(seen));
@@ -383,8 +388,8 @@ static void test_culls(void) {
                              7, 0));
     sprites_stack_commit();
     show_terrain();
-    assert(enabled(0));
-    assert(spr_y(0) == (uint8_t)(centre - kSunPivotY + 50));
+    assert(enabled(F));
+    assert(spr_y(F) == (uint8_t)(centre - kSunPivotY + 50));
   }
 
   printf("  the message strip\n");
@@ -421,8 +426,8 @@ static void test_dither_lattice(void) {
       }
       sprites_stack_commit();
       show_terrain();
-      int16_t vx = spr_x(0) + (spr_msbx() & 1 ? 256 : 0);
-      int16_t vy = spr_y(0);
+      int16_t vx = spr_x(F) + ((spr_msbx() >> F) & 1 ? 256 : 0);
+      int16_t vy = spr_y(F);
       assert((vx & 1) == 0);
       assert((((vx >> 1) + vy) & 1) == 0);
       ++placed;
@@ -441,11 +446,11 @@ static void test_dither_lattice(void) {
   sprites_stack_add(100, 161, 56, kSunPivotX, kSunPivotY, kSun, NB, kColorSun, 0);
   sprites_stack_commit();
   show_terrain();
-  assert(spr_x(0) == (uint8_t)(161 - 12 + 24)); // odd, and left alone
+  assert(spr_x(F) == (uint8_t)(161 - 12 + 24)); // odd, and left alone
 }
 
 static void test_orientation(void) {
-  printf("  the orientation indicator owns sprite 7\n");
+  printf("  the orientation indicator owns sprite 0, in front of the stack\n");
   // Its art is the block the cloud ladder's rung 0 used to hold - the one
   // bitmap in spritedef.bin no cloud can reach, because a collapsed group draws
   // one rung *larger* than its own (docs/clouds.md §3.5). The position below is
@@ -489,14 +494,16 @@ static void test_orientation(void) {
   show_terrain();
   assert(spr_x(kSpriteIdxOrient) == x && spr_y(kSpriteIdxOrient) == y);
   // Seven objects and the mark fill all eight indices, and the mark is still on
-  // the one the stack cannot hand out.
+  // the one the stack cannot hand out - the lowest, so the nearest cloud draws
+  // behind it.
   assert(spr_enable() == 0xFF);
   for (int i = 0; i < kSpriteTerrainSlots; ++i) {
-    assert(spr_ptr(i) == (uint8_t)(i + 1));
+    assert(spr_ptr(F + i) == (uint8_t)(i + 1));
   }
+  assert(kSpriteIdxOrient < F);
   assert(spr_ptr(kSpriteIdxOrient) == kSpriteDefOrient.bitmap_idx);
 
-  printf("  a frame that sets no mark leaves sprite 7 alone\n");
+  printf("  a frame that sets no mark leaves sprite 0 parked\n");
   sprites_stack_reset();
   sprites_stack_commit();
   show_terrain();
@@ -521,7 +528,7 @@ static void test_orientation(void) {
   }
   view_state = VIEW_CENTER;
 
-  printf("  the panel band takes sprite 7 back for the needle\n");
+  printf("  the panel band takes sprite 0 back for the needle\n");
   sprites_set_vspeed(0);
   sprites_stack_reset();
   sprites_set_orientation();
@@ -549,7 +556,7 @@ static void test_double_buffer(void) {
   sprites_stack_add(100, 160, 56, kSunPivotX, kSunPivotY, 42, NB, 1, 0);
   sprites_stack_commit();
   show_terrain();
-  assert(spr_ptr(0) == 42);
+  assert(spr_ptr(F) == 42);
 
   // Build a different frame. Until the buffer switch, the band still programs
   // the old one, after the commit as well as during it - which is what stops a
@@ -559,12 +566,12 @@ static void test_double_buffer(void) {
   sprites_stack_reset();
   sprites_stack_add(100, 100, 56, kSunPivotX, kSunPivotY, 43, NB, 1, 0);
   program_terrain();
-  assert(spr_ptr(0) == 42);
+  assert(spr_ptr(F) == 42);
   sprites_stack_commit();
   program_terrain();
-  assert(spr_ptr(0) == 42);
+  assert(spr_ptr(F) == 42);
   show_terrain();
-  assert(spr_ptr(0) == 43);
+  assert(spr_ptr(F) == 43);
 
   // And the switch back shows the other frame again: the two alternate rather
   // than one being favoured.
@@ -572,9 +579,9 @@ static void test_double_buffer(void) {
   sprites_stack_add(100, 100, 56, kSunPivotX, kSunPivotY, 44, NB, 1, 0);
   sprites_stack_commit();
   show_terrain();
-  assert(spr_ptr(0) == 44);
+  assert(spr_ptr(F) == 44);
   show_terrain();
-  assert(spr_ptr(0) == 43);
+  assert(spr_ptr(F) == 43);
 }
 
 static void test_panel_bands(void) {
@@ -590,7 +597,7 @@ static void test_panel_bands(void) {
 
   // A near, expanded, coloured object in every slot the terrain band may use,
   // which is the worst case for the panel to inherit. Three 1 x 2 entries fill
-  // six of the seven; the seventh is left over and index 7 is never offered.
+  // six of the seven; the seventh is left over and index 0 is never offered.
   sprites_stack_reset();
   for (int i = 0; i < 4; ++i) {
     sprites_stack_add((int16_t)(100 + i), 160, 56, 12, 20, 85, 86, kColorRed,
@@ -598,25 +605,27 @@ static void test_panel_bands(void) {
   }
   sprites_stack_commit();
   show_terrain();
-  assert(spr_expand() == 0x3F);
-  assert(spr_color(5) == kColorRed);
+  assert(spr_expand() == stack(0x3F));
+  assert(spr_color(F + 5) == kColorRed);
   // The needle's index is untouched by the terrain band, in every register
   // that could reach across the split.
   assert(!enabled(kSpriteIdxVSpeed));
   assert(spr_color(kSpriteIdxVSpeed) == kColorInstrument);
-  assert((spr_expand() >> kSpriteIdxVSpeed) == 0);
+  assert(((spr_expand() >> kSpriteIdxVSpeed) & 1) == 0);
 
   sprites_show_panel_top_sprites();
   // $D01D. Parking at x = 0 hides a 24 pixel sprite because the left border
   // ends at 24; an X-expanded one is 48 wide and would poke into the panel.
   assert(spr_expand() == 0x00);
-  // Sprite 7 is the vertical speed needle, the one instrument drawn in this
+  // Sprite 0 is the vertical speed needle, the one instrument drawn in this
   // band, so it is the one colour the terrain band has to give back here.
-  assert(spr_color(7) == kColorInstrument);
+  assert(spr_color(kSpriteIdxVSpeed) == kColorInstrument);
   assert(spr_enable() == 0xFF);
   assert(spr_msbx() == 0x00);
-  for (uint8_t i = 0; i < 7; ++i) {
-    assert(spr_x(i) == 0);
+  for (uint8_t i = 0; i < 8; ++i) {
+    if (i != kSpriteIdxVSpeed) {
+      assert(spr_x(i) == 0);
+    }
   }
   assert(spr_x(kSpriteIdxVSpeed) == _sprites_instrument_xy[kSpriteIdxVSpeed].x);
   assert(spr_ptr(kSpriteIdxVSpeed) == _sprites_instrument_idx[kSpriteIdxVSpeed]);
@@ -627,7 +636,8 @@ static void test_panel_bands(void) {
   for (uint8_t i = 0; i < 8; ++i) {
     assert(spr_color(i) == kColorInstrument);
   }
-  for (uint8_t i = 0; i < 7; ++i) {
+  // All eight needles: the seven this band places and the one above.
+  for (uint8_t i = 0; i < 8; ++i) {
     assert(spr_x(i) == _sprites_instrument_xy[i].x);
     assert(spr_y(i) == _sprites_instrument_xy[i].y);
     assert(spr_ptr(i) == _sprites_instrument_idx[i]);
@@ -753,7 +763,7 @@ static void test_fin_art(void) {
 static void test_fin(void) {
   test_fin_art();
 
-  printf("  the back view carries the fin on sprites 0..1\n");
+  printf("  the back view carries the fin on sprites 1..2\n");
   view_state = VIEW_BACK;
   sprites_stack_reset();
   sprites_set_fin();
@@ -766,17 +776,18 @@ static void test_fin(void) {
   // Not X-expanded, and centred, so no ninth X bit either.
   assert(spr_expand() == 0x00);
   assert(spr_msbx() == 0x00);
+  const uint8_t tip = kSpriteFinFirst, shaft = kSpriteFinFirst + 1;
   for (uint8_t i = 0; i < kSpriteFinCount; ++i) {
-    assert(spr_x(i) == kSpriteFinVX);
-    assert(spr_y(i) == (uint8_t)(kSpriteFinTopVY + i * kSpriteFinPitch));
-    assert(spr_color(i) == kColorAircraft);
+    assert(spr_x(tip + i) == kSpriteFinVX);
+    assert(spr_y(tip + i) == (uint8_t)(kSpriteFinTopVY + i * kSpriteFinPitch));
+    assert(spr_color(tip + i) == kColorAircraft);
   }
   // One tip on top, the shaft below it.
   assert(kSpriteFinCount == 2);
-  assert(spr_ptr(0) == kFinSpriteBlock);
-  assert(spr_ptr(1) == kFinSpriteBlock + 1);
+  assert(spr_ptr(tip) == kFinSpriteBlock);
+  assert(spr_ptr(shaft) == kFinSpriteBlock + 1);
   // The two tile the column: the shaft starts where the tip ends.
-  assert(spr_y(1) - spr_y(0) == 2 * kSpriteHeightPixels);
+  assert(spr_y(shaft) - spr_y(tip) == 2 * kSpriteHeightPixels);
 
   printf("  and its lowest line is the viewport's, not the panel's\n");
   // mem.h kSpritesOffLeadExpandY, less the two lines kSpriteFinDropLines spends
@@ -785,8 +796,8 @@ static void test_fin(void) {
   // defends: on the viewport's last line it meets the panel, and one line lower
   // it draws into the panel and its DMA is inside the cycle-counted handler's
   // window. Neither would show up as a failing assertion anywhere else.
-  assert(spr_y(1) == kSpriteFinBottomVY);
-  const int fin_last_line = (int)spr_y(1) + 2 * kSpriteHeightPixels - 1;
+  assert(spr_y(shaft) == kSpriteFinBottomVY);
+  const int fin_last_line = (int)spr_y(shaft) + 2 * kSpriteHeightPixels - 1;
   const int viewport_last_line = kSpriteOffsetY + (int)kViewportEndYPixels - 1;
   assert(fin_last_line == viewport_last_line);
 
@@ -802,7 +813,7 @@ static void test_fin(void) {
   sprites_stack_commit();
   show_terrain();
   assert(spr_enable() == kSpriteFinMask);
-  assert(spr_x(0) == kSpriteFinVX);
+  assert(spr_x(tip) == kSpriteFinVX);
   msg_is_active = false;
 
   printf("  the stack starts above it, so nothing draws over the tail\n");
@@ -812,14 +823,15 @@ static void test_fin(void) {
                            kColorSun, 0));
   sprites_stack_commit();
   show_terrain();
-  // The nearest object there is still lands on index 2, behind both fin
+  // The nearest object there is still lands on index 3, behind both fin
   // sprites. VIC priority is index order, so this is the assertion that the
   // tail is in front of the clouds.
-  assert(spr_ptr(kSpriteFinCount) == 42);
-  assert(enabled(kSpriteFinCount));
-  assert(spr_enable() == (kSpriteFinMask | (1 << kSpriteFinCount)));
+  const uint8_t above = kSpriteFinFirst + kSpriteFinCount;
+  assert(spr_ptr(above) == 42);
+  assert(enabled(above));
+  assert(spr_enable() == (kSpriteFinMask | (1 << above)));
   // And the fin is untouched by a frame full of objects: it does not move.
-  assert(spr_x(0) == kSpriteFinVX && spr_y(0) == kSpriteFinTopVY);
+  assert(spr_x(tip) == kSpriteFinVX && spr_y(tip) == kSpriteFinTopVY);
 
   printf("  and it costs the stack two of its seven slots\n");
   sprites_stack_reset();
@@ -830,13 +842,13 @@ static void test_fin(void) {
   }
   sprites_stack_commit();
   show_terrain();
-  // Five objects fit, nearest first, and index 7 is still the one the stack
+  // Five objects fit, nearest first, and index 0 is still the one the stack
   // never hands out.
   for (uint8_t i = 0; i < 5; ++i) {
-    assert(spr_ptr((uint8_t)(kSpriteFinCount + i)) == (uint8_t)(i + 1));
+    assert(spr_ptr((uint8_t)(above + i)) == (uint8_t)(i + 1));
   }
   assert(!enabled(kSpriteIdxOrient));
-  assert(spr_enable() == 0x7F);
+  assert(spr_enable() == 0xFE);
 
   printf("  the other three views do not carry it\n");
   static const view_state_t kFrontAndSides[3] = {VIEW_LEFT, VIEW_CENTER,
@@ -852,7 +864,7 @@ static void test_fin(void) {
   }
 
   printf("  and the panel band takes the expansion back\n");
-  // Three of the instrument needles are sprites 0..2, so a $D017 the panel band
+  // Two of the instrument needles are sprites 1..2, so a $D017 the panel band
   // inherited would stretch them on the frame the view switches away on.
   view_state = VIEW_BACK;
   sprites_stack_reset();

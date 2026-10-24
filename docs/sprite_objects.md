@@ -37,7 +37,7 @@ cost: a Y-expanded sprite's DMA runs 42 raster lines rather than 21, so it needs
 twice the clearance above the panel split, which is `mem.h`'s
 `kSpritesOffLeadExpandY`. The fin then starts two lines below even that, at
 raster 120, so that its last line is the viewport's last line and it meets the
-panel — which is allowed only because it is two sprites on indices 0–1 that
+panel — which is allowed only because it is two sprites on indices 1–2 that
 never move, and only because it was measured that way with the stack full on
 both emulators (`c64o/sprites.cc`, `kSpriteFinDropLines`). A cloud that expanded
 gets none of that: it moves through the band, so it would have to be culled
@@ -67,9 +67,9 @@ eight sprites for the band below it:
 
 | Handler | Raster line | Sprites used |
 | :--- | :--- | :--- |
-| `_switch_to_terrain` | `50 + 200` (latches for the next frame's viewport) | 8 — the committed stack frame: sun and clouds in 0–6, the orientation mark in 7 |
-| `_switch_to_panel_top` | `50 + 112 - 1` | 1 — vertical speed, index 7 |
-| `_switch_to_panel_bottom` | `50 + 112 + 24` | 7 instrument needles, indices 0–6 |
+| `_switch_to_terrain` | `50 + 200` (latches for the next frame's viewport) | 8 — the committed stack frame: the orientation mark in 0, in front of everything; sun, clouds and opponents in 1–7 |
+| `_switch_to_panel_top` | `50 + 112 - 1` | 1 — vertical speed, index 0 |
+| `_switch_to_panel_bottom` | `50 + 112 + 24` | 7 instrument needles, indices 1–7 |
 
 When this was written the terrain band used exactly one sprite, the sun at
 index 4, and **seven of the eight were idle for the entire viewport.** So up to
@@ -77,7 +77,7 @@ eight simultaneous objects need no new multiplexing at all: no sorting by Y, no
 mid-band re-latching, no raster splits inside the viewport. That is the
 expensive part of a general sprite engine and this design gets to skip it
 outright, at the price of a hard cap of eight. In the shipped stack it is a cap
-of seven: [clouds.md](clouds.md) §1.9 keeps index 7 for the panel band, and
+of seven: [clouds.md](clouds.md) §1.9 keeps index 0 for the panel band, and
 spends it on the orientation mark.
 
 Two further properties fall out of the existing code for free:
@@ -123,11 +123,11 @@ panel uses all of 0–7. This used to be handled by one-off special cases
 `sprites_show_panel_bottom_sprites`). That does not generalise to eight shared
 slots.
 
-**The split.** In the panel-top band sprites 0–6 are parked at `x = 0` and
-their colour is irrelevant; only index 7 must be correct. So:
+**The split.** In the panel-top band sprites 1–7 are parked at `x = 0` and
+their colour is irrelevant; only index 0 must be correct. So:
 
 - `_switch_to_panel_top` — cycle-counted and NOP-padded, leave it alone. Set
-  index 7's colour only.
+  index 0's colour only.
 - `_switch_to_panel_bottom` — not cycle-critical, sits below the split.
   Restore all eight instrument colours here.
 
