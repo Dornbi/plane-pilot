@@ -936,7 +936,9 @@ static void _fill_poly(void) {
 void _planes_fill_begin(uint8_t *back, uint8_t cols, uint8_t height) {
   _blk = back;
   _buf_h = height;
-  _buf_w1 = (uint8_t)((24 << (cols - 1)) - 1);
+  // 24 doubled for two columns: not 24 << (cols - 1), which links a 16 B
+  // shift table (planes.cc _twice_if()).
+  _buf_w1 = cols == 2 ? 2 * 24 - 1 : 24 - 1;
   _bottom_adj = (uint8_t)((cols << 6) - 64);
 }
 

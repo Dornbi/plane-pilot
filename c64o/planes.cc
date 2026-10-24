@@ -49,6 +49,13 @@ static const uint8_t kCols = 24;
 static const uint8_t kRows = 21;
 static const uint8_t kMaxPolys = 5;
 
+// v doubled when n, a sprite count or expansion, is 2: v << (n - 1) for the
+// 1 or 2 that n always is. Not that shift, which links oscar64's 16 B
+// __shltab tables for each constant shifted by a variable.
+static inline uint8_t _twice_if(uint8_t v, uint8_t n) {
+  return n == 2 ? (uint8_t)(v << 1) : v;
+}
+
 // The model's vertices relative to the centre, in screen pixels and offset by
 // 128, so that they are unsigned bytes and compare as such: wing, tailplane
 // and fin, then the fuselage outline, then the end-on disc. Polygon i is
@@ -212,7 +219,7 @@ static uint8_t _lo[2 * kRows], _hi[2 * kRows];
 void _planes_fill_begin(uint8_t *back, uint8_t cols, uint8_t height) {
   _blk = back;
   _buf_h = height;
-  _buf_w1 = (uint8_t)((kCols << (cols - 1)) - 1);
+  _buf_w1 = (uint8_t)(_twice_if(kCols, cols) - 1);
   _bottom = (uint8_t)(cols << 6);
 }
 
@@ -410,8 +417,16 @@ static bool _same_axes(const int16_t *last, const mat3_t *axes) {
 // 11. slide, don't reject: how far a buffer whose top is on line oy has to
 // move up for its last sprite row to start on or above the DMA cut.
 static int16_t _slide(const planes_view_t *view, int16_t oy, uint8_t ys, uint8_t rows) {
-  int16_t cut = ys == 2 ? view->cut2 : view->cut1;
-  int16_t over = (int16_t)(oy + (rows == 2 ? (int16_t)(kRows << (ys - 1)) : 0) - cut);
+  int16_t cut = view->cut1;
+  uint8_t h = kRows;
+  if (ys == 2) {
+    cut = view->cut2;
+    h = 2 * kRows;
+  }
+  int16_t over = (int16_t)(oy - cut);
+  if (rows == 2) {
+    over += h;
+  }
   return over > 0 ? over : 0;
 }
 
@@ -562,8 +577,8 @@ void planes_project(planes_state_t *state, const planes_view_t *view,
   // the centring anchor: the bounding box's centre. The buffer's top left,
   // relative to the centre, is ox and oy; bx and by are the same with the
   // vertices' offset, which is what a vertex is measured from.
-  uint8_t wpx = (uint8_t)(kCols << ((cols - 1) + (xs - 1)));
-  uint8_t hpx = (uint8_t)(kRows << ((rows - 1) + (ys - 1)));
+  uint8_t wpx = _twice_if(_twice_if(kCols, cols), xs);
+  uint8_t hpx = _twice_if(_twice_if(kRows, rows), ys);
   uint8_t bx = (uint8_t)(((minx + maxx + 1) >> 1) - (wpx >> 1));
   uint8_t by = (uint8_t)(((miny + maxy + 1) >> 1) - (hpx >> 1));
   int16_t ox = (int16_t)bx - kBias, oy = (int16_t)by - kBias;
@@ -619,7 +634,7 @@ void planes_fill(const planes_state_t *state, uint8_t *back) {
   uint8_t cols = state->lay.cols, rows = state->lay.rows;
   uint8_t blocks = (uint8_t)(rows << (cols - 1));
   memset(back, 0, (uint16_t)blocks << 6);
-  uint8_t height = (uint8_t)(kRows << (rows - 1));
+  uint8_t height = _twice_if(kRows, rows);
   if ((uint16_t)state->lay.slid >> (state->lay.ys - 1) < height) {
     // The vertices are the cache's key. The arrays the fill reads still
     // hold them unless another aircraft was projected since.
