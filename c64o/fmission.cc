@@ -50,8 +50,8 @@ const char *const kMissionTitles[kMissionCount] = {
 };
 
 const char *const kMissionDesc[kMissionCount] = {
-    "THE ENEMY IS COLLECTING RECON.\n"    // 01
-    "INTERCEPT AND DESTROY IT.",          //
+    "A RECON PLANE IS COMING IN HIGH.\n"  // 01
+    "INTERCEPT IT BEFORE IT ESCAPES.",    //
     "BOMBERS ARE RAIDING THE CITY!\n"     // 02
     "CATCH THEM BEFORE THEY DO DAMAGE.",  //
     "AMBUSH THE ENEMY BASE AND DESTROY\n" // 03
@@ -63,8 +63,8 @@ const char *const kMissionDesc[kMissionCount] = {
 // (flight_init_from_mission()). 01 and 03 in the air at cruise - throttle 18,
 // whose level trim is ~2,170 (0x88 << 4) - 01 at 2,500 ft, 9 km south of the
 // north edge, under the recon's way in; 03 at 1,000 ft 8 km short of runway
-// 2, lined up beside it. 02 scrambles: on runway 1, engine at idle, the bombers coming
-// south towards it.
+// 2, lined up beside it. 02 scrambles: on runway 1, engine at idle, the bombers
+// coming south towards it.
 const uint8_t kMissionStartX[kMissionCount] = {
     0x5C, // 01
     0x1C, // 02
