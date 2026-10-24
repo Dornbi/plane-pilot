@@ -459,6 +459,12 @@ static __noinline void _opponent_move(int32_t *pos, int16_t speed2, int16_t h) {
   *pos += flight_step_s(vec_fastmul8p8(speed2, h));
 }
 
+// Whether -r <= d <= r, in one unsigned compare: d + r wraps below 0 to
+// above 2r. 16 bits, not 8: oscar64 folds an 8-bit cast's wraparound away.
+static inline bool _opponent_within(int16_t d, uint16_t r) {
+  return (uint16_t)((uint16_t)d + r) <= (uint16_t)(2 * r);
+}
+
 static void _opponent_forget(uint8_t i, uint8_t bit);
 
 // The mission has failed: said once, and WP_TARGETS_DOWN never comes.
@@ -495,8 +501,8 @@ void opponent_step(void) {
     uint8_t k = (uint8_t)(p->wp + w);
     int16_t dx = _opponent_toward(kOpponentWpX[k], _opponent_x[i]);
     int16_t dy = _opponent_toward(kOpponentWpY[k], _opponent_y[i]);
-    if (dx < kOpponentReach && dx > -kOpponentReach && dy < kOpponentReach &&
-        dy > -kOpponentReach) {
+    if (_opponent_within(dx, kOpponentReach - 1) &&
+        _opponent_within(dy, kOpponentReach - 1)) {
       if (w == p->fail) {
         _opponent_fail();
       }
@@ -522,7 +528,7 @@ void opponent_step(void) {
     // stays straight. The direction is cut down to six bits a component
     // first, so both products fit 16 bits, and taken as 8.8 so that
     // vec_fastmul8p8() forms them exactly, with no multiply linked for them.
-    while (dx > 63 || dx < -63 || dy > 63 || dy < -63) {
+    while (!_opponent_within(dx, 63) || !_opponent_within(dy, 63)) {
       dx >>= 1;
       dy >>= 1;
     }
