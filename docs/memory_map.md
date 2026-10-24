@@ -87,10 +87,11 @@ are not equally reachable:
   region means 51 bytes in use and 13 spare, not the other way round. Only
   the static frames ever use it - nothing reaches the dynamic stack - so the
   region was cut from `$0280` to `$0240` on 2026-10-17 and bss2 lowered to
-  match. fpilot's goes back up to `$0288`: its opponents put `planes_render()`
-  and `_project()` under `sim_run()`, 132 bytes of frames at the deepest
-  (`mem.h`, 2026-10-18). Should the frames outgrow it, the link fails with
-  oscar64 error 3034. The table below predates both.
+  match. fpilot's went back up to `$0288` on 2026-10-18, when its opponents
+  put 132 bytes of frames under `sim_run()`; with their working moved to
+  statics they were down to 63, and on 2026-10-25 it came back to `$0240`
+  too (`mem.h`). Should the frames outgrow it, the link fails with oscar64
+  error 3034. The table below predates all three.
 - **free (orphan)** - outside every linker region. Real RAM, but only
   reachable by placing something there by hand, the way `mem.h` and `view.cc`
   already do.

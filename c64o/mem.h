@@ -16,18 +16,13 @@
 // We barely use the stack, make it smaller than the default. Nothing recurses,
 // so oscar64 gives every function a static frame and never touches the
 // dynamic stack (SP is set at startup and read nowhere). The region only has
-// to hold the frames: about 51 bytes in ppilot, and 132 in fpilot, whose
-// opponents put planes_render() and _project() under sim_run() (opponent.cc).
+// to hold the frames: about 51 bytes in ppilot, and 63 in fpilot, whose
+// opponents put _opponent_draw() and _project() under sim_run() (opponent.cc).
 // Should they outgrow it the link fails with error 3034 (static stack usage
 // exceeds stack segment); raise this, the region top below and MEM_BSS2_START
 // together.
-#ifdef __FPILOT__
-#pragma stacksize(0x88)
-#define MEM_STACK_END 0x0288
-#else
 #pragma stacksize(0x40)
 #define MEM_STACK_END 0x0240
-#endif
 #ifdef __MAX_RAM__
 // Since the screen ram is moved to 0xE800 and 0xEC00, we can
 // use the original location for stack.
