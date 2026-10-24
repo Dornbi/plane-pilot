@@ -324,9 +324,10 @@ static void _project(uint16_t k, const mat3_t *axes) {
   // writes it, and in fpilot the array is scratch (mem.h).
   _planes_tx[0] = 0;
   _planes_ty[0] = 0;
-  _planes_axis_products(&axes->front, kPlaneAxisPairs[0], kPlaneAxisPairs[1]);
-  _planes_axis_products(&axes->left, kPlaneAxisPairs[1], kPlaneAxisPairs[2]);
-  _planes_axis_products(&axes->up, kPlaneAxisPairs[2], kPlaneAxisPairs[3]);
+  const vec3_t *row = &axes->front;
+  for (uint8_t i = 0; i < 3; ++i, ++row) {
+    _planes_axis_products(row, kPlaneAxisPairs[i], kPlaneAxisPairs[i + 1]);
+  }
   PROFILE_END(9, kProfPairs);
   PROFILE_START();
   _planes_flat();
@@ -404,8 +405,13 @@ void planes_state_init(planes_state_t *state) {
 
 // Whether the axes' screen components are the ones in `last`.
 static bool _same_axes(const int16_t *last, const mat3_t *axes) {
-  return last[0] == axes->front.y && last[1] == axes->front.z && last[2] == axes->left.y &&
-         last[3] == axes->left.z && last[4] == axes->up.y && last[5] == axes->up.z;
+  const vec3_t *row = &axes->front;
+  for (uint8_t i = 0; i < 6; i += 2, ++row) {
+    if (last[i] != row->y || last[i + 1] != row->z) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // 11. slide, don't reject: how far a buffer whose top is on line oy has to
@@ -584,12 +590,11 @@ void planes_project(planes_state_t *state, const planes_view_t *view,
   // what the next frame needs to tell whether it can skip all of this
   state->k = k;
   int16_t *last = state->axes;
-  last[0] = axes->front.y;
-  last[1] = axes->front.z;
-  last[2] = axes->left.y;
-  last[3] = axes->left.z;
-  last[4] = axes->up.y;
-  last[5] = axes->up.z;
+  const vec3_t *row = &axes->front;
+  for (uint8_t i = 0; i < 6; i += 2, ++row) {
+    last[i] = row->y;
+    last[i + 1] = row->z;
+  }
   state->lay.ox = ox;
   state->lay.oy = oy;
   state->lay.slid = slid;
