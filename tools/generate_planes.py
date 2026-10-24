@@ -140,10 +140,12 @@ def write_def(model):
     w("static const uint8_t kPlaneDDotDown = %d;" % floor_of(h * planes.D_DOT))
     w("static const uint8_t kPlaneD1xDown = %d;" % floor_of(h * planes.D_1X))
     w("static const uint8_t kPlaneYHold = %d;" % floor_of(h * planes.Y_LIMIT))
-    w("static const uint8_t kPlaneColsHold[3] = {0, %d, %d};  // by xs" % (
-        floor_of(h * 1 * (planes.COLS - 1)), floor_of(h * 2 * (planes.COLS - 1))))
-    w("static const uint8_t kPlaneRowsHold[3] = {0, %d, %d};  // by ys" % (
-        floor_of(h * 1 * (planes.ROWS - 1)), floor_of(h * 2 * (planes.ROWS - 1))))
+    cols_hold = floor_of(h * (planes.COLS - 1))
+    rows_hold = floor_of(h * (planes.ROWS - 1))
+    assert floor_of(h * 2 * (planes.COLS - 1)) == 2 * cols_hold
+    assert floor_of(h * 2 * (planes.ROWS - 1)) == 2 * rows_hold
+    w("static const uint8_t kPlaneColsHold = %d;" % cols_hold)
+    w("static const uint8_t kPlaneRowsHold = %d;" % rows_hold)
     w("")
     w("// 65536 / dy for every edge height; entries 0 to 2 are never read (dy 1")
     w("// and 2 are shifts, and 32768 would not fit a signed multiplier). Striped:")

@@ -85,12 +85,6 @@ uint8_t _planes_pv[16];
 // they belong to, which planes_fill() skips copying from its key.
 uint8_t _planes_lx[kPlaneVertMax], _planes_ly[kPlaneVertMax];
 
-// The largest extent a layout holds: xs * (24 * cols - 1) and
-// ys * (21 * rows - 1), by [expansion - 1][count - 1]. Tables rather than
-// products: oscar64's runtime multiply is not linked (tools/check_mul_div.py).
-static const uint8_t kFitW[2][2] = {{23, 47}, {46, 94}};
-static const uint8_t kFitH[2][2] = {{20, 41}, {40, 82}};
-
 // ---------------------------------------------------------------------------
 // Fixed point, as lib/planes.py spells it, on vec.h's byte multiply, exact
 // fraction and exact division. lib/planes.py's fdiv is vec_div8p8's
@@ -545,18 +539,20 @@ void planes_project(planes_state_t *state, const planes_view_t *view,
   uint8_t xs = level == kPlaneLevel1x ? 1 : 2;
   uint8_t ys = 1;
   if (level == kPlaneLevelX &&
-      (bh > kPlaneYLimit || (state->lay.level == level && state->lay.ys == 2 && bh > kPlaneYHold))) {
+      bh > (state->lay.level == kPlaneLevelX && state->lay.ys == 2 ? kPlaneYHold : kPlaneYLimit)) {
     ys = 2;
   }
   bool same = state->lay.level == level && state->lay.ys == ys;
-  uint8_t cols = bw <= kFitW[xs - 1][0] ? 1 : 2;
-  if (same && state->lay.cols == 2 && cols == 1 && bw > kPlaneColsHold[xs]) {
-    cols = 2;
+  uint8_t wlim = same && state->lay.cols == 2 ? kPlaneColsHold : (kCols - 1);
+  if (xs == 2) {
+    wlim <<= 1;
   }
-  uint8_t rows = bh <= kFitH[ys - 1][0] ? 1 : 2;
-  if (same && state->lay.rows == 2 && rows == 1 && bh > kPlaneRowsHold[ys]) {
-    rows = 2;
+  uint8_t cols = bw > wlim ? 2 : 1;
+  uint8_t hlim = same && state->lay.rows == 2 ? kPlaneRowsHold : (kRows - 1);
+  if (ys == 2) {
+    hlim <<= 1;
   }
+  uint8_t rows = bh > hlim ? 2 : 1;
   // The latches are the cached vertices' layout until they change here.
   bool cached = state->key_valid && same && state->lay.cols == cols && state->lay.rows == rows &&
                 state->key_count == _vert_count;
