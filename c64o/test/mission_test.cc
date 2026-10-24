@@ -3,8 +3,8 @@
 //
 // The rules are that every mission puts its targets on screen - in the
 // front view, if only as the dot - within 10 s of the start in the air, or of
-// the lift-off from the runway within 20 s; and brings the player within
-// 2 km of them inside 90 s. A plain pilot flies here: full throttle, straight
+// the lift-off from the runway within 20 s, but for 04's, which come from
+// behind; and brings the player within 2 km of them inside 90 s. A plain pilot flies here: full throttle, straight
 // on the heading the mission starts on; holding the start's height if it
 // starts in the air, taking off and climbing if it starts on the runway.
 // Nothing it does is clever, so a real pilot gets there no later.
@@ -124,7 +124,13 @@ static void chase(int *caught_at, int *gone_at) {
 }
 
 int main() {
-  static const char *const kNames[] = {"recon", "bombers", "ambush"};
+  static const char *const kNames[] = {"recon", "bombers", "ambush", "scramble"};
+  static_assert(sizeof(kNames) / sizeof(kNames[0]) == kMissionCount, "a name a mission");
+  // Seconds to the targets on screen, from the start in the air or the
+  // lift-off; 0 for none. 04's come from behind: the pass from 400 m back
+  // down the runway, overtaking only a pilot slower off it than this one, and
+  // the patrol round the city to the south-west, as in fpilot's first mission.
+  static const int kInView[] = {10, 20, 10, 0};
   for (int m = 0; m < kMissionCount; ++m) {
     flight_init_from_mission(m);
     opponent_reset(m);
@@ -167,16 +173,16 @@ int main() {
       if (_opponent_failed && failed_at < 0) failed_at = n;
       if (!any && gone_at < 0) gone_at = n;
     }
-    const int in_view = on_ground ? 20 : 10;
-    CHECK(up_at >= 0 && seen_at >= 0 && seen_at - up_at <= in_view * kStepsPerSecond,
+    const int in_view = kInView[m];
+    CHECK(!in_view || (up_at >= 0 && seen_at >= 0 && seen_at - up_at <= in_view * kStepsPerSecond),
           "%s: on screen %.1f s after %s, not %d", kNames[m], (seen_at - up_at) / kStepsPerSecond,
           on_ground ? "the lift-off" : "the start", in_view);
     CHECK(close_at >= 0 && close_at <= 90 * kStepsPerSecond,
           "%s: within 2 km after %.0f s, not 90", kNames[m], close_at / kStepsPerSecond);
     printf("  %s: ", kNames[m]);
     if (on_ground) printf("off at %.0f s, ", up_at / kStepsPerSecond);
-    printf("on screen at %.1f s, within 2 km at %.0f s", seen_at / kStepsPerSecond,
-           close_at / kStepsPerSecond);
+    if (seen_at >= 0) printf("on screen at %.1f s, ", seen_at / kStepsPerSecond);
+    printf("within 2 km at %.0f s", close_at / kStepsPerSecond);
     if (failed_at >= 0) printf(", failed at %.1f min", failed_at / kStepsPerSecond / 60);
     if (gone_at >= 0) printf(", all gone at %.1f min", gone_at / kStepsPerSecond / 60);
     printf("\n");

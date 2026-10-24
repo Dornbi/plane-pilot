@@ -843,8 +843,8 @@ C64; `make -C c64o test` runs those.
   draws them (`opponent.cc`, §13), with the sprite buffers under I/O at
   `$D000`, time-shared with the map view's screen RAM and the title screen's
   aeroplane, and the dot in the block below. Up to two aircraft fly fixed
-  paths of waypoints, level and at one speed each, or sit parked, in three
-  missions - a recon, two bombers, an ambush - and nothing else: guns and
+  paths of waypoints, level and at one speed each, or sit parked, in four
+  missions - a recon, two bombers, an ambush, a scramble - and nothing else: guns and
   hits, and with them any way to complete a mission, are still to come, and
   `ppilot.prg` has no opponents.
 - **A single polygon can cost more than the rest of the frame.** On the runway

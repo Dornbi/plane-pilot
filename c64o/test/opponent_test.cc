@@ -694,7 +694,8 @@ static void test_paths(void) {
 // Each flown as it starts, at shift 0, 6.25 steps a second: when and where
 // things happen against the timings fmission.cc and opponent.cc give, the
 // recon's escape and the bombers' arrival failing the mission once, the
-// bombers keeping formation, and the parked pair staying put. And every path
+// bombers keeping formation, the parked pair staying put, and the scramble's
+// two flying on for ever. And every path
 // within the reach of _opponent_toward(): no leg 64 units long on either axis.
 
 static int _msgs = 0;
@@ -863,6 +864,24 @@ static void test_missions(void) {
     opponent_step();
     CHECK(flight_nav_point_x[0] == 0x5D64, "ambush: navpoint 1 at %04x with one down",
           flight_nav_point_x[0]);
+  }
+
+  // 04: the scramble. Two flying loops for ever: never failing, never gone,
+  // and navpoint 1 midway between them.
+  {
+    _msgs = 0;
+    opponent_reset(3);
+    CHECK(_opponent_on[0] && _opponent_on[1] && _opponent_nav == 0,
+          "scramble: two aircraft, navpoint %d", _opponent_nav + 1);
+    for (int n = 0; n < 6000; ++n) opponent_step();
+    CHECK(_opponent_on[0] && _opponent_on[1] && !_opponent_failed && _msgs == 0,
+          "scramble: an aircraft left, or the mission failed");
+    CHECK(_opponent_z[1] == (int32_t)0x0700 << 8, "scramble: the patrol changed height");
+    // Still round the city at (0x10, 0x68), within its 3 km square.
+    CHECK(fabs(units(_opponent_x[1]) - 0x10) < 8 && fabs(units(_opponent_y[1]) - 0x68) < 8,
+          "scramble: the patrol is at %.1f, %.1f", units(_opponent_x[1]), units(_opponent_y[1]));
+    _opponent_down = 3;
+    CHECK(opponent_targets_down(), "scramble: both down, but the targets are not down");
   }
 }
 

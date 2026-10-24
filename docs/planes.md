@@ -156,7 +156,7 @@ pixels = 256 · S / D
 ```
 
 **Opponents are drawn 1.5× oversize**, so an 11 m Cessna spans 16.5 m on screen.
-*fpilot has since gone further, to ~55 m (§13, "Three missions"): beside a
+*fpilot has since gone further, to ~55 m (§13, "Three missions, then four"): beside a
 256 m runway 16.5 m was too small. The distances below are the model's.*
 At true scale a plane is under 4 px beyond 700 m, which is most of any
 encounter — it would be a dot for the whole approach and only become an
@@ -198,7 +198,7 @@ A quarter metre reaches 4 km inside an int16 (16,000 units), which is beyond
 the range cull, so it costs nothing but a different shift: `>> 6` instead of
 `>> 9`. Since the pixel formula is a ratio of two lengths it is otherwise
 unaffected. *fpilot has since added a far range, 4-8 km, in whole metres (§13,
-"Three missions"): the ratio is why that costs nothing either.*
+"Three missions, then four"): the ratio is why that costs nothing either.*
 
 ---
 
@@ -1332,7 +1332,7 @@ into `_opponent_cull()`, `_opponent_cap()` and `_opponent_draw()`, with a few
 locals made statics: in one function its temporaries ran past oscar64's
 zero page into the program's own at `$60` (`tools/check_zeropage.py`).
 
-### Three missions
+### Three missions, then four
 
 *Built 2026-10-23.* fpilot's one mission gave way to three (`fmission.cc`;
 `kOpponentPaths` for what each sends). *Revised the same day after play:
@@ -1347,6 +1347,7 @@ parked pair side by side off the runway's edge, facing it.*
 | 01 Recon intercept | In the air at 2,500 ft and cruise, heading north, 9 km south of the north edge | One at 5,000 ft and 1,750 (2,000 at first): in from the north edge head-on, past the player 2,500 ft above after ~45 s, over the city at ~5.4 min, off the south edge at ~6.2 | it leaves the map |
 | 02 Bomber raid | On runway 1, engine at idle, heading north | Two at 3,000 ft and 1,500, the second 150 m left of and 200 m behind the first: south towards runway 1 from 11 km, 1 km past its north end, then the city at ~4.4 min, then off the south edge | the first reaches the city |
 | 03 Ambush | In the air at 1,000 ft and cruise, heading east, 3.6 km west of the targets and midway between them | Two parked beside runway 2's south end, side by side 200 m apart, both 150 m off its west edge and facing it | never |
+| 04 Scramble | On runway 1, engine at idle, heading north | The first mission's two, at 1,500: one low from 400 m behind, overtaking alongside the runway and flying north for ever; one round a 3 km square about the city at 3,500 ft | never |
 
 A start has a heading, in quarter turns left of north
 (`kMissionStartTurns`, fpilot only; `flight_init_from_mission()` turns the
@@ -1357,7 +1358,9 @@ climbing out - and holds each to two rules: the targets on screen in the
 front view, as opponent.cc's cull decides, if only as the dot, within 10 s
 of the start, or for 02 within 20 s of the lift-off; and within 2 km inside
 90 s. They come on screen at 2.6 s, 14 s after the lift-off at 10 s, and at
-once; and within 2 km at 33 s, 66 s and 14 s.
+once; and within 2 km at 33 s, 66 s and 14 s. 04's come from behind, as
+they did when it was the only mission, and are exempt from the first rule;
+the pass starts within 2 km.
 
 Heights are on a scale where 1,000 ft is 512 m, and the viewport reaches
 ~12 degrees above and below the nose, so a target well above or below is in
@@ -1465,8 +1468,9 @@ of the rest is flight and menu code that folded to constants while there
 was one mission. The navpoints took it to 5,106, the two levels and the
 briefings as they now read to 5,061, the navpoints' names and the new
 starts to 4,980. The view's numerator, the start heading, the cap's
-fresh latches and the far range cost 323 bytes: 5,161 to 4,838 as built
-today.
+fresh latches and the far range cost 323 bytes: 5,161 to 4,838. *Since
+2026-10-24* the first mission is back as 04 Scramble, its two aircraft now
+targets like the others': 4,632.
 
 ### The sprite frame runs ahead of the terrain
 

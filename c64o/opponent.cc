@@ -165,6 +165,19 @@ static const uint16_t kOpponent3000Ft = 0x0600;
 // side 200 m apart, both 150 m off its west edge at y 0xC0 and facing it, and
 // the player coming in from the west between them, 3.6 km out. Their centres are 13 m up,
 // about where a ~55 m aircraft's (kOpponentKn) is on its wheels.
+//
+// 04, Scramble: fpilot's first mission's two (docs/planes.md §13, "The
+// first enemy"), now the targets, from its start on runway 1. Both at
+// 1,500, the player's half-throttle level trim.
+// The pass: behind the player parked on runway 1 and off to its left, low
+// and level and heading north, so it overtakes alongside the runway and
+// flies on north, slowly enough to catch after take-off. 400 m behind the
+// player's 0x1C, and 96 m left of its centreline at 0x3F and a half: 64 m
+// beyond the runway's left edge. 96 m up. Its waypoints are 32 units apart
+// straight ahead, and the fourth is where it started, 128 units on: the
+// world repeats every 128 units along x, so it flies north for ever. The
+// patrol: the bandit the briefing is about, flying a 3 km square round the
+// city at 3,500 ft, anticlockwise from its south-east corner.
 static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
     {{kOpponentOneWay, 4, 3, 1750, 0x7E00, 0x6000, -256, 0, kOpponent5000Ft,
       {0x5C00, 0x3000, 0x1000, 0x0000}, {0x6000, 0x6400, 0x6800, 0x6800}},
@@ -175,12 +188,17 @@ static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
       {0x28C8, 0x10C8, 0x00C8}, {0x3F6A, 0x676A, 0x676A}}},
     {{kOpponentParked, 0, kOpponentNoFail, 0, 0x5C9C, 0xC096, 0, -256, 0x000D},
      {kOpponentParked, 0, kOpponentNoFail, 0, 0x5D64, 0xC096, 0, -256, 0x000D}},
+    {{kOpponentLoop, 4, kOpponentNoFail, 1500, 0x1A70, 0x3FE0, 256, 0, 0x0060,
+      {0x3A70, 0x5A70, 0x7A70, 0x9A70}, {0x3FE0, 0x3FE0, 0x3FE0, 0x3FE0}},
+     {kOpponentLoop, 4, kOpponentNoFail, 1500, 0x0A00, 0x6200, 256, 0, 0x0700,
+      {0x1600, 0x1600, 0x0A00, 0x0A00}, {0x6200, 0x6E00, 0x6E00, 0x6200}}},
 };
 
 // What the message says when the mission fails, per mission.
 static const char *const kOpponentFailText[kMissionCount] = {
     "MISSION FAILED - RECON ESCAPED",
     "MISSION FAILED - CITY BOMBED",
+    0,
     0,
 };
 
