@@ -48,11 +48,11 @@ static void _pair_products(void) {
         eor _ay_m;
         sec;
         sbc _ay_m;
-        sta _planes_tx, y;
+        sta _planes_tx + 16, y;
         eor #$ff;
         clc;
         adc #1;
-        sta _planes_tx + 16, y;
+        sta _planes_tx, y;
 
         lda _az_lo;
         jsr vec_mul8;
@@ -65,11 +65,11 @@ static void _pair_products(void) {
         eor _az_m;
         sec;
         sbc _az_m;
-        sta _planes_ty, y;
+        sta _planes_ty + 16, y;
         eor #$ff;
         clc;
         adc #1;
-        sta _planes_ty + 16, y;
+        sta _planes_ty, y;
 
         iny;
         cpy _ap_end;
@@ -342,9 +342,8 @@ static_assert(kPlaneBodyCount == 3, "_tube() walks three stations");
 #ifdef __FPILOT__
 #pragma bss(tscratch)
 #endif
-// |ux| and |uy| as a low byte and a 256, each sign as 0 or $FF, the offsets
-// r * u per station, and the loop's station and vertex indices.
-static uint8_t _ux_lo, _ux_hi, _ux_neg, _uy_lo, _uy_hi, _uy_neg;
+// The offsets r * u per station, and the loop's station and vertex indices;
+// |ux| and |uy| and their signs share _ay_* and _az_* above.
 static int8_t _tox[3], _toy[3];
 static uint8_t _ti, _tat;
 #ifdef __FPILOT__
@@ -363,41 +362,35 @@ static void _tube(void) {
         lda _planes_sr, y;
         sta vec_mul8_b;
 
-        lda _ux_hi;
+        lda _ay_hi;
         beq L_ox_mul;
         lda vec_mul8_b;
         jmp L_ox_sign;
     L_ox_mul:
-        lda _ux_lo;
+        lda _ay_lo;
         jsr vec_mul8;
         asl vec_mul8_lo;
         adc #0;
     L_ox_sign:
-        ldx _ux_neg;
-        beq L_ox_pos;
-        eor #$ff;
-        clc;
-        adc #1;
-    L_ox_pos:
+        eor _ay_m;
+        sec;
+        sbc _ay_m;
         ldy _ti;
         sta _tox, y;
 
-        lda _uy_hi;
+        lda _az_hi;
         beq L_oy_mul;
         lda vec_mul8_b;
         jmp L_oy_sign;
     L_oy_mul:
-        lda _uy_lo;
+        lda _az_lo;
         jsr vec_mul8;
         asl vec_mul8_lo;
         adc #0;
     L_oy_sign:
-        ldx _uy_neg;
-        beq L_oy_pos;
-        eor #$ff;
-        clc;
-        adc #1;
-    L_oy_pos:
+        eor _az_m;
+        sec;
+        sbc _az_m;
         ldy _ti;
         sta _toy, y;
         dey;
@@ -438,14 +431,18 @@ static void _tube(void) {
 
 static __noinline int16_t _planes_abs(int16_t v) { return v < 0 ? -v : v; }
 
+static __noinline void _unpack_yz(int16_t y, int16_t z) {
+  _ay_m = y < 0 ? 0xFF : 0x00;
+  _az_m = z < 0 ? 0xFF : 0x00;
+  uint16_t my = (uint16_t)_planes_abs(y), mz = (uint16_t)_planes_abs(z);
+  _ay_lo = (uint8_t)my;
+  _ay_hi = (uint8_t)(my >> 8);
+  _az_lo = (uint8_t)mz;
+  _az_hi = (uint8_t)(mz >> 8);
+}
+
 void _planes_tube(int16_t ux, int16_t uy, uint8_t at) {
-  _ux_neg = ux < 0 ? 0xFF : 0x00;
-  _uy_neg = uy < 0 ? 0xFF : 0x00;
-  uint16_t mx = (uint16_t)_planes_abs(ux), my = (uint16_t)_planes_abs(uy);
-  _ux_lo = (uint8_t)mx;
-  _ux_hi = (uint8_t)(mx >> 8);
-  _uy_lo = (uint8_t)my;
-  _uy_hi = (uint8_t)(my >> 8);
+  _unpack_yz(ux, uy);
   _tat = at;
   _tube();
 }
@@ -456,13 +453,7 @@ void _planes_axis_products(const mat3_t *axes) {
   _ap = 1;
   const vec3_t *a = &axes->front;
   for (uint8_t i = 1; i < 4; ++i, ++a) {
-    uint16_t my = (uint16_t)_planes_abs(a->y), mz = (uint16_t)_planes_abs(a->z);
-    _ay_lo = (uint8_t)my;
-    _ay_hi = (uint8_t)(my >> 8);
-    _ay_m = a->y < 0 ? 0x00 : 0xFF;
-    _az_lo = (uint8_t)mz;
-    _az_hi = (uint8_t)(mz >> 8);
-    _az_m = a->z < 0 ? 0x00 : 0xFF;
+    _unpack_yz(a->y, a->z);
     _ap_end = kPlaneAxisPairs[i];
     _pair_products();
   }
