@@ -220,13 +220,15 @@ static void place(int slot, const where_t &w) {
 }
 
 // planes.cc's answer for slot `slot` this frame, from its latches as they
-// were before opponent.cc drew the frame, and under the view it chose.
-static seen_t reference(int slot, const planes_state_t &latches, const planes_view_t &view) {
+// were before opponent.cc drew the frame, and under the view it chose: held
+// to two sprites if `two`.
+static seen_t reference(int slot, const planes_state_t &latches, bool two) {
   seen_t now = {false, false, false, {0, 0}};
   uint8_t range = _opponent_camera((uint8_t)slot);
   vec3_t c = _opponent_c;
   if (range != kOpponentOut) {
-    const planes_view_t &v = range == kOpponentFar ? kViewFar : view;
+    _opponent_set_view(range == kOpponentFar, two);
+    const planes_view_t &v = _opponent_view;
     mat3_t axes;
     _opponent_axes((uint8_t)slot, &axes);
     static planes_state_t fresh;
@@ -277,7 +279,7 @@ static void frame(scene_t &sc, const where_t *w, const char *what) {
   ++sc.frames;
   seen_t now[2];
   for (int k = 0; k < sc.slots; ++k) {
-    now[k] = reference(k, latches[k], (_opponent_capped & (1 << k)) ? kViewTwo : kView);
+    now[k] = reference(k, latches[k], (_opponent_capped & (1 << k)) != 0);
   }
 
   // The stack's seven, less the one the fin takes beyond the mark's index in
