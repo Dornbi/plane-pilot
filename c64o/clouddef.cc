@@ -30,16 +30,16 @@ const uint8_t kCloudHashB[32] = {
 
 // Largest depth at which each rung still applies, so rung
 // selection is a compare chain and never a divide (§3.2):
-//   rung 0:  3 x2 world px, out to  4096 units ( 8192 m)
-//   rung 1:  5 x2 world px, out to  2458 units ( 4916 m)
-//   rung 2:  7 x2 world px, out to  1755 units ( 3510 m)
-//   rung 3:  9 x2 world px, out to  1365 units ( 2730 m)
-//   rung 4: 11 x2 world px, out to  1117 units ( 2234 m)
-//   rung 5: 13 x2 world px, out to   945 units ( 1890 m)
-//   rung 6: 15 x2 world px, out to   819 units ( 1638 m)
-//   rung 7: 17 x2 world px, out to   723 units ( 1446 m)
-//   rung 8: 19 x2 world px, out to   647 units ( 1294 m)
-//   rung 9: 21 x2 world px, out to   585 units ( 1170 m)
+//   rung 0:  3 x2 world px, out to  4096 m
+//   rung 1:  5 x2 world px, out to  2458 m
+//   rung 2:  7 x2 world px, out to  1755 m
+//   rung 3:  9 x2 world px, out to  1365 m
+//   rung 4: 11 x2 world px, out to  1117 m
+//   rung 5: 13 x2 world px, out to   945 m
+//   rung 6: 15 x2 world px, out to   819 m
+//   rung 7: 17 x2 world px, out to   723 m
+//   rung 8: 19 x2 world px, out to   647 m
+//   rung 9: 21 x2 world px, out to   585 m
 __striped const int16_t kCloudRungDepth[kCloudRungCount] = {
     4096, 2458, 1755, 1365, 1117,
     945, 819, 723, 647, 585,

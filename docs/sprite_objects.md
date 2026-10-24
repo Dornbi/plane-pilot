@@ -25,7 +25,7 @@ covers (`docs/project.md` §7, `c64o/title.cc`):
   resolution. `$D01C` stays zero.
 - **Never expand along Y.** X-expansion is available. **One exception, for
   near opponents:** a close aircraft too tall for two sprites — steeply banked,
-  inside ~100 m — expands along Y as well as X ([planes.md](planes.md) §4).
+  inside ~50 m — expands along Y as well as X ([planes.md](planes.md) §4).
 
 The back view's tail fin (`c64o/sprites.cc`) is the one thing in the viewport
 that expands along Y, and `$D017` is a per-frame register because of it. It is

@@ -31,8 +31,8 @@ frozen poses rather than one, each with the aircraft paused:
 | name | what | how |
 | --- | --- | --- |
 | **runway** | parked at the start of mission 01, runway filling the lower viewport | `selected_mission = 0` |
-| **approach** | mission 02's start, 512 m up on final | `selected_mission = 1` |
-| **cruise** | 1,400 m, at the cloud deck, terrain and clouds and two distant objects | eye `0x8D5000, 0x2C0000, 0x057800` |
+| **approach** | mission 02's start, 256 m up on final | `selected_mission = 1` |
+| **cruise** | 700 m, at the cloud deck, terrain and clouds and two distant objects | eye `0x8D5000, 0x2C0000, 0x057800` |
 
 ## What it costs
 

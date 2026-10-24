@@ -164,7 +164,7 @@ static mat3_t camera(int heading, int pitch, int roll) {
   return m;
 }
 
-// Where the aircraft is: `range` quarter metres ahead of the camera, `px` and
+// Where the aircraft is: `range` eighth metres ahead of the camera, `px` and
 // `py` pixels right of and above the viewport's centre; or nowhere in view.
 struct where_t {
   int range, px, py;
@@ -202,7 +202,7 @@ static void place(int slot, const where_t &w) {
   rel[0] = (cx * m.front.x + cy * m.left.x + cz * m.up.x) / 256.0;
   rel[1] = (cx * m.front.y + cy * m.left.y + cz * m.up.y) / 256.0;
   rel[2] = (cx * m.front.z + cy * m.left.z + cz * m.up.z) / 256.0;
-  // Quarter metres to 24.8 metres.
+  // Eighth metres to 24.8 half metres.
   flight_eye_x = 40L << 16;
   flight_eye_y = 100L << 16;
   flight_eye_z = 8L << 16;
@@ -284,7 +284,7 @@ static void frame(scene_t &sc, const where_t *w, const char *what) {
     int far = _opponent_capped == 1 ? 0 : 1;
     int16_t dn = _opponent_cs[far ^ 1].x, df = _opponent_cs[far].x;
     // Both in one range, by depth; else the one in the far range, whose
-    // depth is in metres.
+    // depth is in half metres.
     if (_opponent_far == 0 || _opponent_far == 3) {
       CHECK(df >= dn - (dn >> 3), "%s: frame %d holds slot %d to two at %d, the other at %d",
             what, sc.frames, far, df, dn);
@@ -361,7 +361,7 @@ static void start(scene_t &sc, const mat3_t &cam, int slots = 1) {
 // --- 1. Looking away from a close chase, and back --------------------------------
 //
 // Close behind it, 2 x 2 sprites; then off to the side while it pulls ahead
-// to 600 m; then in view again. The first frame back may show the dot, never
+// to 300 m; then in view again. The first frame back may show the dot, never
 // the 2 x 2.
 
 static void test_look_back(void) {
@@ -513,7 +513,7 @@ static void test_two(void) {
 
 // --- 5. Both close -------------------------------------------------------------
 //
-// Both inside ~125 m, where either alone would be 2 x 2, walking in and out
+// Both inside ~60 m, where either alone would be 2 x 2, walking in and out
 // past each other so that the nearer changes, in the front view and the back.
 // The budget check in frame() is the point: in front the farther is held to
 // two sprites, behind both are.
@@ -553,18 +553,19 @@ static void test_both_close(void) {
 
 // --- 6. The paths ---------------------------------------------------------------
 
-// Metres from a waypoint coordinate, 8.8 units, to a position, 24.8.
+// Metres from a waypoint coordinate, 8.8 units, to a position, 24.8 half
+// metres.
 static double metres(uint16_t w, int32_t pos, bool wrap) {
-  double d = ((double)((int32_t)w << 8) - (double)pos) / 256.0;
+  double d = ((double)((int32_t)w << 8) - (double)pos) / 512.0;
   if (wrap) {
-    d = fmod(d + 16384.0 + 65536.0, 32768.0) - 16384.0;
+    d = fmod(d + 8192.0 + 32768.0, 16384.0) - 8192.0;
   }
   return d;
 }
 
 // Two paths of the test's own, flown as opponent_reset() starts a mission's:
 // dead straight north for ever, the world repeating every 128 units of x,
-// and a 3 km square anticlockwise.
+// and a 1.5 km square anticlockwise.
 static const opponent_path_t kStraight = {kOpponentLoop, 4, kOpponentNoFail, 1500,
                                           0x1A70, 0x3FE0, 256, 0, 0x0060,
                                           {0x3A70, 0x5A70, 0x7A70, 0x9A70},
@@ -660,9 +661,9 @@ static void test_paths(void) {
           "paths: shift %d, %d steps turning against %d at shift 0", shift, turning, turning0);
     // vec_normalize() takes a seven-bit square root: good to about 1%.
     CHECK(worst_len <= 4, "paths: shift %d, the heading's length is %.1f off", shift, worst_len);
-    // Corners are cut by the reach and rounded by the turn, ~375 m: not more
-    // than a kilometre outside.
-    CHECK(worst_out < 1000, "paths: shift %d, %.0f m outside the square", shift, worst_out);
+    // Corners are cut by the reach and rounded by the turn, ~190 m: not more
+    // than half a kilometre outside.
+    CHECK(worst_out < 500, "paths: shift %d, %.0f m outside the square", shift, worst_out);
     printf("  paths, shift %d: %d waypoints in %d steps, %d banked turns, %d of them the other "
            "way, %.0f m outside at most\n",
            shift, reached, steps, straight_to_turn, weaves, worst_out);
@@ -753,7 +754,7 @@ static void test_missions(void) {
       }
       if (_opponent_failed && failed_at < 0) failed_at = n;
       if (_opponent_on[0]) {
-        // Navpoint 1 on the recon, to the metre.
+        // Navpoint 1 on the recon, to the half metre.
         CHECK(flight_nav_point_x[0] == (uint16_t)(_opponent_x[0] >> 8) &&
                   flight_nav_point_y[0] == (uint16_t)(_opponent_y[0] >> 8),
               "recon: navpoint 1 at %04x %04x, the recon at %04x %04x", flight_nav_point_x[0],
@@ -802,7 +803,7 @@ static void test_missions(void) {
       if (_opponent_failed && failed_at < 0) failed_at = n;
       gone = !_opponent_on[0] + !_opponent_on[1];
       if (_opponent_on[0] && _opponent_on[1]) {
-        // Navpoint 1 midway between them, give or take the halving's metre.
+        // Navpoint 1 midway between them, give or take the halving's half metre.
         int mx = (int)((_opponent_x[0] + _opponent_x[1]) / 2 >> 8);
         int my = (int)((_opponent_y[0] + _opponent_y[1]) / 2 >> 8);
         CHECK(abs((int16_t)(flight_nav_point_x[0] - mx)) <= 1 &&
@@ -814,15 +815,15 @@ static void test_missions(void) {
               "bombers: navpoint 1 not on the one left");
       }
       if (city_at < 0 && _opponent_on[0] && _opponent_on[1]) {
-        double dx = (_opponent_x[1] - _opponent_x[0]) / 256.0;
-        double dy = (_opponent_y[1] - _opponent_y[0]) / 256.0;
+        double dx = (_opponent_x[1] - _opponent_x[0]) / 512.0;
+        double dy = (_opponent_y[1] - _opponent_y[0]) / 512.0;
         double d = sqrt(dx * dx + dy * dy);
         close = std::min(close, d);
         far = std::max(far, d);
       }
     }
-    // 150 m and 200 m apart: 250 m, and both turn alike.
-    CHECK(close > 200 && far < 300, "bombers: %.0f-%.0f m apart on the way in", close, far);
+    // 75 m and 100 m apart: 125 m, and both turn alike.
+    CHECK(close > 100 && far < 150, "bombers: %.0f-%.0f m apart on the way in", close, far);
     CHECK(fabs(city_at / 6.25 / 60 - 4.4) < 0.4, "bombers: over the city at %.1f min",
           city_at / 6.25 / 60);
     CHECK(failed_at == city_at && _msgs == 1 && !strcmp(_msg, kOpponentFailText[1]),
@@ -877,7 +878,7 @@ static void test_missions(void) {
     CHECK(_opponent_on[0] && _opponent_on[1] && !_opponent_failed && _msgs == 0,
           "scramble: an aircraft left, or the mission failed");
     // Both still low and on their lines either side of runway 1's, the
-    // second still 368 m behind the first.
+    // second still 184 m behind the first.
     for (int i = 0; i < 2; ++i)
       CHECK(_opponent_z[i] == (int32_t)0x0060 << 8 && _opponent_y[i] == (i ? 0x3F20 : 0x3FE0) << 8,
             "scramble: aircraft %d left its line at %.1f, height %.1f", i + 1,

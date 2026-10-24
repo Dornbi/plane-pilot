@@ -23,7 +23,7 @@ static const uint8_t kCloudGateLimit = 10;
 static const uint8_t kCloudJitterShift = 7;
 
 // Blob diameter (§3.1), deck altitude (§2.6) and the half-basis the group
-// offsets are counted in (§2.5), all in 2 m units.
+// offsets are counted in (§2.5), all in 1 m units.
 static const uint8_t kCloudBlobU = 96;
 static const int16_t kCloudDeckU = 700;
 static const uint8_t kCloudOffsetU = 32;

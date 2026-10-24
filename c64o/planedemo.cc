@@ -92,7 +92,7 @@ static const mat3_t kPresets[6] = {
 };
 
 static mat3_t _target;
-static uint16_t _distance;       // metres
+static uint16_t _distance;       // half metres
 static bool _spin, _approach;
 static int8_t _approach_dir;
 static uint8_t _rotations;       // since the last orthonormalisation
@@ -272,7 +272,7 @@ int main(void) {
     _animate();
 
     // The camera looks along +x, so the aircraft straight ahead is at
-    // (distance, 0, 0), in quarter metres, and camera space is world space.
+    // (distance, 0, 0), in eighth metres, and camera space is world space.
     vec3_t c = make_vector((int16_t)(_distance << 2), 0, 0);
     uint8_t *back = kSpriteBase + ((uint16_t)(_front ^ 1) << 8);
     planes_frame_t frame;

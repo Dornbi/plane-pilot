@@ -195,11 +195,11 @@ uint8_t flight_num_nav_points = 0;
 // already at the head.
 //
 // The conversion is map.md section 4's: flight_eye_* is 24.8 fixed point
-// metres, so >> 16 gives 256-metre world units; + 4 centres cells on
+// half metres, so >> 16 gives 128-metre world units; + 4 centres cells on
 // multiples of 8; and the complement applies the map's 180 degree rotation.
 // x selects the row and y the column, and y is halved because a horizontal
 // map pixel spans two world units -- which is exactly what makes the map
-// square on screen at 256 m per pixel on both axes.
+// square on screen at 128 m per pixel on both axes.
 //
 // Comparing against the single most recent entry is enough to keep the path
 // connected; see kFlightPathLen in flight.h.

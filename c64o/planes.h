@@ -49,8 +49,8 @@ static const uint8_t kPlaneKnModel = 64;
 
 // The largest kmax that never needs more than two sprites. Measured by a sweep
 // of every attitude in 2.5 degree steps, hysteresis carried from one attitude
-// to the next: two hold up to 90, about 91 m, and 92 needs four. Two below
-// that for margin, which freezes the size at about 93 m.
+// to the next: two hold up to 90, about 45 m, and 92 needs four. Two below
+// that for margin, which freezes the size at about 47 m.
 static const uint16_t kPlaneKMaxTwoSprites = 88;
 
 // The most vertices a frame has: the flat surfaces, the fuselage outline and
@@ -120,7 +120,7 @@ void planes_state_init(planes_state_t *state);
 
 // One aircraft, one frame.
 //
-// `c` is its position in camera space, in quarter metres, and `axes` its
+// `c` is its position in camera space, in eighth metres, and `axes` its
 // front, left and up in camera space: unit vectors in 8.8, so no component
 // reaches 512. An aircraft more than 45 degrees off the view axis, up or
 // across, is out of range -- far outside any viewport, and past where the

@@ -129,7 +129,7 @@ uint8_t selected_mission = 0;
 #ifdef __DIAG_POSE__
   flight_eye_x = 0x8D5000;
   flight_eye_y = 0x2C0000;
-  flight_eye_z = 0x057800;   // 24.8 fixed metres; >> 9 gives 2 m units
+  flight_eye_z = 0x057800;   // 24.8 fixed half metres; >> 9 gives 1 m units
   flight_speed = 0;
   flight_throttle = 0;
   flight_paused = true;

@@ -71,7 +71,7 @@ void sprites_stack_reset(void);
 // The pivot is the bitmap's own, in *sprite* pixels as spritedef.cc stores it;
 // the stack applies it, doubling pivot_x when expand_x is set (§3.3).
 //
-// depth is the camera-space forward distance in 2 m units, used only for
+// depth is the camera-space forward distance in 1 m units, used only for
 // ordering; INT16_MAX sorts an object behind everything (this is what the sun
 // passes). Returns false if the object was culled or did not fit.
 bool sprites_stack_add(int16_t depth, int16_t x, int16_t y,
@@ -505,28 +505,28 @@ more use and nothing else changes.
 
 ### 2.1. Units, and why they are the terrain's
 
-`flight_eye_*` is 24.8 fixed point in metres; `world.cc` down-shifts by 9, so
-the terrain grid works in **2 m units** and a `uint16_t` position wraps at
-131 km. Clouds use the same units.
+`flight_eye_*` is 24.8 fixed point in half metres; `world.cc` down-shifts by
+9, so the terrain grid works in **1 m units** and a `uint16_t` position wraps
+at 65.5 km. Clouds use the same units.
 
 [planes.md](planes.md) §2 argues opponents must *not*, and the argument does not
-carry over. Its problem is that an aircraft a hundred metres away turns one
-unit of rounding into 7 px of frame-to-frame jitter. A cloud is never a hundred
+carry over. Its problem is that an aircraft fifty metres away turns one
+unit of rounding into 7 px of frame-to-frame jitter. A cloud is never fifty
 metres away in a way that matters — the nearest rung of the ladder is at
-1,170 m — and at 4 km one 2 m unit is 0.13 px. Two metres is plenty.
+585 m — and at 2 km one 1 m unit is 0.13 px. A metre is plenty.
 
 ### 2.2. The cell grid
 
-The world map is 16 × 32 tiles of 1024 units (2,048 m), wrapping
+The world map is 16 × 32 tiles of 1024 units (1,024 m), wrapping
 ([world.h](../c64o/world.h)). Clouds use a grid **two map tiles on a side**:
 
 | | Value |
 | :--- | ---: |
-| Cloud cell | 2048 units = 4,096 m |
+| Cloud cell | 2048 units = 2,048 m |
 | Cells in the world | 8 × 16 = 128 |
 | Cell index | `(mx >> 11) & 7`, `(my >> 11) & 15` |
 | Scan | 5 × 5 cells around the eye |
-| Guaranteed scan radius | 2 × 2048 = 4096 units = **8,192 m** |
+| Guaranteed scan radius | 2 × 2048 = 4096 units = **4,096 m** |
 
 The scan radius and the cull radius have to be **the same number**, and this is
 the constraint that sets the cell size. A group found outside the guaranteed
@@ -666,13 +666,13 @@ which is enough variety for something you see one of at a time.
 
 The `½ez` on the third blob is a deliberate small departure from "all at the
 same altitude": a purely horizontal triple reads as a row of dots from the
-side. At `kCloudOffsetU = 32` units the lift is 32 m, which is a bump on top of
+side. At `kCloudOffsetU = 32` units the lift is 16 m, which is a bump on top of
 the group, not a second deck.
 
 **`kCloudOffsetU = 32` units, and it was 48 until phase 7 was flown.** The
 constant used to be derived as "half a blob diameter", which sounds right and
 is not: the coefficients count *halves* of it, so blobs A and B of every
-pattern sat four half-steps — one whole 192 m diameter — apart. Two circles
+pattern sat four half-steps — one whole 96 m diameter — apart. Two circles
 exactly one diameter apart are tangent. They touch at a point and read as
 separate lumps from every heading that spreads them, which is what the first
 phase-7 build looked like. At 32 the furthest pair is 64 units, **0.67 of a
@@ -689,12 +689,12 @@ whether it reads as one cloud is whichever one the current heading spreads
 widest, not the closest one.
 
 **All three blobs of a group share one ladder rung**, chosen from the group
-centre's depth (§3.2). They are within 100 m of each other at a range of
+centre's depth (§3.2). They are within 50 m of each other at a range of
 kilometres, so computing three rungs would produce the same answer three times.
 
 ### 2.6. Deck altitude
 
-**`kCloudDeckU = 700` units = 1,400 m**, one constant, no per-group variation.
+**`kCloudDeckU = 700` units = 700 m**, one constant, no per-group variation.
 
 This is the decision the whole feature turns on, and the reason is the
 viewport, not meteorology. The viewport is 320 × 112 screen pixels and
@@ -706,33 +706,33 @@ from the eye's by Δz only enters the viewport once
 D > 256 · Δz / 56  =  4.57 · Δz
 ```
 
-Since the cull is at 8,192 m, a deck is only ever visible where
-`Δz < 8192 / 4.57 = 1,793 m`. That is the whole budget, and it is what stops
+Since the cull is at 4,096 m, a deck is only ever visible where
+`Δz < 4096 / 4.57 = 896 m`. That is the whole budget, and it is what stops
 the deck being placed wherever a meteorologist would want it: put it far enough
 from the aircraft and it is not a feature you rarely see, it is a feature you
 never see.
 
 The band to centre it on comes from the flight model, not from taste.
-`kMissionStartZ` is in units of 256 m and takes the values 0, 1, 2 and 4, so
-missions begin on the ground, at 512 m or — most of them — at **1,024 m**;
-`flight.cc` starts thinning the air at **2,048 m**, which is the practical
-ceiling. So the aircraft lives in roughly 0 – 2,000 m, and 1,400 m sits above
+`kMissionStartZ` is in units of 128 m and takes the values 0, 1, 2 and 4, so
+missions begin on the ground, at 256 m or — most of them — at **512 m**;
+`flight.cc` starts thinning the air at **1,024 m**, which is the practical
+ceiling. So the aircraft lives in roughly 0 – 1,000 m, and 700 m sits above
 every start altitude while staying inside the Δz budget from all of them:
 
 | Eye altitude | Δz | Deck enters the viewport beyond | Nearest rung reached |
 | ---: | ---: | ---: | :--- |
-| 100 m | 1,300 m | 6.4 km | 0 — specks near the horizon |
-| 512 m | 888 m | 4.1 km | 1 |
-| 1,024 m | 376 m | 1.7 km | 5 |
-| 1,536 m | −136 m | 0.6 km | 9, and below the horizon |
-| 2,048 m | −648 m | 3.0 km | 2, below the horizon |
+| 50 m | 650 m | 3.2 km | 0 — specks near the horizon |
+| 256 m | 444 m | 2.05 km | 1 |
+| 512 m | 188 m | 0.85 km | 5 |
+| 768 m | −68 m | 0.3 km | 9, and below the horizon |
+| 1,024 m | −324 m | 1.5 km | 2, below the horizon |
 
 so you take off under a distant deck, climb into it, and cross above it near
 the ceiling.
 
-**This was 700 m until the phase 5 build was flown.** The original reasoning
+**This was 350 m until the phase 5 build was flown.** The original reasoning
 was right about the geometry and wrong about the aircraft: it assumed a
-100 – 700 m operating band and never checked `kMissionStartZ`, so it centred
+50 – 350 m operating band and never checked `kMissionStartZ`, so it centred
 the deck on altitudes the plane passes through in the first few seconds. On
 screen every cloud sat *below* the horizon, over the terrain. The lesson is
 narrow but worth keeping — the viewport constraint tells you how wide the band
@@ -759,7 +759,7 @@ diameter:
 
 `w = 3` at `D = 4096` gives `S = 3 · 4096 / 128 = 96` units, so:
 
-**`kCloudBlobU = 96` units = 192 m diameter**, a group about 400 m across —
+**`kCloudBlobU = 96` units = 96 m diameter**, a group about 200 m across —
 a fair-weather cumulus.
 
 ### 3.2. Rung selection is a compare chain, not a divide
@@ -768,7 +768,7 @@ Because `S` is a constant, the rung is a pure function of depth, and the
 thresholds are constants:
 
 ```c
-// Largest camera-space depth (2 m units) at which each rung still applies.
+// Largest camera-space depth (1 m units) at which each rung still applies.
 // kCloudRungDepth[i] = 128 * kCloudBlobU / (3 + 2 * i)
 static const int16_t kCloudRungDepth[10] = {
     4096, 2458, 1755, 1365, 1117, 945, 819, 723, 647, 585 };
@@ -776,16 +776,16 @@ static const int16_t kCloudRungDepth[10] = {
 
 | Rung | World px | Screen px | Depth ≤ | Distance |
 | ---: | ---: | ---: | ---: | ---: |
-| 0 | 3 × 5 | 6 × 5 | 4096 | 8,192 m |
-| 1 | 5 × 9 | 10 × 9 | 2458 | 4,915 m |
-| 2 | 7 × 13 | 14 × 13 | 1755 | 3,511 m |
-| 3 | 9 × 17 | 18 × 17 | 1365 | 2,731 m |
-| 4 | 11 × 21 | 22 × 21 | 1117 | 2,234 m |
-| 5 | 13 × 25 | 26 × 25 | 945 | 1,890 m |
-| 6 | 15 × 29 | 30 × 29 | 819 | 1,638 m |
-| 7 | 17 × 33 | 34 × 33 | 723 | 1,446 m |
-| 8 | 19 × 37 | 38 × 37 | 647 | 1,293 m |
-| 9 | 21 × 41 | 42 × 41 | 585 | 1,170 m |
+| 0 | 3 × 5 | 6 × 5 | 4096 | 4,096 m |
+| 1 | 5 × 9 | 10 × 9 | 2458 | 2,458 m |
+| 2 | 7 × 13 | 14 × 13 | 1755 | 1,755 m |
+| 3 | 9 × 17 | 18 × 17 | 1365 | 1,365 m |
+| 4 | 11 × 21 | 22 × 21 | 1117 | 1,117 m |
+| 5 | 13 × 25 | 26 × 25 | 945 | 945 m |
+| 6 | 15 × 29 | 30 × 29 | 819 | 819 m |
+| 7 | 17 × 33 | 34 × 33 | 723 | 723 m |
+| 8 | 19 × 37 | 38 × 37 | 647 | 647 m |
+| 9 | 21 × 41 | 42 × 41 | 585 | 585 m |
 
 ```c
 if (depth > kCloudRungDepth[0]) return;      // beyond the cull
@@ -802,7 +802,7 @@ edge of the frame is therefore up to 18% oversized. Using the true range would
 cost a square root; the error is a size the eye has nothing to compare against,
 so `x` it is.
 
-Inside 1,170 m the rung clamps and the cloud stops growing, the same device as
+Inside 585 m the rung clamps and the cloud stops growing, the same device as
 [planes.md](planes.md) §4's size cap — cropping a cloud would show the middle
 of a cloud.
 
@@ -1221,7 +1221,7 @@ dominant term when nothing is visible is the 25 hash gates, which is the price
 of the wide scan radius §2.2 argues for.
 
 **The wedge reject is why the table above still holds at three blobs.** The box
-cull of §2.2 is on the world axes and keeps everything within 8.2 km on each
+cull of §2.2 is on the world axes and keeps everything within 4.1 km on each
 axis, but the viewport is a ±32° wedge, so roughly four fifths of what survives
 the box is off to the side. Under phase 5 that cost one `vec_project` each;
 under phase 6 it would cost three, plus the offset adds — around 1,700 cycles
@@ -1319,7 +1319,7 @@ and *clumpy* are different things, and random is clumpy: a Poisson scatter puts
 pairs of groups almost on top of each other and leaves holes between them, which
 reads as an uneven sky rather than a quiet one. The first tables shipped here did
 exactly that — 8 groups in the left half of the world against 12 in the right,
-two adjacent empty columns, and a closest pair at 2.9 km against 10.4 km if
+two adjacent empty columns, and a closest pair at 1.45 km against 5.2 km if
 uniform.
 
 `world.cc` already solves this for the terrain dots, with *"Mitchell's
@@ -1465,7 +1465,7 @@ whether a handler touches oscar64's runtime zero page (§1.4 — that is
   from operation counts, exactly the kind of estimate
   [sprite_objects.md](sprite_objects.md) §8 asks to be measured before it is
   treated as settled;
-- fly a full circle at deck altitude (1,400 m) and confirm nothing flickers at
+- fly a full circle at deck altitude (700 m) and confirm nothing flickers at
   cell boundaries — the §2.2 failure mode;
 - check the panel band is clean with a large cloud straddling raster 161: the
   `$D01D` clear (§1.4) is the thing being tested and its failure is 24 pixels of
@@ -1531,13 +1531,13 @@ later reader can see what was considered.
   Ship the independent per-blob snap; build the rigid-group version only if a
   screenshot demands it. It is one subtraction per blob and can be added
   without disturbing anything else.
-- ~~**Is 700 m the right deck (§2.6)?**~~ **Answered by flying it — no, and it
-  is now 1,400 m.** The prediction that this was cheap to change held: one
+- ~~**Is 350 m the right deck (§2.6)?**~~ **Answered by flying it — no, and it
+  is now 700 m.** The prediction that this was cheap to change held: one
   constant in `generate_clouds.py`, and the regenerated `clouddef.cc` is byte
   for byte the old one, because the blue-noise layout does not depend on
   altitude. See §2.6 for the corrected derivation.
 - ~~**Should the group's third blob keep its `½ez` lift (§2.5)?**~~
-  **Answered — keep it.** 48 m of lift is what stops a group reading as a row
+  **Answered — keep it.** 24 m of lift is what stops a group reading as a row
   of dots from the side.
 - ~~**The 4:1 vertical granularity mismatch**
   ([sprite_objects.md](sprite_objects.md) §3).~~ **Answered — the premise is

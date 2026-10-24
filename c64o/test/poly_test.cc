@@ -545,7 +545,7 @@ static void test_distant_polygons_stay_accurate() {
 }
 
 // 6. The same shape check, at the altitude and grid radius mission 4 flies
-// at: a kilometre up, where world.cc widens the grid to radius 4 and cell
+// at: half a kilometre up, where world.cc widens the grid to radius 4 and cell
 // corners reach four thousand units from the eye. This is where the wrapped
 // intersection showed up in flight, and the low sweep never went near it.
 static void test_high_altitude_sweep() {

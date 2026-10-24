@@ -3684,7 +3684,7 @@ static void test_flight_path_pixel_cell_agreement() {
 // The path is stored as bare points with no line drawing between them, which
 // is only correct if consecutive samples are always neighbours -- including
 // diagonally, since one step passing near a cell corner can cross a row and a
-// column boundary at once. That rests on the aircraft covering at most 256 m
+// column boundary at once. That rests on the aircraft covering at most 128 m
 // per step, so fly it at kMaxSpeed -- the worst case -- in a variety of
 // directions and check every append.
 static void test_flight_path_samples_are_connected() {

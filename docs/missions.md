@@ -13,9 +13,9 @@ See [project.md](project.md) for the surrounding architecture and
 
 | Quantity | Stored as | One unit is |
 | --- | --- | --- |
-| Position `x`, `y` | `flight_eye_* >> 16` | 256 m — one **world unit**; a map cell is 8 of them |
-| Altitude `z` | `flight_eye_z` | `0x020000` = 1000 ft, ground is `0x2000` |
-| Airspeed | `flight_speed` | `0x0800` is trim speed, `0x0400` the clean stall |
+| Position `x`, `y` | `flight_eye_* >> 16` | 128 m — one **world unit**; a map cell is 8 of them, 1,024 m |
+| Altitude `z` | `flight_eye_z` | `0x020000` = 1000 ft (256 m, so the altimeter's foot is ~0.26 m), ground is `0x2000` |
+| Airspeed | `flight_speed` | `0x0800` is trim speed, `0x0400` the clean stall; 256 is 1 m per model step, so at ~7 steps a second the stall is ~100 km/h |
 | Fuel | `flight_fuel` | burns `flight_throttle` per model step |
 
 The world wraps, and not with the same period on both axes: `kWorldMap` is 16
@@ -54,12 +54,12 @@ actually used, which is the more honest number and still not an optimal pilot.
 | # | Title | Objective | Start | Distance | Ideal fuel | Flown | Time |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 01 | Airborne | Climb to 1000 ft | Runway 1, parked | — | — | 6% | 1 min |
-| 02 | Getting Down | Land on runway 1 | On final, 1000 ft, 4 km out | 16 u | 3% | 2% | 1 min |
+| 02 | Getting Down | Land on runway 1 | On final, 1000 ft, 2 km out | 16 u | 3% | 2% | 1 min |
 | 03 | Solo Flight | Climb to 1000 ft, then land | Runway 1, parked | 4 u | 1% | 65% | 9–15 min |
-| 04 | Find the Runway | Find runway 1 and land | 2000 ft, 9 km away | 36 u | 7% | 9% | 3 min |
+| 04 | Find the Runway | Find runway 1 and land | 2000 ft, 4.5 km away | 36 u | 7% | 9% | 3 min |
 | 05 | Ferry Flight | Runway 1 to runway 2 | Runway 1, parked | 145 u | 27% | 35% | 8 min |
 | 06 | Lake Patrol | Three lakes, then land on runway 2 | 2000 ft, airborne | 211 u | 39% | 40% | 9 min |
-| 07 | Airshow | Low inverted pass over runway 2, then land | 2000 ft, 8 km out | 32 u | 6% | 40% | 11 min |
+| 07 | Airshow | Low inverted pass over runway 2, then land | 2000 ft, 4 km out | 32 u | 6% | 40% | 11 min |
 | 08 | Aerial Recon | Three cities above 3000 ft, then land | 2000 ft, airborne | 249 u | 46% | 50% | 10 min |
 | 09 | Crop Duster | Three fields below 250 ft, then land | 500 ft, airborne | 172 u | 32% | 27% | 6 min |
 | 10 | Fuel Challenge | Reach runway 2 and land | 2000 ft, tank at `0x05` | 50 u | **62%** | 77% | 4 min |

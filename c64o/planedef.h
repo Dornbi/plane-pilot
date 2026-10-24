@@ -9,7 +9,7 @@
 #define __striped
 #endif
 
-// The model, in eighths of a metre at the exaggeration, as shared products:
+// The model, in sixteenths of a metre at the exaggeration, as shared products:
 // every distinct magnitude is multiplied by k once, and every (axis,
 // magnitude) pair by the two screen components of its axis once.
 static const uint8_t kPlaneMagCount = 16;

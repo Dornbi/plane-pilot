@@ -25,10 +25,10 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # --- The four numbers, and what follows from them ---------------------------
 #
-# Units are the terrain grid's: 1 unit = 2 m, because world.cc down-shifts
+# Units are the terrain grid's: 1 unit = 1 m, because world.cc down-shifts
 # flight_eye_* by 9. See docs/clouds.md §2.1.
 
-CELL_U = 2048           # §2.2  cloud cell, 4096 m on a side
+CELL_U = 2048           # §2.2  cloud cell, 2048 m on a side
 CELL_SHIFT = 11         #       cell index = position >> 11
 CELLS_X = 8             #       the world is 16 map tiles across in X ...
 CELLS_Y = 16            #       ... and 32 in Y, and a cell is two tiles
@@ -39,10 +39,10 @@ GATE_LIMIT = 10         #       a cell carries a group when (ha & GATE_BITS) < t
                         #       than the power-of-two steps a mask gives.
 TARGET_CELLS = 38       # §2.4  how many of the 128 cells should carry a group.
                         #       Twice the 19 the first tuning pass settled on.
-BLOB_U = 96             # §3.1  blob diameter, 192 m
-OFFSET_U = 32           # §2.5  group offset step, 64 m
+BLOB_U = 96             # §3.1  blob diameter, 96 m
+OFFSET_U = 32           # §2.5  group offset step, 32 m
 OVERLAP_MAX = 0.75      # §2.5  furthest two blobs, as a share of BLOB_U
-DECK_U = 700            # §2.6  cloud deck altitude, 1400 m
+DECK_U = 700            # §2.6  cloud deck altitude, 700 m
 JITTER_SHIFT = 7        # §2.3  a 4-bit jitter nibble scaled to the cell
 
 RUNG_COUNT = 10         # §3.2  ladder widths 3, 5, 7 .. 21 world pixels
@@ -464,7 +464,7 @@ def write_header(path, seed):
 
         f.write("// Blob diameter (§3.1), deck altitude (§2.6) and the "
                 "half-basis the group\n// offsets are counted in (§2.5), all "
-                "in 2 m units.\n")
+                "in 1 m units.\n")
         f.write("static const uint8_t kCloudBlobU = %d;\n" % BLOB_U)
         f.write("static const int16_t kCloudDeckU = %d;\n" % DECK_U)
         f.write("static const uint8_t kCloudOffsetU = %d;\n\n" % OFFSET_U)
@@ -526,8 +526,8 @@ def write_source(path, tables):
                 "// selection is a compare chain and never a divide (§3.2):\n")
         for i, d in enumerate(depths):
             w = 3 + 2 * i
-            f.write("//   rung %d: %2d x2 world px, out to %5d units (%5d m)\n"
-                    % (i, w, d, d * 2))
+            f.write("//   rung %d: %2d x2 world px, out to %5d m\n"
+                    % (i, w, d))
         f.write("__striped const int16_t kCloudRungDepth[kCloudRungCount] = {\n%s\n};\n\n"
                 % _rows(depths, 5))
 

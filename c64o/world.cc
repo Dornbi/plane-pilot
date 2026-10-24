@@ -150,9 +150,9 @@ static __noinline int16_t _world_init_axis(uint8_t axis, int16_t grid_spacing) {
 
 void _world_init_start_dx_dy() {
   static const uint16_t kGridSpacing = 0x400;
-  // kMinHeight (  ~32m) = 0x002000  5 --> 2
-  // default    ( ~128m) = 0x008000  7 --> 3
-  //            ( ~512m) = 0x020000  9 --> 4
+  // kMinHeight (  ~16m) = 0x002000  5 --> 2
+  // default    (  ~64m) = 0x008000  7 --> 3
+  //            ( ~256m) = 0x020000  9 --> 4
   _world_grid_radius = _get_msb(flight_eye_z >> 9) >> 1;
   if (_world_grid_radius < 2) {
     _world_grid_radius = 2;

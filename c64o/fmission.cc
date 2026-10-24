@@ -65,10 +65,10 @@ const char *const kMissionDesc[kMissionCount] = {
 
 // Where each starts: close enough to its targets that they are on screen,
 // if only as the dot, within 10 s of flying straight on - 20 s of the
-// lift-off in 02 - and within 2 km inside ~90 s (test/mission_test.cc). 01
+// lift-off in 02 - and within 1 km inside ~90 s (test/mission_test.cc). 01
 // and 03 in the air at cruise - throttle 18, whose level trim is ~2,170
-// (0x88 << 4). 01 at 2,500 ft heading north, 9 km south of the north edge,
-// under the recon's way in; 03 at 1,000 ft heading east, 3.6 km west of the
+// (0x88 << 4). 01 at 2,500 ft heading north, 4.5 km south of the north edge,
+// under the recon's way in; 03 at 1,000 ft heading east, 1.8 km west of the
 // parked aircraft at runway 2, midway between them. 02 and 04 scramble: on
 // runway 1 heading north, engine at idle, the bombers coming south towards
 // it in 02, the bandits already about in 04.
@@ -115,7 +115,7 @@ const uint8_t kMissionStartThrottle[kMissionCount] = {
 };
 
 // About 15 minutes at full throttle. The longest way home, from runway 2 in
-// 03, is ~37 km: ~40,000 of the 139,000 at a cruise of throttle 18.
+// 03, is ~18 km: ~40,000 of the 139,000 at a cruise of throttle 18.
 const uint8_t kMissionStartFuel[kMissionCount] = {
     0x22, // 01
     0x22, // 02

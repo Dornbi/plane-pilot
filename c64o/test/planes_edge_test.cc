@@ -270,7 +270,7 @@ static const int kEdgeTurn = 4;
 
 // The most the ink may grow or shrink in one 0.5% step: by 4 pixels, or by
 // 2.5 times. That much is the model's own quantisation - each magnitude
-// rounds to its first whole pixel at one scale, and at k 22, ~370 m, the
+// rounds to its first whole pixel at one scale, and at k 22, ~185 m, the
 // fuselage's radius does: the body goes from a line to three pixels wide, and
 // nose- or tail-on the end-on disc appears, at once. lib/planes.py does the
 // same. Anything larger is a part popping in or out.
@@ -284,7 +284,7 @@ static void sweep(const attitude_t &a, int off_x, int off_y, const planes_view_t
   mat3_t axes = axes_for(a);
   plane_t p;
   p.init();
-  // 2,000 m in, past the dot's limit, to 40 m out, well inside the cap; then
+  // 1,000 m in, past the dot's limit, to 20 m out, well inside the cap; then
   // back out.
   std::vector<int> range;
   for (double x = 8000; x > 160; x *= 0.995) range.push_back((int)x);

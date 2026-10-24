@@ -72,7 +72,7 @@ Three places where this document supersedes or corrects it:
 
 | `sprite_objects.md` | Here |
 | :--- | :--- |
-| §0 "never expand along Y", as an absolute rule | Near opponents are the exception: Y as well as X, when a close aircraft is too tall for two sprites — steeply banked, inside ~100 m (§4). Clouds are not. |
+| §0 "never expand along Y", as an absolute rule | Near opponents are the exception: Y as well as X, when a close aircraft is too tall for two sprites — steeply banked, inside ~50 m (§4). Clouds are not. |
 | §6.2 proposes 6–8 pre-rendered airframe bitmaps | Superseded — aircraft carry one 64-byte block, the far-tier dot (§1). |
 | §5 measures 8 objects against a 19,705-cycle PAL frame and concludes it does not fit | Wrong denominator; the pipeline runs once per *sim* frame, ~98,500 cycles (§11). |
 
@@ -104,7 +104,7 @@ The feature is therefore code plus scratch RAM, not art.
 
 The first version drew three strokes — nose→tail, tip→tip, tail→fin — each
 thickened by a 1 / 2 / 4 pixel ladder, into at most 1 × 2 X-expanded sprites
-that froze at 46 px from about 93 m. Three things moved it:
+that froze at 46 px from about 47 m. Three things moved it:
 
 - **Strokes read as a cross.** From above, from below and banked, three lines
   are a `+` with an offset, and at knife-edge a bare `+`. Filled plates show
@@ -122,7 +122,7 @@ that froze at 46 px from about 93 m. Three things moved it:
   staircase. A silhouette whose weight is carried by its area does not, and a
   2 × 2 sprite pixel is exactly the terrain's 2 × 2 dot. Y-expansion is also
   the only way four sprites hold more than 42 lines, so it is what lets the
-  aircraft freeze at **79 px from 54 m** instead of 46 px from 93 m (§4).
+  aircraft freeze at **79 px from 27 m** instead of 46 px from 47 m (§4).
 
 The price is cycles: roughly twice the stroke design's at close range (§11).
 
@@ -155,49 +155,51 @@ An object of size `S` at distance `D` therefore spans
 pixels = 256 · S / D
 ```
 
-**Opponents are drawn 1.5× oversize**, so an 11 m Cessna spans 16.5 m on screen.
-*fpilot has since gone further, to ~55 m (§13, "Three missions, then four"): beside a
-256 m runway 16.5 m was too small. The distances below are the model's.*
-At true scale a plane is under 4 px beyond 700 m, which is most of any
-encounter — it would be a dot for the whole approach and only become an
-aircraft in the last two seconds. The exaggeration buys back a factor of 1.5 in
-every distance below, at the cost of realism, and an opponent that cannot be
-identified is not worth drawing.
+**Opponents were drawn 1.5× oversize**: an 11 m Cessna spanning 16.5 m, on
+the scale of the time. *Since 2026-10-24 a world unit is 128 m rather than 256
+([map.md](map.md) §4, "The scale"), so the same model is 8.25 m across and
+every distance below is half what it was; and fpilot draws its opponents at
+~27 m (§13, "Three missions, then four"): beside a 128 m runway 8.25 m was too
+small. The distances below are the model's.* At true scale a Cessna is under
+4 px beyond 700 m, which is most of any encounter — it would be a dot for the
+whole approach and only become an aircraft in the last two seconds. Drawing it
+bigger buys back every distance below, at the cost of realism, and an opponent
+that cannot be identified is not worth drawing.
 
-| Span on screen | Distance | Time to close at 50 m/s |
+| Span on screen | Distance | Time to close at 25 m/s |
 | ---: | ---: | ---: |
-| 1 px  | 4224 m | past the 4 km cull |
-| 4 px  | 1056 m | 21 s |
-| 24 px |  176 m | 3.5 s |
-| 48 px |   88 m | 1.8 s |
-| 78 px |   54 m | 1.1 s |
+| 1 px  | 2112 m | past the 2 km cull |
+| 4 px  | 528 m | 21 s |
+| 24 px |  88 m | 3.5 s |
+| 48 px |   44 m | 1.8 s |
+| 78 px |   27 m | 1.1 s |
 
-Below about **54 m** the aircraft stops growing, and beyond about a kilometre
+Below about **27 m** the aircraft stops growing, and beyond about half a kilometre
 it is a fixed dot — both in §4. The band where the silhouette actually changes
-shape is therefore roughly 55 m to 1 km, and **the dot is still the common
+shape is therefore roughly 27 m to 500 m, and **the dot is still the common
 case**, which is why it gets a static bitmap rather than a rasterised one.
 
 ### Opponents do not use the terrain's units
 
-`flight_eye_*` is 24.8 fixed point in metres and `world.cc` down-shifts by 9,
-so the terrain grid works in **2 m units**. Opponents must not: the grid needs
-kilometres of range and can afford metres of slop, while an aircraft a hundred
-metres away needs the opposite.
+`flight_eye_*` is 24.8 fixed point in half metres and `world.cc` down-shifts
+by 9, so the terrain grid works in **1 m units**. Opponents must not: the grid
+needs kilometres of range and can afford a metre of slop, while an aircraft
+fifty metres away needs the opposite.
 
-At 100 m and a few degrees off the nose, a lateral offset is only a handful of
-2 m units, so one unit of rounding is a large fraction of it — and the
+At 50 m and a few degrees off the nose, a lateral offset is only a handful of
+1 m units, so one unit of rounding is a large fraction of it — and the
 projected centre is a ratio, so the error lands directly on screen. Measured
-over a closing sweep from 400 m to 60 m:
+over a closing sweep from 200 m to 30 m:
 
 | Relative-position unit | Worst frame-to-frame jump of the projected centre |
 | :--- | ---: |
-| 2 m, as the terrain grid uses | 7 px |
-| **¼ m** | **1 px** |
+| 1 m, as the terrain grid uses | 7 px |
+| **⅛ m** | **1 px** |
 
-A quarter metre reaches 4 km inside an int16 (16,000 units), which is beyond
+An eighth of a metre reaches 2 km inside an int16 (16,000 units), which is beyond
 the range cull, so it costs nothing but a different shift: `>> 6` instead of
 `>> 9`. Since the pixel formula is a ratio of two lengths it is otherwise
-unaffected. *fpilot has since added a far range, 4-8 km, in whole metres (§13,
+unaffected. *fpilot has since added a far range, 2-4 km, in half metres (§13,
 "Three missions, then four"): the ratio is why that costs nothing either.*
 
 ---
@@ -207,15 +209,15 @@ unaffected. *fpilot has since added a far range, 4-8 km, in whole metres (§13,
 Per plane, per frame:
 
 1. **Relative position.** `P = target_world − flight_eye`, three 32-bit
-   subtractions, then `>> 6` to **quarter-metre** units (int16) — not the
+   subtractions, then `>> 6` to **eighth-metre** units (int16) — not the
    terrain's `>> 9`. See §2.
 2. **Cheap world-space reject** before spending a transform, per
    [sprite_objects.md](sprite_objects.md) §5.1: sign of `front · P` plus a
    Manhattan distance bound, roughly three multiplies.
 3. **To camera space.** `vec_transform_inv(&world_cam, &P, &C)` — 9 multiplies,
    already exists.
-4. **Cull.** `C.x <= 64` (16 m — behind or on top of the camera) → skip.
-   Range cull at `C.x > 16000` (4 km) → skip, and at `|C.y|` or `|C.z| >= C.x`
+4. **Cull.** `C.x <= 64` (8 m — behind or on top of the camera) → skip.
+   Range cull at `C.x > 16000` (2 km) → skip, and at `|C.y|` or `|C.z| >= C.x`
    — more than 45° off the axis, far outside any viewport, as `vec_project`
    culls; it is also where the centre's exact division stops being a
    fraction (step 5). Cull if the sprite would land
@@ -225,8 +227,8 @@ Per plane, per frame:
    C.x)`, exactly: `vec_fracn(C.y, C.x, 8)`, the restoring division behind
    `vec_frac16` stopped after eight quotient bits.
 6. **Perspective scale.** `k = 32768 / C.x`, exactly: `vec_fracn(64, C.x, 9)`. Model
-   offsets are in eighths of a metre and `C.x` in quarters, so
-   `px = 256·(O/8)/(C.x/4) = O·k/256`. Then **clamp**: `k = min(k, kMax)`
+   offsets are in sixteenths of a metre and `C.x` in eighths, so
+   `px = 256·(O/16)/(C.x/8) = O·k/256`. Then **clamp**: `k = min(k, kMax)`
    — see §4.
 7. **Pixel size.** `d = R·k/128`, the aircraft's unforeshortened diameter in
    pixels, picks the level of §4. **The dot level stops here**: it needs no
@@ -268,9 +270,10 @@ Per plane, per frame:
 
 ### The model
 
-A Cessna 172's size — 11 m span, 8.3 m long — with a low, lightly tapered
-wing, which is the shape of a Piper Warrior. In eighths of a metre at the 1.5×
-exaggeration, about the fuselage centre — `(fore, left, up)`:
+A Cessna 172's proportions — 11 m span, 8.3 m long — with a low, lightly
+tapered wing, which is the shape of a Piper Warrior. In sixteenths of a metre,
+about the fuselage centre, at 0.75 of a Cessna's size (1.5× on the old 256 m
+scale, §2) — `(fore, left, up)`:
 
 | Part | Vertices | From |
 | :--- | :--- | :--- |
@@ -340,15 +343,16 @@ octagonal norm, `hi + lo/2`, is up to 12% long, which would have narrowed the
 fuselage by that much at some angles; the second term costs three
 instructions.
 
-### Why ⅛ m model units
+### Why 1/16 m model units
 
-A Cessna's half-span is 5.5 m. In 2 m render units that is 2.75 — rounding it
-to 3 is a 9% error in wingspan. Storing model offsets in ⅛ m keeps the half
-span at 66 even at 1.5×, comfortably int8, and `k` absorbs the unit change.
+The model's half-span is 4.1 m. In the terrain's 1 m units that is 4 — and
+rounding a half-span to whole metres is up to a 12% error in wingspan. Storing
+model offsets in 1/16 m keeps the half span at 66, comfortably int8, and `k`
+absorbs the unit change.
 
-Check: `C.x = 400` quarter-metres (100 m) → `k = 32768/400 = 81`;
+Check: `C.x = 400` eighth-metres (50 m) → `k = 32768/400 = 81`;
 `(fmul(132, 81) + 1) >> 1 = 21` px half-span, 42 px across. Direct formula:
-`256 · 16.5 / 100 = 42`. ✓
+`256 · 8.25 / 50 = 42`. ✓
 
 ---
 
@@ -366,18 +370,18 @@ projected vertex lies within `R·k/256` pixels of the projected hub whatever the
 attitude, so `d` bounds the silhouette in both axes at once, and it is a
 function of distance and the model only.
 
-| Level | `d` | Default model at 1.5× | Pixel | Layouts | Sprites |
+| Level | `d` | Default model (8.25 m) | Pixel | Layouts | Sprites |
 | :--- | ---: | :--- | :--- | :--- | :---: |
-| dot | ≤ 3 | beyond 1,024 m | — | the static block | 1 |
-| 1:1 | ≤ 21 | 195 m – 1 km | 1 × 1 | 1 × 1, 1 × 2 | 1–2 |
-| X | ≤ 80 | inside 195 m, frozen inside 54 m | 2 × 1, or 2 × 2 when tall | 1 × 1 up to 2 × 2 | 1–4 |
+| dot | ≤ 3 | beyond 512 m | — | the static block | 1 |
+| 1:1 | ≤ 21 | 98 m – 500 m | 1 × 1 | 1 × 1, 1 × 2 | 1–2 |
+| X | ≤ 80 | inside 98 m, frozen inside 27 m | 2 × 1, or 2 × 2 when tall | 1 × 1 up to 2 × 2 | 1–4 |
 
 Those are the distances going in. Coming out, each level is held until `d`
-falls below 87% of its limit — 228 m and 1,366 m.
+falls below 87% of its limit — 114 m and 683 m.
 
 **Why distance and not the box.** The stroke design picked X-expansion from
 the bounding-box width, so the pixel size changed while the aircraft rotated:
-at 120 m and 10° off nose-on it was X-expanded up to 40° of bank and 1:1 from
+at 60 m and 10° off nose-on it was X-expanded up to 40° of bank and 1:1 from
 50°. That is the artefact the stroke design had already written a rule against
 for line weight — "a bbox-driven ladder changes stroke weight while the
 aircraft rotates, which reads as a glitch" — applied to the one thing it had
@@ -405,9 +409,9 @@ How late that is, for the default model, at the worst heading:
 | :--- | ---: | ---: |
 | Level, pitched to 30°, seen from 20° above or below | never | 15–31 lines |
 | Banked 30° | never | 38 lines |
-| Banked 40° | 64 m | 50 lines |
-| Banked 60° | 85 m | 66 lines |
-| Knife-edge | 102 m | 78 lines |
+| Banked 40° | 32 m | 50 lines |
+| Banked 60° | 43 m | 66 lines |
+| Knife-edge | 51 m | 78 lines |
 
 An opponent in level flight, climbing, descending or in a gentle turn is
 never
@@ -418,10 +422,10 @@ attitude, so a close aircraft rolling past ~35–40° of bank changes vertical
 resolution mid-roll, and rolling back out changes it again (with the
 hysteresis, below 35 lines). That is a deliberate exception: expanding by
 distance, as the first version of this document did, put every aircraft
-inside 107 m on two-line pixels whatever it was doing, to cover the knife-edge
+inside 54 m on two-line pixels whatever it was doing, to cover the knife-edge
 that almost never happens. It also costs sprites and cycles: an aircraft 21–41
 lines tall and wider than 46 pixels needs 2 × 2 unexpanded where it would have
-fitted 2 × 1 expanded — at 40 m, a 15–30° bank takes four sprites at two
+fitted 2 × 1 expanded — at 20 m, a 15–30° bank takes four sprites at two
 headings in three — and an unexpanded silhouette fills twice the rows (§11).
 
 **Nothing clips, at any attitude.** The size cap below is taken from the
@@ -460,7 +464,7 @@ flicker and push other objects in and out of the stack.
 
 At the cap, level flight at any heading needs two sprites; a moderate bank or
 a steep pitch needs four. Nothing needs more than two until `d` passes 47,
-inside ~91 m: a sweep of every attitude in 2.5° steps through `planes.cc`,
+inside ~46 m: a sweep of every attitude in 2.5° steps through `planes.cc`,
 hysteresis carried over, finds `k` 90 two sprites at worst and 92 four
 (2026-10-18; the figure here was 39 before it, an estimate).
 
@@ -481,7 +485,7 @@ viewport's last two lines, and everything below the viewport, which was never
 visible anyway.
 
 This also fixes the stroke design, which would have gone through the stack's
-rejection: at 70 m and 10° below the eye line — centre on line 101, top half
+rejection: at 35 m and 10° below the eye line — centre on line 101, top half
 plainly on screen — its 1 × 2 entry was dropped whole.
 
 The static dot cannot slide, so its blob sits on the block's **last two
@@ -497,7 +501,7 @@ stopped approaching. Everything downstream follows `k`, so the whole silhouette
 freezes together with no special cases.
 
 ```
-kMax = 80 · 128 / R            // 150 for the default model: d = 79 px, from 54 m in
+kMax = 80 · 128 / R            // 150 for the default model: d = 79 px, from 27 m in
 ```
 
 **Constant, not bounding-box-derived.** Scaling to the box fills the buffer
@@ -507,7 +511,7 @@ constant cap the test finds exactly one scale at every range inside it,
 whatever the attitude.
 
 The exaggeration moves the freeze point with it: at true scale the same cap
-would engage from ~35 m. If the freeze feels too early, the lever is the
+would engage from ~18 m. If the freeze feels too early, the lever is the
 exaggeration, not the cap.
 
 ### Hysteresis
@@ -580,7 +584,7 @@ the map left there.
 **Block sets go by rank, not by plane.** The nearest aircraft gets the
 eight-block set and may use all four sprites; the second gets the four-block
 set and is capped at two sprites, a `kmax` of 88 (`planes.h`
-`kPlaneKMaxTwoSprites`) — it freezes at ~93 m. When the two swap rank they
+`kPlaneKMaxTwoSprites`) — it freezes at ~47 m. When the two swap rank they
 swap sets, and both redraw once. *As built (§13), not by rank: two slots,
 each with two sets of four at 64-71 and 72-79, filling `$D000–$D3FF`, and the
 model's own cap, up to 2 × 2, for both. The dot is the 17th block, at
@@ -779,7 +783,7 @@ the clear, the fill and the flip, and only write the sprite registers.
 The local vertices depend on `k` and the relative orientation, not on where
 the target sits in the view, so a crossing at constant range hits on every
 frame (the test checks it), and so does formation flight. A closing target
-misses whenever `k` changes, which at 300 m is every other frame.
+misses whenever `k` changes, which at 150 m is every other frame.
 
 A hit is ~4,700 cycles, over twice the stroke design's, because the key is the
 projected vertices and producing them is most of the cost. So `planes.cc`
@@ -808,8 +812,8 @@ grey (2026-10-19). The test is on `d`, §4's pixel size, with the levels' kind
 of hysteresis so that a chase holding the range on the line does not flicker:
 
 ```c
-if (d >= 8) near = true;          // ~540 m for the default model
-else if (d < 7) near = false;     // ~620 m
+if (d >= 8) near = true;          // ~270 m for the default model
+else if (d < 7) near = false;     // ~310 m
 color = near ? kColorOpponentNear // kColorDarkGray
              : kColorOpponentFar; // kColorBlack
 ```
@@ -846,14 +850,14 @@ Colour is per sprite, so every sprite of a layout — up to four — must be set
   the horizon and planes outrank it in priority, nothing else needs handling.
 - **The viewport's last two lines.** A sliding bitmap ends on line 110 (§4),
   and the static dot on 108.
-- **The two pops.** 1:1 → X at ~195 m, at a fixed distance; and Y-expansion
+- **The two pops.** 1:1 → X at ~98 m, at a fixed distance; and Y-expansion
   when a close aircraft banks past ~35–40°, which follows the roll. Both are
   mitigated only by hysteresis.
 - **The second plane freezes early.** Capped at two sprites, it holds its size
-  from ~93 m (§5). As built there is no second plane.
+  from ~47 m (§5). As built there is no second plane.
 - **Clouds give way.** A close, banked plane takes four of the seven indices,
   and with a second plane and the sun there are none left for clouds.
-- **First-order projection at the freeze.** At 54 m a 16.5 m span has about
+- **First-order projection at the freeze.** At 27 m an 8.25 m span has about
   ±15% of depth across it, which true perspective would show as a larger near
   wingtip. The projection ignores it; the result reads as a slightly flat
   view, not as an error.
@@ -878,7 +882,7 @@ Colour is per sprite, so every sprite of a layout — up to four — must be set
    levers go in from the start?
 
 Settled, and recorded here so they are not reopened: opponents are drawn **1.5×
-oversize** (§2), the far tier uses a **static bitmap** (§4), the wing hub sits
+oversize** (§2; on today's scale 0.75×, and ~2.5× in fpilot), the far tier uses a **static bitmap** (§4), the wing hub sits
 **20% of the aircraft length ahead of the centre** (§3), flat surfaces are
 **filled polygons and the fuselage a screen-space tube** (§1, §3), the
 **horizontal pixel size follows distance, Y-expansion the silhouette's height,
@@ -922,8 +926,8 @@ against the first real rasteriser.
 | — cache miss | **5,700–16,900** |
 
 Swept over every heading, bank and pitch, a redraw's median is ~6,400 cycles
-at 1 km, ~8,700 at 300 m, ~10,500 at 150 m, ~12,500 between 70 and 105 m and
-~13,300 inside the cap. The worst single frame is **16,924 cycles** — at 70 m,
+at 500 m, ~8,700 at 150 m, ~10,500 at 75 m, ~12,500 between 35 and 53 m and
+~13,300 inside the cap. The worst single frame is **16,924 cycles** — at 35 m,
 banked 45° and pitched 40° down, 2 × 2 at one line per pixel: 197 traced rows
 and 92 spans. That is the price of Y-expanding as late as possible: an
 unexpanded tall silhouette fills twice the rows, and expanding by distance
@@ -971,15 +975,15 @@ one, went back to loops and took the bytes back, and bought much more:
 
 | Frame | First port | Straight-line | Now |
 | :--- | ---: | ---: | ---: |
-| Same `k` and axes as the last, 150 m | 37,111 | 2,975 | **2,918** |
-| — 60 m, banked, 2 × 2 | 39,109 | 3,347 | 2,781 |
-| Axes changed, same pixels (a vertex cache hit), 300 m | 36,912 | 19,988 | 14,813 |
-| Axes changed, redrawn, 150 m | 69,591 | 55,888 | **29,122** |
-| — 60 m, banked, 2 × 2 | 121,287 | 108,359 | 46,371 |
-| Closing, redrawn, ~120 m | 62,000–65,000 | ~53,000 | 28,569 |
+| Same `k` and axes as the last, 75 m | 37,111 | 2,975 | **2,918** |
+| — 30 m, banked, 2 × 2 | 39,109 | 3,347 | 2,781 |
+| Axes changed, same pixels (a vertex cache hit), 150 m | 36,912 | 19,988 | 14,813 |
+| Axes changed, redrawn, 75 m | 69,591 | 55,888 | **29,122** |
+| — 30 m, banked, 2 × 2 | 121,287 | 108,359 | 46,371 |
+| Closing, redrawn, ~60 m | 62,000–65,000 | ~53,000 | 28,569 |
 | Renderer code, bytes | 4,938 + 370 of runtime division | 6,306 + 370 | **3,669** |
 
-And by step, the redrawn frame at 150 m, one sprite:
+And by step, the redrawn frame at 75 m, one sprite:
 
 | Step | First port | Now | Estimate |
 | :--- | ---: | ---: | ---: |
@@ -996,7 +1000,7 @@ The timings are CIA timer differences, so they include the cycles the VIC
 steals, and the same frame measures a few per cent differently from build to
 build; the profiling build also compiles `planes_render()` out of line, where
 the plain one inlines it, so its steps add up to more than the whole. What is
-left is mostly the fill's per-edge work — at 150 m a redraw traces 23 edges
+left is mostly the fill's per-edge work — at 75 m a redraw traces 23 edges
 but only 66 rows, so the end points, the slope's two multiplies and the first
 and last rows cost more than the rows between — and the multiplies:
 `vec_mul8` is ~55 cycles with its call, where the model assumed 45 for a
@@ -1056,7 +1060,7 @@ went its own way; the subsections after it are the plan it followed.
 | 2 | `mem.h`, `opponent.cc` | The dot at 64 and the slot's two sets of four at 65-72; no sets by rank, with one slot. `$01` is banked around the fill only. fpilot's stack region grows to `$0288`: the static frames reach 132 bytes. *Since 2026-10-22 the dot is at 63, `$CFC0`, and the two slots' sets fill 64-79* |
 | 5 | `sprites.cc` | `kSpriteFlagWide` and `kSpriteFlagExpandY`, with `bitmap2` as the second row's first block. One vertical cull serves both heights |
 | 6 | `sprites.cc` | Each sprite frame belongs to a screen buffer and goes up with it: no flip of its own, nothing in `mem.cc` |
-| Cap | `planes.h`, `opponent.cc` | The size cap is the view's `kmax`. A sweep of every attitude finds two sprites enough up to `k` 90, not 73 (`kPlaneKMaxTwoSprites`, 88, ~93 m). The opponent first used it; since 2026-10-19 it uses the model's own, `kPlaneKMax`, up to 2 × 2 from ~93 m in and frozen at ~54 m. A cap per slot cost ~150 bytes (oscar64 folds one constant view into the renderer), so the opponents went to one slot: a second needs §5's sets by rank, as two four-sprite slots and the dot would take 17 of the 16 blocks |
+| Cap | `planes.h`, `opponent.cc` | The size cap is the view's `kmax`. A sweep of every attitude finds two sprites enough up to `k` 90, not 73 (`kPlaneKMaxTwoSprites`, 88, ~47 m). The opponent first used it; since 2026-10-19 it uses the model's own, `kPlaneKMax`, up to 2 × 2 from ~47 m in and frozen at ~27 m. A cap per slot cost ~150 bytes (oscar64 folds one constant view into the renderer), so the opponents went to one slot: a second needs §5's sets by rank, as two four-sprite slots and the dot would take 17 of the 16 blocks |
 | 9 | `planes.cc`, `opponent.cc` | Cut between the projection and the fill, not between polygons: under the cap the projection, ~17,000-20,000 cycles, already outweighs the fill. `planes_fill()` reads the vertex-cache key, so nothing shared has to survive between the halves |
 | — | `opponent.cc` | An aircraft wholly outside the viewport is skipped before it is projected: `planes_render()` gives up only 45° off the axis, the viewport is 32° and 12° |
 | Levers | `mem.h`, `planes_asm.cc` | The per-call scratch over the terrain's (`tscratch`, 224 bytes back). In assembly: the magnitudes × `k`, the fuselage outline, the vertex cache's key (self-modifying: a plain loop was no faster than the C), the flat vertices and the box, and a tighter span loop |
@@ -1080,8 +1084,8 @@ Of a cached frame, ~1,900 is before `planes_project()` (the transform
 ~1,200), ~2,900 is its cached path (mostly the centre's two exact
 divisions), and the stack, the sprites' DMA and the layout of the code the
 rest. `tools/bench.sh`, with the enemy where each pose leaves it: runway
-+2,200 (behind), approach +11,000 (600 m ahead, cached), cruise, town and
-lake +0-400 (culled at 4 km). RAM: fpilot 14,528 → 8,104 bytes free, ~6.4 KB
++2,200 (behind), approach +11,000 (300 m ahead, cached), cruise, town and
+lake +0-400 (culled at 2 km). RAM: fpilot 14,528 → 8,104 bytes free, ~6.4 KB
 against the ~5 KB the table below estimated; the stack's new entries, the
 half-rate split and the off-screen test are most of the difference.
 
@@ -1111,7 +1115,7 @@ per rendered frame, so a frame that takes longer is also the game running
 slower. Since the argon-loop merge, `tools/bench.sh` puts the render at
 116,000–142,000 cycles over [ram-loop.md](ram-loop.md)'s five poses (runway
 122,384, cruise 138,732, town 141,890). Against that, §11: a redraw is ~29,000
-cycles at 150 m and ~46,000 at 60 m banked in 2 × 2, and a frame with the last
+cycles at 75 m and ~46,000 at 30 m banked in 2 × 2, and a frame with the last
 one's `k` and axes ~3,000. One manoeuvring enemy therefore adds one and a half
 to two and a half PAL frames — roughly 7.5 fps down to 5.5–6. Both ideas
 below, and the order of work at the end, are about that.
@@ -1164,8 +1168,8 @@ facing north: `_m_init`'s front is +x, and x is the map's row, north
 - **starts straight behind**: on the player's y, the runway's centreline
   (`0x3F` and a half unit, as `flight_init_from_mission()` puts the eye), some
   way south of it, low and level, heading north. Its attitude is `_m_init`, so
-  it needs no matrix of its own. *As built it is 192 m to the left instead, 64
-  m beyond the runway's left edge (the runway is one unit, 256 m, wide).*
+  it needs no matrix of its own. *As built it is 96 m to the left instead, 32
+  m beyond the runway's left edge (the runway is one unit, 128 m, wide).*
 - **flies a low pass straight ahead**: every sim step adds
   `_flight_step_s(kEnemySpeed << 1)` to its x and nothing else, next to
   `flight_advance()`. That is what `_flight_move_forward(flight_speed << 1,
@@ -1186,32 +1190,32 @@ half-throttle trim, so a player who has caught it can hold station behind it.
 Any slower and the player cannot fly level that slowly, and overshoots.
 
 Catching it also needs it to be still in sight. It keeps pulling ahead while
-the player rolls, rotates and climbs away, and beyond the 4 km cull there is
+the player rolls, rotates and climbs away, and beyond the 2 km cull there is
 nothing to chase. So the start distance and `kEnemySpeed` are picked together
 against a measured take-off: the gap when the player reaches cruise wants to
-be well inside 4 km — a dot ahead, from about 1 km a silhouette that grows as
+be well inside 2 km — a dot ahead, from about 500 m a silhouette that grows as
 the player closes. A start a few hundred metres behind, low enough to read as
 a pass and clear of the player's eye, is the first guess; VICE shots and a
 timed take-off settle it.
 
-*Settled, 2026-10-18:* 400 m behind, 192 m to the left, 112 m up (80 m
+*Settled, 2026-10-18:* 200 m behind, 96 m to the left, 56 m up (40 m
 above the eye on the ground), airspeed 1,500. That high, it is above the top
-of the viewport whenever it is nearer than ~370 m (56 / 256 of the depth), so
-the back view never shows it and the front view first does ~370 m ahead. In
+of the viewport whenever it is nearer than ~185 m (56 / 256 of the depth), so
+the back view never shows it and the front view first does ~185 m ahead. In
 VICE it passes abeam about 35 steps after the start. The first build had it
-on the centreline, 24 m above the eye, where the back view's fin hid it. A host run of
+on the centreline, 12 m above the eye, where the back view's fin hid it. A host run of
 `flight.cc` with full throttle after a delay, rotating at 1,300 and climbing,
 against the enemy stepped as `opponent.cc` steps it (gap along x):
 
-| Throttle up after | Airborne | Largest gap | Within 100 m |
+| Throttle up after | Airborne | Largest gap | Within 50 m |
 | ---: | ---: | ---: | ---: |
-| 20 steps | 80 | 222 m | step 170 |
-| 35, as it passes | 95 | 398 m | 238 |
-| 60 | 120 | 691 m | 339 |
-| 100 | 160 | 1,160 m | 495 |
-| 150 | 210 | 1,746 m | 690 |
+| 20 steps | 80 | 111 m | step 170 |
+| 35, as it passes | 95 | 199 m | 238 |
+| 60 | 120 | 346 m | 339 |
+| 100 | 160 | 580 m | 495 |
+| 150 | 210 | 873 m | 690 |
 
-Parked, the gap grows 11.7 m a step, so the enemy leaves the 4 km cull after
+Parked, the gap grows 5.85 m a step, so the enemy leaves the 2 km cull after
 ~340 steps, about 50 s: a player who waits that long loses it. Throttle up
 sooner and it is caught within a minute or two, from behind and below.
 
@@ -1234,7 +1238,7 @@ Why this one first:
 
 Two things it raises:
 
-- **The world wraps**, at 128 units in x ([map.md](map.md)): 32.8 km. Flying
+- **The world wraps**, at 128 units in x ([map.md](map.md)): 16.4 km. Flying
   north for ever, it comes round and closes on a player who has stayed put
   from behind again, many minutes later at this speed. Either that is a free
   second pass, or the enemy stops once it is past the cull. Either way the
@@ -1250,7 +1254,7 @@ Two things it raises:
 
 *Built 2026-10-22.* Two slots, and each aircraft flies a loop of up to four
 waypoints (`opponent.cc` `kOpponentPaths`, per mission). Mission 01 keeps the
-pass as the first, and adds a patrol: a 3 km square round the city at
+pass as the first, and adds a patrol: a 1.5 km square round the city at
 3,500 ft, anticlockwise. *Since 2026-10-23 the missions are the three of the
 next section, and a path may also be one-way or parked.*
 
@@ -1265,12 +1269,12 @@ unit vector, not an angle - no sine or cosine anywhere:
   component first, so both products fit 16 bits and come from
   `vec_fastmul8p8()` exactly.
 - **Turning** is `vec_turn3_xy()`'s small-angle step, 8/256 rad, then
-  `vec_normalize()`: ~375 m radius at 11.7 m a step. At a larger
+  `vec_normalize()`: ~188 m radius at 5.85 m a step. At a larger
   `flight_step_shift` the same step comes every `1 << shift` steps rather than
   a smaller one every step, since below 8 the step's product with a small
   component truncates to nothing and the turn came out slower on a faster
   machine.
-- **A waypoint is reached** within 512 m on both axes, no less than the
+- **A waypoint is reached** within 256 m on both axes, no less than the
   turn's radius: any circle the aircraft can fly round a waypoint passes
   within a radius of it, so none is circled for ever. Corners are cut by
   that much.
@@ -1313,7 +1317,7 @@ offered.*
 **Seven sprites.** Both aircraft at 2 × 2 make eight, and the stack drops
 the farther whole (`sprites.cc`). So while both are in view the farther is
 drawn under a second view, `kViewTwo`, whose cap is
-`kPlaneKMaxTwoSprites`: at most two sprites at any attitude. Beyond ~93 m
+`kPlaneKMaxTwoSprites`: at most two sprites at any attitude. Beyond ~47 m
 that view draws exactly what the other does, `k` reaching neither cap, so
 it is handed to the farther aircraft whatever the range, without a redraw.
 In the back view the fin takes two of the seven, and both are held to two.
@@ -1322,7 +1326,7 @@ nearer, so two at about the same range do not trade sizes. An aircraft newly
 held to two while it shows, or is filling, more than two forgets its bitmap:
 the dot until its turn to redraw. `test/opponent_test.cc` checks the budget,
 seven less the fin, on every frame, and walks both aircraft round each
-other inside 125 m in both views.
+other inside 63 m in both views.
 
 RAM: fpilot from 8,367 to 6,677 bytes allocatable: the code is +1,375,
 the paths and the state +271, and the dot takes its block. The second view
@@ -1337,17 +1341,17 @@ zero page into the program's own at `$60` (`tools/check_zeropage.py`).
 *Built 2026-10-23.* fpilot's one mission gave way to three (`fmission.cc`;
 `kOpponentPaths` for what each sends). *Revised the same day after play:
 the recon slower, 01 and 03 started in the air, and every mission bringing
-the player within 2 km of its targets inside 90 s. Revised again 2026-10-24:
+the player within 1 km of its targets inside 90 s. Revised again 2026-10-24:
 targets on screen within 10 s of the start (20 s of the lift-off in 02), the
 opponents drawn bigger and seen from twice as far, a start heading, and the
 parked pair side by side off the runway's edge, facing it.*
 
 | Mission | Start | Opponents | Fails when |
 | :--- | :--- | :--- | :--- |
-| 01 Recon intercept | In the air at 2,500 ft and cruise, heading north, 9 km south of the north edge | One at 5,000 ft and 1,750 (2,000 at first): in from the north edge head-on, past the player 2,500 ft above after ~45 s, over the city at ~5.4 min, off the south edge at ~6.2 | it leaves the map |
-| 02 Bomber raid | On runway 1, engine at idle, heading north | Two at 3,000 ft and 1,500, the second 150 m left of and 200 m behind the first: south towards runway 1 from 11 km, 1 km past its north end, then the city at ~4.4 min, then off the south edge | the first reaches the city |
-| 03 Ambush | In the air at 1,000 ft and cruise, heading east, 3.6 km west of the targets and midway between them | Two parked beside runway 2's south end, side by side 200 m apart, both 150 m off its west edge and facing it | never |
-| 04 Scramble | On runway 1, engine at idle, heading north | The first mission's pass, flown by two at 1,500, low: from 400 m behind on the runway's left and 768 m behind on its right, overtaking alongside it and flying north for ever | never |
+| 01 Recon intercept | In the air at 2,500 ft and cruise, heading north, 4.5 km south of the north edge | One at 5,000 ft and 1,750 (2,000 at first): in from the north edge head-on, past the player 2,500 ft above after ~45 s, over the city at ~5.4 min, off the south edge at ~6.2 | it leaves the map |
+| 02 Bomber raid | On runway 1, engine at idle, heading north | Two at 3,000 ft and 1,500, the second 75 m left of and 100 m behind the first: south towards runway 1 from 5.5 km, 500 m past its north end, then the city at ~4.4 min, then off the south edge | the first reaches the city |
+| 03 Ambush | In the air at 1,000 ft and cruise, heading east, 1.8 km west of the targets and midway between them | Two parked beside runway 2's south end, side by side 100 m apart, both 75 m off its west edge and facing it | never |
+| 04 Scramble | On runway 1, engine at idle, heading north | The first mission's pass, flown by two at 1,500, low: from 200 m behind on the runway's left and 384 m behind on its right, overtaking alongside it and flying north for ever | never |
 
 A start has a heading, in quarter turns left of north
 (`kMissionStartTurns`, fpilot only; `flight_init_from_mission()` turns the
@@ -1356,25 +1360,25 @@ level camera), so each lays its targets out ahead or coming towards it.
 start with a plain pilot - full throttle, straight on, holding height or
 climbing out - and holds each to two rules: the targets on screen in the
 front view, as opponent.cc's cull decides, if only as the dot, within 10 s
-of the start, or for 02 within 20 s of the lift-off; and within 2 km inside
+of the start, or for 02 within 20 s of the lift-off; and within 1 km inside
 90 s. They come on screen at 2.6 s, 14 s after the lift-off at 10 s, and at
-once; and within 2 km at 33 s, 66 s and 14 s. 04's come from behind, as
+once; and within 1 km at 33 s, 66 s and 14 s. 04's come from behind, as
 they did when it was the only mission, and are exempt from the first rule;
-the pass starts within 2 km.
+the pass starts within 1 km.
 
-Heights are on a scale where 1,000 ft is 512 m, and the viewport reaches
+Heights are on a scale where 1,000 ft is 256 m (840 real feet), and the viewport reaches
 ~12 degrees above and below the nose, so a target well above or below is in
 view only from far off. 01's recon, 2,500 ft up, is on screen in level
-flight from 2.6 s to 19 s, as the dot, and rises out of the top 4.9 km off,
+flight from 2.6 s to 19 s, as the dot, and rises out of the top 2.45 km off,
 before it would grow into a silhouette: the climb is the challenge. The
 ambush's pair likewise drop out of the bottom as they grow - from 1,000 ft
 they need a dive to be seen as aircraft. *Before the far range below, with
-the cull at ~3.8 km, the recon had to come in 1,500 ft above and 5.4 km
+the cull at ~1.9 km, the recon had to come in 1,500 ft above and 2.7 km
 closer to show at all.*
 
 For 01 a second pilot checks the climb is one that can be won: turning
 after the recon at the pass and only then climbing to its height, banking
-towards it, it is within 500 m at 2.8 min, 3.4 min before the recon leaves.
+towards it, it is within 250 m at 2.8 min, 3.4 min before the recon leaves.
 It and
 `test/fpilot_test.cc` build with the arcade flight model whatever the rest
 use, as fpilot does.
@@ -1416,12 +1420,12 @@ last seen.
 Parked aircraft are drawn with the flying ones' renderer, low over the
 ground: from behind and low, wings edge-on, they are thin lines until close.
 Over the runway in a dive they will meet the DMA cut (§4) as they move down
-the screen. Their centres are 13 m up, where a ~55 m aircraft's is on its
+the screen. Their centres are 6.5 m up, where a ~27 m aircraft's is on its
 wheels.
 
-**Size.** *Since 2026-10-24* fpilot's opponents are drawn at ~55 m span, not
-16.5 m, so that a runway, 256 m wide, is ~4.7 spans across rather than
-15 - the parked pair looked like toys beside it. (~30 m was tried first and
+**Size.** *Since 2026-10-24* fpilot's opponents are drawn at ~27 m span, not
+8.25 m, so that a runway, 128 m wide, is ~4.7 spans across rather than
+15 - the parked pair looked like toys beside it. (~15 m was tried first and
 still looked small.) The model is unchanged: the view carries the
 perspective scale's numerator, `planes_view_t::kn`, k = kn · 512 / C.x, and
 opponent.cc passes 212 where the model's own size is 64 (`kPlaneKnModel`).
@@ -1429,13 +1433,13 @@ Every distance the size sets goes out by 3.3:
 
 | | Model (kn 64) | Opponents (kn 212) |
 | :--- | ---: | ---: |
-| Dot to silhouette, closing | ~1.0 km | ~3.4 km |
-| Silhouette back to the dot | ~1.4 km | ~4.5 km |
-| Near colour (`kOpponentNearD`) | ~510 m | ~1.7 km |
-| Held to two sprites (`kViewTwo`) | ~93 m | ~310 m |
-| Size frozen (`kView`) | ~54 m | ~180 m |
+| Dot to silhouette, closing | ~500 m | ~1.7 km |
+| Silhouette back to the dot | ~700 m | ~2.25 km |
+| Near colour (`kOpponentNearD`) | ~255 m | ~850 m |
+| Held to two sprites (`kViewTwo`) | ~47 m | ~155 m |
+| Size frozen (`kView`) | ~27 m | ~90 m |
 
-`vec_fracn()` needs the fraction below 1, so closer than kn quarter metres
+`vec_fracn()` needs the fraction below 1, so closer than kn eighth metres
 k takes the nine bits' saturation, past either cap. The tests that hold the
 renderer to `lib/planes.py` pass the model's own 64. The cull's margins
 (`kOpponentReachX`, `Z`) grow with the size.
@@ -1448,10 +1452,10 @@ with a layout of more than one sprite forgets it, latches and all, and is
 the dot until it redraws. `test/opponent_test.cc` takes the latches it
 checks against after the cap, which can now reset them.
 
-**The far range.** With the cull at 16 units, ~3.8 km, a 55 m aircraft
-was a silhouette from 3.4 km and the dot for only ~2 s before it. Past 16
-units on any axis, and out to 32, ~8 km, `_opponent_camera()` now works in
-metres rather than quarter metres - 8 km of quarter metres would overflow
+**The far range.** With the cull at 16 units, ~1.9 km, a 27 m aircraft
+was a silhouette from 1.7 km and the dot for only ~2 s before it. Past 16
+units on any axis, and out to 32, ~4 km, `_opponent_camera()` now works in
+half metres rather than eighth metres - 4 km of eighth metres would overflow
 int16, and `vec_transform_inv()`'s sums before that - and the far range
 draws under `kViewFar`, whose numerator is a quarter of the other views':
 the same k, so the same picture, the dot or a silhouette the size of one,
@@ -1459,7 +1463,7 @@ and nothing changes as an aircraft crosses between the ranges. One in the
 far range is always the farther of two for the cap, its depth being in
 other units. The same rewrite fixed the wrap: y repeats every 256 units,
 not 128 as x does, but bit 6 of its units was sign-extended as x's is, so
-an aircraft 113-127 units off in y, ~30 km, was taken for one 1-15 units
+an aircraft 113-127 units off in y, ~15 km, was taken for one 1-15 units
 off and drawn.
 
 RAM: fpilot from 6,053 to 5,258 bytes free. The path table is 136 bytes
@@ -1499,8 +1503,8 @@ and the last silhouette moves with the centre exactly as a frame with the last
 
 | For | Against |
 | :--- | :--- |
-| A redraw averages out at about half per frame: ~15,000 cycles at 150 m, ~23,000 at 60 m | The shape lags one to two sim frames, 150–330 ms at 6–8 fps: an enemy rolling at 90° a second shows 20–30° behind. The position does not lag |
-| With two enemies it balances itself: plane A redraws on even frames and plane B on odd ones, and nothing is split | With one, a fixed split does not balance. At 150 m projection, layout and key are ~17,000–20,000 and clear and fill ~12,000; at 60 m banked the fill is the larger. The split has to be by polygon, against a cost estimated from each polygon's rows |
+| A redraw averages out at about half per frame: ~15,000 cycles at 75 m, ~23,000 at 30 m | The shape lags one to two sim frames, 150–330 ms at 6–8 fps: an enemy rolling at 90° a second shows 20–30° behind. The position does not lag |
+| With two enemies it balances itself: plane A redraws on even frames and plane B on odd ones, and nothing is split | With one, a fixed split does not balance. At 75 m projection, layout and key are ~17,000–20,000 and clear and fill ~12,000; at 30 m banked the fill is the larger. The split has to be by polygon, against a cost estimated from each polygon's rows |
 | Frames whose `k` and axes have not changed cost what they cost now | "Shown" and "being built" become two sets of state, and the vertices have to outlive the terrain render: ~70 bytes that cannot be shared with `poly.cc` (§5's second lever), and ~200–300 bytes of code |
 | | The slide can change between the two halves. The simple answer is to clamp to the cut for that frame and lose a few lines |
 
@@ -1516,7 +1520,7 @@ cut is balanced after the order of work's levers, on the costs they leave.
 
 *Until the new bitmap is filled the last one stands in, placed at the new
 centre - which is right only while it is recent. At first it was whatever
-the blocks last held: a chase that looked away and back at 600 m saw a frame
+the blocks last held: a chase that looked away and back at 300 m saw a frame
 of the aircraft at the size it had been close up, 66 × 26 pixels for 5 × 3.
 Since 2026-10-21 an aircraft that leaves the screen or drops to the dot
 forgets its bitmap, and a redraw drops it if the aircraft goes before the
@@ -1532,13 +1536,13 @@ with two.
 
 | Option | For | Against |
 | :--- | :--- | :--- |
-| **A lower cap.** §4: nothing needs more than two sprites until `d` passes 39, so `kMax = 39 · 128 / 68 = 73`, holding the size from ~112 m | `kMax` becomes a per-plane field and that is all. Nothing clips, the layout stays invisible, the worst fill is cheaper, fewer blocks | It stops growing where a dogfight starts: an enemy at 60 m looks like one at 110 m, and closing on it no longer shows |
-| **Y-expand earlier**, so that 2 × 1 or 1 × 2 at X + Y holds every attitude, with a cap near `d` ≈ 60 (an estimate) | Freezes at ~70 m rather than 112 m | Two-line pixels close in, which §4 deliberately avoids. The limit wants a sweep in `lib/planes.py` before it is believed |
+| **A lower cap.** §4: nothing needs more than two sprites until `d` passes 39, so `kMax = 39 · 128 / 68 = 73`, holding the size from ~56 m | `kMax` becomes a per-plane field and that is all. Nothing clips, the layout stays invisible, the worst fill is cheaper, fewer blocks | It stops growing where a dogfight starts: an enemy at 30 m looks like one at 55 m, and closing on it no longer shows |
+| **Y-expand earlier**, so that 2 × 1 or 1 × 2 at X + Y holds every attitude, with a cap near `d` ≈ 60 (an estimate) | Freezes at ~35 m rather than 56 m | Two-line pixels close in, which §4 deliberately avoids. The limit wants a sweep in `lib/planes.py` before it is believed |
 | **A budget that moves**: four sprites only while nothing else wants them | The best picture when alone | The aircraft visibly shrinks whenever the budget drops |
 
 **Two for both planes, by the lower cap, to start with**; the earlier
 Y-expansion is the one to try against it in VICE shots. *Built that way at
-first. The sweep put the cap at 88, not 73: the size held from ~93 m rather
+first. The sweep put the cap at 88, not 73: the size held from ~47 m rather
 than 112. Since 2026-10-19 the one aircraft may use four (Cap, above).*
 
 ### Order of work
@@ -1559,11 +1563,11 @@ The plan put them after steps 1–5 and 8 and before step 9. The build did step
 - The cut it would have had to rebalance was not needed: under the
   two-sprite cap the projection outweighs the fill whatever the assembly
   does to either, so the half-rate cut sits between them (step 9). With
-  four sprites allowed, a close 2 × 2 fill (~28,000 at 60 m) outweighs the
+  four sprites allowed, a close 2 × 2 fill (~28,000 at 30 m) outweighs the
   projection instead, and the filling frame is the heavier one.
 
 What the levers bought, from `planedemo_prof.prg` stopped at the same frame
-in both builds, 150 m and the attitude changing every frame (cycles):
+in both builds, 75 m and the attitude changing every frame (cycles):
 
 | Step | Before | After |
 | :--- | ---: | ---: |
@@ -1578,7 +1582,7 @@ Not taken, and why:
 
 - **The centre by one reciprocal** instead of two exact divisions, ~1,100 on
   every frame: a 16-bit reciprocal of the depth is off by up to ~4 px at the
-  screen's edge at 4 km, and a wider one costs what the divisions do.
+  screen's edge at 2 km, and a wider one costs what the divisions do.
 - **The axis products' multiplies inline**, ~500 for ~60 bytes.
 - **Clearing only the rows drawn before**, ~350 for a one-sprite aircraft:
   per-set bookkeeping in the caller for little.

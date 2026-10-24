@@ -14,8 +14,8 @@
 
 // world.cc's conversion, repeated rather than shared because it is one shift
 // and exporting it would tie two per-frame files together for nothing.
-// flight_eye_* is 24.8 fixed point in metres; the terrain grid - and therefore
-// everything here - works in 2 m units (docs/clouds.md §2.1).
+// flight_eye_* is 24.8 fixed point in half metres; the terrain grid - and therefore
+// everything here - works in 1 m units (docs/clouds.md §2.1).
 static inline int16_t _clouds_down_shift(uint32_t val) {
   return (int16_t)(val >> 9);
 }
@@ -190,7 +190,7 @@ void clouds_add_candidates(void) {
       // The size ladder (§3.2). A walk down a table of constants rather than a
       // divide: the blob diameter is fixed, so the rung is a pure function of
       // depth and the thresholds are known at build time. All three blobs
-      // share it - they are within 100 m of each other at a range of
+      // share it - they are within 50 m of each other at a range of
       // kilometres, so three rungs would be the same answer three times.
       uint8_t rung = 0;
       while (rung < kCloudRungCount - 1 &&

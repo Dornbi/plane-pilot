@@ -153,7 +153,7 @@ def render(out_path, eye=None, heading=0.0, scale=3):
     except ImportError:
         sys.exit("render_cloud_preview: needs Pillow (pip install pillow)")
 
-    # One pixel per 256 m at scale 1, which puts the whole 33 x 66 km world in
+    # One pixel per 128 m at scale 1, which puts the whole 16 x 33 km world in
     # a sensible picture.
     world_x = clouddef.CELLS_X * clouddef.CELL_U
     world_y = clouddef.CELLS_Y * clouddef.CELL_U
@@ -167,7 +167,7 @@ def render(out_path, eye=None, heading=0.0, scale=3):
     def to_px(wx, wy):
         return (wy * px_per_u, wx * px_per_u)
 
-    # The map tiles the terrain uses, for scale: 2048 m, half a cloud cell.
+    # The map tiles the terrain uses, for scale: 1024 m, half a cloud cell.
     tile_u = clouddef.CELL_U // 2
     for i in range(0, world_y // tile_u + 1):
         x = i * tile_u * px_per_u
@@ -624,8 +624,8 @@ def main():
         return
 
     # The altitudes the aircraft actually flies at: mission starts are
-    # kMissionStartZ * 256 m (0, 512, 1024 m), and the air-density penalty
-    # in flight.cc begins at 2048 m. The deck sits inside that band.
+    # kMissionStartZ * 128 m (0, 256, 512 m), and the air-density penalty
+    # in flight.cc begins at 1024 m. The deck sits inside that band.
     rows = density_table(args.samples, [100, 512, 1024, 1536, 2048])
     print_report(rows, args.samples)
 

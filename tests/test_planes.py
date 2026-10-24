@@ -18,7 +18,8 @@ from lib.planes import (LEVEL_1X, LEVEL_DOT, LEVEL_XEXP, Model,
 
 
 LEVEL = orient(0, 0, 0)
-# The default model draws 1.5x oversize, so its apparent span is 16.5 m.
+# The default model draws 1.5x oversize, so its apparent span is 16.5 m - in
+# lib/planes.py's metres, half metres on the game's scale.
 EFFECTIVE_SPAN_M = Model().span_m * Model().scale
 
 

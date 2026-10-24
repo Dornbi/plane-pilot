@@ -166,7 +166,7 @@ extern uint8_t flight_num_nav_points;
 //
 // A sample is only appended when it differs from the previous one. At
 // kMaxSpeed the aircraft covers about 15 m per step and the smallest map
-// pixel is 256 m, so the position advances by at most one pixel per step and
+// pixel is 128 m, so the position advances by at most one pixel per step and
 // consecutive entries are always 4-neighbours. The stored points therefore
 // already form a connected path: no line drawing, no interpolation, and no
 // wrap-seam special case.

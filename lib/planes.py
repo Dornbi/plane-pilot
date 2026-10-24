@@ -34,6 +34,11 @@ COLS = 24                  # sprite width, in sprite pixels
 ROWS = 21                  # sprite height, in sprite pixels
 BLOCK_BYTES = 63
 
+# A metre here is flight_eye_*'s unit, 1/256 of its 24.8 fixed point, which
+# the C code and the docs have called a half metre since 2026-10-24 (a world
+# unit is 128 m: docs/map.md §4, "The scale"). Halve every length below for
+# the game's scale: the default model is 8.25 m across in the game's metres.
+#
 # Opponents use quarter-metre units for the relative position, NOT the 2 m the
 # terrain grid uses. The grid needs kilometres of range; a nearby aircraft
 # needs precision. At 100 m and a few degrees off the nose the lateral offset

@@ -140,10 +140,19 @@ row = ((uint8_t)((flight_eye_x >> 16) + 0x04) >> 3) & kWorldMapHeightMask  // 0.
 col = ((uint8_t)((flight_eye_y >> 16) + 0x04) >> 3) & kWorldMapWidthMask   // 0..31
 ```
 
-`flight_eye_*` is 24.8 fixed-point metres, so `>> 16` gives 256-metre world
-units. A cell is 8 units = 2048 m. The world is therefore 65.5 km × 32.8 km,
-wrapping at 128 units in x and 256 units in y. The `+ 0x04` centres cells on
-multiples of 8.
+`flight_eye_*` is 24.8 fixed-point half metres, so `>> 16` gives 128-metre
+world units. A cell is 8 units = 1,024 m. The world is therefore 32.8 km ×
+16.4 km, wrapping at 128 units in x and 256 units in y. The `+ 0x04` centres
+cells on multiples of 8.
+
+**The scale.** *Since 2026-10-24* the fraction of `flight_eye_*` is read as
+half metres; before, these documents called it metres. Nothing in the code
+changed, only what a unit is called: a world built at 256 m to the unit made
+the runway 2 km long, the clean stall ~200 km/h and a 1,000 ft altitude
+512 m. At 128 m to the unit the runway is 1,024 m by 128 m, the stall about
+100 km/h, and heights scale the same way, so the altimeter's 1,000 ft is
+256 m - 840 real feet, close enough. Every distance in metres in the code's
+comments and these documents is on the new scale.
 
 Verified against the mission data: waypoint 02 (`0x20, 0x3F`) → `[4][8]` and
 waypoint 06 (`0x60, 0xBF`) → `[12][24]`, both `MAP_OBJ_RUNWAY` in `kWorldMap`.
@@ -174,8 +183,8 @@ px = 127 - ( ((uint8_t)((flight_eye_y >> 16) + 0x04) >> 1) & 0x7F )   // from y
 That is: one shift, one mask, one complement per axis. `py >> 3` and `px >> 2`
 agree with `screen_row` and `screen_col` by construction.
 
-A vertical map pixel is 1 world unit (256 m) over 1 screen pixel; a horizontal
-map pixel is 2 world units (512 m) over 2 screen pixels. **256 m per screen
+A vertical map pixel is 1 world unit (128 m) over 1 screen pixel; a horizontal
+map pixel is 2 world units (256 m) over 2 screen pixels. **128 m per screen
 pixel in both axes — the map is geometrically square.** The 4 × 8 sub-cell
 granularity is asymmetric only in the addressing, not on screen.
 
@@ -384,7 +393,7 @@ if (px, py) != most recent entry: append, advance head
 ```
 
 Maximum speed is `kMaxSpeed = 0x0F00` ≈ 15 m per step; the smallest map pixel
-is 256 m, so the position advances by at most one pixel **per axis** per step.
+is 128 m, so the position advances by at most one pixel **per axis** per step.
 **Consecutive samples are therefore always 8-neighbours** — the stored points
 already form a connected path, so there is no line drawing, no interpolation,
 and consequently no wrap-seam special case. Cost is about 30 cycles per frame.

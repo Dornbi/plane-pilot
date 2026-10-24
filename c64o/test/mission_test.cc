@@ -4,9 +4,10 @@
 // The rules are that every mission puts its targets on screen - in the
 // front view, if only as the dot - within 10 s of the start in the air, or of
 // the lift-off from the runway within 20 s, but for 04's, which come from
-// behind; and brings the player within 2 km of them inside 90 s. A plain pilot flies here: full throttle, straight
-// on the heading the mission starts on; holding the start's height if it
-// starts in the air, taking off and climbing if it starts on the runway.
+// behind; and brings the player within 1 km of them inside 90 s. A plain
+// pilot flies here: full throttle, straight on the heading the mission
+// starts on; holding the start's height if it starts in the air, taking off
+// and climbing if it starts on the runway.
 // Nothing it does is clever, so a real pilot gets there no later.
 //
 // And 01's recon, met head-on and 2,500 ft above, has to be catchable after
@@ -59,8 +60,8 @@ static int _fails = 0;
 
 static const double kStepsPerSecond = 6.25;
 
-// Horizontal metres from the player to slot i, the short way round the
-// world's 128 units of x.
+// Horizontal distance from the player to slot i, in flight_eye_*'s half
+// metres, the short way round the world's 128 units of x.
 static double distance(int i) {
   double dx = (double)(_opponent_x[i] - flight_eye_x) / 256.0;
   double dy = (double)(_opponent_y[i] - flight_eye_y) / 256.0;
@@ -72,7 +73,7 @@ static double degrees(double y, double x) { return atan2(y, x) * 180 / M_PI; }
 
 // 01: holds the start's height until the recon is past overhead, then turns
 // after it in a 45 degree bank and climbs to its height, and chases it there.
-// When it first gets within 500 m of it, in steps, and when the recon left.
+// When it first gets within 250 m of it, in steps, and when the recon left.
 static void chase(int *caught_at, int *gone_at) {
   flight_init_from_mission(0);
   opponent_reset(0);
@@ -127,8 +128,8 @@ int main() {
   static const char *const kNames[] = {"recon", "bombers", "ambush", "scramble"};
   static_assert(sizeof(kNames) / sizeof(kNames[0]) == kMissionCount, "a name a mission");
   // Seconds to the targets on screen, from the start in the air or the
-  // lift-off; 0 for none. 04's come from behind: the pair from 400 m and
-  // 768 m back down the runway, overtaking only a pilot slower off it than
+  // lift-off; 0 for none. 04's come from behind: the pair from 200 m and
+  // 384 m back down the runway, overtaking only a pilot slower off it than
   // this one.
   static const int kInView[] = {10, 20, 10, 0};
   for (int m = 0; m < kMissionCount; ++m) {
@@ -178,11 +179,11 @@ int main() {
           "%s: on screen %.1f s after %s, not %d", kNames[m], (seen_at - up_at) / kStepsPerSecond,
           on_ground ? "the lift-off" : "the start", in_view);
     CHECK(close_at >= 0 && close_at <= 90 * kStepsPerSecond,
-          "%s: within 2 km after %.0f s, not 90", kNames[m], close_at / kStepsPerSecond);
+          "%s: within 1 km after %.0f s, not 90", kNames[m], close_at / kStepsPerSecond);
     printf("  %s: ", kNames[m]);
     if (on_ground) printf("off at %.0f s, ", up_at / kStepsPerSecond);
     if (seen_at >= 0) printf("on screen at %.1f s, ", seen_at / kStepsPerSecond);
-    printf("within 2 km at %.0f s", close_at / kStepsPerSecond);
+    printf("within 1 km at %.0f s", close_at / kStepsPerSecond);
     if (failed_at >= 0) printf(", failed at %.1f min", failed_at / kStepsPerSecond / 60);
     if (gone_at >= 0) printf(", all gone at %.1f min", gone_at / kStepsPerSecond / 60);
     printf("\n");
@@ -190,9 +191,9 @@ int main() {
   int caught_at, gone_at;
   chase(&caught_at, &gone_at);
   CHECK(caught_at >= 0 && gone_at - caught_at >= 60 * kStepsPerSecond,
-        "chase: within 500 m of the recon at %.1f min, and it left at %.1f",
+        "chase: within 250 m of the recon at %.1f min, and it left at %.1f",
         caught_at / kStepsPerSecond / 60, gone_at / kStepsPerSecond / 60);
-  printf("  recon, climbing only after the pass: within 500 m at %.1f min, %.1f min before it "
+  printf("  recon, climbing only after the pass: within 250 m at %.1f min, %.1f min before it "
          "leaves\n",
          caught_at / kStepsPerSecond / 60, (gone_at - caught_at) / kStepsPerSecond / 60);
 

@@ -61,7 +61,13 @@ produced the alternative and the measurements either side.
 ### 8-Bit Implementation Rules
 
 - **Fixed-Point Precision**:
-  - Aircraft position ($X, Y, Z$): 24.8 fixed-point (`int32_t`).
+  - Aircraft position ($X, Y, Z$): 24.8 fixed-point (`int32_t`), in half
+    metres: a world unit (`>> 16`) is 128 m ([map.md](map.md) §4, "The scale").
+  - **What the airspeed is in the world.** Each step moves the aircraft
+    `flight_speed << 1` of the position's 1/256ths, so 256 of airspeed is 1 m
+    a step. There is one step per rendered frame, ~6-8 a second on a stock
+    C64, so at 7: the clean stall, 1024, is ~100 km/h; half throttle's 1476
+    ~145; full throttle's ~2430 ~240; and `kMaxSpeed`, 3840, ~380 in a dive.
   - Velocities ($V_{\text{speed}}, V_{\text{vspeed}}$), angles, and scalars: 8.8 fixed-point (`int16_t` / `uint16_t`).
   - Orientation matrix: 3x3 orthonormal direction cosine matrix (`mat3_t`), with periodic re-orthonormalization (`vec_orthonormalize`).
   - **Flight path and angle of attack: 4096 = 1.0**, sixteen times finer than a
