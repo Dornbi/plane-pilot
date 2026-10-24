@@ -71,6 +71,13 @@ __noinline void vec_negate(vec3_t *v) {
   v->z = -v->z;
 }
 
+// __noinline: the opponents' steering and axes and the guns' rounds and
+// tracer, each pair of products a few bytes of parameters instead of two
+// calls and an add.
+__noinline int16_t vec_dot2(int16_t a, int16_t b, int16_t c, int16_t d) {
+  return vec_fastmul8p8(a, b) + vec_fastmul8p8(c, d);
+}
+
 __forceinline uint16_t vec_fastsqr8p8u(uint16_t a) {
   uint8_t h = _hibyte(a);
   uint8_t l = _lobyte(a);

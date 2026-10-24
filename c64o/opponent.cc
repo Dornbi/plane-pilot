@@ -442,12 +442,6 @@ void opponent_reset(uint8_t mission) {
   opponent_invalidate();
 }
 
-// a * b + c * d, each in 8.8 with b and d no more than 256: every product
-// below, which are all two-term dot products, called rather than written out.
-static __noinline int16_t _opponent_dot(int16_t a, int16_t b, int16_t c, int16_t d) {
-  return vec_fastmul8p8(a, b) + vec_fastmul8p8(c, d);
-}
-
 // A waypoint coordinate, 8.8 units, less a position, 24.8, in half metres
 // and wrapped to 32,768 of them, the world's 128 units along x: taken in
 // quarter metres, which the int16_t wraps at 65,536, and halved. Good to 64
@@ -535,8 +529,8 @@ void opponent_step(void) {
     dx <<= 8;
     dy <<= 8;
     int16_t hx = h->x, hy = h->y;
-    int16_t cross = _opponent_dot(dy, hx, -dx, hy);
-    int16_t dot = _opponent_dot(dx, hx, dy, hy);
+    int16_t cross = vec_dot2(dy, hx, -dx, hy);
+    int16_t dot = vec_dot2(dx, hx, dy, hy);
     int16_t across = cross < 0 ? -cross : cross;
     int8_t turn = 0;
     if (dot < 0 || across > (dot >> 5)) {
@@ -664,14 +658,14 @@ static void _opponent_axes(uint8_t i, mat3_t *axes) {
   // y, then z: the products with world_cam's left, then with its up.
   const vec3_t *row = &world_cam.left;
   for (uint8_t c = 0; c < 2; ++c) {
-    int16_t l = _opponent_dot(row->x, -hy, row->y, hx);
+    int16_t l = vec_dot2(row->x, -hy, row->y, hx);
     int16_t u = row->z;
-    (&axes->front.y)[c] = _opponent_dot(row->x, hx, row->y, hy);
+    (&axes->front.y)[c] = vec_dot2(row->x, hx, row->y, hy);
     if (turn != 0) {
       // Banked left, the left wing goes down and the top towards the left.
       int16_t l0 = l;
-      l = _opponent_dot(l0, kOpponentBankCos, u, -sn);
-      u = _opponent_dot(u, kOpponentBankCos, l0, sn);
+      l = vec_dot2(l0, kOpponentBankCos, u, -sn);
+      u = vec_dot2(u, kOpponentBankCos, l0, sn);
     }
     (&axes->left.y)[c] = l;
     (&axes->up.y)[c] = u;

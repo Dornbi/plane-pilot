@@ -172,12 +172,10 @@ static void _gun_fire(void) {
   for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {
     int16_t fc = (&flight_cam.front.x)[c];
     int16_t lc = (&flight_cam.left.x)[c];
-    _round_p[i] = vec_fastmul8p8(fc, kGunAhead) +
-                  vec_fastmul8p8(lc, wing) -
+    _round_p[i] = vec_dot2(fc, kGunAhead, lc, wing) -
                   vec_fastmul8p8((&flight_cam.up.x)[c], kGunDrop);
     int16_t own = c == 2 ? flight_vspeed : vec_fastmul8p8(fc, speed2);
-    _round_v[i] = vec_fastmul8p8(fc, kGunMuzzle) +
-                  vec_fastmul8p8(lc, in) + (own >> 5);
+    _round_v[i] = vec_dot2(fc, kGunMuzzle, lc, in) + (own >> 5);
   }
   _round_age[r] = 1;
   _round_owner[r] = kRoundPlayer;
@@ -437,8 +435,8 @@ void gun_add_sprites(void) {
     (&v.x)[a] = _round_v[i] >> 1;
   }
   vec_transform_inv(&world_cam, &v, &w);
-  int16_t dx = vec_fastmul8p8(_gun_c.y, w.x) - vec_fastmul8p8(w.y, _gun_c.x);
-  int16_t dy = vec_fastmul8p8(_gun_c.z, w.x) - vec_fastmul8p8(w.z, _gun_c.x);
+  int16_t dx = vec_dot2(_gun_c.y, w.x, -w.y, _gun_c.x);
+  int16_t dy = vec_dot2(_gun_c.z, w.x, -w.z, _gun_c.x);
   uint8_t bitmap = kSpriteDefShortArmBitmap;
   uint8_t flags = 0;
   if (_gun_c.x < kTracerLong) {

@@ -158,6 +158,11 @@ void vec_add(vec3_t *dst, const vec3_t *src);
 void vec_sub(vec3_t *dst, const vec3_t *src);
 void vec_negate(vec3_t *v);
 
+// vec_fastmul8p8(a, b) + vec_fastmul8p8(c, d): a two-term dot product, called
+// rather than written out. A difference is the same with c negated, exactly,
+// as the product's sign is applied last (vec_turn3_xy() below).
+int16_t vec_dot2(int16_t a, int16_t b, int16_t c, int16_t d);
+
 // Projects 3d vector to screen coordinates and populates vec_sx and vec_sy.
 // x is forward, y is left, z is up.
 // @param vec_v: vector to project
