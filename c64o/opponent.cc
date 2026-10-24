@@ -10,6 +10,7 @@
 
 #include "color.h"
 #include "flight.h"
+#include "fmath.h"
 #include "gun.h"
 #include "mem.h"
 #include "mission.h"
@@ -319,7 +320,7 @@ void opponent_invalidate(void) {
 }
 
 static inline bool _opponent_live(uint8_t i) {
-  return _opponent_on[i] && !(_opponent_down & (uint8_t)(1 << i));
+  return _opponent_on[i] && !(_opponent_down & kBit[i]);
 }
 
 bool opponent_target(uint8_t i, int32_t *p) {
@@ -333,7 +334,7 @@ bool opponent_target(uint8_t i, int32_t *p) {
 }
 
 void opponent_strike(uint8_t i) {
-  uint8_t bit = (uint8_t)(1 << i);
+  uint8_t bit = kBit[i];
   if (_opponent_down & bit) {
     return;
   }
@@ -365,7 +366,7 @@ bool opponent_targets_down(void) {
   }
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
     if (kOpponentPaths[_opponent_mission][i].kind != kOpponentNone &&
-        !(_opponent_down & (uint8_t)(1 << i))) {
+        !(_opponent_down & kBit[i])) {
       return false;
     }
   }
@@ -487,7 +488,7 @@ void opponent_step(void) {
     }
     const opponent_path_t *p = _opponent_path[i];
     // Parked, or down: it stays where it is.
-    if (p->kind == kOpponentParked || (_opponent_down & (uint8_t)(1 << i))) {
+    if (p->kind == kOpponentParked || (_opponent_down & kBit[i])) {
       continue;
     }
     vec3_t *h = &_opponent_head[i];
@@ -509,7 +510,7 @@ void opponent_step(void) {
           if (_opponent_smoke == (uint8_t)(i + 1)) {
             _opponent_smoke = kOpponentNoSmoke;
           }
-          _opponent_forget(i, (uint8_t)(1 << i));
+          _opponent_forget(i, kBit[i]);
           continue;
         }
         w = 0;
@@ -688,7 +689,7 @@ static __noinline uint8_t _opponent_cull(void) {
     if (!_opponent_on[i]) {
       continue;
     }
-    uint8_t bit = (uint8_t)(1 << i);
+    uint8_t bit = kBit[i];
     // Down, and gone: only its smoke stays (opponent_smoke()).
     uint8_t range =
         (_opponent_down & bit) ? (uint8_t)kOpponentOut : _opponent_camera(i);
@@ -738,10 +739,10 @@ static __noinline void _opponent_cap(uint8_t seen) {
         (uint8_t)(_opponent_smoke != kOpponentNoSmoke) + (uint8_t)gun_tracer_up();
     capped = extra > (view_state == VIEW_BACK ? 0 : 1)
                  ? 3
-                 : (uint8_t)(2 >> _opponent_nearer);
+                 : kBit[_opponent_nearer ^ 1];
   }
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
-    uint8_t bit = (uint8_t)(1 << i);
+    uint8_t bit = kBit[i];
     // Newly held to two with a layout of more than one sprite, on screen,
     // being filled or only latched: the dot until its turn to redraw comes
     // round, and that from scratch. The layout's hysteresis, carried from
@@ -763,7 +764,7 @@ static __noinline void _opponent_cap(uint8_t seen) {
 // due, and its offer to the stack. `busy` if another slot has a redraw in
 // flight this frame; true if this one starts one.
 static __noinline bool _opponent_draw(uint8_t i, bool busy) {
-  uint8_t bit = (uint8_t)(1 << i);
+  uint8_t bit = kBit[i];
   bool started = false;
   bool far = (_opponent_far & bit) != 0;
   _opponent_view = far ? &kViewFar : (_opponent_capped & bit) ? &kViewTwo : &kView;
@@ -879,7 +880,7 @@ void opponent_add_sprites(void) {
   uint8_t first = _opponent_first;
   for (uint8_t n = 0; n < kOpponentMax; ++n) {
     uint8_t i = n ^ first;
-    if ((_opponent_seen & (uint8_t)(1 << i)) && _opponent_draw(i, _opponent_busy)) {
+    if ((_opponent_seen & kBit[i]) && _opponent_draw(i, _opponent_busy)) {
       _opponent_busy = true;
       _opponent_first = i ^ 1;
     }
