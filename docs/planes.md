@@ -1403,8 +1403,10 @@ then land on runway 1. *Since 2026-10-23* those are two levels of
 completing it, kept per mission as the best of every attempt
 (`mission_completed[]`): `GOALS COMPLETED!` and one check mark in the menu
 for the targets, `MISSION COMPLETED!` and two for getting home after them.
-ppilot's missions still have one level and one mark. Nothing shoots yet, so `_opponent_down` is never set
-and no mission can be completed. A failure shows a message once, `MISSION
+ppilot's missions still have one level and one mark. *Since 2026-10-24*
+the guns set `_opponent_down`, three hits to an aircraft
+([projectiles.md](projectiles.md)); until then no mission could be
+completed. A failure shows a message once, `MISSION
 FAILED - RECON ESCAPED` or `- CITY BOMBED`, and after it the goal is never
 met.
 

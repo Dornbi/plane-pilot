@@ -18,6 +18,7 @@
 #include "screen.h"
 #include "sound.h"
 #include "sprites.h"
+#include "gun.h"
 #include "opponent.h"
 #include "view.h"
 #include "world.h"
@@ -43,6 +44,7 @@ static void _enter_simulation(uint8_t selected_mission) {
   // Also rewrites the opponents' dot block, which the title's sprites were
   // over until now.
   opponent_reset(selected_mission);
+  gun_reset();
   msg_show(kMissionTitles[selected_mission]);
 
   mem_switch_debug(false);
@@ -217,6 +219,7 @@ void sim_run(uint8_t selected_mission) {
       msg_clear();
       flight_init_from_mission(selected_mission);
       opponent_reset(selected_mission);
+      gun_reset();
       msg_show(kMissionTitles[selected_mission]);
       view_update_view(VIEW_CENTER);
       mem_switch_debug(false);
@@ -271,6 +274,8 @@ void sim_run(uint8_t selected_mission) {
     // section 8 has the reasoning and the measurements on both sides of it.
     flight_advance();
     opponent_step();
+    // Space fires (docs/projectiles.md); held, a round from each wing in turn.
+    gun_step(keys_pressed(KSCAN_SPACE));
     if (flight_crashed()) {
       // A crash is the end of the flight, so its message stays up until R or
       // Q. Completing a mission is not: flight.cc announces it for a few

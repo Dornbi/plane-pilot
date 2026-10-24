@@ -3,6 +3,7 @@
 #include "gfx.h"
 #include "keys.h"
 #include "music.h"
+#include "opponent.h"
 #include "print.h"
 #include "screen.h"
 #include "sound.h"
@@ -28,6 +29,9 @@ static const char kHelpText[] =
     "F        TOGGLE FLAPS\n"
     "G        TOGGLE GEAR\n"
     "B        BRAKE ON GROUND\n"
+#ifdef __ENABLE_OPPONENT__
+    "SPACE    FIRE\n"
+#endif
     "\n"
     "1 2 3 4  LOOK LEFT/FWD/RIGHT/BACK\n"
     "N        TOGGLE NAV POINT\n"

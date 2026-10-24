@@ -130,7 +130,9 @@ OPPONENT_SRC = \
 		planes_asm.h \
 		planes_asm.cc \
 		opponent.h \
-		opponent.cc
+		opponent.cc \
+		gun.h \
+		gun.cc
 
 POLYDEMO_PROGRAM = polydemo
 POLYDEMO_SRC = \

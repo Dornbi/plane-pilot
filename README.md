@@ -89,6 +89,7 @@ To fly the plane you can use the following keys:
 | `F`             | Toggle flaps                          |
 | `G`             | Toggle landing gear                   |
 | `B`             | Wheel brakes (on ground)              |
+| `Space`         | Fire (fpilot)                         |
 | `1` `2` `3` `4` | Look left, forward, right, back       |
 | `N`             | Toggle Nav point 1 / 2 (runways)      |
 | `M`             | Toggle map view                       |

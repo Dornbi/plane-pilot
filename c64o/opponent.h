@@ -18,6 +18,12 @@
 
 #ifdef __ENABLE_OPPONENT__
 
+// The most aircraft a mission sends.
+static const uint8_t kOpponentMax = 2;
+
+// Hits that down an aircraft (opponent_strike()).
+static const uint8_t kOpponentHitsToDown = 3;
+
 // Puts the mission's aircraft at their start. Also invalidates, as below.
 void opponent_reset(uint8_t mission);
 
@@ -35,8 +41,17 @@ void opponent_step(void);
 void opponent_add_sprites(void);
 
 // The mission's WP_TARGETS_DOWN: every aircraft it sent is down, and the
-// mission has not failed. Nothing shoots yet, so for now never.
+// mission has not failed.
 bool opponent_targets_down(void);
+
+// For gun.cc: slot i's position, x, y and z in flight_eye_*'s 24.8 half
+// metres, into p, and whether it is there to be hit - flying or parked, and
+// not down.
+bool opponent_target(uint8_t i, int32_t *p);
+
+// Slot i is hit. The third hit downs it: it is no longer drawn or a target,
+// and it counts towards WP_TARGETS_DOWN.
+void opponent_strike(uint8_t i);
 
 #pragma compile("opponent.cc")
 
@@ -47,6 +62,8 @@ inline void opponent_invalidate(void) {}
 inline void opponent_step(void) {}
 inline void opponent_add_sprites(void) {}
 inline bool opponent_targets_down(void) { return false; }
+inline bool opponent_target(uint8_t i, int32_t *p) { return false; }
+inline void opponent_strike(uint8_t i) {}
 
 #endif
 

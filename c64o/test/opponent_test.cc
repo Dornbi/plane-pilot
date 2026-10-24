@@ -885,6 +885,35 @@ static void test_missions(void) {
     _opponent_down = 3;
     CHECK(opponent_targets_down(), "scramble: both down, but the targets are not down");
   }
+
+  // The guns' side (gun.cc): three strikes down a slot, which is then
+  // neither a target nor drawn, and both down is the goal.
+  {
+    _msgs = 0;
+    opponent_reset(3);
+    int32_t p[3];
+    CHECK(opponent_target(0, p) && p[0] == _opponent_x[0] && p[2] == _opponent_z[0],
+          "strikes: slot 0 is not a target at its own position");
+    // 100 m behind it, looking at it: in view.
+    world_cam.front = make_vector(256, 0, 0);
+    world_cam.left = make_vector(0, 256, 0);
+    world_cam.up = make_vector(0, 0, 256);
+    flight_eye_x = _opponent_x[0] - (100L << 9);
+    flight_eye_y = _opponent_y[0];
+    flight_eye_z = _opponent_z[0];
+    for (int k = 1; k < kOpponentHitsToDown; ++k) opponent_strike(0);
+    CHECK(opponent_target(0, p) && _msgs == 0 && (_opponent_cull() & 1),
+          "strikes: down, or out of view, before the third hit");
+    opponent_strike(0);
+    CHECK(!opponent_target(0, p) && _msgs == 1 && !strcmp(_msg, "TARGET DOWN"),
+          "strikes: the third hit did not down it (%d messages)", _msgs);
+    CHECK(!opponent_targets_down(), "strikes: one of two down, and the targets are down");
+    CHECK(!(_opponent_cull() & 1), "strikes: a downed aircraft is still drawn");
+    for (int k = 0; k < kOpponentHitsToDown; ++k) opponent_strike(1);
+    CHECK(opponent_targets_down(), "strikes: both down, but the targets are not down");
+    opponent_reset(3);
+    CHECK(opponent_target(0, p) && !opponent_targets_down(), "strikes: a reset left them down");
+  }
 }
 
 int main() {

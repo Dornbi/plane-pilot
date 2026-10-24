@@ -140,6 +140,12 @@ OPPONENT_TEST_HDRS = ../opponent.cc ../opponent.h ../planes.h ../planes_asm.h \
 		../planedef.h ../vec.h ../flight.h ../mission.h ../sprites.h ../world.h \
 		../mem.h ../color.h
 
+# gun_test #includes ../gun.cc, for its statics, and fakes what it asks of
+# opponent.cc and the sprite stack. fpilot's, so __FPILOT__.
+GUN_TEST_SRC = gun_test.cc ../vec.cc ../vec_lut.cc ../fmath.cc
+GUN_TEST_HDRS = ../gun.cc ../gun.h ../opponent.h ../vec.h ../flight.h ../sprites.h \
+		../spritedef.h ../world.h ../mem.h ../color.h
+
 # fpilot's flight model is always the arcade one - its rule in ../Makefile
 # passes no FLIGHT_MODEL - so its tests leave __FLIGHT_AOA__ out whatever the
 # rest are built with.
@@ -205,6 +211,9 @@ opponent_test: $(OPPONENT_TEST_SRC) $(OPPONENT_TEST_HDRS)
 fpilot_test: $(FPILOT_TEST_SRC) $(FPILOT_TEST_HDRS)
 	$(HOST_CC) $(FPILOT_CFLAGS) -o fpilot_test $(FPILOT_TEST_SRC)
 
+gun_test: $(GUN_TEST_SRC) $(GUN_TEST_HDRS)
+	$(HOST_CC) $(HOST_CFLAGS) -D__FPILOT__ -o gun_test $(GUN_TEST_SRC)
+
 mission_test: $(MISSION_TEST_SRC) $(MISSION_TEST_HDRS)
 	$(HOST_CC) $(FPILOT_CFLAGS) -o mission_test $(MISSION_TEST_SRC)
 
@@ -256,8 +265,8 @@ narrowing-update:
 	fi
 	@{ $(narrow_scan) ; } | $(NARROW_CHECK) --update $(NARROW_BASELINE)
 
-test: flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test planes_test planes_edge_test opponent_test fpilot_test mission_test narrowing $(TARGET_TEST)
-	@./flight_test > output.txt && ./msg_test >> output.txt && ./map_test >> output.txt && ./sound_test >> output.txt && ./music_test >> output.txt && ./mul_test >> output.txt && ./sprites_test >> output.txt && ./cpu_test >> output.txt && ./poly_test >> output.txt && ./planes_test >> output.txt && ./planes_edge_test >> output.txt && ./opponent_test >> output.txt && ./fpilot_test >> output.txt && ./mission_test >> output.txt && echo "ALL TESTS PASSED (flight_test, msg_test, map_test, sound_test, music_test, mul_test, sprites_test, cpu_test, poly_test, planes_test, planes_edge_test, opponent_test, fpilot_test, mission_test) -> test/output.txt"
+test: flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test planes_test planes_edge_test opponent_test gun_test fpilot_test mission_test narrowing $(TARGET_TEST)
+	@./flight_test > output.txt && ./msg_test >> output.txt && ./map_test >> output.txt && ./sound_test >> output.txt && ./music_test >> output.txt && ./mul_test >> output.txt && ./sprites_test >> output.txt && ./cpu_test >> output.txt && ./poly_test >> output.txt && ./planes_test >> output.txt && ./planes_edge_test >> output.txt && ./opponent_test >> output.txt && ./gun_test >> output.txt && ./fpilot_test >> output.txt && ./mission_test >> output.txt && echo "ALL TESTS PASSED (flight_test, msg_test, map_test, sound_test, music_test, mul_test, sprites_test, cpu_test, poly_test, planes_test, planes_edge_test, opponent_test, gun_test, fpilot_test, mission_test) -> test/output.txt"
 
 # Both models, from clean, because the object files are not model-tagged.
 test-both:
@@ -265,7 +274,7 @@ test-both:
 	$(MAKE) clean && $(MAKE) test FLIGHT_AOA=1
 
 clean:
-	rm -rf flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test planes_test planes_edge_test opponent_test fpilot_test mission_test planes_cases.h planes_target_cases.h output.txt *.dSYM
+	rm -rf flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test planes_test planes_edge_test opponent_test gun_test fpilot_test mission_test planes_cases.h planes_target_cases.h output.txt *.dSYM
 	rm -f target_test.prg target_test.asm target_test.lbl target_test.map target_test.int target_test.dbj
 
 .PHONY: all test test-both narrowing narrowing-update target-test flight_test msg_test map_test sound_test music_test mul_test sprites_test poly_test clean

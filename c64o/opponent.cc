@@ -21,10 +21,10 @@
 
 // docs/planes.md §13: two aircraft, each flying a fixed path.
 
-// Two slots, each with every sprite it can use: two sets of four blocks fill
-// $D000-$D3FF, and the dot has a block of its own below it (mem.h). The
-// rendering loop below takes them in turns, which is written for two.
-static const uint8_t kOpponentMax = 2;
+// Two slots (opponent.h kOpponentMax), each with every sprite it can use: two
+// sets of four blocks fill $D000-$D3FF, and the dot has a block of its own
+// below it (mem.h). The rendering loop below takes them in turns, which is
+// written for two.
 
 // --- Sprite blocks ----------------------------------------------------------
 //
@@ -226,11 +226,13 @@ static const uint8_t kOpponentNearD = 8;
 #pragma bss(bss2)
 static bool _opponent_on[kOpponentMax];
 static const opponent_path_t *_opponent_path[kOpponentMax];
-// The mission, whether it has failed, and bit i: slot i was shot down - by
-// the guns still to come, so for now never.
+// The mission, whether it has failed, and bit i: slot i was shot down, after
+// kOpponentHitsToDown hits (gun.cc). A downed slot is neither drawn nor a
+// target.
 static uint8_t _opponent_mission;
 static bool _opponent_failed;
 static uint8_t _opponent_down;
+static uint8_t _opponent_hits[kOpponentMax];
 // The navpoint of the mission's WP_TARGETS_DOWN waypoint, which follows the
 // targets, or kOpponentNoNav.
 static uint8_t _opponent_nav;
@@ -295,6 +297,23 @@ void opponent_invalidate(void) {
   // Below I/O, so no banking. Written here all the same, not once at boot:
   // it is in no linker region, so nothing loads or clears it.
   planes_dot_bitmap(_opponent_block(kOpponentBlockDot));
+}
+
+bool opponent_target(uint8_t i, int32_t *p) {
+  if (!_opponent_on[i] || (_opponent_down & (uint8_t)(1 << i))) {
+    return false;
+  }
+  p[0] = _opponent_x[i];
+  p[1] = _opponent_y[i];
+  p[2] = _opponent_z[i];
+  return true;
+}
+
+void opponent_strike(uint8_t i) {
+  if (++_opponent_hits[i] == kOpponentHitsToDown) {
+    _opponent_down |= (uint8_t)(1 << i);
+    msg_show("TARGET DOWN");
+  }
 }
 
 bool opponent_targets_down(void) {
@@ -369,6 +388,7 @@ void opponent_reset(uint8_t mission) {
     _opponent_head[i] = make_vector(p->head_x, p->head_y, 0);
     _opponent_turn[i] = 0;
     _opponent_bank[i] = 0;
+    _opponent_hits[i] = 0;
   }
   _opponent_track();
   opponent_invalidate();
@@ -625,7 +645,9 @@ static __noinline uint8_t _opponent_cull(void) {
       continue;
     }
     uint8_t bit = (uint8_t)(1 << i);
-    uint8_t range = _opponent_camera(i);
+    // Down, and gone: smoke and a fall are still to come.
+    uint8_t range =
+        (_opponent_down & bit) ? (uint8_t)kOpponentOut : _opponent_camera(i);
     // planes_render() says the same about x, but only after the axes
     // below. Then wholly outside the viewport: planes_render() only gives
     // up 45 degrees off the view axis, so an aircraft just over the top on
