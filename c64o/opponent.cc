@@ -655,13 +655,18 @@ static __noinline bool _opponent_off_screen(void) {
          az > (half >> 1) - (eighth >> 2) + px4 + kOpponentReachZ;
 }
 
-// Slot i's body axes in camera space, as planes_project() reads them: only
-// their screen components, y and z, which are each a dot product with
-// world_cam's left and up. The heading is level, so the front and left have
-// no z and the up is the world's, whose products are world_cam's own z
-// components. Then the bank, while turning: left and up turned about the
+// Slot i's body axes in camera space, in _opponent_axes_m, as planes_project()
+// reads them: only their screen components, y and z, which are each a dot
+// product with world_cam's left and up. The heading is level, so the front and
+// left have no z and the up is the world's, whose products are world_cam's own
+// z components. Then the bank, while turning: left and up turned about the
 // front by 30 degrees, towards the turn.
-static void _opponent_axes(uint8_t i, mat3_t *axes) {
+#pragma bss(tscratch)
+static mat3_t _opponent_axes_m;
+static planes_frame_t _opponent_f;
+#pragma bss(bss)
+
+static void _opponent_axes(uint8_t i) {
   int16_t hx = _opponent_head[i].x, hy = _opponent_head[i].y;
   int8_t turn = _opponent_bank[i];
   int16_t sn = turn > 0 ? kOpponentBankSin : -kOpponentBankSin;
@@ -670,18 +675,25 @@ static void _opponent_axes(uint8_t i, mat3_t *axes) {
   for (uint8_t c = 0; c < 2; ++c) {
     int16_t l = _opponent_dot(row->x, -hy, row->y, hx);
     int16_t u = row->z;
-    (&axes->front.y)[c] = _opponent_dot(row->x, hx, row->y, hy);
+    (&_opponent_axes_m.front.y)[c] = _opponent_dot(row->x, hx, row->y, hy);
     if (turn != 0) {
       // Banked left, the left wing goes down and the top towards the left.
       int16_t l0 = l;
       l = _opponent_dot(l0, kOpponentBankCos, u, -sn);
       u = _opponent_dot(u, kOpponentBankCos, l0, sn);
     }
-    (&axes->left.y)[c] = l;
-    (&axes->up.y)[c] = u;
+    (&_opponent_axes_m.left.y)[c] = l;
+    (&_opponent_axes_m.up.y)[c] = u;
     row = &world_cam.up;
   }
 }
+
+#ifndef __OSCAR64__
+static inline void _opponent_axes(uint8_t i, mat3_t *axes) {
+  _opponent_axes(i);
+  *axes = _opponent_axes_m;
+}
+#endif
 
 static_assert(kOpponentMax == 2, "the slots' turns below are written for two");
 
@@ -785,7 +797,6 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
   // next (docs/planes.md §13, "The silhouette at half rate"), so neither
   // frame pays for both. The position is this frame's either way: the
   // bitmap on screen is placed at this frame's centre.
-  planes_frame_t f;
   if (_opponent_pending & bit) {
     // The fill the last frame projected. It writes under I/O; the raster
     // handlers bank I/O in for themselves (gfx.cc _gfx_isr), and nothing
@@ -794,7 +805,7 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
     // mem_switch_buffer(), and by the time a later frame fills the other
     // set the raster handler has stopped showing it - mem_switch_buffer()
     // runs past raster 250 in its colour copy before it returns.
-    bool seen = planes_centre(_opponent_view, &_opponent_c, &f);
+    bool seen = planes_centre(_opponent_view, &_opponent_c, &_opponent_f);
     _opponent_front ^= bit;
     front = kOpponentBlockFirst[i];
     if (_opponent_front & bit) {
@@ -808,20 +819,21 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
     if (!seen) {
       return started;
     }
-    planes_place(&_opponent_shown[i], _opponent_view, &f);
+    planes_place(&_opponent_shown[i], _opponent_view, &_opponent_f);
   } else if (busy) {
     // The other slot's turn: what is on screen, where it is now.
-    if (!planes_centre(_opponent_view, &_opponent_c, &f)) {
+    if (!planes_centre(_opponent_view, &_opponent_c, &_opponent_f)) {
       return started;
     }
-    planes_place(&_opponent_shown[i], _opponent_view, &f);
+    planes_place(&_opponent_shown[i], _opponent_view, &_opponent_f);
   } else {
-    mat3_t axes;
-    _opponent_axes(i, &axes);
-    planes_project(&_opponent_planes[i], _opponent_view, &_opponent_c, &axes, &f);
-    if (f.hidden != kPlaneShown || f.level == kPlaneLevelDot) {
+    _opponent_axes(i);
+    planes_project(&_opponent_planes[i], _opponent_view, &_opponent_c,
+                   &_opponent_axes_m, &_opponent_f);
+    if (_opponent_f.hidden != kPlaneShown ||
+        _opponent_f.level == kPlaneLevelDot) {
       _opponent_forget(i);
-    } else if (f.cached) {
+    } else if (_opponent_f.cached) {
       // The front set holds the state's silhouette - after a forget too,
       // as the state has not been projected since it was filled.
       _opponent_shown[i] = _opponent_planes[i].lay;
@@ -830,44 +842,45 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
       // or the dot if there is none.
       _opponent_pending |= bit;
       started = true;
-      planes_place(&_opponent_shown[i], _opponent_view, &f);
+      planes_place(&_opponent_shown[i], _opponent_view, &_opponent_f);
     }
   }
-  if (f.hidden != kPlaneShown) {
+  if (_opponent_f.hidden != kPlaneShown) {
     return started;
   }
 
   uint8_t bitmap = kOpponentBlockDot;
   uint8_t bitmap2 = kSpriteNoBitmap;
   uint8_t flags = 0;
-  if (f.level != kPlaneLevelDot) {
+  if (_opponent_f.level != kPlaneLevelDot) {
     bitmap = front;
-    if (f.rows == 2) {
-      bitmap2 = (uint8_t)(front + f.cols);
+    if (_opponent_f.rows == 2) {
+      bitmap2 = (uint8_t)(front + _opponent_f.cols);
     }
-    if (f.cols == 2) {
+    if (_opponent_f.cols == 2) {
       flags |= kSpriteFlagWide;
     }
-    if (f.xs == 2) {
+    if (_opponent_f.xs == 2) {
       flags |= kSpriteFlagExpandX;
     }
-    if (f.ys == 2) {
+    if (_opponent_f.ys == 2) {
       flags |= kSpriteFlagExpandY;
     }
   }
   // The colour, from the pixel size: near from about 8 pixels across, and
   // back to far below 7, so that a chase holding the range on the line does
   // not flicker.
-  if (f.d >= kOpponentNearD) {
+  if (_opponent_f.d >= kOpponentNearD) {
     _opponent_near |= bit;
-  } else if (f.d < kOpponentNearD - 1) {
+  } else if (_opponent_f.d < kOpponentNearD - 1) {
     _opponent_near &= (uint8_t)~bit;
   }
   uint8_t color =
       (_opponent_near & bit) ? kColorOpponentNear : kColorOpponentFar;
   // Depth in the clouds' 1 m units, so that the two sort together.
-  sprites_stack_add(far ? _opponent_c.x >> 1 : _opponent_c.x >> 3, f.x, f.y, 0,
-                    0, bitmap, bitmap2, color, flags);
+  sprites_stack_add(far ? _opponent_c.x >> 1 : _opponent_c.x >> 3,
+                    _opponent_f.x, _opponent_f.y, 0, 0, bitmap, bitmap2, color,
+                    flags);
   return started;
 }
 

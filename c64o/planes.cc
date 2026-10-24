@@ -69,6 +69,7 @@ static uint8_t _poly_count;
 static uint8_t _vert_count;
 // planes_asm.h's: the pairs' products.
 int8_t _planes_tx[32], _planes_ty[32];
+static int8_t _planes_off[8];
 #ifdef __FPILOT__
 #pragma bss(bss)
 #endif
@@ -365,14 +366,14 @@ static void _project(uint16_t k, const mat3_t *axes) {
   if (n < (uint16_t)(sr[widest] << 2)) {
     int8_t r = (int8_t)(sr[widest] > 1 ? sr[widest] : 1);
     int8_t h = (int8_t)((vec_mul8x8((uint8_t)r, 106) + 255) >> 8);
-    int8_t off[8];
-    off[0] = off[7] = r;
-    off[1] = off[6] = h;
-    off[2] = off[5] = (int8_t)-h;
-    off[3] = off[4] = (int8_t)-r;
+    _planes_off[0] = _planes_off[7] = r;
+    _planes_off[1] = _planes_off[6] = h;
+    _planes_off[2] = _planes_off[5] = (int8_t)-h;
+    _planes_off[3] = _planes_off[4] = (int8_t)-r;
     uint8_t x = sx[widest], y = sy[widest];
     for (uint8_t i = 0; i < 8; ++i) {
-      _add_vertex((uint8_t)(x + off[i]), (uint8_t)(y + off[(i + 6) & 7]));
+      _add_vertex((uint8_t)(x + _planes_off[i]),
+                  (uint8_t)(y + _planes_off[(i + 6) & 7]));
     }
     _end_poly();
   }
