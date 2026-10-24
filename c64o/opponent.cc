@@ -328,13 +328,17 @@ static inline bool _opponent_live(uint8_t i) {
   return _opponent_on[i] && !(_opponent_down & _opponent_bit(i));
 }
 
+static __noinline void _opponent_pos(uint8_t i, int32_t *p) {
+  p[0] = _opponent_x[i];
+  p[1] = _opponent_y[i];
+  p[2] = _opponent_z[i];
+}
+
 bool opponent_target(uint8_t i, int32_t *p) {
   if (!_opponent_live(i)) {
     return false;
   }
-  p[0] = _opponent_x[i];
-  p[1] = _opponent_y[i];
-  p[2] = _opponent_z[i];
+  _opponent_pos(i, p);
   return true;
 }
 
@@ -357,9 +361,7 @@ bool opponent_smoke(int32_t *p, int16_t *h) {
     return false;
   }
   uint8_t i = (uint8_t)(_opponent_smoke - 1);
-  p[0] = _opponent_x[i];
-  p[1] = _opponent_y[i];
-  p[2] = _opponent_z[i];
+  _opponent_pos(i, p);
   h[0] = _opponent_head[i].x;
   h[1] = _opponent_head[i].y;
   return true;
@@ -370,8 +372,7 @@ bool opponent_targets_down(void) {
     return false;
   }
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
-    if (kOpponentPaths[_opponent_mission][i].kind != kOpponentNone &&
-        !(_opponent_down & _opponent_bit(i))) {
+    if (_opponent_live(i)) {
       return false;
     }
   }
@@ -428,8 +429,8 @@ void opponent_reset(uint8_t mission) {
       ++nav;
     }
   }
-  for (uint8_t i = 0; i < kOpponentMax; ++i) {
-    const opponent_path_t *p = &kOpponentPaths[mission][i];
+  const opponent_path_t *p = kOpponentPaths[mission];
+  for (uint8_t i = 0; i < kOpponentMax; ++i, ++p) {
     _opponent_on[i] = p->kind != kOpponentNone;
     _opponent_path[i] = p;
     _opponent_next[i] = 0;
