@@ -8,15 +8,15 @@
 #   1. A fresh `claude -p` worker reads docs/ram-loop.md (rules, dead ends,
 #      log) and implements ONE new saving of RAM or cycles. It does not
 #      commit.
-#   2. This script rebuilds everything from clean, runs every test, measures
-#      fpilot's "Free, allocatable" and times five frozen scenes with
-#      tools/bench.sh. The change is reverted on any failure, if free RAM
-#      drops, if any scene is more than 2% slower than the cycle baseline in
-#      docs/ram-loop.md, or if it gains neither RAM nor at least 0.5% of total
-#      cycles.
-#   3. It runs tools/make_shots.sh and compares the shots with the ones from
-#      the last kept state. screens/ itself is always restored: the loop never
-#      commits screenshots.
+#   2. This script rebuilds fpilot and tests from clean, measures fpilot's
+#      "Free, allocatable" and times six fpilot scenes (five frozen + live
+#      combat with opponents and projectiles) with tools/bench.sh. The change
+#      is reverted on any failure, if free RAM drops, if any scene is more than
+#      2% slower than the cycle baseline in docs/ram-loop.md, or if it gains
+#      neither RAM nor at least 0.5% of total cycles.
+#   3. It runs FPILOT=1 tools/make_shots.sh and compares the shots with the
+#      ones from the last kept state. screens/ itself is always restored: the
+#      loop never commits screenshots.
 #   4. A fresh read-only reviewer checks the diff and the changed screens
 #      against the rules and answers ACCEPT or REJECT.
 #   5. An accepted change is committed. Either way a row goes into the log
@@ -87,12 +87,12 @@ fi
 
 # --- Measurement -----------------------------------------------------------
 
-free_of() {  # free_of ppilot|fpilot -> bytes
+free_of() {  # free_of fpilot -> bytes
   python3 tools/analyze_ram.py "c64o/$1.map" | awk '/Free, allocatable/ { gsub(",", "", $3); print $3 }'
 }
 
 build_and_test() {  # build_and_test <log>
-  { make -C c64o clean && make -C c64o all && make test; } > "$1" 2>&1
+  { make -C c64o clean && make -C c64o fpilot.prg test && make test; } > "$1" 2>&1
 }
 
 bench() {  # bench <out>: tools/bench.sh's "scene cycles" lines
@@ -147,7 +147,7 @@ say "baseline build on $BRANCH"
 build_and_test "$RUN_DIR/baseline.log" || die "baseline build/tests fail; see $RUN_DIR/baseline.log"
 # The last kept state. The .map files can't be trusted for this: after a
 # rejected pass they describe the rejected build until the next rebuild.
-good_f=$(free_of fpilot); good_p=$(free_of ppilot)
+good_f=$(free_of fpilot)
 bench "$RUN_DIR/baseline.bench" || die "baseline bench fails; see $RUN_DIR/baseline.bench"
 [ -z "$(over_budget "$RUN_DIR/baseline.bench")" ] ||
   die "HEAD is already over the cycle budget: $(over_budget "$RUN_DIR/baseline.bench")"
@@ -158,9 +158,10 @@ rm -f "$RUN_DIR/current.bench"
 # state's set, shots/ the current pass's.
 shots() {  # shots <dir> <log>
   rm -rf "$1"; mkdir -p "$1"
-  tools/make_shots.sh > "$2" 2>&1
+  FPILOT=1 tools/make_shots.sh > "$2" 2>&1
   local rc=$?
   cp screens/*.png "$1/"
+  rm -f screens/combat_crt.png
   git checkout -q -- screens
   return $rc
 }
@@ -173,27 +174,29 @@ fi
 worker_prompt() {
   cat <<EOF
 You are one pass of an unattended loop that frees RAM and saves cycles in fpilot
-(C64, oscar64). RAM and cycles matter equally.
+(C64, oscar64). Focus on fpilot only; RAM and cycles matter equally.
 
 Read $LEDGER first. Its rules are binding. Its dead ends and log list ideas that were
 already tried: never retry one, or a trivial variant of one. Your auto-memory notes about
 fpilot RAM, inlining and oscar64 bugs are background.
 
-Current state: fpilot $1 B free allocatable, ppilot $2 B. The tree is clean on branch $BRANCH.
-Render cycles per frame now (tools/bench.sh):
-$3
+Current state: fpilot $1 B free allocatable. The tree is clean on branch $BRANCH.
+Cycles per frame now (tools/bench.sh, 5 frozen scenes + live combat with opponents & guns):
+$2
 The fixed budget: every scene must stay within +$CYCLE_SLACK_PERCENT% of: $BASELINE
 
-Your task: find ONE new saving and implement it. It must either raise fpilot's
+Your task: find ONE new saving in fpilot (including opponent.cc, planes.cc, planes_asm.cc,
+gun.cc, clouds.cc, or shared engine modules) and implement it. It must either raise fpilot's
 "Free, allocatable" while staying inside the cycle budget, or cut total cycles by at
 least 0.$SPEED_GAIN_PERMILLE% without losing any free RAM. A change that does both is best.
 Prefer changes that are cycle-neutral or faster.
-- Measure RAM with: make -C c64o all && make fram   (also make pram for ppilot)
-- Measure cycles with: tools/bench.sh   (about 20 s)
-- Before you finish, make sure that make -C c64o all and make test pass.
-- If the change could affect rendering, look at the result with tools/make_shots.sh
-  (SHOT_BUILD_DIR is already set to a short path). It overwrites screens/; the loop
-  restores that afterwards. The menu and debug shots differ from run to run anyway.
+- Measure RAM with: make -C c64o fpilot.prg && make fram
+- Measure cycles with: tools/bench.sh   (about 25 s; includes the combat scene)
+- Before you finish, make sure that make -C c64o fpilot.prg test and make test pass.
+- If the change could affect rendering, opponents or projectiles, look at the result with
+  FPILOT=1 tools/make_shots.sh (SHOT_BUILD_DIR is already set to a short path). It
+  overwrites screens/ and writes screens/combat_crt.png; the loop restores screens/
+  afterwards. The menu and debug shots differ from run to run anyway.
 - If the idea does not pan out, revert your own edits by hand. Then either try one other
   idea, or report the dead end.
 - Do NOT commit, switch branch, edit $LEDGER, or write auto-memory notes. The loop records
@@ -216,19 +219,20 @@ fpilot (C64).
 Read the rules in $LEDGER. A worker made an uncommitted change. Inspect it with
 git status and git diff HEAD. The worker's summary is in $RUN_DIR/summary.txt.
 
-It already builds and passes every test. fpilot free RAM goes from $1 to $2 B
-(ppilot $3 -> $4 B). Render cycles per frame, before and after (tools/bench.sh):
-$6
+It already builds and passes every test. fpilot free RAM goes from $1 to $2 B.
+Cycles per frame, before and after (tools/bench.sh, including combat):
+$4
 These are within the cycle budget, which the loop has already checked.
 
 Screenshots that changed (before in $RUN_DIR/ref/, after in $RUN_DIR/shots/, same names):
-$5
+$3
 
 Judge only against the rules:
 - Rendering: is it the same, apart from allowed minor dot or polygon differences? Look at
-  every changed screenshot pair with Read.
-- Flight model: does it behave similarly (loops, climb, turn, takeoff, landing)?
-  Scrutinise any change to test expectations.
+  every changed screenshot pair (including combat_crt.png for opponents, smoke and tracers)
+  with Read.
+- Flight, opponent & gun model: do flight dynamics, opponent paths/silhouettes, projectiles,
+  hit detection and smoke behave similarly? Scrutinise any change to test expectations.
 - Every feature kept, the change small and readable, and docs/comments kept accurate?
 
 Do not edit anything. End your answer with exactly one line:
@@ -256,12 +260,12 @@ pass=$(grep -cE '^\| *[0-9]+ \|' "$LEDGER")
 for ((n = 1; n <= MAX_PASSES && fails < MAX_FAILS; n++)); do
   pass=$((pass + 1))
   head=$(git rev-parse HEAD)
-  f0=$good_f; p0=$good_p; c0=$good_c
-  say "pass $pass: fpilot $f0 B, ppilot $p0 B free, $c0 cycles (fails in a row: $fails)"
+  f0=$good_f; c0=$good_c
+  say "pass $pass: fpilot $f0 B free, $c0 cycles (fails in a row: $fails)"
   cur_bench=$(cat "$RUN_DIR/current.bench" 2>/dev/null || cat "$RUN_DIR/baseline.bench")
 
   rm -f "$RUN_DIR/summary.txt"
-  "$CLAUDE" -p "$(worker_prompt "$f0" "$p0" "$cur_bench")" ${EXTRA[@]+"${EXTRA[@]}"} \
+  "$CLAUDE" -p "$(worker_prompt "$f0" "$cur_bench")" ${EXTRA[@]+"${EXTRA[@]}"} \
     --add-dir "$RUN_DIR" --permission-mode "$PERM" --allowedTools "${WORKER_TOOLS[@]}" --disallowedTools "${DENY_TOOLS[@]}" \
     > "$RUN_DIR/pass$pass.worker.log" 2>&1
   rc=$?
@@ -279,19 +283,20 @@ for ((n = 1; n <= MAX_PASSES && fails < MAX_FAILS; n++)); do
   if grep -q '^NO_MORE_IDEAS' "$RUN_DIR/summary.txt" 2>/dev/null; then
     why=$(sed -n 's/^NO_MORE_IDEAS:* *//p' "$RUN_DIR/summary.txt" | head -1)
     git reset -q --hard "$head"; git clean -fdq
-    log_row "$pass" "${why:-no reason given}" 0 0 0 "stop: no more ideas"
+    log_row "$pass" "${why:-no reason given}" 0 - 0 "stop: no more ideas"
     git commit -qm "Optimisation loop: pass $pass found no more ideas" -- "$LEDGER"
     say "worker reports no more ideas: $why"
     break
   fi
   # Shots the worker took are not part of the change.
+  rm -f screens/combat_crt.png
   git checkout -q -- screens
   idea=$(sed -n 's/^IDEA: *//p' "$RUN_DIR/summary.txt" 2>/dev/null | head -1)
   idea=${idea:-"(no summary written)"}
   title=$(sed -n 's/^TITLE: *//p' "$RUN_DIR/summary.txt" 2>/dev/null | head -1 | cut -c1-72)
   [ -n "$title" ] || title=$(printf '%s' "$idea" | cut -c1-60)
 
-  result=""; f1=$f0; p1=$p0; c1=$c0
+  result=""; f1=$f0; c1=$c0
   pass_bench="$RUN_DIR/pass$pass.bench"
   if [ -z "$(git status --porcelain)" ]; then
     result="dead end"
@@ -300,7 +305,7 @@ for ((n = 1; n <= MAX_PASSES && fails < MAX_FAILS; n++)); do
   elif ! bench "$pass_bench"; then
     result="rejected: bench fails"
   else
-    f1=$(free_of fpilot); p1=$(free_of ppilot); c1=$(cycles_of "$pass_bench" total)
+    f1=$(free_of fpilot); c1=$(cycles_of "$pass_bench" total)
     over=$(over_budget "$pass_bench")
     if [ -z "$f1" ] || [ "$f1" -lt "$f0" ]; then
       result="rejected: fpilot loses RAM"
@@ -328,7 +333,7 @@ for ((n = 1; n <= MAX_PASSES && fails < MAX_FAILS; n++)); do
 
   if [ -z "$result" ] && [ "$REVIEW" = 1 ]; then
     both=$(paste "$RUN_DIR/current.bench" "$pass_bench" 2>/dev/null || paste "$RUN_DIR/baseline.bench" "$pass_bench")
-    "$CLAUDE" -p "$(reviewer_prompt "$f0" "$f1" "$p0" "$p1" "${changed:-none (pixel-identical)}" "$both")" ${EXTRA[@]+"${EXTRA[@]}"} \
+    "$CLAUDE" -p "$(reviewer_prompt "$f0" "$f1" "${changed:-none (pixel-identical)}" "$both")" ${EXTRA[@]+"${EXTRA[@]}"} \
       --add-dir "$RUN_DIR" --permission-mode default --allowedTools "${REVIEW_TOOLS[@]}" --disallowedTools Edit Write \
       > "$RUN_DIR/pass$pass.review.log" 2>&1 ||
       { git reset -q --hard "$head"; git clean -fdq; die "reviewer call failed; see $RUN_DIR/pass$pass.review.log"; }
@@ -348,13 +353,13 @@ for ((n = 1; n <= MAX_PASSES && fails < MAX_FAILS; n++)); do
   # the wrong branch. Refuse to commit anywhere but $BRANCH.
   [ "$(git branch --show-current)" = "$BRANCH" ] ||
     die "checkout moved off $BRANCH during pass $pass (now on $(git branch --show-current)); nothing committed"
-  df=$((f1 - f0)); dp=$((p1 - p0)); dc=$(pct "$c1" "$c0")
+  df=$((f1 - f0)); dc=$(pct "$c1" "$c0")
   if [ -z "$result" ]; then
-    log_row "$pass" "$idea" "$df" "$dp" "$dc" "kept"
+    log_row "$pass" "$idea" "$df" "-" "$dc" "kept"
     git add -A
-    git commit -qm "$(printf '%s\n\n%s\n\nfpilot free %s -> %s B, ppilot %s -> %s B.\nRender cycles (tools/bench.sh total) %s -> %s, %s.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>' \
-      "$title" "$idea" "$f0" "$f1" "$p0" "$p1" "$c0" "$c1" "$dc")"
-    good_f=$f1; good_p=$p1; good_c=$c1
+    git commit -qm "$(printf '%s\n\n%s\n\nfpilot free %s -> %s B.\nCycles (tools/bench.sh total) %s -> %s, %s.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>' \
+      "$title" "$idea" "$f0" "$f1" "$c0" "$c1" "$dc")"
+    good_f=$f1; good_c=$c1
     cp "$pass_bench" "$RUN_DIR/current.bench"
     [ "$SHOTS" = 1 ] && cp "$RUN_DIR"/shots/*.png "$RUN_DIR/ref/"
     fails=0
@@ -362,7 +367,7 @@ for ((n = 1; n <= MAX_PASSES && fails < MAX_FAILS; n++)); do
   else
     git diff HEAD > "$RUN_DIR/pass$pass.rejected.diff"
     git reset -q --hard "$head"; git clean -fdq
-    log_row "$pass" "$idea" "$df" "$dp" "$dc" "$result"
+    log_row "$pass" "$idea" "$df" "-" "$dc" "$result"
     git commit -qm "Optimisation loop: log pass $pass ($(printf '%s' "$result" | cut -c1-40))" -- "$LEDGER"
     fails=$((fails + 1))
     say "$result ($idea)"
@@ -371,6 +376,6 @@ for ((n = 1; n <= MAX_PASSES && fails < MAX_FAILS; n++)); do
   fi
 done
 
-# Leave the tree built, so that make fram/pram report the final state.
+# Leave the tree built, so that make fram reports the final state.
 build_and_test "$RUN_DIR/final.log" || say "final rebuild failed; see $RUN_DIR/final.log"
-say "done on $BRANCH: fpilot $(free_of fpilot) B, ppilot $(free_of ppilot) B free, $good_c cycles; logs in $RUN_DIR"
+say "done on $BRANCH: fpilot $(free_of fpilot) B free, $good_c cycles; logs in $RUN_DIR"

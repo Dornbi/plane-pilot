@@ -51,6 +51,7 @@ bank   4   12000000  screen02_crt.png
 map    5  110000000  screen05_crt.png
 debug  6   18000000  debug_crt.png
 lake   7   12000000  screen06_crt.png
+combat 9   15000000  combat_crt.png
 '
 
 # Cropping the border and building the tube - scanlines, bleed, bloom - is
@@ -72,7 +73,7 @@ command -v x64sc >/dev/null || { echo "make_shots: x64sc not on PATH (see docs/e
 rm -rf "$BUILD"
 mkdir -p "$BUILD/src"
 cp "$REPO/c64o"/*.cc "$REPO/c64o"/*.h "$REPO/c64o"/*.bin "$REPO/c64o"/*.koa "$BUILD/src/"
-rm -f "$BUILD/src/polydemo.cc" "$BUILD/src/vecdemo.cc" "$BUILD/src/vectest.cc"
+rm -f "$BUILD/src/polydemo.cc" "$BUILD/src/vecdemo.cc" "$BUILD/src/vectest.cc" "$BUILD/src/planedemo.cc"
 cp "$REPO/tools/shot.cc" "$REPO/tools/shot.h" "$BUILD/src/"
 # Symlinked rather than passed as an absolute path, for the same reason BUILD is
 # short: what oscar64 has to hold is the path it resolves, not the one typed.
@@ -100,16 +101,24 @@ done
 
 # --- The scenes ------------------------------------------------------------
 
-# Same flags as the ppilot.prg rule in c64o/Makefile: a scene has to be a
-# picture of the binary people actually run.
-CFLAGS="-ii=../include -D__OSCAR64__ -g -xz -O2 -Op -Oa -Oi -Oz -Oo"
-CFLAGS="$CFLAGS -D__ENABLE_SOUND__ -D__ENABLE_DEBUG__ -D__ENABLE_CLOUDS__ -D__MAX_RAM__"
+# Same flags as c64o/Makefile: fpilot when FPILOT=1 (and always for combat),
+# ppilot otherwise.
+BASE_CFLAGS="-ii=../include -D__OSCAR64__ -g -xz -O2 -Op -Oa -Oi -Oz -Oo"
+BASE_CFLAGS="$BASE_CFLAGS -D__ENABLE_SOUND__ -D__ENABLE_CLOUDS__ -D__MAX_RAM__"
 
 wanted="${*:-}"
 echo "$SCENES" | while read -r name shot cycles out; do
   [ -n "${name:-}" ] || continue
+  if [ "${FPILOT:-0}" = 1 ] && [ "$name" = debug ]; then
+    continue
+  fi
   if [ -n "$wanted" ]; then
     case " $wanted " in *" $name "*) ;; *) continue ;; esac
+  fi
+  if [ "${FPILOT:-0}" = 1 ] || [ "$name" = combat ]; then
+    CFLAGS="$BASE_CFLAGS -D__FPILOT__"
+  else
+    CFLAGS="$BASE_CFLAGS -D__ENABLE_DEBUG__"
   fi
 
   ( cd "$BUILD/src" && oscar64 $CFLAGS -D__SHOT__="$shot" -o="$BUILD/$name.prg" ppilot.cc ) >/dev/null

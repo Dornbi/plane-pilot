@@ -21,7 +21,11 @@
 #include "cia.h"
 #include "flight.h"
 
+#if __SHOT__ == 9
+static const uint8_t kBenchSkip = 1;
+#else
 static const uint8_t kBenchSkip = 40;
+#endif
 static const uint8_t kBenchFrames = 16;
 
 // volatile, or oscar64 deletes it: it is only ever written.
@@ -60,9 +64,11 @@ void bench_begin(void) {
 
 void bench_end(void) {
   const uint32_t cycles = _bench_t0 - _bench_now();
+#if __SHOT__ != 9
   if (!flight_paused) {
     return;
   }
+#endif
   ++_bench_frame;
   if (_bench_frame > kBenchSkip) {
     g_bench_cycles += cycles;

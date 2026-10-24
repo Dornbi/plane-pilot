@@ -37,6 +37,11 @@
 #include "shot.h"
 
 #include "flight.h"
+#ifdef __FPILOT__
+#include "gun.h"
+#include "msg.h"
+#include "opponent.h"
+#endif
 #include "vec.h"
 
 // Script entries: hold `key` for `polls` polls of whichever loop is running.
@@ -103,16 +108,18 @@ static const shot_step_t kShotScript[] = {
 };
 #elif __SHOT__ == 5
 // The map. This one does fly: the breadcrumb trail is the point of the
-// picture and there is no way to fake one, so it takes mission 04 - the only
-// start that is already airborne at cruise - flies it unattended for a minute
-// and a half with one brief roll partway so the trail has a bend in it, and
-// then presses M. The map is modal and freezes the simulation under it, so
-// there is nothing to hold still afterwards.
+// picture and there is no way to fake one, so it takes a mission that is
+// already airborne at cruise (01 in fpilot, 04 in ppilot), flies it
+// unattended for a minute and a half with one brief roll partway so the trail
+// has a bend in it, and then presses M. The map is modal and freezes the
+// simulation under it, so there is nothing to hold still afterwards.
 static const shot_step_t kShotScript[] = {
     {100, SHOT_IDLE},
+#ifndef __FPILOT__
     {1, KSCAN_K},      {6, SHOT_IDLE},
     {1, KSCAN_K},      {6, SHOT_IDLE},
     {1, KSCAN_K},      {6, SHOT_IDLE},
+#endif
     {1, KSCAN_RETURN},
     {200, SHOT_IDLE},
     {4, KSCAN_L},
@@ -120,11 +127,15 @@ static const shot_step_t kShotScript[] = {
     {1, KSCAN_M},
 };
 #elif __SHOT__ == 8
-// Parked at the start of the first mission, frozen there. Not a screenshot:
-// tools/bench.sh times it, because the runway filling the lower viewport is
-// the single most expensive polygon in the game (docs/framerate.md).
+// Parked at the start of the runway mission (02 in fpilot, 01 in ppilot),
+// frozen there. Not a screenshot: tools/bench.sh times it, because the runway
+// filling the lower viewport is the single most expensive polygon in the game
+// (docs/framerate.md).
 static const shot_step_t kShotScript[] = {
     {100, SHOT_IDLE},
+#ifdef __FPILOT__
+    {1, KSCAN_K},      {6, SHOT_IDLE},
+#endif
     {1, KSCAN_RETURN},
     {1, SHOT_FREEZE},
 };
@@ -180,22 +191,37 @@ static const shot_pose_t kShotPose = {0x6000, 0x9800, 0x0140, 0,    -4,
 // way to the approach shot above.
 static const shot_pose_t kShotPose = {0x5000, 0x1000, 0x0100, 0,    -4,
                                       9,      SHOT_CRUISE};
+#elif __SHOT__ == 9
+// Air combat over runway 1 in mission 04 (Scramble): lined up behind both
+// low-level enemy fighters as they overtake the runway heading north, the
+// nearer trailing hit smoke and the player firing a burst of tracers.
+static const shot_pose_t kShotPose = {0x17E0, 0x3F20, 0x0064, 0,    0,
+                                      -6,     0x0600, 0x0C,   false, false};
 #else
 #error "build with -D__SHOT__=<scene number>"
 #endif
 
 static const shot_step_t kShotScript[] = {
     {100, SHOT_IDLE},
+#ifndef __FPILOT__
     {1, KSCAN_K},      {6, SHOT_IDLE},
     {1, KSCAN_K},      {6, SHOT_IDLE},
     {1, KSCAN_K},      {6, SHOT_IDLE},
+#endif
     {1, KSCAN_RETURN},
-#if __SHOT__ == 6
+#if __SHOT__ == 6 && !defined(__FPILOT__)
     // The debug view is switched on before the pose, so that the frame the
     // counters describe is the frame in the picture.
     {1, KSCAN_D},
 #endif
     {1, SHOT_POSE},
+#if __SHOT__ == 9
+    {1, SHOT_IDLE},
+    {2, KSCAN_SPACE},
+    {10, SHOT_IDLE},
+    {3, KSCAN_SPACE},
+    {1, SHOT_FREEZE},
+#endif
 };
 
 // cos(a) * 256 for the first quarter turn, a = 0..64 in binary degrees. The
@@ -209,7 +235,7 @@ static const int16_t kShotCos[65] = {
     74,  68,  62,  56,  50,  44,  38,  31,  25,  19,  13,  6,   0,
 };
 
-static int16_t _shot_cos(uint8_t a) {
+static inline int16_t _shot_cos(uint8_t a) {
   if (a < 64) {
     return kShotCos[a];
   }
@@ -222,11 +248,12 @@ static int16_t _shot_cos(uint8_t a) {
   return kShotCos[256 - (uint16_t)a];
 }
 
-static int16_t _shot_sin(uint8_t a) { return _shot_cos((uint8_t)(a - 64)); }
+static inline int16_t _shot_sin(uint8_t a) { return _shot_cos((uint8_t)(a - 64)); }
 
-// 8.8 by 8.8. Runs once, off the render path, so the general 32-bit form is
-// fine here where vec_asm.cc would not be.
-static int16_t _shot_mul(int16_t a, int16_t b) {
+// 8.8 by 8.8. Inlined along with _shot_cos/_shot_sin so oscar64 folds the
+// constant kShotPose attitude matrix at compile time, keeping kShotCos and
+// 32-bit multiply routines out of the binary.
+static inline int16_t _shot_mul(int16_t a, int16_t b) {
   return (int16_t)(((int32_t)a * (int32_t)b) >> 8);
 }
 
@@ -270,7 +297,18 @@ static void _shot_apply_pose(void) {
   flight_throttle = kShotPose.throttle;
   flight_gear = kShotPose.gear;
   flight_flap = kShotPose.flap;
+#ifdef __FPILOT__
+  opponent_reset(3);
+  gun_reset();
+#endif
+#if __SHOT__ == 9
+#ifdef __FPILOT__
+  msg_clear();
+  opponent_strike(1);
+#endif
+#else
   flight_paused = true;
+#endif
 }
 
 #endif

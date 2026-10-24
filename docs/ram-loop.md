@@ -13,12 +13,17 @@ This file is the loop's memory. Every pass reads it first.
 
 ## Goal and metrics
 
-- **RAM:** fpilot's "Free, allocatable" from `make fram`, after a full
-  `make -C c64o all`.
-- **Cycles:** `tools/bench.sh` gives the render work per frame (`bm_start()`
-  through `bm_total()` in `sim_run()`) in five frozen fpilot scenes: runway,
-  approach, cruise, town and lake. The emulator is cycle-exact and the scenes
-  hold still, so the numbers are deterministic. Only code changes move them.
+- **RAM:** fpilot's "Free, allocatable" from `make fram`, after building
+  `c64o/fpilot.prg`.
+- **Cycles:** `tools/bench.sh` gives the per-frame work (`bm_model_start()`
+  through `bm_total()` in `sim_run()`) in six fpilot scenes: five frozen
+  scenes (runway, approach, cruise, town and lake, with Mission 04 Scramble's
+  opponents spawned near Runway 1) and one live `combat` scene (16 active
+  frames behind two Scramble fighters while firing the wing guns, exercising
+  `flight_advance()`, `opponent_step()`, `gun_step()`, `planes_project()`,
+  `planes_fill()`, hit detection, smoke and tracers). The emulator is
+  cycle-exact and the input script is fixed, so the numbers are deterministic.
+  Only code changes move them.
 
 A change is kept only when all of these hold:
 
@@ -28,40 +33,44 @@ A change is kept only when all of these hold:
 - It gains something: more free RAM, or at least 0.5% fewer total cycles than
   the last kept state.
 
-ppilot and ppilota must still build and pass their tests. Their free RAM is
-logged but is not a gate.
+The loop focuses on `fpilot` only.
 
 The script reads this line, so keep its format exactly:
 
-cycles-baseline: runway=122384 approach=116327 cruise=138732 town=141890 lake=130944
+cycles-baseline: runway=124510 approach=144768 cruise=152405 town=144432 lake=134146 combat=201422
 
 ## Rules (binding for the worker and the reviewer)
 
 1. **Rendering stays as it is.** Small visual changes are allowed:
    - The dot layout (ground dots, clouds and the like) may change, as long as
      the visual density stays similar.
-   - Polygon rendering may change slightly, as long as each polygon stays
-     close to the original: an edge pixel here and there, not a different
-     shape.
-   - Nothing may disappear, flicker, tear or change colour. Panel, map, menu,
-     help and title screens stay pixel-identical, apart from timing-driven
-     differences such as the menu flyby being a frame ahead.
-2. **The flight model must behave similarly.** Loops, climbs, turns, takeoff
-   and landing must all still work and feel the same. Small numeric
-   differences are fine if every one of these stays supported.
-   - Changing a `c64o/test/flight_test.cc` expectation is a red flag. Do it
-     only for a tolerance-sized shift, and give the reason in the summary.
-     Never delete a test or weaken a test so that it no longer checks the
-     behaviour.
+   - Polygon and 3D opponent aircraft rendering may change slightly, as long as
+     each polygon or aircraft silhouette stays close to the original: an edge
+     pixel here and there, not a different shape.
+   - Nothing may disappear, flicker, tear or change colour. Opponent sprites,
+     wing-gun tracers and hit smoke must stay intact (`combat_crt.png`). Panel,
+     map, menu, help and title screens stay pixel-identical, apart from
+     timing-driven differences such as the menu flyby being a frame ahead.
+2. **The flight, opponent and gun models must behave similarly.** Loops,
+   climbs, turns, takeoff, landing, opponent waypoint/dogfight steering,
+   projectile motion, hit detection and smoke must all still work and feel the
+   same. Small numeric differences are fine if every one of these stays
+   supported.
+   - Changing a `c64o/test/flight_test.cc`, `opponent_test.cc`, `gun_test.cc`
+     or `planes_test.cc` expectation is a red flag. Do it only for a
+     tolerance-sized shift, and give the reason in the summary. Never delete a
+     test or weaken a test so that it no longer checks the behaviour.
 3. **Cycles count as much as RAM.** Spend the 2% cycle budget only for a
    RAM gain that is worth it, and prefer savings that are speed-neutral or
    faster. Pure speed-ups are welcome too. Do not un-inline anything in the
-   per-point or per-edge hot paths (grid loop, `vec_project`, `vec_add`, the
-   poly fill loops). The bench covers the render only. Do not slow down the
-   flight model or the sound either, even though they are not timed.
+   per-point, per-edge or triangle-fill hot paths (grid loop, `vec_project`,
+   `vec_add`, the poly and plane fill loops). The `combat` scene times both the
+   model step (`flight_advance`, `opponent_step`, `gun_step`) and the render
+   (`opponent_add_sprites`, `gun_add_sprites`). Do not slow down sound either,
+   even though it is not timed.
 4. **Keep every feature.** The debug view is already gone from fpilot. Nothing
    else may be dropped: sound, music, the map, missions, clouds, opponent
-   sprites, menu and help.
+   3D silhouettes and AI, wing guns, tracers, hit smoke, menu and help.
 5. **All link checks and tests must pass:** zp, irq, math, rom and boot
    checks, the host suites, target_test and `make test`.
 6. **One idea per pass,** small enough to review. No sweeping rewrites.
@@ -128,11 +137,19 @@ run 8,970 B), ppilot 6,466 B. Render cycles per frame: runway 131,082,
 approach 122,756, cruise 150,020, town 152,709, lake 138,509; total 695,076.
 
 The cycles baseline was reset on 2026-10-17 after pass 21 (the argon-loop
-merge, 84c4ccb), so the 2% budget starts from its faster render: fpilot
+merge, 84c4ccb), so the 2% budget started from its faster render: fpilot
 14,197 B free (largest run 13,066 B), ppilot 10,686 B. Render cycles per
 frame: runway 122,384, approach 116,327, cruise 138,732, town 141,890, lake
 130,944; total 650,277. The "vs baseline" figures in rows 1-20 are against
 the old one.
+
+The baseline was reset again on 2026-10-24 at 1787679 after 3D opponent
+silhouettes (`planes.cc`, `planes_asm.cc`), opponent AI (`opponent.cc`), wing
+guns, tracers and hit smoke (`gun.cc`) landed in fpilot, and the loop was
+focused on fpilot only with the new `combat` scene: fpilot 1,437 B free
+allocatable (largest run 970 B at `$CBF6`). Cycles per frame: runway 124,510,
+approach 144,768, cruise 152,405, town 144,432, lake 134,146, combat 201,422;
+total 901,683.
 
 The script appends one row per pass. The branch column names the loop the
 change came from: claude (claude-loop) or argon (argon-loop).

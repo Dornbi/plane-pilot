@@ -40,6 +40,7 @@ approach 3
 cruise   4
 town     6
 lake     7
+combat   9
 '
 
 command -v oscar64 >/dev/null || { echo "bench: oscar64 not on PATH" >&2; exit 1; }
@@ -54,7 +55,7 @@ command -v x64sc >/dev/null || { echo "bench: x64sc not on PATH (see docs/emulat
 rm -rf "$BUILD"
 mkdir -p "$BUILD/src"
 cp "$REPO/c64o"/*.cc "$REPO/c64o"/*.h "$REPO/c64o"/*.bin "$REPO/c64o"/*.koa "$BUILD/src/"
-rm -f "$BUILD/src/polydemo.cc" "$BUILD/src/vecdemo.cc" "$BUILD/src/vectest.cc"
+rm -f "$BUILD/src/polydemo.cc" "$BUILD/src/vecdemo.cc" "$BUILD/src/vectest.cc" "$BUILD/src/planedemo.cc"
 cp "$REPO/tools/shot.cc" "$REPO/tools/shot.h" "$REPO/tools/bench.cc" "$REPO/tools/bench.h" "$BUILD/src/"
 ln -sfn "$OSCAR64_INCLUDE" "$BUILD/include"
 
@@ -67,7 +68,7 @@ perl -0pi -e 's/(while \(1\) \{\n)    keys_poll\(\);/$1    shot_poll();/' help.c
 perl -0pi -e 's/(title_tick\(\);\n\n)    keys_poll\(\);/$1    shot_poll();/' menu.cc
 perl -0pi -e 's/^(#include "screen\.h")$/$1\n#include "shot.h"/m' menu.cc sim.cc help.cc
 perl -0pi -e 's/^(#include "screen\.h")$/$1\n#include "bench.h"/m' sim.cc
-perl -0pi -e 's/^(    )(bm_start\(\);\n    view_update_cam\(\);)/$1bench_begin();\n$1$2/m' sim.cc
+perl -0pi -e 's/^(    )(bm_model_start\(\);)/$1bench_begin();\n$1$2/m' sim.cc
 perl -0pi -e 's/^(    bm_total\(990, "TOT:"\);)$/$1\n    bench_end();/m' sim.cc
 for f in menu.cc help.cc sim.cc; do
   [ "$(grep -c 'shot_poll();' "$f")" = 1 ] ||
