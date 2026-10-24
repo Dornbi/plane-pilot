@@ -156,7 +156,8 @@ bool planes_centre(const planes_view_t *view, const vec3_t *c, planes_frame_t *f
 // A bitmap of layout `lay` at frame->cx, cy: level, layout, top left and
 // slide, and hidden if the dot is below the cut. A bitmap whose last row
 // would now start below the DMA cut is moved up to it. Returns the slide
-// this centre needs, which planes_project() compares with lay->slid.
+// this centre needs, which planes_project() compares with lay->slid, and
+// keeps as a new layout's slide.
 int16_t planes_place(const planes_layout_t *lay, const planes_view_t *view,
                      planes_frame_t *frame);
 

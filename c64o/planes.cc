@@ -511,7 +511,6 @@ void planes_project(planes_state_t *state, const planes_view_t *view,
   if (!planes_centre(view, c, frame)) {
     return;
   }
-  int16_t cx = frame->cx, cy = frame->cy;
   uint16_t k = frame->k;
   uint8_t level = _pick_level(state->lay.level, frame->d);
   frame->level = level;
@@ -565,10 +564,6 @@ void planes_project(planes_state_t *state, const planes_view_t *view,
   state->lay.ys = ys;
   state->lay.cols = cols;
   state->lay.rows = rows;
-  frame->xs = xs;
-  frame->ys = ys;
-  frame->cols = cols;
-  frame->rows = rows;
 
   // the centring anchor: the bounding box's centre. The buffer's top left,
   // relative to the centre, is ox and oy; bx and by are the same with the
@@ -577,21 +572,18 @@ void planes_project(planes_state_t *state, const planes_view_t *view,
   uint8_t hpx = _twice_if(_twice_if(kRows, rows), ys);
   uint8_t bx = (uint8_t)(((minx + maxx + 1) >> 1) - (wpx >> 1));
   uint8_t by = (uint8_t)(((miny + maxy + 1) >> 1) - (hpx >> 1));
-  int16_t ox = (int16_t)bx - kBias, oy = (int16_t)by - kBias;
-
-  // 11. slide, don't reject
-  int16_t top = (int16_t)(cy + oy);
-  int16_t slid = _slide(view, top, ys, rows);
 
   // what the next frame needs to tell whether it can skip all of this
   state->k = k;
-  state->lay.ox = ox;
-  state->lay.oy = oy;
-  state->lay.slid = slid;
+  state->lay.ox = (int16_t)bx - kBias;
+  state->lay.oy = (int16_t)by - kBias;
 
-  frame->slid = (uint8_t)slid;
-  frame->x = (int16_t)(cx + ox);
-  frame->y = (int16_t)(top - slid);
+  // 11. slide, don't reject: planes_place() with no slide carried over
+  // writes the frame's layout, top left and slide, which the bitmap is then
+  // drawn at.
+  state->lay.slid = 0;
+  int16_t slid = planes_place(&state->lay, view, frame);
+  state->lay.slid = slid;
 
   PROFILE_END(4, kProfLayout);
 
