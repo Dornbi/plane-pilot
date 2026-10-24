@@ -107,12 +107,16 @@ A2=$(printf '%x' $(( 0x$A1 + NBYTES - 1 )))
 # keeps playing it after `g` - which is what lets the save run once the
 # breakpoint has been hit. $080D is oscar64's SYS entry; the BASIC stub the
 # linker emits does the same jump.
+# VICE_DUMP_SHOT=<file.png> also saves the screen at the breakpoint.
+SHOTCMD=""
+[ -n "${VICE_DUMP_SHOT:-}" ] && SHOTCMD="screenshot \"$VICE_DUMP_SHOT\" 2"
 MON=$(mktemp)
 trap 'rm -f "$MON"' EXIT
 cat > "$MON" <<MONEOF
 l "$PRG" 0
 break \$$BRK
 g 080d
+$SHOTCMD
 save "$OUT" 0 \$$A1 \$$A2
 quit
 MONEOF

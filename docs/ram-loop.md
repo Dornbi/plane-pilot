@@ -1,7 +1,8 @@
 # RAM and cycle optimisation loop
 
 `tools/ram_loop.sh` runs an unattended loop that frees RAM in fpilot and saves
-cycles. RAM and cycles matter equally. Each pass starts a fresh Claude agent,
+cycles. RAM and cycles matter equally, and fpilot is the only target: ppilot
+and ppilota only have to keep building and passing their tests. Each pass starts a fresh Claude agent,
 which looks for **one** new saving and implements it. The script then rebuilds
 everything, runs every test, measures free RAM, times the render with
 `tools/bench.sh`, takes the `make_shots` screenshots, and has a second agent review the diff
@@ -15,10 +16,25 @@ This file is the loop's memory. Every pass reads it first.
 
 - **RAM:** fpilot's "Free, allocatable" from `make fram`, after a full
   `make -C c64o all`.
-- **Cycles:** `tools/bench.sh` gives the render work per frame (`bm_start()`
-  through `bm_total()` in `sim_run()`) in five frozen fpilot scenes: runway,
-  approach, cruise, town and lake. The emulator is cycle-exact and the scenes
-  hold still, so the numbers are deterministic. Only code changes move them.
+- **Cycles:** `tools/bench.sh` gives a frame's work (`bm_model_start()`
+  through `bm_total()` in `sim_run()`: the model step and the render, all but
+  the wait for the flip) in seven fpilot scenes:
+  - Five frozen, timed over 16 frames: start (01 Recon's start, airborne),
+    approach, cruise, town and lake.
+  - **scramble**, live: mission 04 with both opponents overtaking the parked
+    aeroplane and the guns firing, timed over frames 48-175. It is the only
+    scene where the opponents' and the rounds' model steps and the
+    opponents' silhouette fills cost anything: frozen, they stand still and
+    a silhouette is filled once.
+  - **shootdown**, live: scramble with the first opponent hit three times on
+    its pass and downed (the hits scripted, at frames ~77, 101 and 125), so
+    the smoke and the hit and downing logic are timed too. Opponents do not
+    fire yet; when they do, a scene for their rounds belongs here.
+
+  The emulator is cycle-exact, frozen scenes hold still, and the live ones'
+  models step once a frame however long the frame takes, so the numbers are
+  deterministic. Only code changes move them. A change to the flight or
+  opponent model can change what the live scene shows, and so its cost.
 
 A change is kept only when all of these hold:
 
@@ -29,11 +45,11 @@ A change is kept only when all of these hold:
   the last kept state.
 
 ppilot and ppilota must still build and pass their tests. Their free RAM is
-logged but is not a gate.
+logged in the table but is not a goal or a gate.
 
 The script reads this line, so keep its format exactly:
 
-cycles-baseline: runway=122384 approach=116327 cruise=138732 town=141890 lake=130944
+cycles-baseline: start=119463 approach=144228 cruise=152154 town=144007 lake=133350 scramble=184492 shootdown=179998
 
 ## Rules (binding for the worker and the reviewer)
 
@@ -46,22 +62,29 @@ cycles-baseline: runway=122384 approach=116327 cruise=138732 town=141890 lake=13
    - Nothing may disappear, flicker, tear or change colour. Panel, map, menu,
      help and title screens stay pixel-identical, apart from timing-driven
      differences such as the menu flyby being a frame ahead.
+   - fpilot's opponents keep their silhouettes, sizes and colours, and the
+     tracers and smoke still show. The bench frames (`bench_*.png`) are the
+     fpilot pictures to check; `make_shots.sh` shows ppilot.
 2. **The flight model must behave similarly.** Loops, climbs, turns, takeoff
    and landing must all still work and feel the same. Small numeric
    differences are fine if every one of these stays supported.
-   - Changing a `c64o/test/flight_test.cc` expectation is a red flag. Do it
-     only for a tolerance-sized shift, and give the reason in the summary.
-     Never delete a test or weaken a test so that it no longer checks the
-     behaviour.
+   - **Combat behaves the same:** the opponents fly their paths, the guns
+     fire, rounds hit and stop at the ground, hits smoke and three bring an
+     aircraft down, and the missions complete and fail as before.
+   - Changing an expectation in `flight_test`, `opponent_test`, `gun_test`,
+     `mission_test` or `fpilot_test` is a red flag. Do it only for a
+     tolerance-sized shift, and give the reason in the summary. Never delete
+     a test or weaken a test so that it no longer checks the behaviour.
 3. **Cycles count as much as RAM.** Spend the 2% cycle budget only for a
    RAM gain that is worth it, and prefer savings that are speed-neutral or
    faster. Pure speed-ups are welcome too. Do not un-inline anything in the
    per-point or per-edge hot paths (grid loop, `vec_project`, `vec_add`, the
-   poly fill loops). The bench covers the render only. Do not slow down the
-   flight model or the sound either, even though they are not timed.
+   poly fill loops). The bench times the model step only in the live scramble
+   scene, and the sound not as such. Do not slow down the flight model, the
+   opponents, the guns or the sound either, where no scene shows it.
 4. **Keep every feature.** The debug view is already gone from fpilot. Nothing
-   else may be dropped: sound, music, the map, missions, clouds, opponent
-   sprites, menu and help.
+   else may be dropped: sound, music, the map, missions, clouds, the
+   opponents, the guns, tracers and smoke, menu and help.
 5. **All link checks and tests must pass:** zp, irq, math, rom and boot
    checks, the host suites, target_test and `make test`.
 6. **One idea per pass,** small enough to review. No sweeping rewrites.
@@ -95,6 +118,15 @@ These come from earlier work (see the auto-memory notes `fpilot-ram-survey`,
   prologue change to a multiple of 7 cycles.
 - oscar64 aborts silently on long paths. `make` in c64o/ works from the repo.
   Scratch builds and `make_shots` need a short build dir under /tmp.
+- `if ((uint8_t)(u + 16) >= 32)` compiles to `u >= 16`: the cast's 8-bit
+  wraparound is dropped. Write the range test without relying on it.
+- A loop that passes its counter to a function taking it in A can leave the
+  loop's byte offset in A from the second iteration on (gun.cc's
+  `_gun_track()` works around it). Spell the calls out, or check the asm.
+- fpilot is nearly full (about 1.4 KB free in October 2026), and
+  `tools/bench.sh` links more code into it than the game does. A change that
+  frees RAM gives the bench room too; one that grows code can stop the bench
+  scenes linking even when fpilot.prg itself still does.
 
 ## Measured dead ends (do not retry)
 
@@ -115,11 +147,12 @@ These come from earlier work (see the auto-memory notes `fpilot-ram-survey`,
 
 - The startup stub at `$0801` (96 B) is not reused yet. poly.cc's clip buffers
   are the candidate, but they have an adjacency rule.
-- Main-screen rows 14-24 (`$EA30-$EBF7`, 456 B) may be dead in flight now
-  that the debug view is gone; they could hold per-frame scratch.
 - Orphan fragments: `$EBE8`, `$EFE8` (16 B each) and `$FFC0-$FFF9` (58 B).
   They can only be reached by hand-placing data.
-- Stack headroom: 82 B, reachable by lowering `#pragma stacksize`.
+- Used up: main-screen rows 14-24 (pass 16, now the `scratch` region) and the
+  stack headroom (pass 5).
+- New since October 2026: the opponents (`opponent.cc`, `planes*.cc`) and the
+  guns (`gun.cc`) have not been through the loop yet.
 
 ## Log
 
@@ -133,6 +166,14 @@ merge, 84c4ccb), so the 2% budget starts from its faster render: fpilot
 frame: runway 122,384, approach 116,327, cruise 138,732, town 141,890, lake
 130,944; total 650,277. The "vs baseline" figures in rows 1-20 are against
 the old one.
+
+The cycles baseline was reset again on 2026-10-24 at 1787679, after fpilot
+gained its opponents and guns, when the bench grew the live scramble and
+shootdown scenes and began timing the model step too: fpilot 1,437 B free
+(largest run 970 B). Cycles per frame: start 119,463, approach 144,228,
+cruise 152,154, town 144,007, lake 133,350, scramble 184,492, shootdown
+179,998; total 1,057,692. The runway
+scene became "start": in fpilot it is 01 Recon's airborne start.
 
 The script appends one row per pass. The branch column names the loop the
 change came from: claude (claude-loop) or argon (argon-loop).

@@ -1,18 +1,21 @@
-// Times the flight loop's render work in a frozen scene, for tools/bench.sh.
+// Times the flight loop's work per frame in a scene, for tools/bench.sh.
 //
 // Like tools/shot.cc, this is never part of a real build. bench.sh copies
 // c64o/ to a scratch directory, adds this file and shot.cc beside it, and
-// wraps the render work in sim_run() - bm_start() through bm_total(), the
-// span docs/framerate.md calls "render work" - in bench_begin() and
-// bench_end(). shot.cc's script then drives the menu and freezes the scene.
+// wraps a frame's work in sim_run() - bm_model_start() through bm_total(),
+// the model step and the render, everything but the wait for the flip - in
+// bench_begin() and bench_end(). shot.cc's script then drives the menu and
+// sets up the scene.
 //
-// Frames are counted only once the model is frozen, and the first
-// kBenchSkip of those are thrown away: they still carry the mission title
-// message and the double buffer settling. The next kBenchFrames are summed
-// into g_bench_cycles, and then the program parks in a spin loop for
-// tools/vice_dump.sh to break on. VICE is cycle-exact and the scene does not
-// move, so the same binary gives the same number on every run; what moves it
-// is the code.
+// In a frozen scene frames are counted only once the model is frozen; in a
+// live one (-D__BENCH_LIVE__) from the first frame of the mission. The first
+// __BENCH_SKIP__ of those are thrown away: in a frozen scene they still carry
+// the mission title message and the double buffer settling, in a live one
+// they are the run-up to what is to be timed. The next __BENCH_FRAMES__ are
+// summed into g_bench_cycles, and then the program parks in a spin loop for
+// tools/vice_dump.sh to break on. VICE is cycle-exact, and a live scene's
+// model steps once a frame whatever a frame costs, so the same binary gives
+// the same number on every run; what moves it is the code.
 
 #include "bench.h"
 
@@ -21,14 +24,20 @@
 #include "cia.h"
 #include "flight.h"
 
-static const uint8_t kBenchSkip = 40;
-static const uint8_t kBenchFrames = 16;
+#ifndef __BENCH_SKIP__
+#define __BENCH_SKIP__ 40
+#endif
+#ifndef __BENCH_FRAMES__
+#define __BENCH_FRAMES__ 16
+#endif
+static const uint16_t kBenchSkip = __BENCH_SKIP__;
+static const uint16_t kBenchFrames = __BENCH_FRAMES__;
 
 // volatile, or oscar64 deletes it: it is only ever written.
 volatile uint32_t g_bench_cycles;
 
 static bool _bench_running = false;
-static uint8_t _bench_frame = 0;
+static uint16_t _bench_frame = 0;
 static uint32_t _bench_t0;
 
 // Timer B counts timer A underflows, so the pair is one 32-bit down-counter.
@@ -60,9 +69,11 @@ void bench_begin(void) {
 
 void bench_end(void) {
   const uint32_t cycles = _bench_t0 - _bench_now();
+#ifndef __BENCH_LIVE__
   if (!flight_paused) {
     return;
   }
+#endif
   ++_bench_frame;
   if (_bench_frame > kBenchSkip) {
     g_bench_cycles += cycles;

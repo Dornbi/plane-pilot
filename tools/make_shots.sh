@@ -73,7 +73,7 @@ rm -rf "$BUILD"
 mkdir -p "$BUILD/src"
 cp "$REPO/c64o"/*.cc "$REPO/c64o"/*.h "$REPO/c64o"/*.bin "$REPO/c64o"/*.koa "$BUILD/src/"
 rm -f "$BUILD/src/polydemo.cc" "$BUILD/src/vecdemo.cc" "$BUILD/src/vectest.cc"
-cp "$REPO/tools/shot.cc" "$REPO/tools/shot.h" "$BUILD/src/"
+cp "$REPO/tools/shot.cc" "$REPO/tools/shot.h" "$REPO/tools/shot_pose.h" "$BUILD/src/"
 # Symlinked rather than passed as an absolute path, for the same reason BUILD is
 # short: what oscar64 has to hold is the path it resolves, not the one typed.
 ln -sfn "$OSCAR64_INCLUDE" "$BUILD/include"
