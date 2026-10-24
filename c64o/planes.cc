@@ -402,10 +402,23 @@ void planes_state_init(planes_state_t *state) {
   state->key_count = 0;
 }
 
-// Whether the axes' screen components are the ones in `last`.
-static bool _same_axes(const int16_t *last, const mat3_t *axes) {
-  return last[0] == axes->front.y && last[1] == axes->front.z && last[2] == axes->left.y &&
-         last[3] == axes->left.z && last[4] == axes->up.y && last[5] == axes->up.z;
+// Whether the axes' screen components differ from the ones in `last`, which
+// holds them from then on: (y, z) of the front, left and up, byte by byte,
+// the x of each skipped.
+static bool _new_axes(int16_t *last, const mat3_t *axes) {
+  const uint8_t *a = (const uint8_t *)&axes->front.y;
+  uint8_t *l = (uint8_t *)last;
+  bool moved = false;
+  uint8_t j = 0;
+  for (uint8_t i = 0; i < 12; ++i) {
+    uint8_t v = a[j];
+    if (l[i] != v) {
+      l[i] = v;
+      moved = true;
+    }
+    j += (i & 3) == 3 ? 3 : 1;
+  }
+  return moved;
 }
 
 // 11. slide, don't reject: how far a buffer whose top is on line oy has to
@@ -518,8 +531,10 @@ void planes_project(planes_state_t *state, const planes_view_t *view,
   // The scale and axes the last frame projected: the same silhouette, only
   // moved with the centre, and the same layout -- the hysteresis settles in
   // one frame. Only the slide, which depends on where the centre is, can
-  // still change what is in the buffer.
-  if (state->key_valid && state->k == k && _same_axes(state->axes, axes) &&
+  // still change what is in the buffer. The axes are kept for the next frame
+  // here, hit or miss; a hit leaves them as they were.
+  bool moved = _new_axes(state->axes, axes);
+  if (state->key_valid && state->k == k && !moved &&
       planes_place(&state->lay, view, frame) == state->lay.slid) {
     frame->cached = true;
     return;
@@ -576,13 +591,6 @@ void planes_project(planes_state_t *state, const planes_view_t *view,
 
   // what the next frame needs to tell whether it can skip all of this
   state->k = k;
-  int16_t *last = state->axes;
-  last[0] = axes->front.y;
-  last[1] = axes->front.z;
-  last[2] = axes->left.y;
-  last[3] = axes->left.z;
-  last[4] = axes->up.y;
-  last[5] = axes->up.z;
   state->lay.ox = ox;
   state->lay.oy = oy;
   state->lay.slid = slid;
