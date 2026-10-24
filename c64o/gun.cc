@@ -59,6 +59,7 @@ static uint8_t _round_age[kRoundMax];
 static uint8_t _round_owner[kRoundMax];
 // The eye the rounds are relative to, in flight_eye_*'s 24.8 half metres.
 static int32_t _gun_eye[3];
+static int32_t _gun_p[3];
 // What a round is being tested against, relative to the eye like a round;
 // and _gun_hits()' and gun_step()'s working, static rather than on oscar64's
 // software stack.
@@ -131,9 +132,9 @@ static __noinline bool _gun_rel(int32_t d, uint8_t c) {
   return true;
 }
 
-static __noinline bool _gun_rel3_to(const int32_t *p) {
+static __noinline bool _gun_rel3_to(void) {
   for (uint8_t c = 0; c < 3; ++c) {
-    if (!_gun_rel(p[c] - _gun_eye[c], c)) {
+    if (!_gun_rel(_gun_p[c] - _gun_eye[c], c)) {
       return false;
     }
   }
@@ -166,17 +167,17 @@ static void _gun_fire(void) {
   int16_t wing = _gun_side ? -kGunWing : kGunWing;
   int16_t in = _gun_side ? kGunConverge : -kGunConverge;
   _gun_side ^= 1;
-  const int16_t *f = &flight_cam.front.x;
-  const int16_t *l = &flight_cam.left.x;
-  const int16_t *u = &flight_cam.up.x;
   int16_t speed2 = flight_speed << 1;
   uint8_t i = r;
   for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {
-    _round_p[i] = vec_fastmul8p8(f[c], kGunAhead) +
-                  vec_fastmul8p8(l[c], wing) - vec_fastmul8p8(u[c], kGunDrop);
-    int16_t own = c == 2 ? flight_vspeed : vec_fastmul8p8(f[c], speed2);
-    _round_v[i] = vec_fastmul8p8(f[c], kGunMuzzle) +
-                  vec_fastmul8p8(l[c], in) + (own >> 5);
+    int16_t fc = (&flight_cam.front.x)[c];
+    int16_t lc = (&flight_cam.left.x)[c];
+    _round_p[i] = vec_fastmul8p8(fc, kGunAhead) +
+                  vec_fastmul8p8(lc, wing) -
+                  vec_fastmul8p8((&flight_cam.up.x)[c], kGunDrop);
+    int16_t own = c == 2 ? flight_vspeed : vec_fastmul8p8(fc, speed2);
+    _round_v[i] = vec_fastmul8p8(fc, kGunMuzzle) +
+                  vec_fastmul8p8(lc, in) + (own >> 5);
   }
   _round_age[r] = 1;
   _round_owner[r] = kRoundPlayer;
@@ -219,9 +220,8 @@ static __noinline bool _gun_hits(uint8_t r) {
 // The player's rounds into the opponents: each that hits frees its round
 // and strikes the slot.
 static void _gun_hit_opponents(void) {
-  int32_t p[3];
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
-    if (!opponent_target(i, p) || !_gun_rel3_to(p)) {
+    if (!opponent_target(i, _gun_p) || !_gun_rel3_to()) {
       continue;
     }
     for (uint8_t r = 0; r < kRoundMax; ++r) {
@@ -338,29 +338,30 @@ static uint8_t _gun_dir(int16_t dx, int16_t dy) {
 }
 
 // The point in _gun_rel3 - relative to the eye like a round - in camera
-// space and eighth metres, and where it is on screen in _gun_sx, _gun_sy;
-// false if it is not in the view's cone.
+// space and eighth metres in _gun_c, and where it is on screen in _gun_sx,
+// _gun_sy; false if it is not in the view's cone.
 static vec3_t _gun_rel3;
+static vec3_t _gun_c;
 static int16_t _gun_sx, _gun_sy;
-static __noinline bool _gun_view(vec3_t *cam) {
+static __noinline bool _gun_view(void) {
   vec3_t rel = make_vector(_gun_rel3.x >> 1, _gun_rel3.y >> 1, _gun_rel3.z >> 1);
-  vec_transform_inv(&world_cam, &rel, cam);
-  if (cam->x <= 64 || _gun_abs(cam->y) >= cam->x ||
-      _gun_abs(cam->z) >= cam->x) {
+  vec_transform_inv(&world_cam, &rel, &_gun_c);
+  if (_gun_c.x <= 64 || _gun_abs(_gun_c.y) >= _gun_c.x ||
+      _gun_abs(_gun_c.z) >= _gun_c.x) {
     return false;
   }
-  _gun_sx = kScreenWidthPixels / 2 - vec_div8p8(cam->y, cam->x);
-  _gun_sy = kViewportEndYPixels / 2 - vec_div8p8(cam->z, cam->x);
+  _gun_sx = kScreenWidthPixels / 2 - vec_div8p8(_gun_c.y, _gun_c.x);
+  _gun_sy = kViewportEndYPixels / 2 - vec_div8p8(_gun_c.z, _gun_c.x);
   return true;
 }
 
 // Round r, as _gun_view().
-static bool _gun_camera(uint8_t r, vec3_t *cam) {
+static bool _gun_camera(uint8_t r) {
   uint8_t i = r;
   for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {
     (&_gun_rel3.x)[c] = _round_p[i];
   }
-  return _gun_view(cam);
+  return _gun_view();
 }
 
 // The round worth drawing: the player's newest while firing, else the
@@ -394,19 +395,17 @@ static const int16_t kSmokeBack = 25 * 16;
 static const int16_t kSmokeUp = 4 * 16;
 
 static void _gun_smoke(void) {
-  int32_t p[3];
   int16_t h[2];
-  if (!opponent_smoke(p, h) || !_gun_rel3_to(p)) {
+  if (!opponent_smoke(_gun_p, h) || !_gun_rel3_to()) {
     return;
   }
   _gun_rel3.x = _gun_t[0] - vec_fastmul8p8(h[0], kSmokeBack);
   _gun_rel3.y = _gun_t[1] - vec_fastmul8p8(h[1], kSmokeBack);
   _gun_rel3.z = _gun_t[2] + kSmokeUp;
-  vec3_t c;
-  if (!_gun_view(&c)) {
+  if (!_gun_view()) {
     return;
   }
-  int16_t depth = c.x >> 3;
+  int16_t depth = _gun_c.x >> 3;
   uint8_t rung = 1;
   for (uint8_t k = 0; k < 3; ++k) {
     if (depth <= kSmokeRungDepth[k]) {
@@ -422,11 +421,7 @@ static void _gun_smoke(void) {
 void gun_add_sprites(void) {
   _gun_smoke();
   uint8_t r = _gun_shown();
-  if (r == kRoundNone) {
-    return;
-  }
-  vec3_t c;
-  if (!_gun_camera(r, &c)) {
+  if (r == kRoundNone || !_gun_camera(r)) {
     return;
   }
   // Which way it is going on screen, exactly: the screen point is
@@ -442,13 +437,13 @@ void gun_add_sprites(void) {
     (&v.x)[a] = _round_v[i] >> 1;
   }
   vec_transform_inv(&world_cam, &v, &w);
-  int16_t dx = vec_fastmul8p8(c.y, w.x) - vec_fastmul8p8(w.y, c.x);
-  int16_t dy = vec_fastmul8p8(c.z, w.x) - vec_fastmul8p8(w.z, c.x);
+  int16_t dx = vec_fastmul8p8(_gun_c.y, w.x) - vec_fastmul8p8(w.y, _gun_c.x);
+  int16_t dy = vec_fastmul8p8(_gun_c.z, w.x) - vec_fastmul8p8(w.z, _gun_c.x);
   uint8_t bitmap = kSpriteDefShortArmBitmap;
   uint8_t flags = 0;
-  if (c.x < kTracerLong) {
+  if (_gun_c.x < kTracerLong) {
     bitmap = kSpriteDefLongArmBitmap;
-    if (c.x < kTracerExpand) {
+    if (_gun_c.x < kTracerExpand) {
       // Expansion doubles x, so the bitmap is the one for half the run: the
       // stretched line comes out along the true one.
       flags = kSpriteFlagExpandX;
@@ -459,6 +454,6 @@ void gun_add_sprites(void) {
   uint8_t color =
       _round_owner[r] == kRoundPlayer ? kColorYellow : kColorLightRed;
   // Depth in the clouds' 1 m units, like the opponents', so all sort together.
-  sprites_stack_add(c.x >> 3, _gun_sx, _gun_sy, kSpriteDefArmCenterX,
+  sprites_stack_add(_gun_c.x >> 3, _gun_sx, _gun_sy, kSpriteDefArmCenterX,
                     kSpriteDefArmCenterY, bitmap, kSpriteNoBitmap, color, flags);
 }
