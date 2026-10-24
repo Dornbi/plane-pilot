@@ -47,7 +47,6 @@ static const char kProfBody[] = SCREEN_STR("body ");
 
 static const uint8_t kCols = 24;
 static const uint8_t kRows = 21;
-static const uint8_t kMaxPolys = 5;
 
 // v doubled when n, a sprite count or expansion, is 2: v << (n - 1) for the
 // 1 or 2 that n always is. Not that shift, which links oscar64's 16 B
@@ -58,8 +57,8 @@ static inline uint8_t _twice_if(uint8_t v, uint8_t n) {
 
 // The model's vertices relative to the centre, in screen pixels and offset by
 // 128, so that they are unsigned bytes and compare as such: wing, tailplane
-// and fin, then the fuselage outline, then the end-on disc. Polygon i is
-// vertices _poly_start[i] .. _poly_start[i + 1] - 1.
+// and fin, then the fuselage outline, then the end-on disc. The first three
+// start at kPlanePolyStart; _poly_count says whether the other two are there.
 static const uint8_t kBias = 128;
 // fpilot keeps the per-call arrays in the screen's dead rows, over the
 // terrain's own scratch (mem.h tscratch): written before they are read, every
@@ -71,7 +70,6 @@ uint8_t _planes_vx[kPlaneVertMax], _planes_vy[kPlaneVertMax];
 // The fuselage's stations: centre and radius (planes_asm.h).
 uint8_t _planes_sx[kPlaneBodyCount], _planes_sy[kPlaneBodyCount];
 uint8_t _planes_sr[kPlaneBodyCount];
-static uint8_t _poly_start[kMaxPolys + 1];
 static uint8_t _poly_count;
 static uint8_t _vert_count;
 // planes_asm.h's: the pairs' products.
@@ -313,7 +311,6 @@ static void _add_vertex(uint8_t x, uint8_t y) {
 
 static void _end_poly(void) {
   ++_poly_count;
-  _poly_start[_poly_count] = _vert_count;
 }
 
 // lib/planes.py project_model(), with the products shared, relative to the
@@ -336,9 +333,6 @@ static void _project(uint16_t k, const mat3_t *axes) {
   PROFILE_END(9, kProfPairs);
   PROFILE_START();
   _planes_flat();
-  for (uint8_t p = 0; p < 4; ++p) {
-    _poly_start[p] = kPlanePolyStart[p];
-  }
   _poly_count = 3;
   _vert_count = kPlaneVertCount;
   PROFILE_END(10, kProfVerts);
@@ -516,15 +510,8 @@ void planes_project(planes_state_t *state, const planes_view_t *view,
   frame->level = level;
 
   if (level == kPlaneLevelDot) {
-    state->lay.level = kPlaneLevelDot;
-    state->lay.ys = state->lay.cols = state->lay.rows = 1;
-    state->key_valid = false;
-    frame->xs = frame->ys = frame->cols = frame->rows = 1;
-    frame->x = (int16_t)(cx - kPlaneDotX);
-    frame->y = (int16_t)(cy - kPlaneDotY);
-    if (frame->y > view->cut1) {
-      frame->hidden = kPlaneBelowCut;
-    }
+    planes_state_init(state);
+    planes_place(&state->lay, view, frame);
     return;
   }
 
