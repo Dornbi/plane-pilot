@@ -445,6 +445,8 @@ void opponent_reset(uint8_t mission) {
   opponent_invalidate();
 }
 
+static __noinline int16_t _opponent_abs(int16_t v) { return v < 0 ? -v : v; }
+
 // a * b + c * d, each in 8.8 with b and d no more than 256: every product
 // below, which are all two-term dot products, called rather than written out.
 static __noinline int16_t _opponent_dot(int16_t a, int16_t b, int16_t c, int16_t d) {
@@ -503,8 +505,8 @@ void opponent_step(void) {
     uint8_t w = _opponent_next[i];
     int16_t dx = _opponent_toward(p->x[w], _opponent_x[i]);
     int16_t dy = _opponent_toward(p->y[w], _opponent_y[i]);
-    if (dx < kOpponentReach && dx > -kOpponentReach && dy < kOpponentReach &&
-        dy > -kOpponentReach) {
+    if (_opponent_abs(dx) < kOpponentReach &&
+        _opponent_abs(dy) < kOpponentReach) {
       if (w == p->fail) {
         _opponent_fail();
       }
@@ -530,7 +532,7 @@ void opponent_step(void) {
     // stays straight. The direction is cut down to six bits a component
     // first, so both products fit 16 bits, and taken as 8.8 so that
     // vec_fastmul8p8() forms them exactly, with no multiply linked for them.
-    while (dx > 63 || dx < -63 || dy > 63 || dy < -63) {
+    while (_opponent_abs(dx) > 63 || _opponent_abs(dy) > 63) {
       dx >>= 1;
       dy >>= 1;
     }
@@ -539,7 +541,7 @@ void opponent_step(void) {
     int16_t hx = h->x, hy = h->y;
     int16_t cross = _opponent_dot(dy, hx, -dx, hy);
     int16_t dot = _opponent_dot(dx, hx, dy, hy);
-    int16_t across = cross < 0 ? -cross : cross;
+    int16_t across = _opponent_abs(cross);
     int8_t turn = 0;
     if (dot < 0 || across > (dot >> 5)) {
       turn = cross >= 0 ? 1 : -1;
@@ -649,9 +651,8 @@ static __noinline bool _opponent_off_screen(void) {
   uint16_t half = (uint16_t)_opponent_c.x >> 1;
   uint16_t eighth = half >> 2;
   uint16_t px4 = eighth >> 3;
-  int16_t y = _opponent_c.y, z = _opponent_c.z;
-  uint16_t ay = (uint16_t)(y < 0 ? -y : y);
-  uint16_t az = (uint16_t)(z < 0 ? -z : z);
+  uint16_t ay = (uint16_t)_opponent_abs(_opponent_c.y);
+  uint16_t az = (uint16_t)_opponent_abs(_opponent_c.z);
   return ay > half + eighth + px4 + kOpponentReachX ||
          az > (half >> 1) - (eighth >> 2) + px4 + kOpponentReachZ;
 }
@@ -818,10 +819,7 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
   if (busy) {
     // What is on screen (just filled, or while the other slot redraws), where
     // it is now.
-    if (!planes_centre(_opponent_view, &_opponent_c, &_opponent_f)) {
-      return started;
-    }
-    planes_place(&_opponent_shown[i], _opponent_view, &_opponent_f);
+    planes_centre(_opponent_view, &_opponent_c, &_opponent_f);
   } else {
     _opponent_axes(i);
     planes_project(&_opponent_planes[i], _opponent_view, &_opponent_c,
@@ -838,8 +836,10 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
       // or the dot if there is none.
       _opponent_pending |= bit;
       started = true;
-      planes_place(&_opponent_shown[i], _opponent_view, &_opponent_f);
     }
+  }
+  if (_opponent_f.hidden == kPlaneShown && (busy || started)) {
+    planes_place(&_opponent_shown[i], _opponent_view, &_opponent_f);
   }
   if (_opponent_f.hidden != kPlaneShown) {
     return started;
