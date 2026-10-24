@@ -212,7 +212,7 @@ void _planes_box(uint8_t count) {
 // ---------------------------------------------------------------------------
 // The vertex cache's key.
 
-static_assert(kPlaneVertMax == 32, "_key() finds key_y 32 bytes after key_x");
+static_assert(kPlaneVertMax == 30, "_key() finds key_y 30 bytes after key_x");
 
 #ifdef __FPILOT__
 #pragma bss(tscratch)
@@ -235,7 +235,7 @@ static void _key(void) {
         sta L_cx + 1;
         sta L_sx + 1;
         clc;
-        adc #32;
+        adc #30;
         sta L_cy + 1;
         sta L_sy + 1;
         lda _kkh;
