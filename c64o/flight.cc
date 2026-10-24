@@ -174,13 +174,16 @@ void flight_set_step_shift(uint8_t shift) {
 // under 0x8000, where both shifts agree: the excess angle, the side-slip
 // square (|left.z| <= 256) and the stall deficit are small, and the drag
 // square, which reaches 0xE100 at kMaxSpeed, is halved before the call.
-static __noinline int16_t _flight_step_s(int16_t v) {
+#ifdef __OSCAR64__
+__noinline int16_t flight_step_s(int16_t v) {
   uint8_t n = flight_step_shift;
   while (n--) {
     v >>= 1;
   }
   return v;
 }
+#endif
+#define _flight_step_s flight_step_s
 
 // Location of navigation waypoints. All three are kMaxNavPoints long, but
 // in two different index spaces: flight_waypoint_nav is indexed by
@@ -520,11 +523,10 @@ void flight_init_from_mission(uint8_t mission_idx) {
   flight_eye_x = (int32_t)kMissionStartX[mission_idx] << 16;
   flight_eye_y = ((int32_t)kMissionStartY[mission_idx] << 16) + 0x8000;
   flight_eye_z = (int32_t)kMissionStartZ[mission_idx] << 16;
+  model_on_ground = false;
   if (flight_eye_z <= kFlightMinEyeZ) {
     flight_eye_z = kFlightMinEyeZ;
     model_on_ground = true;
-  } else {
-    model_on_ground = false;
   }
   flight_speed = (int16_t)kMissionStartSpeed[mission_idx] << 4;
   flight_throttle = kMissionStartThrottle[mission_idx];

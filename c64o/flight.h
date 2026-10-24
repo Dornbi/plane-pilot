@@ -26,6 +26,20 @@ extern uint8_t kFlightSubstepMask;
 // after cpu_probe() and before the first flight_advance().
 void flight_set_step_shift(uint8_t shift);
 
+// Scales a per-step quantity by 1 >> flight_step_shift. Out-of-line on the C64
+// so flight.cc, opponent.cc, and gun.cc share one copy; inline on the host so
+// tests that do not link flight.cc still have it.
+#ifdef __OSCAR64__
+int16_t flight_step_s(int16_t v);
+#else
+inline int16_t flight_step_s(int16_t v) {
+  for (uint8_t n = flight_step_shift; n != 0; --n) {
+    v >>= 1;
+  }
+  return v;
+}
+#endif
+
 // Everything from FLIGHT_CRASH_ROLL on is a crash, and only a crash ends the
 // flight. FLIGHT_MISSION_COMPLETED is a record of what the pilot achieved,
 // not a stop state: the simulation keeps running so they can fly on, and

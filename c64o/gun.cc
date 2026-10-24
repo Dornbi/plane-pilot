@@ -140,15 +140,6 @@ static __noinline bool _gun_rel3_to(const int32_t *p) {
   return true;
 }
 
-// A velocity's share of one step at flight_step_shift, like everything else
-// that moves (opponent.cc _opponent_step_s()).
-static __noinline int16_t _gun_step_s(int16_t v) {
-  for (uint8_t n = flight_step_shift; n != 0; --n) {
-    v >>= 1;
-  }
-  return v;
-}
-
 // A free slot, or failing one the oldest round's.
 static uint8_t _gun_slot(void) {
   uint8_t slot = 0, oldest = 0;
@@ -201,7 +192,7 @@ static __noinline bool _gun_hits(uint8_t r) {
   uint8_t i = r;
   for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {
     int16_t d = _gun_t[c] - _round_p[i];
-    int16_t v = _gun_step_s(_round_v[i]);
+    int16_t v = flight_step_s(_round_v[i]);
     // Out of reach of the whole step on any axis: nowhere near.
     if (_gun_abs(d) > _gun_abs(v) + kRoundHit) {
       return false;
@@ -274,7 +265,7 @@ void gun_step(bool trigger) {
     }
     uint8_t i = r;
     for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {
-      _round_p[i] += _gun_step_s(_round_v[i]) - _gun_moved[c];
+      _round_p[i] += flight_step_s(_round_v[i]) - _gun_moved[c];
     }
     if (_round_p[2 * kRoundMax + r] < ground ||
         (!(_gun_substep & kFlightSubstepMask) && ++_round_age[r] > kRoundLife)) {

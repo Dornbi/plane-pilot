@@ -318,8 +318,12 @@ void opponent_invalidate(void) {
   planes_dot_bitmap(_opponent_block(kOpponentBlockDot));
 }
 
+static inline bool _opponent_live(uint8_t i) {
+  return _opponent_on[i] && !(_opponent_down & (uint8_t)(1 << i));
+}
+
 bool opponent_target(uint8_t i, int32_t *p) {
-  if (!_opponent_on[i] || (_opponent_down & (uint8_t)(1 << i))) {
+  if (!_opponent_live(i)) {
     return false;
   }
   p[0] = _opponent_x[i];
@@ -379,7 +383,7 @@ static void _opponent_track(void) {
   uint16_t x = 0, y = 0;
   uint8_t n = 0;
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
-    if (!_opponent_on[i] || (_opponent_down & (uint8_t)(1 << i))) {
+    if (!_opponent_live(i)) {
       continue;
     }
     // Navpoints are 8.8 world units, positions 24.8 half metres.
@@ -441,15 +445,6 @@ static __noinline int16_t _opponent_dot(int16_t a, int16_t b, int16_t c, int16_t
   return vec_fastmul8p8(a, b) + vec_fastmul8p8(c, d);
 }
 
-// (v >> flight_step_shift), as flight.cc's _flight_step_s(): a loop, since
-// the 6502 has no variable shift.
-static __noinline int16_t _opponent_step_s(int16_t v) {
-  for (uint8_t n = flight_step_shift; n != 0; --n) {
-    v >>= 1;
-  }
-  return v;
-}
-
 // A waypoint coordinate, 8.8 units, less a position, 24.8, in half metres
 // and wrapped to 32,768 of them, the world's 128 units along x: taken in
 // quarter metres, which the int16_t wraps at 65,536, and halved. Good to 64
@@ -464,7 +459,7 @@ static __noinline int16_t _opponent_toward(uint16_t w, int32_t pos) {
 // aircraft: the airspeed doubled times the heading's component, shifted by
 // the step size after the multiply.
 static __noinline void _opponent_move(int32_t *pos, int16_t speed2, int16_t h) {
-  *pos += _opponent_step_s(vec_fastmul8p8(speed2, h));
+  *pos += flight_step_s(vec_fastmul8p8(speed2, h));
 }
 
 static void _opponent_forget(uint8_t i, uint8_t bit);
