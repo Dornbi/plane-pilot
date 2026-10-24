@@ -159,7 +159,7 @@ pixels = 256 · S / D
 the scale of the time. *Since 2026-10-24 a world unit is 128 m rather than 256
 ([map.md](map.md) §4, "The scale"), so the same model is 8.25 m across and
 every distance below is half what it was; and fpilot draws its opponents at
-~27 m (§13, "Three missions, then four"): beside a 128 m runway 8.25 m was too
+~20 m (§13, "Three missions, then four"): beside a 128 m runway 8.25 m was too
 small. The distances below are the model's.* At true scale a Cessna is under
 4 px beyond 700 m, which is most of any encounter — it would be a dot for the
 whole approach and only become an aircraft in the last two seconds. Drawing it
@@ -882,7 +882,7 @@ Colour is per sprite, so every sprite of a layout — up to four — must be set
    levers go in from the start?
 
 Settled, and recorded here so they are not reopened: opponents are drawn **1.5×
-oversize** (§2; on today's scale 0.75×, and ~2.5× in fpilot), the far tier uses a **static bitmap** (§4), the wing hub sits
+oversize** (§2; on today's scale 0.75×, and ~1.8× in fpilot), the far tier uses a **static bitmap** (§4), the wing hub sits
 **20% of the aircraft length ahead of the centre** (§3), flat surfaces are
 **filled polygons and the fuselage a screen-space tube** (§1, §3), the
 **horizontal pixel size follows distance, Y-expansion the silhouette's height,
@@ -1420,24 +1420,26 @@ last seen.
 Parked aircraft are drawn with the flying ones' renderer, low over the
 ground: from behind and low, wings edge-on, they are thin lines until close.
 Over the runway in a dive they will meet the DMA cut (§4) as they move down
-the screen. Their centres are 6.5 m up, where a ~27 m aircraft's is on its
+the screen. Their centres are 5 m up, where a ~20 m aircraft's is on its
 wheels.
 
 **Size.** *Since 2026-10-24* fpilot's opponents are drawn at ~27 m span, not
 8.25 m, so that a runway, 128 m wide, is ~4.7 spans across rather than
 15 - the parked pair looked like toys beside it. (~15 m was tried first and
-still looked small.) The model is unchanged: the view carries the
-perspective scale's numerator, `planes_view_t::kn`, k = kn · 512 / C.x, and
-opponent.cc passes 212 where the model's own size is 64 (`kPlaneKnModel`).
-Every distance the size sets goes out by 3.3:
+still looked small.) *Later the same day* back down to ~20 m, kn 156: on
+the 128 m unit 27 m read as a bomber, and the runway is now ~6.4 spans
+across. The model is unchanged: the view carries the perspective scale's
+numerator, `planes_view_t::kn`, k = kn · 512 / C.x, and opponent.cc passes
+156 where the model's own size is 64 (`kPlaneKnModel`). Every distance the
+size sets goes out by 2.4:
 
-| | Model (kn 64) | Opponents (kn 212) |
+| | Model (kn 64) | Opponents (kn 156) |
 | :--- | ---: | ---: |
-| Dot to silhouette, closing | ~500 m | ~1.7 km |
-| Silhouette back to the dot | ~700 m | ~2.25 km |
-| Near colour (`kOpponentNearD`) | ~255 m | ~850 m |
-| Held to two sprites (`kViewTwo`) | ~47 m | ~155 m |
-| Size frozen (`kView`) | ~27 m | ~90 m |
+| Dot to silhouette, closing | ~500 m | ~1.2 km |
+| Silhouette back to the dot | ~700 m | ~1.7 km |
+| Near colour (`kOpponentNearD`) | ~255 m | ~620 m |
+| Held to two sprites (`kViewTwo`) | ~47 m | ~115 m |
+| Size frozen (`kView`) | ~27 m | ~66 m |
 
 `vec_fracn()` needs the fraction below 1, so closer than kn eighth metres
 k takes the nine bits' saturation, past either cap. The tests that hold the

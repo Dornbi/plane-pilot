@@ -53,26 +53,25 @@ static inline uint8_t *_opponent_block(uint8_t block) {
   return kOpponentBank + ((uint16_t)block << 6);
 }
 
-// Opponents are drawn bigger than the model: kn 212 against its own 64, so
-// the model's 8 m span (docs/planes.md §1) draws as ~27 m, and the 128 m
-// runway is ~4.7 spans across. Every distance
-// the size sets goes out with it, by 3.3: a silhouette rather than the dot
-// from ~1.7 km, not ~500 m, and back to the dot past ~2.25 km. A multiple of
-// four for kViewFar.
-static const uint8_t kOpponentKn = 212;
+// Opponents are drawn bigger than the model: kn 156 against its own 64, so
+// the model's 8 m span (docs/planes.md §1) draws as ~20 m, and the 128 m
+// runway is ~6.4 spans across. Every distance the size sets goes out with
+// it, by 2.4: a silhouette rather than the dot from ~1.2 km, not ~500 m, and
+// back to the dot past ~1.7 km. A multiple of four for kViewFar.
+static const uint8_t kOpponentKn = 156;
 static_assert(kOpponentKn % 4 == 0, "kViewFar divides it by four");
 
 // The viewport's centre, the last line a sprite may start on, plain and
 // Y-expanded (mem.h), and the model's own size cap: the aircraft grows to
-// 2 x 2 sprites and holds its size from ~90 m.
+// 2 x 2 sprites and holds its size from ~66 m.
 static const planes_view_t kView = {
     kScreenWidthPixels / 2, kViewportEndYPixels / 2,
     kSpriteVisibleEndYPixels - 1,
     kViewportEndYPixels - kSpritesOffLeadExpandY - 1, kPlaneKMax, kOpponentKn};
-// The same, held to two sprites at every attitude: it stops growing at ~155 m
+// The same, held to two sprites at every attitude: it stops growing at ~115 m
 // (planes.h kPlaneKMaxTwoSprites). For an aircraft that has to share the
 // stack's seven sprites with another (_opponent_cap()). Farther than
-// ~155 m it draws exactly what kView does, k never reaching either cap, so
+// ~115 m it draws exactly what kView does, k never reaching either cap, so
 // it can be handed to an aircraft at range for nothing - not even a redraw.
 static const planes_view_t kViewTwo = {
     kScreenWidthPixels / 2, kViewportEndYPixels / 2,
@@ -164,7 +163,7 @@ static const uint16_t kOpponent3000Ft = 0x0600;
 // 03, Ambush: two on the ground beside the south end of runway 2, side by
 // side 100 m apart, both 75 m off its west edge at y 0xC0 and facing it, and
 // the player coming in from the west between them, 1.8 km out. Their
-// centres are 6.5 m up, about where a ~27 m aircraft's (kOpponentKn) is on
+// centres are 5 m up, about where a ~20 m aircraft's (kOpponentKn) is on
 // its wheels.
 //
 // 04, Scramble: fpilot's first mission's pass (docs/planes.md §13, "The
@@ -186,8 +185,8 @@ static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
       {0x2800, 0x1000, 0x0000}, {0x4000, 0x6800, 0x6800}},
      {kOpponentOneWay, 3, 1, 1500, 0x48C8, 0x3F6A, -256, 0, kOpponent3000Ft,
       {0x28C8, 0x10C8, 0x00C8}, {0x3F6A, 0x676A, 0x676A}}},
-    {{kOpponentParked, 0, kOpponentNoFail, 0, 0x5C9C, 0xC096, 0, -256, 0x000D},
-     {kOpponentParked, 0, kOpponentNoFail, 0, 0x5D64, 0xC096, 0, -256, 0x000D}},
+    {{kOpponentParked, 0, kOpponentNoFail, 0, 0x5C9C, 0xC096, 0, -256, 0x000A},
+     {kOpponentParked, 0, kOpponentNoFail, 0, 0x5D64, 0xC096, 0, -256, 0x000A}},
     {{kOpponentLoop, 4, kOpponentNoFail, 1500, 0x1A70, 0x3FE0, 256, 0, 0x0060,
       {0x3A70, 0x5A70, 0x7A70, 0x9A70}, {0x3FE0, 0x3FE0, 0x3FE0, 0x3FE0}},
      {kOpponentLoop, 4, kOpponentNoFail, 1500, 0x1900, 0x3F20, 256, 0, 0x0060,
@@ -219,8 +218,8 @@ static const int16_t kOpponentBankCos = 222;
 static const int16_t kOpponentBankSin = 128;
 
 // The pixel size, planes_frame_t::d, from which an aircraft is drawn in
-// kColorOpponentNear: about 850 m at kOpponentKn, and below
-// kOpponentNearD - 1, ~975 m, back to kColorOpponentFar.
+// kColorOpponentNear: about 620 m at kOpponentKn, and below
+// kOpponentNearD - 1, ~720 m, back to kColorOpponentFar.
 static const uint8_t kOpponentNearD = 8;
 
 // --- State ------------------------------------------------------------------
@@ -651,7 +650,7 @@ static __noinline uint8_t _opponent_cull(void) {
 // Seven sprites for the stack (sprites.h kSpriteTerrainSlots), and two
 // aircraft at 2 x 2 would take eight: the farther would be dropped whole.
 // So while both are in view the farther is held to two sprites, which
-// changes nothing unless it is within ~155 m (kViewTwo); and in the back
+// changes nothing unless it is within ~115 m (kViewTwo); and in the back
 // view, where the fin takes two of the seven (sprites.cc kSpriteFinCount),
 // the nearer as well. Which is nearer goes by depth, and changes only once
 // the other is an eighth nearer, so that two at about the same range do
