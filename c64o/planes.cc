@@ -472,8 +472,9 @@ bool planes_centre(const planes_view_t *view, const vec3_t *c, planes_frame_t *f
   PROFILE_START();
   frame->cx = (int16_t)(view->cx0 - vec_div8p8(c->y, c->x));
   frame->cy = (int16_t)(view->cy0 - vec_div8p8(c->z, c->x));
-  // 32768 / x: the fraction 64 / x to nine bits, exact as x > 64.
-  uint16_t k = vec_fracn(64, c->x, 9);
+  // kn * 512 / x: the fraction kn / x to nine bits. vec_fracn() needs it
+  // below 1; at or above, k is past any cap, so the nine bits' saturation.
+  uint16_t k = c->x > view->kn ? vec_fracn(view->kn, c->x, 9) : 0x1FF;
   frame->clamped = k > view->kmax;
   if (frame->clamped) {
     k = view->kmax;

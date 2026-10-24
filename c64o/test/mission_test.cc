@@ -1,12 +1,13 @@
 // Host test for fpilot's missions as they fly: flight.cc and opponent.cc
 // together, from each mission's start.
 //
-// The rule is that every mission brings the player within 2 km of its
-// targets inside 90 s - close enough that they read as more than a dot. A
-// plain pilot flies here: full throttle, straight on the heading every
-// mission starts on, north; holding the start's height if it starts in the
-// air, taking off and climbing if it starts on the runway. Nothing it does is
-// clever, so a real pilot gets there no later.
+// The rules are that every mission puts its targets on screen - in the
+// front view, if only as the dot - within 10 s of the start in the air, or of
+// the lift-off from the runway within 20 s; and brings the player within
+// 2 km of them inside 90 s. A plain pilot flies here: full throttle, straight
+// on the heading the mission starts on; holding the start's height if it
+// starts in the air, taking off and climbing if it starts on the runway.
+// Nothing it does is clever, so a real pilot gets there no later.
 //
 // And 01's recon, met head-on and 2,500 ft above, has to be catchable after
 // the climb: a pilot who turns after it at the pass and only then climbs to
@@ -129,7 +130,7 @@ int main() {
     opponent_reset(m);
     const bool on_ground = kMissionStartZ[m] == 0;
     const int32_t hold_z = flight_eye_z;
-    int close_at = -1, gone_at = -1, failed_at = -1;
+    int close_at = -1, gone_at = -1, failed_at = -1, seen_at = -1, up_at = on_ground ? -1 : 0;
     double nearest = 1e9;
     for (int n = 0; n < (int)(kStepsPerSecond * 600); ++n) {
       flight_throttle = 24;
@@ -151,6 +152,10 @@ int main() {
       opponent_step();
       CHECK(!flight_crashed(), "%s: crashed at %.0f s", kNames[m], n / kStepsPerSecond);
       if (flight_crashed()) break;
+      if (up_at < 0 && flight_eye_z > 0x2000) up_at = n;
+      // On screen as opponent.cc decides it, in the front view.
+      world_cam = flight_cam;
+      if (seen_at < 0 && _opponent_cull()) seen_at = n;
       bool any = false;
       for (int i = 0; i < kOpponentMax; ++i) {
         if (!_opponent_on[i]) continue;
@@ -162,9 +167,16 @@ int main() {
       if (_opponent_failed && failed_at < 0) failed_at = n;
       if (!any && gone_at < 0) gone_at = n;
     }
+    const int in_view = on_ground ? 20 : 10;
+    CHECK(up_at >= 0 && seen_at >= 0 && seen_at - up_at <= in_view * kStepsPerSecond,
+          "%s: on screen %.1f s after %s, not %d", kNames[m], (seen_at - up_at) / kStepsPerSecond,
+          on_ground ? "the lift-off" : "the start", in_view);
     CHECK(close_at >= 0 && close_at <= 90 * kStepsPerSecond,
           "%s: within 2 km after %.0f s, not 90", kNames[m], close_at / kStepsPerSecond);
-    printf("  %s: within 2 km at %.0f s", kNames[m], close_at / kStepsPerSecond);
+    printf("  %s: ", kNames[m]);
+    if (on_ground) printf("off at %.0f s, ", up_at / kStepsPerSecond);
+    printf("on screen at %.1f s, within 2 km at %.0f s", seen_at / kStepsPerSecond,
+           close_at / kStepsPerSecond);
     if (failed_at >= 0) printf(", failed at %.1f min", failed_at / kStepsPerSecond / 60);
     if (gone_at >= 0) printf(", all gone at %.1f min", gone_at / kStepsPerSecond / 60);
     printf("\n");

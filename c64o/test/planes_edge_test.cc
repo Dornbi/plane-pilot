@@ -52,9 +52,9 @@ static int _fails = 0;
 // ppilot's and fpilot's viewport (opponent.cc kView), and one with the cuts
 // out of reach, for the slide's unslid twin.
 static const int16_t kCx0 = 160, kCy0 = 56, kCut1 = 89, kCut2 = 68;
-static const planes_view_t kView = {kCx0, kCy0, kCut1, kCut2, kPlaneKMax};
-static const planes_view_t kViewTwo = {kCx0, kCy0, kCut1, kCut2, kPlaneKMaxTwoSprites};
-static const planes_view_t kViewNoCut = {kCx0, kCy0, 10000, 10000, kPlaneKMax};
+static const planes_view_t kView = {kCx0, kCy0, kCut1, kCut2, kPlaneKMax, kPlaneKnModel};
+static const planes_view_t kViewTwo = {kCx0, kCy0, kCut1, kCut2, kPlaneKMaxTwoSprites, kPlaneKnModel};
+static const planes_view_t kViewNoCut = {kCx0, kCy0, 10000, 10000, kPlaneKMax, kPlaneKnModel};
 
 // ---------------------------------------------------------------------------
 // Attitudes, as camera-space body axes in 8.8: heading off the view axis, then

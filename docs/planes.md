@@ -156,6 +156,8 @@ pixels = 256 · S / D
 ```
 
 **Opponents are drawn 1.5× oversize**, so an 11 m Cessna spans 16.5 m on screen.
+*fpilot has since gone further, to ~55 m (§13, "Three missions"): beside a
+256 m runway 16.5 m was too small. The distances below are the model's.*
 At true scale a plane is under 4 px beyond 700 m, which is most of any
 encounter — it would be a dot for the whole approach and only become an
 aircraft in the last two seconds. The exaggeration buys back a factor of 1.5 in
@@ -195,7 +197,8 @@ over a closing sweep from 400 m to 60 m:
 A quarter metre reaches 4 km inside an int16 (16,000 units), which is beyond
 the range cull, so it costs nothing but a different shift: `>> 6` instead of
 `>> 9`. Since the pixel formula is a ratio of two lengths it is otherwise
-unaffected.
+unaffected. *fpilot has since added a far range, 4-8 km, in whole metres (§13,
+"Three missions"): the ratio is why that costs nothing either.*
 
 ---
 
@@ -1334,23 +1337,42 @@ zero page into the program's own at `$60` (`tools/check_zeropage.py`).
 *Built 2026-10-23.* fpilot's one mission gave way to three (`fmission.cc`;
 `kOpponentPaths` for what each sends). *Revised the same day after play:
 the recon slower, 01 and 03 started in the air, and every mission bringing
-the player within 2 km of its targets inside 90 s.*
+the player within 2 km of its targets inside 90 s. Revised again 2026-10-24:
+targets on screen within 10 s of the start (20 s of the lift-off in 02), the
+opponents drawn bigger and seen from twice as far, a start heading, and the
+parked pair spread out and facing the runway.*
 
 | Mission | Start | Opponents | Fails when |
 | :--- | :--- | :--- | :--- |
-| 01 Recon | In the air at 2,500 ft and cruise, 9 km south of the north edge | One at 5,000 ft and 1,750 (2,000 at first): in from the north edge head-on, past the player 2,500 ft above after ~45 s, over the city at ~5.4 min, off the south edge at ~6.2 | it leaves the map |
-| 02 Bombers | On runway 1, engine at idle | Two at 3,000 ft and 1,500, the second 150 m left of and 200 m behind the first: south towards runway 1 from 12 km, 1 km past its north end, then the city at ~4.7 min, then off the south edge | the first reaches the city |
-| 03 Ambush | In the air at 1,000 ft and cruise, 8 km short of runway 2 | Two parked beside its south end, dead ahead | never |
+| 01 Recon intercept | In the air at 2,500 ft and cruise, heading north, 9 km south of the north edge | One at 5,000 ft and 1,750 (2,000 at first): in from the north edge head-on, past the player 2,500 ft above after ~45 s, over the city at ~5.4 min, off the south edge at ~6.2 | it leaves the map |
+| 02 Bomber raid | On runway 1, engine at idle, heading north | Two at 3,000 ft and 1,500, the second 150 m left of and 200 m behind the first: south towards runway 1 from 11 km, 1 km past its north end, then the city at ~4.4 min, then off the south edge | the first reaches the city |
+| 03 Ambush | In the air at 1,000 ft and cruise, heading east, 4.8 km west of the targets and in line with them | Two parked beside runway 2's south end, 80 m and 220 m off its west edge, facing it | never |
 
-Every start faces north (`flight_init_from_mission()` has no heading), so
-each lays its targets out ahead or coming towards it. `test/mission_test.cc`
-flies flight.cc and opponent.cc together from each start with a plain
-pilot - full throttle, straight on, holding height or climbing out - and
-holds each to 2 km inside 90 s: 33 s, 73 s and 51 s. For 01 the climb is
-the challenge, and a second pilot checks it is one that can be won: turning
+A start has a heading, in quarter turns left of north
+(`kMissionStartTurns`, fpilot only; `flight_init_from_mission()` turns the
+level camera), so each lays its targets out ahead or coming towards it.
+`test/mission_test.cc` flies flight.cc and opponent.cc together from each
+start with a plain pilot - full throttle, straight on, holding height or
+climbing out - and holds each to two rules: the targets on screen in the
+front view, as opponent.cc's cull decides, if only as the dot, within 10 s
+of the start, or for 02 within 20 s of the lift-off; and within 2 km inside
+90 s. They come on screen at 2.6 s, 14 s after the lift-off at 10 s, and at
+once; and within 2 km at 33 s, 66 s and 24 s.
+
+Heights are on a scale where 1,000 ft is 512 m, and the viewport reaches
+~12 degrees above and below the nose, so a target well above or below is in
+view only from far off. 01's recon, 2,500 ft up, is on screen in level
+flight from 2.6 s to 19 s, as the dot, and rises out of the top 4.9 km off,
+before it would grow into a silhouette: the climb is the challenge. The
+ambush's pair likewise drop out of the bottom as they grow - from 1,000 ft
+they need a dive to be seen as aircraft. *Before the far range below, with
+the cull at ~3.8 km, the recon had to come in 1,500 ft above and 5.4 km
+closer to show at all.*
+
+For 01 a second pilot checks the climb is one that can be won: turning
 after the recon at the pass and only then climbing to its height, banking
-towards it, it is within 500 m at 3.8 min, 2.4 min before the recon leaves
-(one climbing towards it from the start, at 3.1). It and
+towards it, it is within 500 m at 2.8 min, 3.4 min before the recon leaves.
+It and
 `test/fpilot_test.cc` build with the arcade flight model whatever the rest
 use, as fpilot does.
 
@@ -1391,14 +1413,60 @@ last seen.
 Parked aircraft are drawn with the flying ones' renderer, low over the
 ground: from behind and low, wings edge-on, they are thin lines until close.
 Over the runway in a dive they will meet the DMA cut (§4) as they move down
-the screen.
+the screen. Their centres are 13 m up, where a ~55 m aircraft's is on its
+wheels.
+
+**Size.** *Since 2026-10-24* fpilot's opponents are drawn at ~55 m span, not
+16.5 m, so that a runway, 256 m wide, is ~4.7 spans across rather than
+15 - the parked pair looked like toys beside it. (~30 m was tried first and
+still looked small.) The model is unchanged: the view carries the
+perspective scale's numerator, `planes_view_t::kn`, k = kn · 512 / C.x, and
+opponent.cc passes 212 where the model's own size is 64 (`kPlaneKnModel`).
+Every distance the size sets goes out by 3.3:
+
+| | Model (kn 64) | Opponents (kn 212) |
+| :--- | ---: | ---: |
+| Dot to silhouette, closing | ~1.0 km | ~3.4 km |
+| Silhouette back to the dot | ~1.4 km | ~4.5 km |
+| Near colour (`kOpponentNearD`) | ~510 m | ~1.7 km |
+| Held to two sprites (`kViewTwo`) | ~93 m | ~310 m |
+| Size frozen (`kView`) | ~54 m | ~180 m |
+
+`vec_fracn()` needs the fraction below 1, so closer than kn quarter metres
+k takes the nine bits' saturation, past either cap. The tests that hold the
+renderer to `lib/planes.py` pass the model's own 64. The cull's margins
+(`kOpponentReachX`, `Z`) grow with the size.
+
+The bigger aircraft spends far more time between the two caps, and that
+showed up a hole in the seven-sprite rule: an aircraft newly held to two
+kept its layout's hysteresis from the larger view, which could hold it at
+2 x 2 under `kViewTwo` - eight sprites with the other. Now one newly held
+with a layout of more than one sprite forgets it, latches and all, and is
+the dot until it redraws. `test/opponent_test.cc` takes the latches it
+checks against after the cap, which can now reset them.
+
+**The far range.** With the cull at 16 units, ~3.8 km, a 55 m aircraft
+was a silhouette from 3.4 km and the dot for only ~2 s before it. Past 16
+units on any axis, and out to 32, ~8 km, `_opponent_camera()` now works in
+metres rather than quarter metres - 8 km of quarter metres would overflow
+int16, and `vec_transform_inv()`'s sums before that - and the far range
+draws under `kViewFar`, whose numerator is a quarter of the other views':
+the same k, so the same picture, the dot or a silhouette the size of one,
+and nothing changes as an aircraft crosses between the ranges. One in the
+far range is always the farther of two for the cap, its depth being in
+other units. The same rewrite fixed the wrap: y repeats every 256 units,
+not 128 as x does, but bit 6 of its units was sign-extended as x's is, so
+an aircraft 113-127 units off in y, ~30 km, was taken for one 1-15 units
+off and drawn.
 
 RAM: fpilot from 6,053 to 5,258 bytes free. The path table is 136 bytes
 more, `opponent_step()`'s one-way, parked and failure logic ~100, and most
 of the rest is flight and menu code that folded to constants while there
 was one mission. The navpoints took it to 5,106, the two levels and the
 briefings as they now read to 5,061, the navpoints' names and the new
-starts to 4,980.
+starts to 4,980. The view's numerator, the start heading, the cap's
+fresh latches and the far range cost 323 bytes: 5,161 to 4,838 as built
+today.
 
 ### The sprite frame runs ahead of the terrain
 

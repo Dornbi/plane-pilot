@@ -150,7 +150,7 @@ static uint8_t _planes_dot[kPlaneBlockBytes];
 
 static void test_planes(void) {
   const planes_view_t view = {kTargetCx0, kTargetCy0, kTargetCut1, kTargetCut2,
-                              kPlaneKMax};
+                              kPlaneKMax, kPlaneKnModel};
   planes_state_t state;
   planes_state_init(&state);
   planes_dot_bitmap(_planes_dot);
@@ -220,7 +220,7 @@ static void _sum_bytes(const uint8_t *p, uint8_t n) {
 
 static void test_planes_sweep(void) {
   const planes_view_t view = {kTargetCx0, kTargetCy0, kTargetCut1, kTargetCut2,
-                              kPlaneKMax};
+                              kPlaneKMax, kPlaneKnModel};
   planes_state_t state;
   planes_state_init(&state);
   uint8_t front = 0;

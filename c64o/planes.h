@@ -33,11 +33,19 @@ static const uint8_t kPlaneBlockStride = 64;
 // kmax is the size cap, the largest perspective scale drawn: kPlaneKMax
 // (planedef.h) lets the aircraft grow to 2 x 2 sprites, and
 // kPlaneKMaxTwoSprites holds it to two at every attitude (docs/planes.md §13).
+//
+// kn is the perspective scale's numerator, k = kn * 512 / C.x: kPlaneKnModel
+// draws the model at its own size, and more draws it bigger in proportion,
+// reaching the cap - and every pixel size - that much farther out.
 struct planes_view_t {
   int16_t cx0, cy0;
   int16_t cut1, cut2;
   uint16_t kmax;
+  uint8_t kn;
 };
+
+// The model at its own size: k = 32768 / C.x.
+static const uint8_t kPlaneKnModel = 64;
 
 // The largest kmax that never needs more than two sprites. Measured by a sweep
 // of every attitude in 2.5 degree steps, hysteresis carried from one attitude

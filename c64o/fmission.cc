@@ -44,9 +44,9 @@ const uint8_t kMissionWpEnd[kMissionCount] = {
 };
 
 const char *const kMissionTitles[kMissionCount] = {
-    "01 RECON",       // 01
-    "02 BOMBER RAID", // 02
-    "03 AMBUSH",      // 03
+    "01 RECON INTERCEPT", // 01
+    "02 BOMBER RAID",     // 02
+    "03 AMBUSH",          // 03
 };
 
 const char *const kMissionDesc[kMissionCount] = {
@@ -58,23 +58,30 @@ const char *const kMissionDesc[kMissionCount] = {
     "THE PARKED PLANES.",                 //
 };
 
-// Where each starts: close to its targets, within ~90 s of them in every
-// mission (test/mission_test.cc), heading north as every start does
-// (flight_init_from_mission()). 01 and 03 in the air at cruise - throttle 18,
-// whose level trim is ~2,170 (0x88 << 4) - 01 at 2,500 ft, 9 km south of the
-// north edge, under the recon's way in; 03 at 1,000 ft 8 km short of runway
-// 2, lined up beside it. 02 scrambles: on runway 1, engine at idle, the bombers
-// coming south towards it.
+// Where each starts: close enough to its targets that they are on screen,
+// if only as the dot, within 10 s of flying straight on - 20 s of the
+// lift-off in 02 - and within 2 km inside ~90 s (test/mission_test.cc). 01
+// and 03 in the air at cruise - throttle 18, whose level trim is ~2,170
+// (0x88 << 4). 01 at 2,500 ft heading north, 9 km south of the north edge,
+// under the recon's way in; 03 at 1,000 ft heading east, 4.8 km west of the
+// parked aircraft at runway 2, in line with them. 02 scrambles: on runway 1
+// heading north, engine at idle, the bombers coming south towards it.
 const uint8_t kMissionStartX[kMissionCount] = {
     0x5C, // 01
     0x1C, // 02
-    0x3D, // 03
+    0x5D, // 03
 };
 
 const uint8_t kMissionStartY[kMissionCount] = {
     0x5F, // 01
     0x3F, // 02
-    0xC0, // 03
+    0xD3, // 03
+};
+
+const uint8_t kMissionStartTurns[kMissionCount] = {
+    0, // 01
+    0, // 02
+    3, // 03
 };
 
 const uint8_t kMissionStartZ[kMissionCount] = {

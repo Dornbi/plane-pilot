@@ -46,7 +46,7 @@ static void hex(std::string &out, const uint8_t *bytes, int n) {
 // the frame says it is.
 static int run(bool split) {
   const planes_view_t view = {kCaseCx0, kCaseCy0, kCaseCut1, kCaseCut2,
-                              kPlaneKMax};
+                              kPlaneKMax, kPlaneKnModel};
   planes_state_t decoy;
   const vec3_t decoy_c = make_vector(900, 40, -30);
   mat3_t decoy_axes;

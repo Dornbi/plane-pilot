@@ -505,6 +505,17 @@ void flight_init_from_mission(uint8_t mission_idx) {
   flight_active_mission_idx = mission_idx;
   flight_current_wp = 0;
   flight_cam = _m_init;
+#ifdef __FPILOT__
+  // Quarter turns left from north. Level, the up stays the world's, and
+  // front and left have no z: the front turns to the left, and the left to
+  // the front's reverse.
+  for (uint8_t t = kMissionStartTurns[mission_idx]; t; --t) {
+    vec3_t f = flight_cam.front;
+    flight_cam.front = flight_cam.left;
+    flight_cam.left.x = -f.x;
+    flight_cam.left.y = -f.y;
+  }
+#endif
   flight_eye_x = (int32_t)kMissionStartX[mission_idx] << 16;
   flight_eye_y = ((int32_t)kMissionStartY[mission_idx] << 16) + 0x8000;
   flight_eye_z = (int32_t)kMissionStartZ[mission_idx] << 16;

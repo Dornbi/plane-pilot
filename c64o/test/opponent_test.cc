@@ -215,12 +215,10 @@ static void place(int slot, const where_t &w) {
 // were before opponent.cc drew the frame, and under the view it chose.
 static seen_t reference(int slot, const planes_state_t &latches, const planes_view_t &view) {
   seen_t now = {false, false, false, {0, 0}};
-  vec3_t rel, c;
-  bool in = _opponent_quarter(_opponent_x[slot] - flight_eye_x, 0x7F, &rel.x) &&
-            _opponent_quarter(_opponent_y[slot] - flight_eye_y, 0xFF, &rel.y) &&
-            _opponent_quarter(_opponent_z[slot] - flight_eye_z, 0xFF, &rel.z);
-  if (in) {
-    vec_transform_inv(&world_cam, &rel, &c);
+  uint8_t range = _opponent_camera((uint8_t)slot);
+  vec3_t c = _opponent_c;
+  if (range != kOpponentOut) {
+    const planes_view_t &v = range == kOpponentFar ? kViewFar : view;
     mat3_t axes;
     _opponent_axes((uint8_t)slot, &axes);
     static planes_state_t fresh;
@@ -228,7 +226,7 @@ static seen_t reference(int slot, const planes_state_t &latches, const planes_vi
     fresh = latches;
     fresh.key_valid = false;
     planes_frame_t f;
-    planes_render(&fresh, &view, &c, &axes, blocks[0], &f);
+    planes_render(&fresh, &v, &c, &axes, blocks[0], &f);
     now.visible = f.hidden == kPlaneShown;
     if (f.hidden == kPlaneShown && f.level != kPlaneLevelDot) {
       const uint8_t *b[4] = {blocks[0], blocks[1], blocks[2], blocks[3]};
@@ -253,10 +251,13 @@ static int sprites_of(const offer_t &o) {
 
 static void frame(scene_t &sc, const where_t *w, const char *what) {
   static planes_state_t latches[2];
-  for (int k = 0; k < sc.slots; ++k) {
-    place(k, w[k]);
-    latches[k] = _opponent_planes[k];
-  }
+  for (int k = 0; k < sc.slots; ++k) place(k, w[k]);
+  // The cull and the cap first, as opponent_add_sprites() does them again:
+  // the cap can start a slot's latches afresh (_opponent_cap()), and the
+  // reference has to draw from the latches the frame does. A second pass
+  // changes nothing.
+  _opponent_cap(_opponent_cull());
+  for (int k = 0; k < sc.slots; ++k) latches[k] = _opponent_planes[k];
 
   uint8_t before = _opponent_pending;
   uint8_t sets = _opponent_front;
@@ -282,8 +283,15 @@ static void frame(scene_t &sc, const where_t *w, const char *what) {
   if (_opponent_capped == 1 || _opponent_capped == 2) {
     int far = _opponent_capped == 1 ? 0 : 1;
     int16_t dn = _opponent_cs[far ^ 1].x, df = _opponent_cs[far].x;
-    CHECK(df >= dn - (dn >> 3), "%s: frame %d holds slot %d to two at %d, the other at %d",
-          what, sc.frames, far, df, dn);
+    // Both in one range, by depth; else the one in the far range, whose
+    // depth is in metres.
+    if (_opponent_far == 0 || _opponent_far == 3) {
+      CHECK(df >= dn - (dn >> 3), "%s: frame %d holds slot %d to two at %d, the other at %d",
+            what, sc.frames, far, df, dn);
+    } else {
+      CHECK(_opponent_far == 1 << far, "%s: frame %d holds slot %d to two, slot %d is far",
+            what, sc.frames, far, _opponent_far == 1 ? 0 : 1);
+    }
   }
   for (int k = 0; k < sc.slots; ++k) {
     if (sprites_of(_offer[k]) == 4 && _offer[k ^ 1].on && sprites_of(_offer[k ^ 1]) == 2) {
@@ -814,7 +822,7 @@ static void test_missions(void) {
     }
     // 150 m and 200 m apart: 250 m, and both turn alike.
     CHECK(close > 200 && far < 300, "bombers: %.0f-%.0f m apart on the way in", close, far);
-    CHECK(fabs(city_at / 6.25 / 60 - 4.7) < 0.4, "bombers: over the city at %.1f min",
+    CHECK(fabs(city_at / 6.25 / 60 - 4.4) < 0.4, "bombers: over the city at %.1f min",
           city_at / 6.25 / 60);
     CHECK(failed_at == city_at && _msgs == 1 && !strcmp(_msg, kOpponentFailText[1]),
           "bombers: failed at step %d, over the city at %d, %d messages", failed_at, city_at,
@@ -841,16 +849,16 @@ static void test_missions(void) {
               _opponent_turn[0] == 0 && !_opponent_failed && _msgs == 0,
           "ambush: the parked aircraft moved");
     CHECK(units(_opponent_x[0]) > 0x5C && units(_opponent_x[0]) < 0x64 &&
-              units(_opponent_y[0]) > 0xC0 && units(_opponent_y[1]) < 0xC0 + 0.5,
+              units(_opponent_y[0]) > 0xC0 && units(_opponent_y[1]) < 0xC0 + 1.0,
           "ambush: not beside runway 2");
     CHECK(!opponent_targets_down(), "ambush: down at the start");
     // Midway between the two, beside runway 2.
-    CHECK(flight_nav_point_x[0] == 0x5D00 && flight_nav_point_y[0] == 0xC030,
+    CHECK(flight_nav_point_x[0] == 0x5D00 && flight_nav_point_y[0] == 0xC096,
           "ambush: navpoint 1 at %04x %04x", flight_nav_point_x[0], flight_nav_point_y[0]);
     // One shot down: on the other.
     _opponent_down = 1;
     opponent_step();
-    CHECK(flight_nav_point_y[0] == 0xC048, "ambush: navpoint 1 at %04x with one down",
+    CHECK(flight_nav_point_y[0] == 0xC0DC, "ambush: navpoint 1 at %04x with one down",
           flight_nav_point_y[0]);
   }
 }

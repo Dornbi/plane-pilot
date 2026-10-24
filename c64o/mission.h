@@ -57,6 +57,11 @@ extern const uint8_t kMissionStartSpeed[kMissionCount];
 extern const uint8_t kMissionStartThrottle[kMissionCount];
 // flight_fuel = (start_fuel << 12) - 1;
 extern const uint8_t kMissionStartFuel[kMissionCount];
+#ifdef __FPILOT__
+// The heading, in quarter turns left of north: 0 north, 1 west, 2 south,
+// 3 east.
+extern const uint8_t kMissionStartTurns[kMissionCount];
+#endif
 extern const uint8_t kMissionWindX[kMissionCount];
 extern const uint8_t kMissionWindY[kMissionCount];
 
