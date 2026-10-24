@@ -436,7 +436,9 @@ void opponent_reset(uint8_t mission) {
     _opponent_x[i] = (int32_t)p->start_x << 8;
     _opponent_y[i] = (int32_t)p->start_y << 8;
     _opponent_z[i] = (int32_t)p->z << 8;
-    _opponent_head[i] = make_vector(p->head_x, p->head_y, 0);
+    _opponent_head[i].x = p->head_x;
+    _opponent_head[i].y = p->head_y;
+    _opponent_head[i].z = 0;
     _opponent_turn[i] = 0;
     _opponent_bank[i] = 0;
     _opponent_hits[i] = 0;
@@ -674,19 +676,19 @@ static void _opponent_axes(uint8_t i) {
   int16_t sn = turn > 0 ? kOpponentBankSin : -kOpponentBankSin;
   // y, then z: the products with world_cam's left, then with its up.
   const vec3_t *row = &world_cam.left;
-  for (uint8_t c = 0; c < 2; ++c) {
+  int16_t *out = &_opponent_axes_m.front.y;
+  for (uint8_t c = 0; c < 2; ++c, ++row, ++out) {
     int16_t l = _opponent_dot(row->x, -hy, row->y, hx);
     int16_t u = row->z;
-    (&_opponent_axes_m.front.y)[c] = _opponent_dot(row->x, hx, row->y, hy);
+    out[0] = _opponent_dot(row->x, hx, row->y, hy);
     if (turn != 0) {
       // Banked left, the left wing goes down and the top towards the left.
       int16_t l0 = l;
       l = _opponent_dot(l0, kOpponentBankCos, u, -sn);
       u = _opponent_dot(u, kOpponentBankCos, l0, sn);
     }
-    (&_opponent_axes_m.left.y)[c] = l;
-    (&_opponent_axes_m.up.y)[c] = u;
-    row = &world_cam.up;
+    out[3] = l;
+    out[6] = u;
   }
 }
 
