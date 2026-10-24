@@ -772,50 +772,51 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
   bool far = (_opponent_far & bit) != 0;
   _opponent_set_view(far, (_opponent_capped & bit) != 0);
   _opponent_c = _opponent_cs[i];
+  // A redraw takes two frames, the projection in one and the fill in the
+  // next (docs/planes.md §13, "The silhouette at half rate"), so neither
+  // frame pays for both. The position is this frame's either way: the
+  // bitmap on screen is placed at this frame's centre.
+  //
+  // The fill the last frame projected makes its set the front one, so the
+  // flip comes before the front set's first block is picked.
+  bool fill = (_opponent_pending & bit) != 0;
+  if (fill) {
+    _opponent_front ^= bit;
+  }
   // The first block of the set on screen.
   uint8_t front = kOpponentBlockFirst[i];
   if (_opponent_front & bit) {
     front += kOpponentSetBlocks;
   }
 
-  // A redraw takes two frames, the projection in one and the fill in the
-  // next (docs/planes.md §13, "The silhouette at half rate"), so neither
-  // frame pays for both. The position is this frame's either way: the
-  // bitmap on screen is placed at this frame's centre.
   planes_frame_t f;
-  if (_opponent_pending & bit) {
-    // The fill the last frame projected. It writes under I/O; the raster
-    // handlers bank I/O in for themselves (gfx.cc _gfx_isr), and nothing
-    // in planes_fill() touches it. Then the new bitmap is the front one:
-    // it goes on screen with this frame's characters, at
-    // mem_switch_buffer(), and by the time a later frame fills the other
-    // set the raster handler has stopped showing it - mem_switch_buffer()
-    // runs past raster 250 in its colour copy before it returns.
+  // Whether what is in the front set is placed at this frame's centre.
+  bool place = true;
+  if (fill || busy) {
+    // The fill, or the other slot's turn: what is on screen, where it is now.
     bool seen = planes_centre(&_opponent_view, &_opponent_c, &f);
-    _opponent_front ^= bit;
-    front = kOpponentBlockFirst[i];
-    if (_opponent_front & bit) {
-      front += kOpponentSetBlocks;
+    if (fill) {
+      // The fill writes under I/O; the raster handlers bank I/O in for
+      // themselves (gfx.cc _gfx_isr), and nothing in planes_fill() touches
+      // it. Then the new bitmap is the front one: it goes on screen with
+      // this frame's characters, at mem_switch_buffer(), and by the time a
+      // later frame fills the other set the raster handler has stopped
+      // showing it - mem_switch_buffer() runs past raster 250 in its colour
+      // copy before it returns.
+      mmap_set(MMAP_RAM);
+      planes_fill(&_opponent_planes[i], _opponent_block(front));
+      mmap_set(MMAP_NO_ROM);
+      _opponent_pending &= (uint8_t)~bit;
+      _opponent_shown[i] = _opponent_planes[i].lay;
     }
-    mmap_set(MMAP_RAM);
-    planes_fill(&_opponent_planes[i], _opponent_block(front));
-    mmap_set(MMAP_NO_ROM);
-    _opponent_pending &= (uint8_t)~bit;
-    _opponent_shown[i] = _opponent_planes[i].lay;
     if (!seen) {
       return started;
     }
-    planes_place(&_opponent_shown[i], &_opponent_view, &f);
-  } else if (busy) {
-    // The other slot's turn: what is on screen, where it is now.
-    if (!planes_centre(&_opponent_view, &_opponent_c, &f)) {
-      return started;
-    }
-    planes_place(&_opponent_shown[i], &_opponent_view, &f);
   } else {
     mat3_t axes;
     _opponent_axes(i, &axes);
     planes_project(&_opponent_planes[i], &_opponent_view, &_opponent_c, &axes, &f);
+    place = false;
     if (f.hidden != kPlaneShown || f.level == kPlaneLevelDot) {
       _opponent_forget(i, bit);
     } else if (f.cached) {
@@ -827,8 +828,11 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
       // or the dot if there is none.
       _opponent_pending |= bit;
       started = true;
-      planes_place(&_opponent_shown[i], &_opponent_view, &f);
+      place = true;
     }
+  }
+  if (place) {
+    planes_place(&_opponent_shown[i], &_opponent_view, &f);
   }
   if (f.hidden != kPlaneShown) {
     return started;
