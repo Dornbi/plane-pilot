@@ -318,8 +318,14 @@ void opponent_invalidate(void) {
   planes_dot_bitmap(_opponent_block(kOpponentBlockDot));
 }
 
+static_assert(kOpponentMax == 2, "slot i's mask bit is i + 1");
+
+static inline uint8_t _opponent_bit(uint8_t i) {
+  return (uint8_t)(i + 1);
+}
+
 static inline bool _opponent_live(uint8_t i) {
-  return _opponent_on[i] && !(_opponent_down & (uint8_t)(1 << i));
+  return _opponent_on[i] && !(_opponent_down & _opponent_bit(i));
 }
 
 bool opponent_target(uint8_t i, int32_t *p) {
@@ -333,11 +339,11 @@ bool opponent_target(uint8_t i, int32_t *p) {
 }
 
 void opponent_strike(uint8_t i) {
-  uint8_t bit = (uint8_t)(1 << i);
+  uint8_t bit = _opponent_bit(i);
   if (_opponent_down & bit) {
     return;
   }
-  _opponent_smoke = (uint8_t)(i + 1);
+  _opponent_smoke = bit;
   _opponent_smoke_t = kSmokeHit;
   if (++_opponent_hits[i] == kOpponentHitsToDown) {
     _opponent_down |= bit;
@@ -365,7 +371,7 @@ bool opponent_targets_down(void) {
   }
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
     if (kOpponentPaths[_opponent_mission][i].kind != kOpponentNone &&
-        !(_opponent_down & (uint8_t)(1 << i))) {
+        !(_opponent_down & _opponent_bit(i))) {
       return false;
     }
   }
@@ -462,7 +468,7 @@ static __noinline void _opponent_move(int32_t *pos, int16_t speed2, int16_t h) {
   *pos += flight_step_s(vec_fastmul8p8(speed2, h));
 }
 
-static void _opponent_forget(uint8_t i, uint8_t bit);
+static void _opponent_forget(uint8_t i);
 
 // The mission has failed: said once, and WP_TARGETS_DOWN never comes.
 static void _opponent_fail(void) {
@@ -482,12 +488,12 @@ void opponent_step(void) {
     _opponent_smoke = kOpponentNoSmoke;
   }
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
-    if (!_opponent_on[i]) {
+    if (!_opponent_live(i)) {
       continue;
     }
     const opponent_path_t *p = _opponent_path[i];
-    // Parked, or down: it stays where it is.
-    if (p->kind == kOpponentParked || (_opponent_down & (uint8_t)(1 << i))) {
+    // Parked: it stays where it is.
+    if (p->kind == kOpponentParked) {
       continue;
     }
     vec3_t *h = &_opponent_head[i];
@@ -506,10 +512,10 @@ void opponent_step(void) {
         if (p->kind == kOpponentOneWay) {
           // Off the map: gone, and nothing of it on screen.
           _opponent_on[i] = false;
-          if (_opponent_smoke == (uint8_t)(i + 1)) {
+          if (_opponent_smoke == _opponent_bit(i)) {
             _opponent_smoke = kOpponentNoSmoke;
           }
-          _opponent_forget(i, (uint8_t)(1 << i));
+          _opponent_forget(i);
           continue;
         }
         w = 0;
@@ -565,7 +571,8 @@ void opponent_step(void) {
 // dot, never as the bitmap from the last time it was in view: that can be
 // any size, and a chase that looked away and back saw one frame of the
 // aircraft as close as it had been.
-static void _opponent_forget(uint8_t i, uint8_t bit) {
+static void _opponent_forget(uint8_t i) {
+  uint8_t bit = _opponent_bit(i);
   _opponent_shown[i].level = kPlaneLevelDot;
   // A projection still to be filled is a bitmap that was never drawn, so
   // nothing may come from the cache against it.
@@ -688,7 +695,7 @@ static __noinline uint8_t _opponent_cull(void) {
     if (!_opponent_on[i]) {
       continue;
     }
-    uint8_t bit = (uint8_t)(1 << i);
+    uint8_t bit = _opponent_bit(i);
     // Down, and gone: only its smoke stays (opponent_smoke()).
     uint8_t range =
         (_opponent_down & bit) ? (uint8_t)kOpponentOut : _opponent_camera(i);
@@ -706,7 +713,7 @@ static __noinline uint8_t _opponent_cull(void) {
       _opponent_cs[i] = _opponent_c;
       continue;
     }
-    _opponent_forget(i, bit);
+    _opponent_forget(i);
   }
   _opponent_far = far;
   return seen;
@@ -726,22 +733,21 @@ static __noinline uint8_t _opponent_cull(void) {
 static __noinline void _opponent_cap(uint8_t seen) {
   uint8_t capped = 0;
   if (seen == 3) {
-    uint8_t n = _opponent_nearer;
+    uint8_t n = _opponent_nearer, o = n ^ 1;
     int16_t dn = _opponent_cs[n].x;
-    uint8_t fn = (uint8_t)((_opponent_far >> n) & 1);
-    if (fn != (uint8_t)((_opponent_far >> (n ^ 1)) & 1)
-            ? fn != 0
-            : _opponent_cs[n ^ 1].x < dn - (dn >> 3)) {
-      _opponent_nearer ^= 1;
+    bool fn = (_opponent_far & _opponent_bit(n)) != 0;
+    bool fo = (_opponent_far & _opponent_bit(o)) != 0;
+    if (fn != fo ? fn : _opponent_cs[o].x < dn - (dn >> 3)) {
+      _opponent_nearer = o;
     }
     uint8_t extra =
         (uint8_t)(_opponent_smoke != kOpponentNoSmoke) + (uint8_t)gun_tracer_up();
     capped = extra > (view_state == VIEW_BACK ? 0 : 1)
                  ? 3
-                 : (uint8_t)(2 >> _opponent_nearer);
+                 : _opponent_bit(_opponent_nearer ^ 1);
   }
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
-    uint8_t bit = (uint8_t)(1 << i);
+    uint8_t bit = _opponent_bit(i);
     // Newly held to two with a layout of more than one sprite, on screen,
     // being filled or only latched: the dot until its turn to redraw comes
     // round, and that from scratch. The layout's hysteresis, carried from
@@ -750,7 +756,7 @@ static __noinline void _opponent_cap(uint8_t seen) {
     if ((capped & bit) && !(_opponent_capped & bit)) {
       planes_state_t *st = &_opponent_planes[i];
       if (st->lay.level != kPlaneLevelDot && st->lay.cols + st->lay.rows > 2) {
-        _opponent_forget(i, bit);
+        _opponent_forget(i);
         st->lay.level = kPlaneLevelDot;
         st->key_valid = false;
       }
@@ -763,7 +769,7 @@ static __noinline void _opponent_cap(uint8_t seen) {
 // due, and its offer to the stack. `busy` if another slot has a redraw in
 // flight this frame; true if this one starts one.
 static __noinline bool _opponent_draw(uint8_t i, bool busy) {
-  uint8_t bit = (uint8_t)(1 << i);
+  uint8_t bit = _opponent_bit(i);
   bool started = false;
   bool far = (_opponent_far & bit) != 0;
   _opponent_view = far ? &kViewFar : (_opponent_capped & bit) ? &kViewTwo : &kView;
@@ -813,7 +819,7 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
     _opponent_axes(i, &axes);
     planes_project(&_opponent_planes[i], _opponent_view, &_opponent_c, &axes, &f);
     if (f.hidden != kPlaneShown || f.level == kPlaneLevelDot) {
-      _opponent_forget(i, bit);
+      _opponent_forget(i);
     } else if (f.cached) {
       // The front set holds the state's silhouette - after a forget too,
       // as the state has not been projected since it was filled.
@@ -879,7 +885,7 @@ void opponent_add_sprites(void) {
   uint8_t first = _opponent_first;
   for (uint8_t n = 0; n < kOpponentMax; ++n) {
     uint8_t i = n ^ first;
-    if ((_opponent_seen & (uint8_t)(1 << i)) && _opponent_draw(i, _opponent_busy)) {
+    if ((_opponent_seen & _opponent_bit(i)) && _opponent_draw(i, _opponent_busy)) {
       _opponent_busy = true;
       _opponent_first = i ^ 1;
     }
