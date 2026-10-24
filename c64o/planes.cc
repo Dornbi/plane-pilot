@@ -411,7 +411,10 @@ static bool _same_axes(const int16_t *last, const mat3_t *axes) {
 // move up for its last sprite row to start on or above the DMA cut.
 static int16_t _slide(const planes_view_t *view, int16_t oy, uint8_t ys, uint8_t rows) {
   int16_t cut = ys == 2 ? view->cut2 : view->cut1;
-  int16_t over = (int16_t)(oy + (rows == 2 ? (int16_t)(kRows << (ys - 1)) : 0) - cut);
+  int16_t over = oy - cut;
+  if (rows == 2) {
+    over += ys == 2 ? (kRows << 1) : kRows;
+  }
   return over > 0 ? over : 0;
 }
 
@@ -562,10 +565,15 @@ void planes_project(planes_state_t *state, const planes_view_t *view,
   // the centring anchor: the bounding box's centre. The buffer's top left,
   // relative to the centre, is ox and oy; bx and by are the same with the
   // vertices' offset, which is what a vertex is measured from.
-  uint8_t wpx = (uint8_t)(kCols << ((cols - 1) + (xs - 1)));
-  uint8_t hpx = (uint8_t)(kRows << ((rows - 1) + (ys - 1)));
-  uint8_t bx = (uint8_t)(((minx + maxx + 1) >> 1) - (wpx >> 1));
-  uint8_t by = (uint8_t)(((miny + maxy + 1) >> 1) - (hpx >> 1));
+  uint8_t hw = xs == 2 ? kCols : (kCols >> 1);
+  if (cols == 2) {
+    hw <<= 1;
+  }
+  uint8_t hh = (rows & ys) == 2   ? (kRows << 1)
+               : (rows | ys) == 1 ? (kRows >> 1)
+                                  : kRows;
+  uint8_t bx = (uint8_t)(((minx + maxx + 1) >> 1) - hw);
+  uint8_t by = (uint8_t)(((miny + maxy + 1) >> 1) - hh);
   int16_t ox = (int16_t)bx - kBias, oy = (int16_t)by - kBias;
 
   // 11. slide, don't reject
@@ -617,10 +625,14 @@ void planes_fill(const planes_state_t *state, uint8_t *back) {
   // it empty, and y no longer fits a byte.
   PROFILE_START();
   uint8_t cols = state->lay.cols, rows = state->lay.rows;
-  uint8_t blocks = (uint8_t)(rows << (cols - 1));
+  uint8_t blocks = cols == 2 ? (uint8_t)(rows << 1) : rows;
   memset(back, 0, (uint16_t)blocks << 6);
-  uint8_t height = (uint8_t)(kRows << (rows - 1));
-  if ((uint16_t)state->lay.slid >> (state->lay.ys - 1) < height) {
+  uint8_t height = rows == 2 ? (kRows << 1) : kRows;
+  uint16_t slid = (uint16_t)state->lay.slid;
+  if (state->lay.ys == 2) {
+    slid >>= 1;
+  }
+  if (slid < height) {
     // The vertices are the cache's key. The arrays the fill reads still
     // hold them unless another aircraft was projected since.
     uint8_t n = state->key_count;

@@ -936,8 +936,8 @@ static void _fill_poly(void) {
 void _planes_fill_begin(uint8_t *back, uint8_t cols, uint8_t height) {
   _blk = back;
   _buf_h = height;
-  _buf_w1 = (uint8_t)((24 << (cols - 1)) - 1);
-  _bottom_adj = (uint8_t)((cols << 6) - 64);
+  _buf_w1 = cols == 2 ? 47 : 23;
+  _bottom_adj = cols == 2 ? 64 : 0;
 }
 
 void _planes_fill_poly(uint8_t first, uint8_t count) {
