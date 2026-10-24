@@ -45,10 +45,11 @@
 // _world_dy4 and poly_verts, 420 of the 440 bytes. ppilot keeps them in bss2.
 #pragma section(scratch, 0, , , bss)
 #pragma region( scratch, 0xEA30, 0xEBE8, , , {scratch} )
-// The same rows again, for the opponent renderer's per-call scratch
-// (planes.cc, planes_asm.cc): a second region over the first, so the two
-// share the bytes. They can, because opponents are drawn in
-// world_update_objects() and the terrain only after it, and neither keeps
+// The same rows again, for the object and model steps' per-call scratch
+// (planes.cc, planes_asm.cc, clouds.cc, opponent.cc, gun.cc): a second region
+// over the first, so the two share the bytes. They can, because
+// gun_step() runs in the model loop, clouds/opponents/guns are drawn in
+// world_update_objects(), and the terrain only after it, and none keeps
 // anything here from one call to the next. The same rules as above.
 #pragma section(tscratch, 0, , , bss)
 #pragma region( tscratch, 0xEA30, 0xEBE8, , , {tscratch} )

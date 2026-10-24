@@ -284,6 +284,7 @@ static planes_layout_t _opponent_shown[kOpponentMax];
 // drawn under kViewTwo this frame.
 static uint8_t _opponent_nearer;
 static uint8_t _opponent_capped;
+#pragma bss(tscratch)
 // The aircraft being culled or drawn, in camera space and eighth metres,
 // each slot's once it is in view, and the view it is drawn in. Statics
 // rather than locals, like the two below and the slot's state in
@@ -592,8 +593,10 @@ static void _opponent_forget(uint8_t i) {
 // between them.
 enum opponent_range_t { kOpponentNear, kOpponentFar, kOpponentOut };
 // Static, out of the zero page's temporaries (mem.h).
+#pragma bss(tscratch)
 static int32_t _opponent_d[3];
 static int8_t _opponent_s[3];
+#pragma bss(bss)
 static __noinline uint8_t _opponent_camera(uint8_t i) {
   _opponent_d[0] = _opponent_x[i] - flight_eye_x;
   _opponent_d[1] = _opponent_y[i] - flight_eye_y;
