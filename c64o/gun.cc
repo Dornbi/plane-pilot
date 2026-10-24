@@ -112,9 +112,9 @@ static __noinline void _gun_track(uint8_t c, int32_t eye) {
 }
 
 // Axis c of a world position less the eye, in sixteenths of a metre the
-// short way round - x repeats every 128 units, y every 256 - into _gun_t[t];
+// short way round - x repeats every 128 units, y every 256 - into _gun_t[c];
 // false if it is farther than ~2 km, past what int16 holds.
-static __noinline bool _gun_rel(int32_t d, uint8_t c, uint8_t t) {
+static __noinline bool _gun_rel(int32_t d, uint8_t c) {
   uint8_t u = (uint8_t)(d >> 16);
   if (c == 0) {
     u &= 0x7F;
@@ -127,7 +127,16 @@ static __noinline bool _gun_rel(int32_t d, uint8_t c, uint8_t t) {
     return false;
   }
   // A unit is 2,048 sixteenths; the 1/256 half metres below it, 65,536.
-  _gun_t[t] = (int16_t)(((int16_t)s << 11) + (int16_t)((uint16_t)d >> 5));
+  _gun_t[c] = (int16_t)(((int16_t)s << 11) + (int16_t)((uint16_t)d >> 5));
+  return true;
+}
+
+static __noinline bool _gun_rel3_to(const int32_t *p) {
+  for (uint8_t c = 0; c < 3; ++c) {
+    if (!_gun_rel(p[c] - _gun_eye[c], c)) {
+      return false;
+    }
+  }
   return true;
 }
 
@@ -221,14 +230,7 @@ static __noinline bool _gun_hits(uint8_t r) {
 static void _gun_hit_opponents(void) {
   int32_t p[3];
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
-    if (!opponent_target(i, p)) {
-      continue;
-    }
-    uint8_t c = 0;
-    while (c < 3 && _gun_rel(p[c] - _gun_eye[c], c, c)) {
-      ++c;
-    }
-    if (c < 3) {
+    if (!opponent_target(i, p) || !_gun_rel3_to(p)) {
       continue;
     }
     for (uint8_t r = 0; r < kRoundMax; ++r) {
@@ -265,7 +267,7 @@ void gun_step(bool trigger) {
   // and the trigger, run once a whole step: at a larger flight_step_shift
   // the substeps only share its distance out.
   ++_gun_substep;
-  int16_t ground = _gun_rel(-_gun_eye[2], 2, 0) ? _gun_t[0] : -32767;
+  int16_t ground = _gun_rel(-_gun_eye[2], 2) ? _gun_t[2] : -32767;
   for (uint8_t r = 0; r < kRoundMax; ++r) {
     if (_round_age[r] == 0) {
       continue;
@@ -403,13 +405,8 @@ static const int16_t kSmokeUp = 4 * 16;
 static void _gun_smoke(void) {
   int32_t p[3];
   int16_t h[2];
-  if (!opponent_smoke(p, h)) {
+  if (!opponent_smoke(p, h) || !_gun_rel3_to(p)) {
     return;
-  }
-  for (uint8_t c = 0; c < 3; ++c) {
-    if (!_gun_rel(p[c] - _gun_eye[c], c, c)) {
-      return;
-    }
   }
   _gun_rel3.x = _gun_t[0] - vec_fastmul8p8(h[0], kSmokeBack);
   _gun_rel3.y = _gun_t[1] - vec_fastmul8p8(h[1], kSmokeBack);
