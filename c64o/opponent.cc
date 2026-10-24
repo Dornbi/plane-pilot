@@ -309,7 +309,10 @@ void opponent_invalidate(void) {
   }
   _opponent_front = 0;
   _opponent_pending = 0;
+  _opponent_first = 0;
   _opponent_near = 0;
+  _opponent_nearer = 0;
+  _opponent_capped = 0;
   // Below I/O, so no banking. Written here all the same, not once at boot:
   // it is in no linker region, so nothing loads or clears it.
   planes_dot_bitmap(_opponent_block(kOpponentBlockDot));
@@ -326,10 +329,14 @@ bool opponent_target(uint8_t i, int32_t *p) {
 }
 
 void opponent_strike(uint8_t i) {
+  uint8_t bit = (uint8_t)(1 << i);
+  if (_opponent_down & bit) {
+    return;
+  }
   _opponent_smoke = (uint8_t)(i + 1);
   _opponent_smoke_t = kSmokeHit;
   if (++_opponent_hits[i] == kOpponentHitsToDown) {
-    _opponent_down |= (uint8_t)(1 << i);
+    _opponent_down |= bit;
     _opponent_smoke_t = kSmokeDown;
     msg_show("TARGET DOWN");
   }
@@ -397,6 +404,7 @@ void opponent_reset(uint8_t mission) {
   _opponent_failed = false;
   _opponent_down = 0;
   _opponent_smoke = kOpponentNoSmoke;
+  _opponent_substep = 0;
   // Which navpoint is the targets': flight_init_from_mission() gives one to
   // each waypoint with a position, and to WP_TARGETS_DOWN, in order.
   _opponent_nav = kOpponentNoNav;
@@ -503,6 +511,9 @@ void opponent_step(void) {
         if (p->kind == kOpponentOneWay) {
           // Off the map: gone, and nothing of it on screen.
           _opponent_on[i] = false;
+          if (_opponent_smoke == (uint8_t)(i + 1)) {
+            _opponent_smoke = kOpponentNoSmoke;
+          }
           _opponent_forget(i, (uint8_t)(1 << i));
           continue;
         }
@@ -529,7 +540,7 @@ void opponent_step(void) {
     int16_t dot = _opponent_dot(dx, hx, dy, hy);
     int16_t across = cross < 0 ? -cross : cross;
     int8_t turn = 0;
-    if (dot <= 0 || across > (dot >> 5)) {
+    if (dot < 0 || across > (dot >> 5)) {
       turn = cross >= 0 ? 1 : -1;
       // The small-angle turn of vec_turn3_xy(), anticlockwise for a left
       // turn: h += s * left. The step lengthens the vector a little, and the

@@ -470,6 +470,7 @@ void flight_init() {
   // event set on the first frame of a mission.
   flight_events = 0;
   model_pending_events = 0;
+  model_substep = 0;
   flight_fuel = 0x21FFF;
   model_on_ground = false;
   flight_nav_point_x[0] = 0x2000;
@@ -546,6 +547,7 @@ void flight_init_from_mission(uint8_t mission_idx) {
   // event set on the first frame of a mission.
   flight_events = 0;
   model_pending_events = 0;
+  model_substep = 0;
   flight_num_nav_points = 0;
   uint8_t wp_begin = kMissionWpBegin[mission_idx];
   uint8_t wp_end = kMissionWpEnd[mission_idx];

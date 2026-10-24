@@ -937,6 +937,9 @@ static void test_missions(void) {
     opponent_step();
     CHECK(!opponent_smoke(p, h), "smoke: still up %d frames after a hit", kSmokeHit);
     for (int k = 1; k < kOpponentHitsToDown; ++k) opponent_strike(0);
+    // An extra strike on an already-downed slot is ignored and keeps the
+    // longer kill smoke.
+    opponent_strike(0);
     for (int n = 0; n < kSmokeDown - 1; ++n) opponent_step();
     CHECK(opponent_smoke(p, h) && p[0] == _opponent_x[0], "smoke: gone before it lingered");
     int32_t fell = _opponent_x[0];
@@ -944,6 +947,14 @@ static void test_missions(void) {
     CHECK(!opponent_smoke(p, h), "smoke: still up %d frames after the slot went down",
           kSmokeDown);
     CHECK(_opponent_x[0] == fell, "smoke: a downed slot moved on");
+
+    // A damaged one-way aircraft that escapes leaves no smoke behind it.
+    opponent_reset(0);
+    while (_opponent_next[0] < 3) opponent_step();
+    opponent_strike(0);
+    CHECK(opponent_smoke(p, h), "smoke: not up after hitting the recon");
+    while (_opponent_on[0]) opponent_step();
+    CHECK(!opponent_smoke(p, h), "smoke: still up after the recon escaped");
   }
 
   // The budget with smoke and a tracer: in front, four and two and one of
