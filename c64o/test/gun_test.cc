@@ -229,6 +229,20 @@ static void test_hits(void) {
   CHECK(_strikes[0] >= kOpponentHitsToDown, "%d hits on the boresight", _strikes[0]);
   CHECK(_strikes[1] == 0, "%d hits 30 m off", _strikes[1]);
 
+  // At a larger flight_step_shift a hit on a substep clears the tracer at once.
+  start(0);
+  flight_step_shift = 2;
+  kFlightSubstepMask = 3;
+  // Fire on the fourth substep, which completes a whole step.
+  for (int n = 0; n < 4; ++n) step(true);
+  CHECK(gun_tracer_up(), "no tracer after firing at shift 2");
+  place_target(0, 25, 0, -1.5);
+  step(false);
+  CHECK(_strikes[0] == 1 && !gun_tracer_up(),
+        "substep hit: strikes %d, tracer %d", _strikes[0], gun_tracer_up());
+  flight_step_shift = 0;
+  kFlightSubstepMask = 0;
+
   printf("  and head-on at full closing speed, no round jumps it\n");
   // kMaxSpeed against a target flying straight at the player at 1,500: the
   // round's step and the target's between them, at every offset from the

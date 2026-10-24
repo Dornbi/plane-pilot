@@ -261,7 +261,10 @@ void gun_step(bool trigger) {
   }
   _gun_hit_opponents();
   // The ground, z 0, in the rounds' frame: a round below it is gone. Past
-  // int16's reach the eye is too high for a round to get down there.
+  // int16's reach the eye is too high for a round to get down there. Ages,
+  // and the trigger, run once a whole step: at a larger flight_step_shift
+  // the substeps only share its distance out.
+  ++_gun_substep;
   int16_t ground = _gun_rel(-_gun_eye[2], 2, 0) ? _gun_t[0] : -32767;
   for (uint8_t r = 0; r < kRoundMax; ++r) {
     if (_round_age[r] == 0) {
@@ -271,22 +274,16 @@ void gun_step(bool trigger) {
     for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {
       _round_p[i] += _gun_step_s(_round_v[i]) - _gun_moved[c];
     }
-    if (_round_p[2 * kRoundMax + r] < ground) {
-      _round_age[r] = 0;
-    }
-  }
-  // Ages, and the trigger, once a whole step: at a larger flight_step_shift
-  // the substeps above only share its distance out.
-  if ((++_gun_substep & kFlightSubstepMask) != 0) {
-    return;
-  }
-  for (uint8_t r = 0; r < kRoundMax; ++r) {
-    if (_round_age[r] != 0 && ++_round_age[r] > kRoundLife) {
+    if (_round_p[2 * kRoundMax + r] < ground ||
+        (!(_gun_substep & kFlightSubstepMask) && ++_round_age[r] > kRoundLife)) {
       _round_age[r] = 0;
     }
   }
   if (_gun_last != kRoundNone && _round_age[_gun_last] == 0) {
     _gun_last = kRoundNone;
+  }
+  if (_gun_substep & kFlightSubstepMask) {
+    return;
   }
   // After the rounds have moved, so a new one is drawn where it leaves the
   // wing before its first step takes it 48 m on.
