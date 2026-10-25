@@ -27,6 +27,18 @@
 // per-frame render path, so the outliner's size-for-a-JSR trade is free here.
 #pragma optimize(push, outline)
 
+// The mission from its start, for entering the simulation and for R: the
+// message line, the aircraft, the opponents and the guns.
+static __noinline void _start_mission(uint8_t selected_mission) {
+  msg_clear();
+  flight_init_from_mission(selected_mission);
+  // Also rewrites the opponents' dot block, which the title's sprites were
+  // over until the simulation was entered.
+  opponent_reset(selected_mission);
+  gun_reset();
+  msg_show(kMissionTitles[selected_mission]);
+}
+
 static void _enter_simulation(uint8_t selected_mission) {
   // The menu is still on display and everything below rewrites what is under
   // it: both screen buffers, the character set, the panel bitmap, the sprite
@@ -39,13 +51,7 @@ static void _enter_simulation(uint8_t selected_mission) {
   memset(kScreenRamAlt, kCharSolid11, 1000);
 
   view_state = VIEW_CENTER;
-  msg_clear();
-  flight_init_from_mission(selected_mission);
-  // Also rewrites the opponents' dot block, which the title's sprites were
-  // over until now.
-  opponent_reset(selected_mission);
-  gun_reset();
-  msg_show(kMissionTitles[selected_mission]);
+  _start_mission(selected_mission);
 
   mem_switch_debug(false);
   mem_init_mccm();
@@ -224,11 +230,7 @@ void sim_run(uint8_t selected_mission) {
     }
 
     if (key_pressed(KSCAN_R)) {
-      msg_clear();
-      flight_init_from_mission(selected_mission);
-      opponent_reset(selected_mission);
-      gun_reset();
-      msg_show(kMissionTitles[selected_mission]);
+      _start_mission(selected_mission);
       view_update_view(VIEW_CENTER);
       mem_switch_debug(false);
     }
