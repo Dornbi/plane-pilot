@@ -123,10 +123,14 @@ These come from earlier work (see the auto-memory notes `fpilot-ram-survey`,
 - A loop that passes its counter to a function taking it in A can leave the
   loop's byte offset in A from the second iteration on (gun.cc's
   `_gun_track()` works around it). Spell the calls out, or check the asm.
-- fpilot is nearly full (about 1.4 KB free in October 2026), and
+- fpilot is nearly full (about 2.5 KB free after pass 43), and
   `tools/bench.sh` links more code into it than the game does. A change that
   frees RAM gives the bench room too; one that grows code can stop the bench
   scenes linking even when fpilot.prg itself still does.
+- fpilot's static frames take 63 of the stack region's 64 B since pass 42. A
+  change that adds a static frame or grows one fails to link with error
+  3034; raise `stacksize` and `MEM_STACK_END` in `mem.h` together, and count
+  the bytes that costs bss2 against the change's gain.
 
 ## Measured dead ends (do not retry)
 
@@ -150,9 +154,15 @@ These come from earlier work (see the auto-memory notes `fpilot-ram-survey`,
 - Orphan fragments: `$EBE8`, `$EFE8` (16 B each) and `$FFC0-$FFF9` (58 B).
   They can only be reached by hand-placing data.
 - Used up: main-screen rows 14-24 (pass 16, now the `scratch` region) and the
-  stack headroom (pass 5).
-- New since October 2026: the opponents (`opponent.cc`, `planes*.cc`) and the
-  guns (`gun.cc`) have not been through the loop yet.
+  stack headroom (pass 5 for ppilot, pass 42 for fpilot).
+- The opponents and guns went through the loop in passes 28-43 (see the run
+  summary in the log). Already taken there: the bitshift and `__shltab`
+  tables, the waypoint pool, the navpoint search, the three views,
+  `planes_project()`'s duplicated place and dot-tier code, the axes compare,
+  the `_planes_lx/_ly` cache, `_opponent_draw()`'s repeated calls, the range
+  compares and `_opponent_toward()`'s shifts. Not looked at yet:
+  `planes_fill()` and `planes_asm.cc` beyond `_key()`, gun.cc's round model
+  apart from `vec_dot2`, and the smoke.
 
 ## Log
 
@@ -174,6 +184,26 @@ shootdown scenes and began timing the model step too: fpilot 1,437 B free
 cruise 152,154, town 144,007, lake 133,350, scramble 184,492, shootdown
 179,998; total 1,057,692. The runway
 scene became "start": in fpilot it is 01 Recon's airborne start.
+
+The run of 2026-10-24/25 (passes 28-43 on claude-loop, 1787679..1ec2417)
+kept all 16 passes it finished and had none rejected. fpilot went from 1,437
+to 2,559 B free (+1,122). The bench total went from 1,057,692 to 1,061,442
+(+0.35%): start 119,655, approach 145,059, cruise 153,382, town 144,532,
+lake 134,285, scramble 184,459, shootdown 180,070. The worst scene is cruise
+at +0.81% of its baseline, and every scene is inside +2%. Most of the gain is
+in the new combat code: opponent.cc +399 B, planes.cc and planes_asm.cc
++518 B, gun.cc sharing opponent.cc's dot product +63 B, sim.cc +70 B and the
+stack region +72 B. Every pass reports bit-identical output, and the two live
+scenes' opponent frames did not change. Three passes were also checked by
+hand:
+- 35: the axes are stored before the cache test, so a hit cannot leave a
+  stale silhouette.
+- 38: the 6502 code keeps the 16-bit wraparound.
+- 43: the byte-move form matches the old shifts on 200,000 random inputs.
+
+The run stopped on the usage limit while pass 44's reviewer was running. The
+script resets the tree on that path and saves no diff, so pass 44 has no row
+and its idea is lost.
 
 The script appends one row per pass. The branch column names the loop the
 change came from: claude (claude-loop) or argon (argon-loop).
