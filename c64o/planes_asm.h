@@ -56,10 +56,10 @@ bool _planes_key(uint8_t *key, uint8_t count, uint8_t bx, uint8_t by, uint16_t s
 extern uint8_t _planes_sx[3], _planes_sy[3], _planes_sr[3];
 void _planes_tube(int16_t ux, int16_t uy, uint8_t at);
 
-// The products of axis a's pairs, first .. end - 1, each trunc(component * v
-// / 256) as vec_fastmul8p8 truncates: _planes_tx from a's y, _planes_ty from
-// its z.
-void _planes_axis_products(const vec3_t *a, uint8_t first, uint8_t end);
+// The products of each axis's pairs (1 .. 15), each trunc(component * v / 256)
+// as vec_fastmul8p8 truncates: _planes_tx from the axis's y, _planes_ty from
+// its z, and 0 at index 0.
+void _planes_axis_products(const mat3_t *axes);
 
 // Where the fill draws: four sprite blocks 64 bytes apart from `back`, cols
 // of them across, and rows at or below `height` skipped.

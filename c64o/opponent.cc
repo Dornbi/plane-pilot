@@ -194,12 +194,10 @@ static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
       {0x3900, 0x5900, 0x7900, 0x9900}, {0x3F20, 0x3F20, 0x3F20, 0x3F20}}},
 };
 
-// What the message says when the mission fails, per mission.
-static const char *const kOpponentFailText[kMissionCount] = {
+// What the message says when the mission fails, for the missions that can.
+static const char *const kOpponentFailText[2] = {
     "MISSION FAILED - RECON ESCAPED",
     "MISSION FAILED - CITY BOMBED",
-    0,
-    0,
 };
 
 // The turn: vec_turn3_xy()'s small angle, 8 / 256 rad, 1.8 degrees a model
@@ -284,6 +282,7 @@ static planes_layout_t _opponent_shown[kOpponentMax];
 // drawn under kViewTwo this frame.
 static uint8_t _opponent_nearer;
 static uint8_t _opponent_capped;
+#pragma bss(tscratch)
 // The aircraft being culled or drawn, in camera space and eighth metres,
 // each slot's once it is in view, and the view it is drawn in. Statics
 // rather than locals, like the two below and the slot's state in
@@ -305,7 +304,7 @@ static bool _opponent_busy;
 void opponent_invalidate(void) {
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
     planes_state_init(&_opponent_planes[i]);
-    _opponent_shown[i] = _opponent_planes[i].lay;
+    _opponent_shown[i].level = kPlaneLevelDot;
   }
   _opponent_front = 0;
   _opponent_pending = 0;
@@ -318,26 +317,36 @@ void opponent_invalidate(void) {
   planes_dot_bitmap(_opponent_block(kOpponentBlockDot));
 }
 
+static_assert(kOpponentMax == 2, "slot i's mask bit is i + 1");
+
+static inline uint8_t _opponent_bit(uint8_t i) {
+  return (uint8_t)(i + 1);
+}
+
 static inline bool _opponent_live(uint8_t i) {
-  return _opponent_on[i] && !(_opponent_down & (uint8_t)(1 << i));
+  return _opponent_on[i] && !(_opponent_down & _opponent_bit(i));
+}
+
+static __noinline void _opponent_pos(uint8_t i, int32_t *p) {
+  p[0] = _opponent_x[i];
+  p[1] = _opponent_y[i];
+  p[2] = _opponent_z[i];
 }
 
 bool opponent_target(uint8_t i, int32_t *p) {
   if (!_opponent_live(i)) {
     return false;
   }
-  p[0] = _opponent_x[i];
-  p[1] = _opponent_y[i];
-  p[2] = _opponent_z[i];
+  _opponent_pos(i, p);
   return true;
 }
 
 void opponent_strike(uint8_t i) {
-  uint8_t bit = (uint8_t)(1 << i);
+  uint8_t bit = _opponent_bit(i);
   if (_opponent_down & bit) {
     return;
   }
-  _opponent_smoke = (uint8_t)(i + 1);
+  _opponent_smoke = bit;
   _opponent_smoke_t = kSmokeHit;
   if (++_opponent_hits[i] == kOpponentHitsToDown) {
     _opponent_down |= bit;
@@ -351,9 +360,7 @@ bool opponent_smoke(int32_t *p, int16_t *h) {
     return false;
   }
   uint8_t i = (uint8_t)(_opponent_smoke - 1);
-  p[0] = _opponent_x[i];
-  p[1] = _opponent_y[i];
-  p[2] = _opponent_z[i];
+  _opponent_pos(i, p);
   h[0] = _opponent_head[i].x;
   h[1] = _opponent_head[i].y;
   return true;
@@ -364,8 +371,7 @@ bool opponent_targets_down(void) {
     return false;
   }
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
-    if (kOpponentPaths[_opponent_mission][i].kind != kOpponentNone &&
-        !(_opponent_down & (uint8_t)(1 << i))) {
+    if (_opponent_live(i)) {
       return false;
     }
   }
@@ -422,15 +428,17 @@ void opponent_reset(uint8_t mission) {
       ++nav;
     }
   }
-  for (uint8_t i = 0; i < kOpponentMax; ++i) {
-    const opponent_path_t *p = &kOpponentPaths[mission][i];
+  const opponent_path_t *p = kOpponentPaths[mission];
+  for (uint8_t i = 0; i < kOpponentMax; ++i, ++p) {
     _opponent_on[i] = p->kind != kOpponentNone;
     _opponent_path[i] = p;
     _opponent_next[i] = 0;
     _opponent_x[i] = (int32_t)p->start_x << 8;
     _opponent_y[i] = (int32_t)p->start_y << 8;
     _opponent_z[i] = (int32_t)p->z << 8;
-    _opponent_head[i] = make_vector(p->head_x, p->head_y, 0);
+    _opponent_head[i].x = p->head_x;
+    _opponent_head[i].y = p->head_y;
+    _opponent_head[i].z = 0;
     _opponent_turn[i] = 0;
     _opponent_bank[i] = 0;
     _opponent_hits[i] = 0;
@@ -438,6 +446,8 @@ void opponent_reset(uint8_t mission) {
   _opponent_track();
   opponent_invalidate();
 }
+
+static __noinline int16_t _opponent_abs(int16_t v) { return v < 0 ? -v : v; }
 
 // a * b + c * d, each in 8.8 with b and d no more than 256: every product
 // below, which are all two-term dot products, called rather than written out.
@@ -462,7 +472,7 @@ static __noinline void _opponent_move(int32_t *pos, int16_t speed2, int16_t h) {
   *pos += flight_step_s(vec_fastmul8p8(speed2, h));
 }
 
-static void _opponent_forget(uint8_t i, uint8_t bit);
+static void _opponent_forget(uint8_t i);
 
 // The mission has failed: said once, and WP_TARGETS_DOWN never comes.
 static void _opponent_fail(void) {
@@ -482,12 +492,12 @@ void opponent_step(void) {
     _opponent_smoke = kOpponentNoSmoke;
   }
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
-    if (!_opponent_on[i]) {
+    if (!_opponent_live(i)) {
       continue;
     }
     const opponent_path_t *p = _opponent_path[i];
-    // Parked, or down: it stays where it is.
-    if (p->kind == kOpponentParked || (_opponent_down & (uint8_t)(1 << i))) {
+    // Parked: it stays where it is.
+    if (p->kind == kOpponentParked) {
       continue;
     }
     vec3_t *h = &_opponent_head[i];
@@ -497,8 +507,8 @@ void opponent_step(void) {
     uint8_t w = _opponent_next[i];
     int16_t dx = _opponent_toward(p->x[w], _opponent_x[i]);
     int16_t dy = _opponent_toward(p->y[w], _opponent_y[i]);
-    if (dx < kOpponentReach && dx > -kOpponentReach && dy < kOpponentReach &&
-        dy > -kOpponentReach) {
+    if (_opponent_abs(dx) < kOpponentReach &&
+        _opponent_abs(dy) < kOpponentReach) {
       if (w == p->fail) {
         _opponent_fail();
       }
@@ -506,10 +516,10 @@ void opponent_step(void) {
         if (p->kind == kOpponentOneWay) {
           // Off the map: gone, and nothing of it on screen.
           _opponent_on[i] = false;
-          if (_opponent_smoke == (uint8_t)(i + 1)) {
+          if (_opponent_smoke == _opponent_bit(i)) {
             _opponent_smoke = kOpponentNoSmoke;
           }
-          _opponent_forget(i, (uint8_t)(1 << i));
+          _opponent_forget(i);
           continue;
         }
         w = 0;
@@ -524,7 +534,7 @@ void opponent_step(void) {
     // stays straight. The direction is cut down to six bits a component
     // first, so both products fit 16 bits, and taken as 8.8 so that
     // vec_fastmul8p8() forms them exactly, with no multiply linked for them.
-    while (dx > 63 || dx < -63 || dy > 63 || dy < -63) {
+    while (_opponent_abs(dx) > 63 || _opponent_abs(dy) > 63) {
       dx >>= 1;
       dy >>= 1;
     }
@@ -533,7 +543,7 @@ void opponent_step(void) {
     int16_t hx = h->x, hy = h->y;
     int16_t cross = _opponent_dot(dy, hx, -dx, hy);
     int16_t dot = _opponent_dot(dx, hx, dy, hy);
-    int16_t across = cross < 0 ? -cross : cross;
+    int16_t across = _opponent_abs(cross);
     int8_t turn = 0;
     if (dot < 0 || across > (dot >> 5)) {
       turn = cross >= 0 ? 1 : -1;
@@ -565,7 +575,8 @@ void opponent_step(void) {
 // dot, never as the bitmap from the last time it was in view: that can be
 // any size, and a chase that looked away and back saw one frame of the
 // aircraft as close as it had been.
-static void _opponent_forget(uint8_t i, uint8_t bit) {
+static void _opponent_forget(uint8_t i) {
+  uint8_t bit = _opponent_bit(i);
   _opponent_shown[i].level = kPlaneLevelDot;
   // A projection still to be filled is a bitmap that was never drawn, so
   // nothing may come from the cache against it.
@@ -584,8 +595,10 @@ static void _opponent_forget(uint8_t i, uint8_t bit) {
 // between them.
 enum opponent_range_t { kOpponentNear, kOpponentFar, kOpponentOut };
 // Static, out of the zero page's temporaries (mem.h).
+#pragma bss(tscratch)
 static int32_t _opponent_d[3];
 static int8_t _opponent_s[3];
+#pragma bss(bss)
 static __noinline uint8_t _opponent_camera(uint8_t i) {
   _opponent_d[0] = _opponent_x[i] - flight_eye_x;
   _opponent_d[1] = _opponent_y[i] - flight_eye_y;
@@ -612,13 +625,13 @@ static __noinline uint8_t _opponent_camera(uint8_t i) {
       range = kOpponentFar;
     }
   }
-  vec3_t rel;
   for (uint8_t c = 0; c < 3; ++c) {
     uint16_t u = (uint8_t)_opponent_s[c], f = (uint16_t)_opponent_d[c];
-    (&rel.x)[c] = range == kOpponentNear ? (int16_t)((u << 10) + (f >> 6))
-                                         : (int16_t)((u << 8) + (f >> 8));
+    (&_opponent_c.x)[c] = range == kOpponentNear
+                              ? (int16_t)((u << 10) + (f >> 6))
+                              : (int16_t)((u << 8) + (f >> 8));
   }
-  vec_transform_inv(&world_cam, &rel, &_opponent_c);
+  vec_transform_inv(&world_cam, &_opponent_c, &_opponent_c);
   return range;
 }
 
@@ -640,40 +653,51 @@ static __noinline bool _opponent_off_screen(void) {
   uint16_t half = (uint16_t)_opponent_c.x >> 1;
   uint16_t eighth = half >> 2;
   uint16_t px4 = eighth >> 3;
-  int16_t y = _opponent_c.y, z = _opponent_c.z;
-  uint16_t ay = (uint16_t)(y < 0 ? -y : y);
-  uint16_t az = (uint16_t)(z < 0 ? -z : z);
+  uint16_t ay = (uint16_t)_opponent_abs(_opponent_c.y);
+  uint16_t az = (uint16_t)_opponent_abs(_opponent_c.z);
   return ay > half + eighth + px4 + kOpponentReachX ||
          az > (half >> 1) - (eighth >> 2) + px4 + kOpponentReachZ;
 }
 
-// Slot i's body axes in camera space, as planes_project() reads them: only
-// their screen components, y and z, which are each a dot product with
-// world_cam's left and up. The heading is level, so the front and left have
-// no z and the up is the world's, whose products are world_cam's own z
-// components. Then the bank, while turning: left and up turned about the
+// Slot i's body axes in camera space, in _opponent_axes_m, as planes_project()
+// reads them: only their screen components, y and z, which are each a dot
+// product with world_cam's left and up. The heading is level, so the front and
+// left have no z and the up is the world's, whose products are world_cam's own
+// z components. Then the bank, while turning: left and up turned about the
 // front by 30 degrees, towards the turn.
-static void _opponent_axes(uint8_t i, mat3_t *axes) {
+#pragma bss(tscratch)
+static mat3_t _opponent_axes_m;
+static planes_frame_t _opponent_f;
+#pragma bss(bss)
+
+static void _opponent_axes(uint8_t i) {
   int16_t hx = _opponent_head[i].x, hy = _opponent_head[i].y;
   int8_t turn = _opponent_bank[i];
   int16_t sn = turn > 0 ? kOpponentBankSin : -kOpponentBankSin;
   // y, then z: the products with world_cam's left, then with its up.
   const vec3_t *row = &world_cam.left;
-  for (uint8_t c = 0; c < 2; ++c) {
+  int16_t *out = &_opponent_axes_m.front.y;
+  for (uint8_t c = 0; c < 2; ++c, ++row, ++out) {
     int16_t l = _opponent_dot(row->x, -hy, row->y, hx);
     int16_t u = row->z;
-    (&axes->front.y)[c] = _opponent_dot(row->x, hx, row->y, hy);
+    out[0] = _opponent_dot(row->x, hx, row->y, hy);
     if (turn != 0) {
       // Banked left, the left wing goes down and the top towards the left.
       int16_t l0 = l;
       l = _opponent_dot(l0, kOpponentBankCos, u, -sn);
       u = _opponent_dot(u, kOpponentBankCos, l0, sn);
     }
-    (&axes->left.y)[c] = l;
-    (&axes->up.y)[c] = u;
-    row = &world_cam.up;
+    out[3] = l;
+    out[6] = u;
   }
 }
+
+#ifndef __OSCAR64__
+static inline void _opponent_axes(uint8_t i, mat3_t *axes) {
+  _opponent_axes(i);
+  *axes = _opponent_axes_m;
+}
+#endif
 
 static_assert(kOpponentMax == 2, "the slots' turns below are written for two");
 
@@ -688,7 +712,7 @@ static __noinline uint8_t _opponent_cull(void) {
     if (!_opponent_on[i]) {
       continue;
     }
-    uint8_t bit = (uint8_t)(1 << i);
+    uint8_t bit = _opponent_bit(i);
     // Down, and gone: only its smoke stays (opponent_smoke()).
     uint8_t range =
         (_opponent_down & bit) ? (uint8_t)kOpponentOut : _opponent_camera(i);
@@ -706,7 +730,7 @@ static __noinline uint8_t _opponent_cull(void) {
       _opponent_cs[i] = _opponent_c;
       continue;
     }
-    _opponent_forget(i, bit);
+    _opponent_forget(i);
   }
   _opponent_far = far;
   return seen;
@@ -726,22 +750,21 @@ static __noinline uint8_t _opponent_cull(void) {
 static __noinline void _opponent_cap(uint8_t seen) {
   uint8_t capped = 0;
   if (seen == 3) {
-    uint8_t n = _opponent_nearer;
+    uint8_t n = _opponent_nearer, o = n ^ 1;
     int16_t dn = _opponent_cs[n].x;
-    uint8_t fn = (uint8_t)((_opponent_far >> n) & 1);
-    if (fn != (uint8_t)((_opponent_far >> (n ^ 1)) & 1)
-            ? fn != 0
-            : _opponent_cs[n ^ 1].x < dn - (dn >> 3)) {
-      _opponent_nearer ^= 1;
+    bool fn = (_opponent_far & _opponent_bit(n)) != 0;
+    bool fo = (_opponent_far & _opponent_bit(o)) != 0;
+    if (fn != fo ? fn : _opponent_cs[o].x < dn - (dn >> 3)) {
+      _opponent_nearer = o;
     }
     uint8_t extra =
         (uint8_t)(_opponent_smoke != kOpponentNoSmoke) + (uint8_t)gun_tracer_up();
     capped = extra > (view_state == VIEW_BACK ? 0 : 1)
                  ? 3
-                 : (uint8_t)(2 >> _opponent_nearer);
+                 : _opponent_bit(_opponent_nearer ^ 1);
   }
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
-    uint8_t bit = (uint8_t)(1 << i);
+    uint8_t bit = _opponent_bit(i);
     // Newly held to two with a layout of more than one sprite, on screen,
     // being filled or only latched: the dot until its turn to redraw comes
     // round, and that from scratch. The layout's hysteresis, carried from
@@ -750,7 +773,7 @@ static __noinline void _opponent_cap(uint8_t seen) {
     if ((capped & bit) && !(_opponent_capped & bit)) {
       planes_state_t *st = &_opponent_planes[i];
       if (st->lay.level != kPlaneLevelDot && st->lay.cols + st->lay.rows > 2) {
-        _opponent_forget(i, bit);
+        _opponent_forget(i);
         st->lay.level = kPlaneLevelDot;
         st->key_valid = false;
       }
@@ -763,22 +786,24 @@ static __noinline void _opponent_cap(uint8_t seen) {
 // due, and its offer to the stack. `busy` if another slot has a redraw in
 // flight this frame; true if this one starts one.
 static __noinline bool _opponent_draw(uint8_t i, bool busy) {
-  uint8_t bit = (uint8_t)(1 << i);
+  uint8_t bit = _opponent_bit(i);
   bool started = false;
   bool far = (_opponent_far & bit) != 0;
   _opponent_view = far ? &kViewFar : (_opponent_capped & bit) ? &kViewTwo : &kView;
   _opponent_c = _opponent_cs[i];
+  // A redraw takes two frames, the projection in one and the fill in the
+  // next (docs/planes.md §13, "The silhouette at half rate"), so neither
+  // frame pays for both. The position is this frame's either way: the
+  // bitmap on screen is placed at this frame's centre.
+  if (_opponent_pending & bit) {
+    _opponent_front ^= bit;
+    busy = true;
+  }
   // The first block of the set on screen.
   uint8_t front = kOpponentBlockFirst[i];
   if (_opponent_front & bit) {
     front += kOpponentSetBlocks;
   }
-
-  // A redraw takes two frames, the projection in one and the fill in the
-  // next (docs/planes.md §13, "The silhouette at half rate"), so neither
-  // frame pays for both. The position is this frame's either way: the
-  // bitmap on screen is placed at this frame's centre.
-  planes_frame_t f;
   if (_opponent_pending & bit) {
     // The fill the last frame projected. It writes under I/O; the raster
     // handlers bank I/O in for themselves (gfx.cc _gfx_isr), and nothing
@@ -787,34 +812,24 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
     // mem_switch_buffer(), and by the time a later frame fills the other
     // set the raster handler has stopped showing it - mem_switch_buffer()
     // runs past raster 250 in its colour copy before it returns.
-    bool seen = planes_centre(_opponent_view, &_opponent_c, &f);
-    _opponent_front ^= bit;
-    front = kOpponentBlockFirst[i];
-    if (_opponent_front & bit) {
-      front += kOpponentSetBlocks;
-    }
     mmap_set(MMAP_RAM);
     planes_fill(&_opponent_planes[i], _opponent_block(front));
     mmap_set(MMAP_NO_ROM);
     _opponent_pending &= (uint8_t)~bit;
     _opponent_shown[i] = _opponent_planes[i].lay;
-    if (!seen) {
-      return started;
-    }
-    planes_place(&_opponent_shown[i], _opponent_view, &f);
-  } else if (busy) {
-    // The other slot's turn: what is on screen, where it is now.
-    if (!planes_centre(_opponent_view, &_opponent_c, &f)) {
-      return started;
-    }
-    planes_place(&_opponent_shown[i], _opponent_view, &f);
+  }
+  if (busy) {
+    // What is on screen (just filled, or while the other slot redraws), where
+    // it is now.
+    planes_centre(_opponent_view, &_opponent_c, &_opponent_f);
   } else {
-    mat3_t axes;
-    _opponent_axes(i, &axes);
-    planes_project(&_opponent_planes[i], _opponent_view, &_opponent_c, &axes, &f);
-    if (f.hidden != kPlaneShown || f.level == kPlaneLevelDot) {
-      _opponent_forget(i, bit);
-    } else if (f.cached) {
+    _opponent_axes(i);
+    planes_project(&_opponent_planes[i], _opponent_view, &_opponent_c,
+                   &_opponent_axes_m, &_opponent_f);
+    if (_opponent_f.hidden != kPlaneShown ||
+        _opponent_f.level == kPlaneLevelDot) {
+      _opponent_forget(i);
+    } else if (_opponent_f.cached) {
       // The front set holds the state's silhouette - after a forget too,
       // as the state has not been projected since it was filled.
       _opponent_shown[i] = _opponent_planes[i].lay;
@@ -823,44 +838,47 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
       // or the dot if there is none.
       _opponent_pending |= bit;
       started = true;
-      planes_place(&_opponent_shown[i], _opponent_view, &f);
     }
   }
-  if (f.hidden != kPlaneShown) {
+  if (_opponent_f.hidden == kPlaneShown && (busy || started)) {
+    planes_place(&_opponent_shown[i], _opponent_view, &_opponent_f);
+  }
+  if (_opponent_f.hidden != kPlaneShown) {
     return started;
   }
 
   uint8_t bitmap = kOpponentBlockDot;
   uint8_t bitmap2 = kSpriteNoBitmap;
   uint8_t flags = 0;
-  if (f.level != kPlaneLevelDot) {
+  if (_opponent_f.level != kPlaneLevelDot) {
     bitmap = front;
-    if (f.rows == 2) {
-      bitmap2 = (uint8_t)(front + f.cols);
+    if (_opponent_f.rows == 2) {
+      bitmap2 = (uint8_t)(front + _opponent_f.cols);
     }
-    if (f.cols == 2) {
+    if (_opponent_f.cols == 2) {
       flags |= kSpriteFlagWide;
     }
-    if (f.xs == 2) {
+    if (_opponent_f.xs == 2) {
       flags |= kSpriteFlagExpandX;
     }
-    if (f.ys == 2) {
+    if (_opponent_f.ys == 2) {
       flags |= kSpriteFlagExpandY;
     }
   }
   // The colour, from the pixel size: near from about 8 pixels across, and
   // back to far below 7, so that a chase holding the range on the line does
   // not flicker.
-  if (f.d >= kOpponentNearD) {
+  if (_opponent_f.d >= kOpponentNearD) {
     _opponent_near |= bit;
-  } else if (f.d < kOpponentNearD - 1) {
+  } else if (_opponent_f.d < kOpponentNearD - 1) {
     _opponent_near &= (uint8_t)~bit;
   }
   uint8_t color =
       (_opponent_near & bit) ? kColorOpponentNear : kColorOpponentFar;
   // Depth in the clouds' 1 m units, so that the two sort together.
-  sprites_stack_add(far ? _opponent_c.x >> 1 : _opponent_c.x >> 3, f.x, f.y, 0,
-                    0, bitmap, bitmap2, color, flags);
+  sprites_stack_add(far ? _opponent_c.x >> 1 : _opponent_c.x >> 3,
+                    _opponent_f.x, _opponent_f.y, 0, 0, bitmap, bitmap2, color,
+                    flags);
   return started;
 }
 
@@ -879,7 +897,7 @@ void opponent_add_sprites(void) {
   uint8_t first = _opponent_first;
   for (uint8_t n = 0; n < kOpponentMax; ++n) {
     uint8_t i = n ^ first;
-    if ((_opponent_seen & (uint8_t)(1 << i)) && _opponent_draw(i, _opponent_busy)) {
+    if ((_opponent_seen & _opponent_bit(i)) && _opponent_draw(i, _opponent_busy)) {
       _opponent_busy = true;
       _opponent_first = i ^ 1;
     }

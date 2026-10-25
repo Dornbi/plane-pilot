@@ -44,8 +44,8 @@ static const uint8_t kPlaneYLimit = 41;
 static const uint8_t kPlaneDDotDown = 2;
 static const uint8_t kPlaneD1xDown = 18;
 static const uint8_t kPlaneYHold = 35;
-static const uint8_t kPlaneColsHold[3] = {0, 20, 40};  // by xs
-static const uint8_t kPlaneRowsHold[3] = {0, 17, 34};  // by ys
+static const uint8_t kPlaneColsHold = 20;
+static const uint8_t kPlaneRowsHold = 17;
 
 // 65536 / dy for every edge height; entries 0 to 2 are never read (dy 1
 // and 2 are shifts, and 32768 would not fit a signed multiplier). Striped:

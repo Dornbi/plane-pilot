@@ -55,7 +55,7 @@ static const uint16_t kPlaneKMaxTwoSprites = 88;
 
 // The most vertices a frame has: the flat surfaces, the fuselage outline and
 // the end-on disc.
-static const uint8_t kPlaneVertMax = 32;
+static const uint8_t kPlaneVertMax = 30;
 
 // A bitmap's layout: the pixel size, Y-expansion and sprites (the hysteresis
 // latches), and where the buffer sits - its top left less the centre before
@@ -83,10 +83,6 @@ struct planes_state_t {
   uint8_t key_count, key_band;
   // key_y must follow key_x: planes_asm.cc reaches both from key_x.
   uint8_t key_x[kPlaneVertMax], key_y[kPlaneVertMax];
-  // How many polygons those vertices make: the three flat surfaces, then
-  // the fuselage and the end-on disc where the attitude shows them. With
-  // them, the key is everything planes_fill() needs.
-  uint8_t key_poly_count;
   // What they were projected from -- the scale, and the screen components
   // (y, z) of the front, left and up axes. The same scale and axes project
   // the same silhouette again, moved with the centre.

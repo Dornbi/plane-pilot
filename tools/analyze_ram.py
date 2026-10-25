@@ -71,7 +71,7 @@ FIXED = [
 ]
 
 # fpilot only: the block its main region gives up below I/O.
-OPPONENT_DOT = (0xCFC0, 0xD000, 'Core System & Drivers',
+OPPONENT_DOT = (0xCFC0, 0xD000, 'World Model',
                 "opponents' dot, 1 sprite block (mem.h kOpponentDotBlock)")
 
 # Real hardware the program uses that is not part of the 64 KB budget, so it is
@@ -115,14 +115,16 @@ DESCRIPTIONS = {
     },
     'World Model': {
         'Code': 'flight dynamics, physics integration, waypoint checking, '
-                'terrain grid rendering (`flight.cc`, `world.cc`, `sim.cc`, '
-                '`world_map.cc`, `clouds.cc`)',
+                'terrain grid rendering, clouds, opponents and guns (`flight.cc`, '
+                '`world.cc`, `sim.cc`, `world_map.cc`, `clouds.cc`, `opponent.cc`, '
+                '`planes.cc`, `planes_asm.cc`, `gun.cc`)',
         'Data': 'orientation matrices (`mat3_rot`), the world '
-                'map, cloud hash and ladder tables',
+                'map, cloud hash and ladder tables, 3D aircraft models and paths',
         'BSS': 'flight path history (`flight_path_px/py`), delta transform '
-               'vectors (`_world_dx4`, `_world_dy4`), camera state',
+               'vectors (`_world_dx4`, `_world_dy4`), camera, opponent and gun state',
         'ZP': 'flight state (`flight_eye_x/y/z`, `flight_speed`, '
-              '`flight_throttle`, `flight_fuel`, `flight_vspeed`)',
+              '`flight_throttle`, `flight_fuel`, `flight_vspeed`) and triangle '
+              'rasteriser registers (`tfill_*`, `tscan_*`)',
         'VRAM': '',
     },
     'Instrument Panel': {
@@ -242,7 +244,7 @@ def get_category(name):
         return 'Instrument Panel'
 
     # World Model
-    if any(n.startswith(p) for p in ['world_', '_world_', 'kworld', 'sim_', '_sim_', 'flight_', '_flight_', 'kflight', 'flight_eye_', 'flight_speed', 'flight_throttle', 'flight_fuel', 'flight_flap', 'flight_gear', 'flight_stall', 'flight_events', 'model_', 'flight_waypoint_nav', 'flight_vspeed', 'world_cam', 'flight_cam', 'flight_nav_point_', 'flight_path_', '_world_grid_radius', '_num_points_per_radius', '_world_dx_vec', '_world_dy_vec', '_world_p_start', '_world_step_x', '_world_start_cx', '_world_step_y', '_world_start_cy', '_world_vec_v', '_world_dx4', '_world_dy4', '_mitch_x', '_mitch_y', '_mitch_z', '_get_heading', '_get_ratio', 'kheadinglut', 'kmitchellpoints', 'knumpoints', 'mat3_rot', 'kwpminalthi', 'nav_msg_buf', 'nav_reached_buf']) or any(k in n for k in ['world', 'flight', 'sim']):
+    if any(n.startswith(p) for p in ['world_', '_world_', 'kworld', 'sim_', '_sim_', 'flight_', '_flight_', 'kflight', 'flight_eye_', 'flight_speed', 'flight_throttle', 'flight_fuel', 'flight_flap', 'flight_gear', 'flight_stall', 'flight_events', 'model_', 'flight_waypoint_nav', 'flight_vspeed', 'world_cam', 'flight_cam', 'flight_nav_point_', 'flight_path_', '_world_grid_radius', '_num_points_per_radius', '_world_dx_vec', '_world_dy_vec', '_world_p_start', '_world_step_x', '_world_start_cx', '_world_step_y', '_world_start_cy', '_world_vec_v', '_world_dx4', '_world_dy4', '_mitch_x', '_mitch_y', '_mitch_z', '_get_heading', '_get_ratio', 'kheadinglut', 'kmitchellpoints', 'knumpoints', 'mat3_rot', 'kwpminalthi', 'nav_msg_buf', 'nav_reached_buf', 'clouds_', '_clouds_', 'kcloud', 'opponent_', '_opponent_', 'kopponent', 'planes_', '_planes_', 'kplane', 'gun_', '_gun_', 'kgun', 'tfill_', 'tscan_', '_project', '_rot', '_fill_tri', '_step_edge']) or any(k in n for k in ['world', 'flight', 'sim', 'cloud', 'opponent', 'planes', 'gun']):
         return 'World Model'
 
     # Polygon Graphics & 3D Math
@@ -348,18 +350,21 @@ def walk_address_space(objects, regions, stack_free):
 
     # An object landing inside a hand-placed range would mean the two are
     # fighting over the same bytes; the union above would hide it, so say so.
-    # fpilot's scratch section (mem.h) is the one deliberate exception: it is
-    # a linker region over the main screen's rows 14-24, which flight never
-    # shows, so its tenants share those bytes with the screen on purpose.
+    # fpilot's scratch and tscratch sections (mem.h) are the deliberate
+    # exception: they are overlaid linker regions over the main screen's rows
+    # 14-24, which flight never shows, so their tenants share those bytes with
+    # the screen on purpose.
     clashes = []
-    screen_scratch = 0
+    scratch_bytes = bytearray(0x10000)
     for o in objects:
-        if o['type'].lower().endswith(':scratch'):
-            screen_scratch += o['size']
+        if o['type'].lower().endswith((':scratch', ':tscratch')):
+            for a in range(o['start'], o['end']):
+                scratch_bytes[a] = 1
             continue
         for start, end, _owner, label in FIXED:
             if o['start'] < end and start < o['end']:
                 clashes.append((o['name'], label))
+    screen_scratch = sum(scratch_bytes)
 
     in_region = bytearray(0x10000)
     for start, end, _name in regions:

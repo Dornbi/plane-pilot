@@ -16,18 +16,12 @@
 // We barely use the stack, make it smaller than the default. Nothing recurses,
 // so oscar64 gives every function a static frame and never touches the
 // dynamic stack (SP is set at startup and read nowhere). The region only has
-// to hold the frames: about 51 bytes in ppilot, and 132 in fpilot, whose
-// opponents put planes_render() and _project() under sim_run() (opponent.cc).
-// Should they outgrow it the link fails with error 3034 (static stack usage
-// exceeds stack segment); raise this, the region top below and MEM_BSS2_START
-// together.
-#ifdef __FPILOT__
-#pragma stacksize(0x88)
-#define MEM_STACK_END 0x0288
-#else
+// to hold the frames: about 51 bytes in ppilot and fpilot, whose opponents keep
+// their per-call temporaries in tscratch below. Should they outgrow it the link
+// fails with error 3034 (static stack usage exceeds stack segment); raise this,
+// the region top below and MEM_BSS2_START together.
 #pragma stacksize(0x40)
 #define MEM_STACK_END 0x0240
-#endif
 #ifdef __MAX_RAM__
 // Since the screen ram is moved to 0xE800 and 0xEC00, we can
 // use the original location for stack.
@@ -51,10 +45,11 @@
 // _world_dy4 and poly_verts, 420 of the 440 bytes. ppilot keeps them in bss2.
 #pragma section(scratch, 0, , , bss)
 #pragma region( scratch, 0xEA30, 0xEBE8, , , {scratch} )
-// The same rows again, for the opponent renderer's per-call scratch
-// (planes.cc, planes_asm.cc): a second region over the first, so the two
-// share the bytes. They can, because opponents are drawn in
-// world_update_objects() and the terrain only after it, and neither keeps
+// The same rows again, for the object and model steps' per-call scratch
+// (planes.cc, planes_asm.cc, clouds.cc, opponent.cc, gun.cc): a second region
+// over the first, so the two share the bytes. They can, because
+// gun_step() runs in the model loop, clouds/opponents/guns are drawn in
+// world_update_objects(), and the terrain only after it, and none keeps
 // anything here from one call to the next. The same rules as above.
 #pragma section(tscratch, 0, , , bss)
 #pragma region( tscratch, 0xEA30, 0xEBE8, , , {tscratch} )
