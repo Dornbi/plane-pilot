@@ -62,36 +62,37 @@ static inline uint8_t *_opponent_block(uint8_t block) {
 static const uint8_t kOpponentKn = 156;
 static_assert(kOpponentKn % 4 == 0, "kViewFar divides it by four");
 
-// The viewport's centre, the last line a sprite may start on, plain and
-// Y-expanded (mem.h), and the model's own size cap: the aircraft grows to
-// 2 x 2 sprites and holds its size from ~66 m.
-static const planes_view_t kView = {
+// The view an aircraft is drawn in: the viewport's centre and the last line a
+// sprite may start on, plain and Y-expanded (mem.h), with the cap and the
+// numerator _opponent_set_view() picks for each slot. One view written over
+// rather than three that differ in those two.
+static planes_view_t _opponent_view = {
     kScreenWidthPixels / 2, kViewportEndYPixels / 2,
     kSpriteVisibleEndYPixels - 1,
     kViewportEndYPixels - kSpritesOffLeadExpandY - 1, kPlaneKMax, kOpponentKn};
-// The same, held to two sprites at every attitude: it stops growing at ~115 m
-// (planes.h kPlaneKMaxTwoSprites). For an aircraft that has to share the
-// stack's seven sprites with another (_opponent_cap()). Farther than
-// ~115 m it draws exactly what kView does, k never reaching either cap, so
-// it can be handed to an aircraft at range for nothing - not even a redraw.
-static const planes_view_t kViewTwo = {
-    kScreenWidthPixels / 2, kViewportEndYPixels / 2,
-    kSpriteVisibleEndYPixels - 1,
-    kViewportEndYPixels - kSpritesOffLeadExpandY - 1, kPlaneKMaxTwoSprites,
-    kOpponentKn};
-// The same, for an aircraft from 16 units, ~2 km, out: its camera-space
-// position is in half metres rather than eighth metres
-// (_opponent_camera()), so a quarter of the numerator gives the same k, and
-// the same picture - the dot, or a silhouette the size of one. The dot needs
-// no cap; two sprites' is the safe one.
-static const planes_view_t kViewFar = {
-    kScreenWidthPixels / 2, kViewportEndYPixels / 2,
-    kSpriteVisibleEndYPixels - 1,
-    kViewportEndYPixels - kSpritesOffLeadExpandY - 1, kPlaneKMaxTwoSprites,
-    kOpponentKn / 4};
 static_assert(kSpriteVisibleEndYPixels - 1 == 89 &&
                   kViewportEndYPixels - kSpritesOffLeadExpandY - 1 == 68,
               "the DMA cuts moved: check planes.h's description of them");
+
+// kView: the model's own size cap, so the aircraft grows to 2 x 2 sprites
+// and holds its size from ~66 m.
+//
+// kViewTwo (`two`): held to two sprites at every attitude, so it stops
+// growing at ~115 m (planes.h kPlaneKMaxTwoSprites). For an aircraft that
+// has to share the stack's seven sprites with another (_opponent_cap()).
+// Farther than ~115 m it draws exactly what kView does, k never reaching
+// either cap, so it can be handed to an aircraft at range for nothing - not
+// even a redraw.
+//
+// kViewFar (`far`): for an aircraft from 16 units, ~2 km, out. Its
+// camera-space position is in half metres rather than eighth metres
+// (_opponent_camera()), so a quarter of the numerator gives the same k, and
+// the same picture - the dot, or a silhouette the size of one. The dot needs
+// no cap; two sprites' is the safe one.
+static inline void _opponent_set_view(bool far, bool two) {
+  _opponent_view.kmax = far || two ? kPlaneKMaxTwoSprites : kPlaneKMax;
+  _opponent_view.kn = far ? kOpponentKn / 4 : kOpponentKn;
+}
 
 // --- Paths ------------------------------------------------------------------
 //
@@ -302,7 +303,7 @@ static uint8_t _opponent_nearer;
 static uint8_t _opponent_capped;
 #pragma bss(tscratch)
 // The aircraft being culled or drawn, in camera space and eighth metres,
-// each slot's once it is in view, and the view it is drawn in. Statics
+// and each slot's once it is in view. Statics
 // rather than locals, like the two below and the slot's state in
 // _opponent_draw(), read through _opponent_planes[i] rather than a pointer:
 // oscar64's zero page temporaries grow with the call graph and the
@@ -310,7 +311,6 @@ static uint8_t _opponent_capped;
 // tools/check_zeropage.py).
 static vec3_t _opponent_c;
 static vec3_t _opponent_cs[kOpponentMax];
-static const planes_view_t *_opponent_view;
 // opponent_add_sprites()'s: which slots are in view, which of those are in
 // the far range (_opponent_camera()), and whether a redraw is in flight this
 // frame.
@@ -793,7 +793,7 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
   uint8_t bit = _opponent_bit(i);
   bool started = false;
   bool far = (_opponent_far & bit) != 0;
-  _opponent_view = far ? &kViewFar : (_opponent_capped & bit) ? &kViewTwo : &kView;
+  _opponent_set_view(far, (_opponent_capped & bit) != 0);
   _opponent_c = _opponent_cs[i];
   // A redraw takes two frames, the projection in one and the fill in the
   // next (docs/planes.md §13, "The silhouette at half rate"), so neither
@@ -825,10 +825,10 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
   if (busy) {
     // What is on screen (just filled, or while the other slot redraws), where
     // it is now.
-    planes_centre(_opponent_view, &_opponent_c, &_opponent_f);
+    planes_centre(&_opponent_view, &_opponent_c, &_opponent_f);
   } else {
     _opponent_axes(i);
-    planes_project(&_opponent_planes[i], _opponent_view, &_opponent_c,
+    planes_project(&_opponent_planes[i], &_opponent_view, &_opponent_c,
                    &_opponent_axes_m, &_opponent_f);
     if (_opponent_f.hidden != kPlaneShown ||
         _opponent_f.level == kPlaneLevelDot) {
@@ -845,7 +845,7 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
     }
   }
   if (_opponent_f.hidden == kPlaneShown && (busy || started)) {
-    planes_place(&_opponent_shown[i], _opponent_view, &_opponent_f);
+    planes_place(&_opponent_shown[i], &_opponent_view, &_opponent_f);
   }
   if (_opponent_f.hidden != kPlaneShown) {
     return started;
