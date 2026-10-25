@@ -94,7 +94,9 @@ Both in `8676c11`. Together: **code 26,869 → 26,711 B (−158), free RAM 6,300
 `sim_run()` carried twelve `if (key_pressed(K)) flight_input(I);` pairs and six
 more `if (key_pressed(K)) toggles |= mask;`. Each pair is a constant load, a
 `JSR`, a branch and a second constant load. They became two tables - `kHeldKeys`
-and `kToggleKeys` - and two loops.
+and `kToggleKeys` - and two loops. Later the four view keys (1-4) joined
+`kHeldKeys` too, flagged with `kHeldKeyView` so the loop calls
+`view_update_view()` for them (−39 B in fpilot).
 
 The `kToggleKey*` bit masks moved out of the function body to sit beside the
 table they now index into, with the `__ENABLE_DEBUG__` and `__ENABLE_SOUND__`
