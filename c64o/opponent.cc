@@ -456,13 +456,14 @@ static __noinline int16_t _opponent_dot(int16_t a, int16_t b, int16_t c, int16_t
 }
 
 // A waypoint coordinate, 8.8 units, less a position, 24.8, in half metres
-// and wrapped to 32,768 of them, the world's 128 units along x: taken in
-// quarter metres, which the int16_t wraps at 65,536, and halved. Good to 64
-// units either way, which is why no leg is that long. Along y the world is 256 units, and the
-// same 64 holds.
+// and wrapped to 32,768 of them, the world's 128 units along x: the half
+// metres' two whole bytes, bits 8-23, with bit 23 dropped and bit 22 taken
+// as the sign - a byte move and two 16-bit shifts, not seven 32-bit ones.
+// Good to 64 units either way, which is why no leg is that long. Along y the
+// world is 256 units, and the same 64 holds.
 static __noinline int16_t _opponent_toward(uint16_t w, int32_t pos) {
-  int16_t d = (int16_t)((((int32_t)w << 8) - pos) >> 7);
-  return d >> 1;
+  int16_t d = (int16_t)((((int32_t)w << 8) - pos) >> 8);
+  return (int16_t)(d << 1) >> 1;
 }
 
 // What flight.cc's _flight_move_forward() adds along one axis for a level
