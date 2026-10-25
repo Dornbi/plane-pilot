@@ -107,7 +107,6 @@ static_assert(kSpriteVisibleEndYPixels - 1 == 89 &&
 // the height likewise, flight_eye_z = z << 8. x is north and +y west, as
 // everywhere. No leg, the start to the first waypoint included, may be 64
 // units or more along either axis (_opponent_toward()).
-static const uint8_t kOpponentWaypoints = 4;
 enum opponent_kind_t {
   kOpponentNone = 0,
   kOpponentLoop,
@@ -124,6 +123,9 @@ struct opponent_path_t {
   uint8_t count;
   // The waypoint whose reaching fails the mission, or kOpponentNoFail.
   uint8_t fail;
+  // Its first waypoint's index in kOpponentWpX/Y: a path's waypoints are
+  // there in order, count of them, so no path pays for a longer one's.
+  uint8_t wp;
   // Airspeed in the model's units (flight.md): the player flies level at
   // 1,476 on half throttle and ~2,500 on full below 4,000 ft, 2,350 at
   // 5,000; it climbs at 1,450-1,600 and stalls at 1,024.
@@ -132,7 +134,6 @@ struct opponent_path_t {
   // The heading it starts on: a level unit vector, 8.8.
   int16_t head_x, head_y;
   uint16_t z;
-  uint16_t x[kOpponentWaypoints], y[kOpponentWaypoints];
 };
 
 // Heights on flight.cc's scale, 1,000 ft to 0x0200; the ground is at 0.
@@ -179,20 +180,37 @@ static const uint16_t kOpponent3000Ft = 0x0600;
 // started, 128 units on: the world repeats every 128 units along x, so they
 // fly north for ever.
 static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
-    {{kOpponentOneWay, 4, 3, 1750, 0x7E00, 0x6000, -256, 0, kOpponent5000Ft,
-      {0x5C00, 0x3000, 0x1000, 0x0000}, {0x6000, 0x6400, 0x6800, 0x6800}},
+    {{kOpponentOneWay, 4, 3, 0, 1750, 0x7E00, 0x6000, -256, 0, kOpponent5000Ft},
      {kOpponentNone}},
-    {{kOpponentOneWay, 3, 1, 1500, 0x4800, 0x4000, -256, 0, kOpponent3000Ft,
-      {0x2800, 0x1000, 0x0000}, {0x4000, 0x6800, 0x6800}},
-     {kOpponentOneWay, 3, 1, 1500, 0x48C8, 0x3F6A, -256, 0, kOpponent3000Ft,
-      {0x28C8, 0x10C8, 0x00C8}, {0x3F6A, 0x676A, 0x676A}}},
-    {{kOpponentParked, 0, kOpponentNoFail, 0, 0x5C9C, 0xC096, 0, -256, 0x000A},
-     {kOpponentParked, 0, kOpponentNoFail, 0, 0x5D64, 0xC096, 0, -256, 0x000A}},
-    {{kOpponentLoop, 4, kOpponentNoFail, 1500, 0x1A70, 0x3FE0, 256, 0, 0x0060,
-      {0x3A70, 0x5A70, 0x7A70, 0x9A70}, {0x3FE0, 0x3FE0, 0x3FE0, 0x3FE0}},
-     {kOpponentLoop, 4, kOpponentNoFail, 1500, 0x1900, 0x3F20, 256, 0, 0x0060,
-      {0x3900, 0x5900, 0x7900, 0x9900}, {0x3F20, 0x3F20, 0x3F20, 0x3F20}}},
+    {{kOpponentOneWay, 3, 1, 4, 1500, 0x4800, 0x4000, -256, 0, kOpponent3000Ft},
+     {kOpponentOneWay, 3, 1, 7, 1500, 0x48C8, 0x3F6A, -256, 0, kOpponent3000Ft}},
+    {{kOpponentParked, 0, kOpponentNoFail, 0, 0, 0x5C9C, 0xC096, 0, -256, 0x000A},
+     {kOpponentParked, 0, kOpponentNoFail, 0, 0, 0x5D64, 0xC096, 0, -256, 0x000A}},
+    {{kOpponentLoop, 4, kOpponentNoFail, 10, 1500, 0x1A70, 0x3FE0, 256, 0, 0x0060},
+     {kOpponentLoop, 4, kOpponentNoFail, 14, 1500, 0x1900, 0x3F20, 256, 0, 0x0060}},
 };
+
+// Every path's waypoints, at its opponent_path_t::wp: 01's recon, 02's two
+// bombers, then 04's two. test/opponent_test.cc appends its own paths' after
+// the missions', through OPPONENT_TEST_WP_N/X/Y; nothing else does.
+static const uint8_t kOpponentWpCount = 18;
+#ifndef OPPONENT_TEST_WP_N
+#define OPPONENT_TEST_WP_N 0
+#define OPPONENT_TEST_WP_X
+#define OPPONENT_TEST_WP_Y
+#endif
+__striped static const uint16_t kOpponentWpX[kOpponentWpCount + OPPONENT_TEST_WP_N] = {
+    0x5C00, 0x3000, 0x1000, 0x0000,
+    0x2800, 0x1000, 0x0000,
+    0x28C8, 0x10C8, 0x00C8,
+    0x3A70, 0x5A70, 0x7A70, 0x9A70,
+    0x3900, 0x5900, 0x7900, 0x9900 OPPONENT_TEST_WP_X};
+__striped static const uint16_t kOpponentWpY[kOpponentWpCount + OPPONENT_TEST_WP_N] = {
+    0x6000, 0x6400, 0x6800, 0x6800,
+    0x4000, 0x6800, 0x6800,
+    0x3F6A, 0x676A, 0x676A,
+    0x3FE0, 0x3FE0, 0x3FE0, 0x3FE0,
+    0x3F20, 0x3F20, 0x3F20, 0x3F20 OPPONENT_TEST_WP_Y};
 
 // What the message says when the mission fails, for the missions that can.
 static const char *const kOpponentFailText[2] = {
@@ -506,8 +524,9 @@ void opponent_step(void) {
     // The waypoint, relative, in half metres. Reached, and the next one is
     // steered for from the next step on.
     uint8_t w = _opponent_next[i];
-    int16_t dx = _opponent_toward(p->x[w], _opponent_x[i]);
-    int16_t dy = _opponent_toward(p->y[w], _opponent_y[i]);
+    uint8_t k = (uint8_t)(p->wp + w);
+    int16_t dx = _opponent_toward(kOpponentWpX[k], _opponent_x[i]);
+    int16_t dy = _opponent_toward(kOpponentWpY[k], _opponent_y[i]);
     if (_opponent_abs(dx) < kOpponentReach &&
         _opponent_abs(dy) < kOpponentReach) {
       if (w == p->fail) {

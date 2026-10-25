@@ -86,6 +86,10 @@ static bool _test_offer(uint8_t slot, int16_t depth, int16_t x, int16_t y, int8_
 // opponent_add_sprites() offers each aircraft from inside its loop over the
 // slots, as `i`; the macro passes it on, so that each offer says whose it is.
 #define sprites_stack_add(...) _test_offer(i, __VA_ARGS__)
+// kSquare's waypoints (section 6), after the missions' in the pool.
+#define OPPONENT_TEST_WP_N 4
+#define OPPONENT_TEST_WP_X , 0x1600, 0x1600, 0x0A00, 0x0A00
+#define OPPONENT_TEST_WP_Y , 0x6200, 0x6E00, 0x6E00, 0x6200
 #include "../opponent.cc"
 #undef sprites_stack_add
 
@@ -566,15 +570,15 @@ static double metres(uint16_t w, int32_t pos, bool wrap) {
 
 // Two paths of the test's own, flown as opponent_reset() starts a mission's:
 // dead straight north for ever, the world repeating every 128 units of x,
-// and a 1.5 km square anticlockwise.
-static const opponent_path_t kStraight = {kOpponentLoop, 4, kOpponentNoFail, 1500,
-                                          0x1A70, 0x3FE0, 256, 0, 0x0060,
-                                          {0x3A70, 0x5A70, 0x7A70, 0x9A70},
-                                          {0x3FE0, 0x3FE0, 0x3FE0, 0x3FE0}};
-static const opponent_path_t kSquare = {kOpponentLoop, 4, kOpponentNoFail, 1500,
-                                        0x0A00, 0x6200, 256, 0, 0x0700,
-                                        {0x1600, 0x1600, 0x0A00, 0x0A00},
-                                        {0x6200, 0x6E00, 0x6E00, 0x6200}};
+// and a 1.5 km square anticlockwise. The straight one's waypoints are 04's
+// first aircraft's, the pool's 10 to 13; the square's are appended to the
+// pool after the missions' (OPPONENT_TEST_WP_X/Y above).
+static const opponent_path_t kStraight = {kOpponentLoop, 4, kOpponentNoFail, 10, 1500,
+                                          0x1A70, 0x3FE0, 256, 0, 0x0060};
+static const opponent_path_t kSquare = {kOpponentLoop, 4, kOpponentNoFail, kOpponentWpCount,
+                                        1500, 0x0A00, 0x6200, 256, 0, 0x0700};
+static uint16_t wp_x(const opponent_path_t &p, int w) { return kOpponentWpX[p.wp + w]; }
+static uint16_t wp_y(const opponent_path_t &p, int w) { return kOpponentWpY[p.wp + w]; }
 
 static void fly(int slot, const opponent_path_t *p) {
   _opponent_on[slot] = true;
@@ -640,10 +644,10 @@ static void test_paths(void) {
       CHECK(h.z == 0, "paths: the patrol's heading has a z");
       CHECK(_opponent_z[1] == (int32_t)patrol.z << 8, "paths: the patrol changed height");
       // How far outside its square, in metres.
-      double nx = metres(patrol.x[0], _opponent_x[1], true);
-      double sx = metres(patrol.x[2], _opponent_x[1], true);
-      double wy = metres(patrol.y[1], _opponent_y[1], false);
-      double ey = metres(patrol.y[0], _opponent_y[1], false);
+      double nx = metres(wp_x(patrol, 0), _opponent_x[1], true);
+      double sx = metres(wp_x(patrol, 2), _opponent_x[1], true);
+      double wy = metres(wp_y(patrol, 1), _opponent_y[1], false);
+      double ey = metres(wp_y(patrol, 0), _opponent_y[1], false);
       double out = std::max(std::max(-nx, sx), std::max(-wy, ey));
       worst_out = std::max(worst_out, out);
     }
@@ -724,16 +728,18 @@ static void test_missions(void) {
       if (p.kind == kOpponentNone) continue;
       CHECK(p.fail == kOpponentNoFail || p.fail < p.count, "mission %d slot %d: fail at %d of %d",
             m + 1, k, p.fail, p.count);
+      CHECK(p.wp + p.count <= kOpponentWpCount, "mission %d slot %d: waypoints %d-%d past the pool",
+            m + 1, k, p.wp, p.wp + p.count - 1);
       uint16_t px = p.start_x, py = p.start_y;
       for (int w = 0; w < p.count; ++w) {
-        int dx = (int16_t)(p.x[w] - px), dy = (int16_t)(p.y[w] - py);
+        int dx = (int16_t)(wp_x(p, w) - px), dy = (int16_t)(wp_y(p, w) - py);
         // x repeats every 128 units, 0x8000 in 8.8.
         dx = ((dx + 0x4000) & 0x7FFF) - 0x4000;
         CHECK(abs(dx) < 0x4000 - 0x400 && abs(dy) < 0x4000 - 0x400,
               "mission %d slot %d: leg %d is %.1f, %.1f units", m + 1, k, w, dx / 256.0,
               dy / 256.0);
-        px = p.x[w];
-        py = p.y[w];
+        px = wp_x(p, w);
+        py = wp_y(p, w);
       }
     }
   }
