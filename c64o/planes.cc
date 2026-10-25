@@ -77,10 +77,6 @@ uint8_t _planes_px[kPlaneMagCount];
 static uint16_t _px_k;
 uint8_t _planes_pv[16];
 
-// planes_asm.h's: the vertices in buffer coordinates. Kept with the state
-// they belong to, which planes_fill() skips copying from its key.
-uint8_t _planes_lx[kPlaneVertMax], _planes_ly[kPlaneVertMax];
-
 // ---------------------------------------------------------------------------
 // Fixed point, as lib/planes.py spells it, on vec.h's byte multiply, exact
 // fraction and exact division. lib/planes.py's fdiv is vec_div8p8's
@@ -147,8 +143,6 @@ bool _planes_key(uint8_t *key, uint8_t count, uint8_t bx, uint8_t by, uint16_t s
       x >>= 1;
     }
     uint8_t y = ys == 2 ? (uint8_t)(u >> 1) : (uint8_t)u;
-    _planes_lx[i] = x;
-    _planes_ly[i] = y;
     if (x != key[i] || y != key[kPlaneVertMax + i]) {
       key[i] = x;
       key[kPlaneVertMax + i] = y;
@@ -474,9 +468,6 @@ bool planes_centre(const planes_view_t *view, const vec3_t *c, planes_frame_t *f
   return true;
 }
 
-// Which state's vertices _planes_lx and _planes_ly hold, for planes_fill().
-static const planes_state_t *_planes_lx_state;
-
 void planes_project(planes_state_t *state, const planes_view_t *view,
                     const vec3_t *c, const mat3_t *axes, planes_frame_t *frame) {
   if (!planes_centre(view, c, frame)) {
@@ -580,7 +571,6 @@ void planes_project(planes_state_t *state, const planes_view_t *view,
   if (_planes_key(state->key_x, _vert_count, bx, by, (uint16_t)slid & 0x1FF, xs, ys)) {
     cached = false;
   }
-  _planes_lx_state = state;
   state->key_count = _vert_count;
   state->key_band = band;
   state->key_valid = true;
@@ -601,13 +591,13 @@ void planes_fill(const planes_state_t *state, uint8_t *back) {
     slid >>= 1;
   }
   if (slid < height) {
-    // The vertices are the cache's key. The arrays the fill reads still
-    // hold them unless another aircraft was projected since.
+    // The vertices are the cache's key, copied into the projection's
+    // arrays (planes_asm.h): whatever was projected last is dead by now.
     uint8_t n = state->key_count;
-    if (_planes_lx_state != state) {
-      memcpy(_planes_lx, state->key_x, n);
-      memcpy(_planes_ly, state->key_y, n);
-      _planes_lx_state = state;
+    const uint8_t *key = state->key_x;
+    for (uint8_t i = 0; i < n; ++i) {
+      _planes_lx[i] = key[i];
+      _planes_ly[i] = key[kPlaneVertMax + i];
     }
     _planes_fill_begin(back, cols, height);
     // The wing, tailplane and fin, then the fuselage if there is one, then

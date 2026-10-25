@@ -283,7 +283,6 @@ static void _key(void) {
         sbc #0;
     L_xsh:
         nop;
-        sta _planes_lx, y;
     L_cx:
         cmp $1234, y;
         beq L_x_same;
@@ -303,7 +302,6 @@ static void _key(void) {
         nop;
     L_yeor:
         eor #0;
-        sta _planes_ly, y;
     L_cy:
         cmp $1234, y;
         beq L_y_same;
