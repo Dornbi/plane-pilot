@@ -749,7 +749,8 @@ static void test_missions(void) {
     _msgs = 0;
     opponent_reset(0);
     CHECK(_opponent_on[0] && !_opponent_on[1], "recon: one aircraft");
-    CHECK(_opponent_nav == 0, "recon: the targets' navpoint is %d, not 1", _opponent_nav + 1);
+    CHECK(kMissionWpConstraint[kMissionWpBegin[0]] == WP_TARGETS_DOWN,
+          "recon: the targets' navpoint is not 1");
     int city_at = -1, gone_at = -1, failed_at = -1;
     for (int n = 0; n < 4000 && gone_at < 0; ++n) {
       uint8_t w = _opponent_next[0];
@@ -800,7 +801,8 @@ static void test_missions(void) {
     _msgs = 0;
     opponent_reset(1);
     CHECK(_opponent_on[0] && _opponent_on[1], "bombers: two aircraft");
-    CHECK(_opponent_nav == 0, "bombers: the targets' navpoint is %d, not 1", _opponent_nav + 1);
+    CHECK(kMissionWpConstraint[kMissionWpBegin[1]] == WP_TARGETS_DOWN,
+          "bombers: the targets' navpoint is not 1");
     double close = 1e9, far = 0;
     int city_at = -1, failed_at = -1, gone = 0;
     for (int n = 0; n < 6000 && gone < 2; ++n) {
@@ -879,8 +881,9 @@ static void test_missions(void) {
   {
     _msgs = 0;
     opponent_reset(3);
-    CHECK(_opponent_on[0] && _opponent_on[1] && _opponent_nav == 0,
-          "scramble: two aircraft, navpoint %d", _opponent_nav + 1);
+    CHECK(_opponent_on[0] && _opponent_on[1] &&
+              kMissionWpConstraint[kMissionWpBegin[3]] == WP_TARGETS_DOWN,
+          "scramble: not two aircraft, or the targets' navpoint is not 1");
     for (int n = 0; n < 6000; ++n) opponent_step();
     CHECK(_opponent_on[0] && _opponent_on[1] && !_opponent_failed && _msgs == 0,
           "scramble: an aircraft left, or the mission failed");
