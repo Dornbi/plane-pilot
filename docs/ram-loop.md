@@ -221,3 +221,40 @@ fmath pragma, 21.e's volume mix, 21.f's map row) had already landed as passes
 | 42 | 2026-10-24 | argon | 254 | - | -0.0% | kept | planes_project() shares planes_place() across both the dot path and the uncached projection path (letting _slide() inline into planes_place()), kPlaneVertMax tightens from 32 to the exact 30 (16 flat + 6 fuselage + 8 disc), and planes.cc drops _poly_start, _poly_count, _end_poly() and planes_state_t::key_poly_count since key_count (16, 22, 24 or 30) uniquely identifies which body polygons were emitted. Bit-identical. fpilot 2,559 -> 2,813 B free (+254, largest run 1,941 -> 2,183 B); bench total 899,040 -> 898,867 (-0.02%; runway 124528 approach 143304 cruise 152086 town 144206 lake 133262 combat 201481, all inside +2%). |
 | 43 | 2026-10-24 | argon | 140 | - | +0.3% | kept | _opponent_axes() steps a pointer across _opponent_axes_m.front.y/z and world_cam.left/up, opponent_reset() writes _opponent_head[i] directly instead of copying make_vector(), and gun.cc folds _gun_p[c] - _gun_eye[c] into _gun_rel(c), merges the two _round_p/_round_v loops in gun_add_sprites(), steps a pointer across flight_cam in _gun_fire(), and shares __noinline _gun_dot/_gun_abs with opponent.cc/planes.cc. Bit-identical. fpilot 2,813 -> 2,953 B free (+140, largest run 2,183 -> 2,250 B); bench total 898,867 -> 901,238 (+0.26%, still below the 901,683 baseline; runway 124536 approach 143702 cruise 152446 town 144469 lake 134155 combat 201930, all inside +2%). |
 | 44 | 2026-10-25 | argon | 27 | - | -0.1% | kept | title.cc drops _title_flying (a nonzero _title_gap now means waiting, 0 means flying, which is the state the old flag tracked), spawns from (lane - kTitleStartY) folded into the two band constants, sets _title_y only when x is clamped, and _title_program() derives both columns' X bytes and $D010 from one 16-bit x (x >= 256: all four; x >= 232: the right column; x stays above -24 while drawn, so the right column never clamps), dropping kTitleMaskLeft. Same register writes every frame. fpilot 2,953 -> 2,980 B free (+27); bench total 901,238 -> 900,631 (-0.07%, layout only, the menu is not in the render path; runway 124578 approach 143476 cruise 152277 town 144390 lake 134138 combat 201772, all inside +2%). |
+
+## Overall results (passes 28–44 on argon-loop)
+
+Through pass 44 (`4dfe03c`), the optimization loop on `argon-loop` achieved:
+
+| State | Free, allocatable | Largest free run | Bench total (cycles) |
+|---|---|---|---|
+| Before earlier fixes (`6039d31`) | 1,298 B | – | – |
+| Loop start (baseline at `1787679`) | 1,437 B | 970 B at `$CBF6` | 901,683 |
+| **Current (`4dfe03c` / pass 44)** | **2,980 B** | **2,250 B at `$C6F6`** | **900,631** |
+
+Net gain: **+1,543 B** free allocatable RAM (+1,682 B vs `6039d31`), with **−1,052 cycles (−0.12%)** vs the 901,683 baseline.
+
+### Per-scene timing vs baseline
+
+| Scene | Baseline | Pass 44 | Δ cycles | Δ % |
+|---|---|---|---|---|
+| runway | 124,510 | 124,578 | +68 | +0.05% |
+| approach | 144,768 | 143,476 | −1,292 | −0.89% |
+| cruise | 152,405 | 152,277 | −128 | −0.08% |
+| town | 144,432 | 144,390 | −42 | −0.03% |
+| lake | 134,146 | 134,138 | −8 | −0.01% |
+| combat | 201,422 | 201,772 | +350 | +0.17% |
+| **Total** | **901,683** | **900,631** | **−1,052** | **−0.12%** |
+
+All scenes remain well within the +2% budget.
+
+### Summary by component
+
+- **Planes & assembly (`planes.cc`, `planes_asm.cc`)**:
+  - Passes 29, 33, 38, 39, 40, 41, 42 (+740 B): eliminated variable bitshift tables, simplified edge slope and row tracing in `_fill_poly()` with in-register endpoint swap and shared `L_put`, shared `planes_place()` across dot and projected paths (inlining `_slide()`), dropped `_poly_start`/`_poly_count`/`key_poly_count`, and tightened `kPlaneVertMax` from 32 to 30.
+- **Opponent AI & rendering (`opponent.cc`)**:
+  - Passes 28, 31, 32, 35, 36, 43 (+519 B): eliminated `bitshift` table with `_opponent_bit(i)`, shared `_opponent_pos()`, moved local frame and axes to `tscratch`, shrunk software stack (`MEM_STACK_END` from `$0288` to `$0240`), consolidated draw paths, unified `_opponent_abs()`, and stepped pointers in `_opponent_axes()`.
+- **Wing guns, projectiles & smoke (`gun.cc`)**:
+  - Passes 30, 34, 37, 43 (+257 B): transformed camera vectors in-place, moved per-call scratch arrays to `tscratch`, simplified muzzle velocity and direction fold, folded eye subtraction into `_gun_rel(c)`, merged tracer loops, and shared `_gun_dot()`.
+- **Title screen (`title.cc`)**:
+  - Pass 44 (+27 B): dropped `_title_flying` flag in favor of `_title_gap` countdown, derived sprite X coordinates and $D010 MSB directly from a single 16-bit x.
