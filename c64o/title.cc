@@ -38,8 +38,7 @@ static_assert(kTitleDefBitmapCount == 4, "the flyby programs four sprites");
 // Hardware sprites 0..3, in the generator's reading order: 0 top left, 1 top
 // right, 2 bottom left, 3 bottom right.
 static const uint8_t kTitleSpriteMask = 0x0F;
-// The two left-hand sprites and the two right-hand ones, for $D010.
-static const uint8_t kTitleMaskLeft = 0x05;
+// The two right-hand sprites, for $D010 when only the right column is >= 256.
 static const uint8_t kTitleMaskRight = 0x0A;
 
 // An unexpanded sprite. Multicolour halves the horizontal *resolution*, not
@@ -167,11 +166,10 @@ static const uint16_t kTitleFirstGapFrames = 150;
 static const uint16_t kTitleGapFrames = 150;
 static const uint8_t kTitleGapJitter = 0x7F;
 
-// Where the aircraft is, and whether it is anywhere at all. _title_x is signed
-// and wider than the register because the block starts off the right-hand edge
-// at 352, which needs the ninth bit in $D010, and because the arithmetic that
-// puts it there works in the same width.
-static bool _title_flying;
+// Where the aircraft is, and the countdown to the next flyby (0 while flying).
+// _title_x is signed and wider than the register because the block starts off
+// the right-hand edge at 352, which needs the ninth bit in $D010, and because
+// the arithmetic that puts it there works in the same width.
 static uint16_t _title_gap;
 static int16_t _title_x;
 static uint8_t _title_y;
@@ -216,31 +214,21 @@ static uint8_t _title_next_rand(void) {
 // a pixel at a time. The aeroplane goes off the left edge column by column
 // with nothing snapping.
 static void _title_program(void) {
-  int16_t xl = _title_x;
-  int16_t xr = _title_x + kTitleSpriteWidth;
-  if (xl < 0) {
-    xl = 0;
-  }
-  if (xr < 0) {
-    xr = 0;
-  }
-  const uint8_t yb = _title_y + kTitleSpriteHeight;
+  int16_t x = _title_x;
+  uint8_t xl = x < 0 ? 0 : (uint8_t)x;
+  uint8_t xr = (uint8_t)x + kTitleSpriteWidth;
+  uint8_t yb = _title_y + kTitleSpriteHeight;
+  uint8_t msbx = x >= 256                          ? kTitleSpriteMask
+                 : x >= 256 - kTitleSpriteWidth    ? kTitleMaskRight
+                                                   : 0;
 
-  uint8_t msbx = 0;
-  if (xl & 0x100) {
-    msbx |= kTitleMaskLeft;
-  }
-  if (xr & 0x100) {
-    msbx |= kTitleMaskRight;
-  }
-
-  vic.spr_pos[0].x = (uint8_t)xl;
+  vic.spr_pos[0].x = xl;
   vic.spr_pos[0].y = _title_y;
-  vic.spr_pos[1].x = (uint8_t)xr;
+  vic.spr_pos[1].x = xr;
   vic.spr_pos[1].y = _title_y;
-  vic.spr_pos[2].x = (uint8_t)xl;
+  vic.spr_pos[2].x = xl;
   vic.spr_pos[2].y = yb;
-  vic.spr_pos[3].x = (uint8_t)xr;
+  vic.spr_pos[3].x = xr;
   vic.spr_pos[3].y = yb;
   vic.spr_msbx = msbx;
   // Last, so the first frame of a flyby cannot show the block at the position
@@ -278,7 +266,6 @@ void title_arm(void) {
   vic.spr_msbx = 0x00;
   vic.spr_enable = 0x00;
 
-  _title_flying = false;
   _title_from_right = false;
   _title_gap = kTitleFirstGapFrames;
 }
@@ -286,27 +273,23 @@ void title_arm(void) {
 void title_tick(void) {
   const uint8_t r = _title_next_rand();
 
-  if (!_title_flying) {
+  if (_title_gap != 0) {
     if (--_title_gap != 0) {
       return;
     }
     // One lane out of this flyby's band, and then the point on it the
     // aircraft is spawned from.
-    int16_t lane;
-    if (_title_from_right) {
-      lane = kTitleLaneCorner + (int16_t)_title_spread(r, 2, 3);
-    } else {
-      lane = kTitleLaneTopMid + (int16_t)_title_spread(r, 1, 3);
-    }
+    int16_t x = _title_from_right
+                    ? (kTitleLaneCorner - kTitleStartY) + (int16_t)_title_spread(r, 2, 3)
+                    : (kTitleLaneTopMid - kTitleStartY) + (int16_t)_title_spread(r, 1, 3);
     _title_from_right = !_title_from_right;
 
-    int16_t x = lane - (int16_t)kTitleStartY;
+    _title_y = kTitleStartY;
     if (x > kTitleStartXMax) {
+      _title_y = (uint8_t)(kTitleStartY + (x - kTitleStartXMax));
       x = kTitleStartXMax;
     }
     _title_x = x;
-    _title_y = (uint8_t)(lane - x);
-    _title_flying = true;
   } else {
     _title_x -= kTitleStepX;
     _title_y += kTitleStepY;
@@ -314,7 +297,6 @@ void title_tick(void) {
     // ones. Which of the two happens first is the lane all over again, and
     // neither end needs to know which one it was.
     if (_title_y >= kTitleEndY || _title_x <= kTitleEndX) {
-      _title_flying = false;
       _title_gap = kTitleGapFrames + (uint16_t)(r & kTitleGapJitter);
       vic.spr_enable = 0x00;
       return;
