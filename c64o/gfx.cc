@@ -545,21 +545,21 @@ inline void gfx_update_nav_heading(uint8_t heading) {
 }
 
 inline void gfx_update_stall(bool stall) {
-  static uint8_t *const kStallPtr = kColorRam + 15 * kScreenWidth + 13;
+  static uint8_t *const kStallPtr = kColorRam + 15 * kScreenWidth + 14;
   if (_lamps_live()) {
     _set_lamp(kStallPtr, stall);
   }
 }
 
 inline void gfx_update_flap(bool flap) {
-  static uint8_t *const kFlapPtr = kColorRam + 17 * kScreenWidth + 13;
+  static uint8_t *const kFlapPtr = kColorRam + 17 * kScreenWidth + 14;
   if (_lamps_live()) {
     _set_lamp(kFlapPtr, flap);
   }
 }
 
 inline void gfx_update_gear(bool gear) {
-  static uint8_t *const kGearPtr = kColorRam + 18 * kScreenWidth + 13;
+  static uint8_t *const kGearPtr = kColorRam + 18 * kScreenWidth + 14;
   if (_lamps_live()) {
     _set_lamp(kGearPtr, gear);
   }

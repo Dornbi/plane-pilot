@@ -13,8 +13,8 @@ RENDER_CENTERS = 160,100;160,96;164,100
 PANEL_FLAGS = --bg-color 0 --optimize-slots \
 	--embed 4098:3904 --embed 8562:440 --embed 9562:440 \
 	--pin-color-ram 10@15,21 --pin-color-ram 10@15,22 \
-	--pin-color-ram 10@15,13 \
-	--pin-color-ram 10@17,13 --pin-color-ram 10@18,13
+	--pin-color-ram 10@15,14 \
+	--pin-color-ram 10@17,14 --pin-color-ram 10@18,14
 
 # The programs c64o/Makefile builds. `make release` publishes these from
 # c64o/ (build output, gitignored) to bin/ (checked in, what README links to).

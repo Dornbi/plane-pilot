@@ -51,14 +51,14 @@ static const uint8_t kSpriteSpeedPivotX = 112;
 static const uint8_t kSpriteSpeedPivotY = 176;
 static const uint8_t kSpriteAltPivotX = 208;
 static const uint8_t kSpriteAltPivotY = 176;
-static const uint8_t kSpriteVSpeedPivotX = 230;
-static const uint8_t kSpriteVSpeedPivotY = 138;
+static const uint8_t kSpriteVSpeedPivotX = 214;
+static const uint8_t kSpriteVSpeedPivotY = 136;
 static const uint8_t kSpriteRollPivotX = 160;
 static const uint8_t kSpriteRollPivotY = 176;
 static const uint8_t kSpriteThrottlePivotX = 8; // 264 & 0xff
-static const uint8_t kSpriteThrottlePivotY = 166;
+static const uint8_t kSpriteThrottlePivotY = 172;
 static const uint8_t kSpriteFuelPivotX = 56;
-static const uint8_t kSpriteFuelPivotY = 166;
+static const uint8_t kSpriteFuelPivotY = 172;
 
 // The vertical-speed needle is drawn above the split and the other seven
 // below it, so it shares its index with the orientation indicator's
@@ -243,8 +243,8 @@ inline void sprites_set_vspeed(int16_t vspeed) {
     vspeed = -0x300;
   }
   uint8_t dir = (0x18 + (vspeed >> 6)) & 0x1f;
-  _sprites_set_instrument_sprite(kSpriteIdxVSpeed, kSpriteDefLongArm,
-                                 kSpriteDefLongArmBitmap, dir,
+  _sprites_set_instrument_sprite(kSpriteIdxVSpeed, kSpriteDefShortArm,
+                                 kSpriteDefShortArmBitmap, dir,
                                  kSpriteOffsetX + kSpriteVSpeedPivotX,
                                  kSpriteOffsetY + kSpriteVSpeedPivotY);
 }
