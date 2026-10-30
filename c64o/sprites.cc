@@ -56,9 +56,9 @@ static const uint8_t kSpriteVSpeedPivotY = 136;
 static const uint8_t kSpriteRollPivotX = 160;
 static const uint8_t kSpriteRollPivotY = 176;
 static const uint8_t kSpriteThrottlePivotX = 8; // 264 & 0xff
-static const uint8_t kSpriteThrottlePivotY = 172;
+static const uint8_t kSpriteThrottlePivotY = 173;
 static const uint8_t kSpriteFuelPivotX = 56;
-static const uint8_t kSpriteFuelPivotY = 172;
+static const uint8_t kSpriteFuelPivotY = 173;
 
 // The vertical-speed needle is drawn above the split and the other seven
 // below it, so it shares its index with the orientation indicator's
