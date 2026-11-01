@@ -16,6 +16,7 @@ from tools.png2koa import (
     downsample_to_multicolor_grid,
     convert_png_to_koala,
     parse_pin,
+    parse_slot_pin,
 )
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -268,6 +269,76 @@ class TestPinColorRam(unittest.TestCase):
                 parse_pin(bad)
 
 
+class TestPinSlots(unittest.TestCase):
+    """
+    --pin-slots fixes a cell's whole slot layout, for cells whose bitmap bytes
+    the program copies into other cells: the copy carries bit pairs, so both
+    ends have to give them the same colors.
+    """
+
+    LAYOUT = (1, 12, 15)  # white, grey, light grey: the panel's glyph layout
+    CELL = (12, 22)
+
+    def _image_with_glyph(self, path: str) -> None:
+        """A white and light grey "0" with no grey in it, like the panel's."""
+        img = Image.new("RGB", (320, 200), (0, 0, 0))
+        px = img.load()
+        row, col = self.CELL
+        for y in range(row * 8 + 1, row * 8 + 7):
+            for x in (col * 8, col * 8 + 1):
+                px[x, y] = PEPTO_PALETTE[1]
+            for x in (col * 8 + 2, col * 8 + 3):
+                px[x, y] = PEPTO_PALETTE[15]
+        img.save(path)
+
+    def test_pin_sets_the_layout_and_changes_no_pixel(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            src = os.path.join(tmp_dir, "glyph.png")
+            self._image_with_glyph(src)
+            row, col = self.CELL
+            idx = row * 40 + col
+            outs = {}
+            for name, slot_pins in (("free", None), ("pinned", {idx: self.LAYOUT})):
+                koa = os.path.join(tmp_dir, f"{name}.koa")
+                png = os.path.join(tmp_dir, f"{name}.png")
+                convert_png_to_koala(input_path=src, koa_output_path=koa,
+                                     png_output_path=png, bg_color=0,
+                                     slot_pins=slot_pins)
+                outs[name] = (read_koa(koa), png)
+
+            # Unpinned, light grey takes the lowest free slot, which is grey's.
+            (_, screen, _, _), _ = outs["free"]
+            self.assertEqual(screen[idx] & 0x0F, 15)
+
+            (_, screen, color, _), png = outs["pinned"]
+            self.assertEqual((screen[idx] >> 4, screen[idx] & 0x0F, color[idx] & 0x0F),
+                             self.LAYOUT)
+            self.assertEqual(Image.open(outs["free"][1]).convert("RGB").tobytes(),
+                             Image.open(png).convert("RGB").tobytes())
+
+    def test_a_color_outside_the_layout_is_an_error(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            src = os.path.join(tmp_dir, "glyph.png")
+            self._image_with_glyph(src)
+            row, col = self.CELL
+            with self.assertRaises(ValueError):
+                convert_png_to_koala(
+                    input_path=src,
+                    koa_output_path=os.path.join(tmp_dir, "out.koa"),
+                    bg_color=0,
+                    slot_pins={row * 40 + col: (1, 12, 11)},  # no light grey
+                )
+
+    def test_parse_slot_pin(self):
+        self.assertEqual(parse_slot_pin("1,12,15@18,5"), [(18 * 40 + 5, (1, 12, 15))])
+        self.assertEqual(parse_slot_pin("1,12,15@18,5-8"),
+                         [(18 * 40 + c, (1, 12, 15)) for c in range(5, 9)])
+        for bad in ("1,12@0,0", "1,1,15@0,0", "1,12,16@0,0", "1,12,15@25,0",
+                    "1,12,15@0,8-5", "1,12,15@0,39-40"):
+            with self.assertRaises(Exception, msg=bad):
+                parse_slot_pin(bad)
+
+
 class TestShippedPanel(unittest.TestCase):
     """
     The checked-in panel image against the code that lights it. This is the
@@ -297,6 +368,28 @@ class TestShippedPanel(unittest.TestCase):
             pinned_cells_from_makefile(),
             {cell: LAMP_COLOR for cell in lamp_cells_from_gfx_cc()},
             "PANEL_FLAGS in the Makefile and the lamps in gfx.cc disagree")
+
+    # Where gfx.cc copies glyphs from and to: the ammo digits and the heading
+    # strips in the off-screen head of the bitmap, the HDG window and fpilot's
+    # AMMO window on the panel. A copy moves bit pairs, so all of them have to
+    # give the pairs the same colors (--pin-slots in the root Makefile).
+    GLYPH_CELLS = ([(12, c) for c in range(22, 40)] + [(13, c) for c in range(40)]
+                   + [(17, c) for c in range(17, 23)])
+    FPILOT_GLYPH_CELLS = [(18, c) for c in range(5, 9)]
+
+    def test_glyph_cells_share_one_slot_layout(self):
+        for path in PANEL_KOAS:
+            name = os.path.basename(path)
+            _, screen, color, _ = read_koa(path)
+            cells = self.GLYPH_CELLS + (
+                self.FPILOT_GLYPH_CELLS if name == "fpanel.koa" else [])
+            for row, col in cells:
+                idx = row * 40 + col
+                self.assertEqual(
+                    (screen[idx] >> 4, screen[idx] & 0x0F, color[idx] & 0x0F),
+                    TestPinSlots.LAYOUT,
+                    f"{name}: row {row} col {col} has another slot layout, so "
+                    "glyphs copied to or from it would change color")
 
 
 if __name__ == "__main__":

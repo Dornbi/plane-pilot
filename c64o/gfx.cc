@@ -6,6 +6,7 @@
 #include "chardefs.h"
 #include "color.h"
 #include "fmath.h"
+#include "gun.h"
 #include "mem.h"
 #include "sound.h"
 #include "sprites.h"
@@ -475,7 +476,12 @@ static const char *kGfxHeadingDest = (const char *)0xF5C8;
 // forces a redraw after the bitmap has been re-expanded.
 static uint8_t _gfx_heading_bitmap_cache = 0xFF;
 
-void gfx_invalidate_heading_bitmap(void) { _gfx_heading_bitmap_cache = 0xFF; }
+void gfx_invalidate_panel_bitmap(void) {
+  _gfx_heading_bitmap_cache = 0xFF;
+#ifdef __ENABLE_OPPONENT__
+  gun_ammo_shown = false;
+#endif
+}
 
 inline void gfx_update_heading_bitmap(uint8_t heading) {
   if (mem_debug_enabled || view_state != VIEW_CENTER) {
@@ -511,6 +517,48 @@ inline void gfx_update_heading_bitmap(uint8_t heading) {
     }
   }
 }
+
+#ifdef __ENABLE_OPPONENT__
+// The digits 0-9, drawn in the panel art beside the heading strips: row 12,
+// columns 22-31, in the head of the bitmap that the char-mode viewport covers.
+// They are taken from there at build time rather than expanded with the rest,
+// because the panel embed starts at $F000 and they would land below it, on
+// the alt screen's RAM and sprite pointers. `make fpanel` gives these cells
+// and the counter's the same slot layout (--pin-slots), so the bit pairs
+// copied across draw the colours they were drawn in.
+static const char kGfxAmmoDigits[] = {
+#embed 80 4018 "fpanel.koa"
+};
+// The counter's window, row 18 columns 5-8.
+static char *const kGfxAmmoDest = (char *)0xE000 + 18 * 320 + 5 * 8;
+// The left view keeps the panel's first kCopyWidthChars columns, moved to the
+// right edge, so the window is still there with only its last digit cut off.
+static const uint8_t kGfxAmmoLeftDigits = kCopyWidthChars - 5;
+
+inline void gfx_update_ammo(void) {
+  if (mem_debug_enabled || gun_ammo_shown) {
+    return;
+  }
+  char *dst = kGfxAmmoDest;
+  uint8_t digits = kGunAmmoDigits;
+  if (view_state == VIEW_LEFT) {
+    dst += kFillWidthChars * 8;
+    digits = kGfxAmmoLeftDigits;
+  } else if (view_state != VIEW_CENTER) {
+    return;
+  }
+  gun_ammo_shown = true;
+  // Byte offsets rather than pointers: the window and the digits are each
+  // well inside a page, so both indices fit a register.
+  uint8_t d = 0;
+  for (uint8_t i = 0; i < digits; ++i) {
+    uint8_t s = gun_ammo[i] << 3;
+    for (uint8_t y = 0; y < 8; ++y) {
+      dst[d++] = kGfxAmmoDigits[s++];
+    }
+  }
+}
+#endif
 
 // The indicator lamps are lit by recoloring one bit pair of their char cell,
 // and that pair is 11 — color RAM, a whole byte per cell — so switching a lamp

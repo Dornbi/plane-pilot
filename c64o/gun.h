@@ -34,6 +34,16 @@ bool gun_tracer_up(void);
 // nothing fires those yet.
 extern uint8_t gun_player_hits;
 
+// The player's rounds left, as the decimal digits the panel's ammo counter
+// shows, most significant first. gun_reset() fills them and every round fired
+// takes one; at zero the guns are silent.
+static const uint8_t kGunAmmoDigits = 4;
+extern uint8_t gun_ammo[kGunAmmoDigits];
+
+// False once gun_ammo has changed since gfx_update_ammo() last drew it, or the
+// panel bitmap under the counter has been redrawn (gfx_invalidate_panel_bitmap).
+extern bool gun_ammo_shown;
+
 #pragma compile("gun.cc")
 
 #else

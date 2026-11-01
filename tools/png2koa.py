@@ -252,6 +252,33 @@ def _pin_to_color_ram(l1: int, l2: int, l3: int, bits: list[int],
     return slots[0], slots[1], slots[2], bits
 
 
+def _pin_slots(l1: int, l2: int, l3: int, bits: list[int],
+               layout: tuple[int, int, int]) -> tuple[int, int, int, list[int]]:
+    """
+    Relabels a cell so that its three local colours sit in the slots `layout`
+    names, (L1, L2, L3) = bit pairs 01, 10, 11. Purely a relabeling, like
+    _pin_to_color_ram(): every pixel keeps its exact colour.
+
+    For cells whose bitmap bytes the program copies into other cells at run
+    time. The copy carries bit pairs, not colours, so source and destination
+    only agree if both map the pairs to the same colours. The encoder picks
+    each cell's slots from the colours that cell happens to use, so a glyph
+    that lacks one of them (a "0" with no medium grey) comes out labeled
+    differently from its neighbours.
+
+    Every colour the cell draws in has to be in the layout; a cell that uses
+    another one cannot be copied anywhere with this layout, and raises.
+    """
+    old = (None, l1, l2, l3)
+    used = {b for b in bits if b}
+    stray = sorted({old[c] for c in used} - set(layout))
+    if stray:
+        raise ValueError(f"cell draws in {stray}, which the slot layout "
+                         f"{list(layout)} has no room for")
+    code = {c: layout.index(old[c]) + 1 for c in used}
+    return layout[0], layout[1], layout[2], [code.get(b, 0) for b in bits]
+
+
 def optimize_cell(
     pixel_dists: list[list[float]],
     bg_color: int,
@@ -355,10 +382,12 @@ def optimize_cell(
 
 
 def encode_cells(cell_dists, bg_color: int,
-                 pins: dict[int, int] | None = None
+                 pins: dict[int, int] | None = None,
+                 slot_pins: dict[int, tuple[int, int, int]] | None = None
                  ) -> list[tuple[int, int, int, list[int]]]:
     """Runs optimize_cell over the whole 40x25 matrix in char order."""
     pins = pins or {}
+    slot_pins = slot_pins or {}
     cells = []
     prev_l1, prev_l2, prev_l3 = 13, 13, 13
     for cell_idx in range(1000):
@@ -367,6 +396,9 @@ def encode_cells(cell_dists, bg_color: int,
                 cell_dists[cell_idx], bg_color, prev_l1, prev_l2, prev_l3,
                 pins.get(cell_idx)
             )
+            if cell_idx in slot_pins:
+                l1, l2, l3, bits = _pin_slots(l1, l2, l3, bits,
+                                              slot_pins[cell_idx])
         except ValueError as e:
             raise ValueError(f"cell {cell_idx} "
                              f"(row {cell_idx // 40}, col {cell_idx % 40}): {e}") from None
@@ -562,7 +594,8 @@ def _write_cell(koa, idx: int, l1: int, l2: int, l3: int, bits: list[int]) -> No
 
 
 def optimize_slots(cells, plan: EmbedPlan, passes: int = 8, verbose: bool = True,
-                   pins: dict[int, int] | None = None):
+                   pins: dict[int, int] | None = None,
+                   frozen: set[int] | frozenset[int] = frozenset()):
     """
     Lossless post-pass. Within a cell, which of L1/L2/L3 holds which colour is
     arbitrary, and slots no pixel uses may hold anything at all. Both choices
@@ -571,7 +604,8 @@ def optimize_slots(cells, plan: EmbedPlan, passes: int = 8, verbose: bool = True
 
     Free to pick for *pixels*, that is. In a pinned cell the colour RAM byte is
     something the program pokes at run time, so where that colour sits is part
-    of the interface and candidates that move it out are dropped.
+    of the interface and candidates that move it out are dropped. `frozen`
+    cells (--pin-slots) have their whole layout fixed and are left alone.
 
     This matters because the bitmap stream does not encode colours at all, only
     2-bit patterns: two cells that look different can still be made to emit the
@@ -586,7 +620,7 @@ def optimize_slots(cells, plan: EmbedPlan, passes: int = 8, verbose: bool = True
     """
     pins = pins or {}
     koa = build_koa(cells, 0)
-    targets = plan.permutable_cells()
+    targets = [c for c in plan.permutable_cells() if c not in frozen]
     if not targets:
         return 0, 0.0, 0.0
 
@@ -669,6 +703,12 @@ def verify_pins(cells, pins: dict[int, int]) -> list[int]:
     return sorted(bad)
 
 
+def verify_slot_pins(cells, slot_pins: dict[int, tuple[int, int, int]]) -> list[int]:
+    """The --pin-slots cells that did not end up with their layout. Must be empty."""
+    return sorted(idx for idx, layout in slot_pins.items()
+                  if tuple(cells[idx][:3]) != tuple(layout))
+
+
 def verify_lossless(cells_before, cells_after, bg_color: int) -> int:
     """Counts multicolor pixels whose rendered colour changed. Must be zero."""
     diff = 0
@@ -745,6 +785,7 @@ def convert_png_to_koala(
     plan: EmbedPlan | None = None,
     optimize_slot_order: bool = False,
     pins: dict[int, int] | None = None,
+    slot_pins: dict[int, tuple[int, int, int]] | None = None,
 ) -> None:
     """
     Loads a PNG, encodes it to Koala Painter format, optionally searching for the
@@ -756,9 +797,14 @@ def convert_png_to_koala(
     cell_dists = build_cell_dists(grid)
     plan = plan or EmbedPlan()
     pins = dict(pins or {})
+    slot_pins = dict(slot_pins or {})
+    both = sorted(set(pins) & set(slot_pins))
+    if both:
+        raise ValueError(f"row {both[0] // 40} col {both[0] % 40} is in both "
+                         "--pin-color-ram and --pin-slots")
 
     def encode(bg: int):
-        cells = encode_cells(cell_dists, bg, pins)
+        cells = encode_cells(cell_dists, bg, pins, slot_pins)
         snapped = snap_cells(cells, cell_dists, bg, snap_tolerance,
                              snap_max_error, snap_window)
         return cells, snapped
@@ -815,7 +861,8 @@ def convert_png_to_koala(
               + (f" ({partial} skipped: bitmap embedded but screen/color are not)"
                  if partial else ""))
         before = [(a, b, c, list(d)) for a, b, c, d in cells]
-        changed, obj0, obj1 = optimize_slots(cells, plan, pins=pins)
+        changed, obj0, obj1 = optimize_slots(cells, plan, pins=pins,
+                                             frozen=set(slot_pins))
         moved = verify_lossless(before, cells, bg_color)
         if moved:
             raise AssertionError(
@@ -834,6 +881,14 @@ def convert_png_to_koala(
         print("Pinned to colour RAM: " + ", ".join(
             f"color {c} at row {idx // 40} col {idx % 40}"
             for idx, c in sorted(pins.items())))
+
+    if slot_pins:
+        loose = verify_slot_pins(cells, slot_pins)
+        if loose:
+            raise AssertionError(
+                f"{len(loose)} --pin-slots cells lost their layout, first at row "
+                f"{loose[0] // 40} col {loose[0] % 40} - this is a bug")
+        print(f"Slot layout pinned in {len(slot_pins)} cells")
 
     koa_bytes = build_koa(cells, bg_color)
 
@@ -884,6 +939,24 @@ def parse_pin(spec: str) -> tuple[int, int]:
     return row * 40 + col, color
 
 
+def parse_slot_pin(spec: str) -> list[tuple[int, tuple[int, int, int]]]:
+    """`L1,L2,L3@ROW,COL[-COL]` -> [(cell index, (L1, L2, L3)), ...], for --pin-slots."""
+    m = re.fullmatch(r"\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*@\s*(\d+)\s*,"
+                     r"\s*(\d+)\s*(?:-\s*(\d+)\s*)?", spec)
+    if not m:
+        raise argparse.ArgumentTypeError(
+            f"--pin-slots expects L1,L2,L3@ROW,COL[-COL], got {spec!r}")
+    layout = tuple(int(g) for g in m.groups()[:3])
+    row, col0 = int(m.group(4)), int(m.group(5))
+    col1 = int(m.group(6)) if m.group(6) is not None else col0
+    if any(not 0 <= c <= 15 for c in layout) or len(set(layout)) != 3:
+        raise argparse.ArgumentTypeError(
+            f"slot layout {list(layout)} needs three different colors 0..15")
+    if not 0 <= row < 25 or not 0 <= col0 <= col1 < 40:
+        raise argparse.ArgumentTypeError(f"cells {row},{col0}-{col1} are off the 40x25 screen")
+    return [(row * 40 + col, layout) for col in range(col0, col1 + 1)]
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Convert a 320x200 PNG image into a C64 Koala Painter (.koa) file and Pepto palette PNG preview.",
@@ -931,6 +1004,13 @@ def main():
                              "screen RAM colors share a byte and may swap nibbles whenever the "
                              "image is re-encoded. Only the named cells are constrained - "
                              "elsewhere the color is placed for compression as usual.")
+    parser.add_argument("--pin-slots", type=parse_slot_pin, action="append", default=None,
+                        metavar="L1,L2,L3@ROW,COL[-COL]",
+                        help="Fix the whole slot layout - the colors of bit pairs 01, 10 and 11 - "
+                             "in the cells ROW,COL through ROW,COL2, and never let the slot "
+                             "optimizer change it. Repeatable. For cells whose bitmap the program "
+                             "copies into other cells, which only works if both use one layout. "
+                             "A cell that draws in a color outside the layout is an error.")
     parser.add_argument("--snap-window", type=int, default=CELL_WINDOW, metavar="CELLS",
                         help=f"How many cells back snapping may reference (default {CELL_WINDOW}, "
                              "which is the 255-byte LZO window)")
@@ -953,6 +1033,7 @@ def main():
         plan=EmbedPlan([EmbedPlan.parse(s) for s in args.embed]) if args.embed else None,
         optimize_slot_order=args.optimize_slots,
         pins=dict(args.pin_color_ram or ()),
+        slot_pins=dict(p for group in (args.pin_slots or ()) for p in group),
     )
 
 

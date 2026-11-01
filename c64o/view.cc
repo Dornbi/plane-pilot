@@ -220,8 +220,9 @@ void view_refresh_panel() {
   // holds the pristine art, so only the shift below is needed.
   if (view_bitmap_state != VIEW_CENTER) {
     oscar_expand_lzo(kViewBitmapDst, kViewPanelBitmapCompressed);
-    // The expansion overwrote the heading strip with the default bitmap.
-    gfx_invalidate_heading_bitmap();
+    // The expansion overwrote the heading strip and the ammo counter with the
+    // default bitmap.
+    gfx_invalidate_panel_bitmap();
   }
   view_bitmap_state = view_state;
   if (view_state != VIEW_CENTER) {

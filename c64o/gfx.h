@@ -54,9 +54,14 @@ void gfx_project_and_draw(uint8_t color);
 // Skips the copy when the heading is unchanged since the last draw.
 void gfx_update_heading_bitmap(uint8_t heading);
 
-// Forces the next gfx_update_heading_bitmap to redraw. Must be called
-// whenever the panel bitmap is re-expanded over the heading strip.
-void gfx_invalidate_heading_bitmap(void);
+// Forces the next gfx_update_heading_bitmap, and in fpilot gfx_update_ammo,
+// to redraw. Must be called whenever the panel bitmap is re-expanded over the
+// heading strip and the ammo counter.
+void gfx_invalidate_panel_bitmap(void);
+
+// fpilot: draws gun_ammo into the panel's ammo counter if it has changed since
+// the last draw (gun.h gun_ammo_shown).
+void gfx_update_ammo(void);
 
 // Toggle various indicators;
 static const uint8_t kGfxNumNavpoints = 2;

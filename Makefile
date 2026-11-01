@@ -14,7 +14,12 @@ PANEL_FLAGS = --bg-color 0 --optimize-slots \
 	--embed 4098:3904 --embed 8562:440 --embed 9562:440 \
 	--pin-color-ram 10@15,21 --pin-color-ram 10@15,22 \
 	--pin-color-ram 10@15,14 \
-	--pin-color-ram 10@17,14 --pin-color-ram 10@18,14
+	--pin-color-ram 10@17,14 --pin-color-ram 10@18,14 \
+	--pin-slots 1,12,15@12,22-39 --pin-slots 1,12,15@13,0-39 \
+	--pin-slots 1,12,15@17,17-22
+# fpilot's panel adds the ammo counter's window, which the digits are copied
+# into.
+FPANEL_FLAGS = $(PANEL_FLAGS) --pin-slots 1,12,15@18,5-8
 
 # The programs c64o/Makefile builds. `make release` publishes these from
 # c64o/ (build output, gitignored) to bin/ (checked in, what README links to).
@@ -99,6 +104,14 @@ map-tiles-draft:
 # in the cell; without the pin the slot optimizer is free to put it in either
 # screen RAM nibble instead. Keep in sync with the lamp pointers in gfx.cc -
 # tests/test_png2koa.py checks that they still agree.
+#
+# The --pin-slots cells are the other half of the same problem: gfx.cc copies
+# bitmap bytes from the off-screen head (row 12 cols 22-31, the ammo digits;
+# row 12 cols 32-39 and row 13, the heading strips) into the HDG window (row
+# 17 cols 17-22) and fpilot's AMMO window (row 18 cols 5-8). A copy carries
+# bit pairs, not colors, so every one of those cells has to map 01, 10 and 11
+# to white, grey and light grey. The encoder only does that by itself when a
+# cell happens to use all three; the digit 0 has no grey in it.
 panel: ppanel fpanel
 
 ppanel:
@@ -108,7 +121,7 @@ ppanel:
 
 fpanel:
 	$(PYTHON) tools/png2koa.py gfx/fpilot_panel_40.png gfx/fpilot_panel_40.koa \
-		out/fpilot_panel_40_pepto.png $(PANEL_FLAGS)
+		out/fpilot_panel_40_pepto.png $(FPANEL_FLAGS)
 	cp gfx/fpilot_panel_40.koa c64o/fpanel.koa
 
 # --- Preview and build -----------------------------------------------------

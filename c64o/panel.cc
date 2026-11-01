@@ -4,6 +4,7 @@
 #include "cpu.h"
 #include "flight.h"
 #include "gfx.h"
+#include "gun.h"
 #include "roll.h"
 #include "sprites.h"
 #include "view.h"
@@ -26,6 +27,9 @@ void panel_update_instruments() {
   gfx_update_stall(flight_stall);
   gfx_update_flap(flight_flap);
   gfx_update_gear(flight_gear);
+#ifdef __ENABLE_OPPONENT__
+  gfx_update_ammo();
+#endif
 }
 
 #pragma optimize(pop)

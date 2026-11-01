@@ -68,6 +68,11 @@ static uint8_t _gun_substep;
 // The trigger has been released since gun_reset().
 static bool _gun_armed;
 uint8_t gun_player_hits;
+// Counted down a digit at a time, which is what the panel draws: no binary to
+// decimal step between the two.
+static const uint8_t kGunAmmoStart[kGunAmmoDigits] = {0, 3, 0, 0};
+uint8_t gun_ammo[kGunAmmoDigits];
+bool gun_ammo_shown;
 #pragma bss(tscratch)
 static int32_t _gun_p[3];
 // What a round is being tested against, relative to the eye like a round;
@@ -98,6 +103,10 @@ void gun_reset(void) {
   _gun_substep = 0;
   _gun_armed = false;
   gun_player_hits = 0;
+  for (uint8_t i = 0; i < kGunAmmoDigits; ++i) {
+    gun_ammo[i] = kGunAmmoStart[i];
+  }
+  gun_ammo_shown = false;
 }
 
 // Axis c of the eye's step, `eye` being flight_eye_* on that axis: what it
@@ -161,6 +170,24 @@ static uint8_t _gun_slot(void) {
     }
   }
   return slot;
+}
+
+// Takes a round off gun_ammo, or returns false if there are none left: the
+// lowest digit that is not 0 goes down one and every digit below it becomes 9.
+static bool _gun_take_round(void) {
+  uint8_t i = kGunAmmoDigits - 1;
+  while (gun_ammo[i] == 0) {
+    if (i == 0) {
+      return false;
+    }
+    --i;
+  }
+  --gun_ammo[i];
+  while (++i < kGunAmmoDigits) {
+    gun_ammo[i] = 9;
+  }
+  gun_ammo_shown = false;
+  return true;
 }
 
 // A round from the next wing: offset from the eye along the aircraft's front,
@@ -296,7 +323,7 @@ void gun_step(bool trigger) {
   }
   if (_gun_wait != 0) {
     --_gun_wait;
-  } else if (trigger && _gun_armed) {
+  } else if (trigger && _gun_armed && _gun_take_round()) {
     _gun_fire();
     _gun_wait = kGunInterval - 1;
   }

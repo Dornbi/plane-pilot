@@ -492,6 +492,39 @@ static void test_paused(void) {
   CHECK(_gun_last == kRoundNone, "fired after a crash");
 }
 
+// gun_ammo as the number the panel shows.
+static int ammo(void) {
+  int n = 0;
+  for (uint8_t i = 0; i < kGunAmmoDigits; ++i) {
+    CHECK(gun_ammo[i] <= 9, "ammo digit %d is %d", i, gun_ammo[i]);
+    n = n * 10 + gun_ammo[i];
+  }
+  return n;
+}
+
+static void test_ammo(void) {
+  printf("  every round fired takes one off the ammo, and at zero none go\n");
+  start(1500);
+  int full = 0;
+  for (uint8_t i = 0; i < kGunAmmoDigits; ++i) full = full * 10 + kGunAmmoStart[i];
+  CHECK(full > 0 && ammo() == full, "ammo %d after gun_reset(), not %d", ammo(), full);
+  CHECK(!gun_ammo_shown, "gun_reset() did not ask for the counter to be redrawn");
+  int fired = 0;
+  for (int n = 0; n < (full + 5) * kGunInterval; ++n) {
+    uint8_t side = _gun_side;
+    gun_ammo_shown = true;
+    step(true);
+    bool shot = _gun_side != side;
+    fired += shot;
+    CHECK(ammo() == full - fired, "step %d: ammo %d after %d rounds", n, ammo(), fired);
+    CHECK(gun_ammo_shown == !shot, "step %d: redraw asked %d, round fired %d",
+          n, !gun_ammo_shown, shot);
+  }
+  CHECK(fired == full, "%d rounds from %d", fired, full);
+  gun_reset();
+  CHECK(ammo() == full, "ammo %d after the next gun_reset()", ammo());
+}
+
 int main() {
   printf("Running gun_test...\n");
   test_wings();
@@ -508,6 +541,7 @@ int main() {
   test_armed();
   test_eye();
   test_paused();
+  test_ammo();
   if (_fails) {
     printf("gun_test: %d checks FAILED\n", _fails);
     return 1;
