@@ -302,12 +302,14 @@ static const uint8_t kSoundV3FreqHi[V3_FLAP + 1] = {
     (uint8_t)(kSoundTouchdownFreq >> 8),
     (uint8_t)(kSoundGearFreq >> 8),
     (uint8_t)(kSoundFlapFreq >> 8)};
-static const uint8_t kSoundV3Wave[] = {0,
-                                       SID_CTRL_RECT,
-                                       SID_CTRL_NOISE,
-                                       SID_CTRL_NOISE,
-                                       SID_CTRL_NOISE,
-                                       SID_CTRL_NOISE};
+static const uint8_t kSoundV3Ctrl[] = {
+    0,
+    SID_CTRL_RECT | SID_CTRL_GATE,
+    SID_CTRL_NOISE | SID_CTRL_GATE,
+    SID_CTRL_NOISE | SID_CTRL_GATE,
+    SID_CTRL_NOISE | SID_CTRL_GATE,
+    SID_CTRL_NOISE | SID_CTRL_GATE,
+};
 static const uint8_t kSoundV3SusRel[] = {0,
                                          kSoundStallSusRel,
                                          kSoundCrashSusRel,
@@ -316,6 +318,13 @@ static const uint8_t kSoundV3SusRel[] = {0,
                                          kSoundFlapSusRel};
 static_assert(sizeof(kSoundV3SusRel) == V3_FLAP + 1,
               "one voice 3 table entry per effect");
+static_assert(sizeof(kSoundV3Ctrl) == V3_FLAP + 1,
+              "one voice 3 ctrl entry per effect");
+static_assert((kSoundStallPw & 0xFF) == 0,
+              "voice 3 PwLo is assumed zero from sound_silence()");
+static_assert((kSoundStallAttDec | kSoundCrashAttDec | kSoundOneShotAttDec) ==
+                  0,
+              "voice 3 AttDec is assumed zero from sound_silence()");
 
 static uint8_t _sound_v3_effect;   // enum Voice3Effect
 static uint8_t _sound_v3_frames;   // frames left before a one-shot releases
@@ -422,11 +431,10 @@ static inline void _sound_write_through(void) {
   }
 }
 
-// Writes one voice. The control register goes LAST, and that ordering is the
-// whole reason this function exists rather than seven assignments at the call
-// site.
+// Note on voice register write order in sound_update():
+// The control register on each voice goes LAST.
 //
-// sound_blit() can fire between any two of these stores, so it can copy a
+// sound_blit() can fire between any two shadow stores, so it can copy a
 // half-written voice to the chip. Most of the registers do not care: a torn
 // read that pairs a new frequency with an old pulse width is one frame of a
 // slightly wrong timbre, corrected 20 ms later.
@@ -442,16 +450,6 @@ static inline void _sound_write_through(void) {
 // Writing the control register last means a torn read sees either the old
 // gate with the new envelope, or the new gate with the new envelope. It can
 // never see a gate turned on ahead of the sustain that gate is going to latch.
-static inline void _sound_set_voice(uint8_t base, uint16_t freq, uint16_t pw,
-                             uint8_t ctrl, uint8_t attdec, uint8_t susrel) {
-  _sound_poke(base + kSoundVoiceFreqLo, (uint8_t)freq);
-  _sound_poke(base + kSoundVoiceFreqHi, (uint8_t)(freq >> 8));
-  _sound_poke(base + kSoundVoicePwLo, (uint8_t)pw);
-  _sound_poke(base + kSoundVoicePwHi, (uint8_t)(pw >> 8) & 0x0F);
-  _sound_poke(base + kSoundVoiceAttDec, attdec);
-  _sound_poke(base + kSoundVoiceSusRel, susrel);
-  _sound_poke(base + kSoundVoiceCtrl, ctrl);
-}
 
 // The derived half of the silence rule. The other half - menu, help and map -
 // is sound_silence() below, called from gfx_stop_raster_irqs(). These three
@@ -679,9 +677,8 @@ void sound_update(void) {
   }
 
   bool retrigger = false;
-  // Only meaningful while the stall owns the voice. The warble spends part of
-  // each period gated off, which is where its gap comes from.
-  bool stall_sounding = false;
+  // Only set while the stall owns the voice during the off-half of its warble.
+  bool stall_gap = false;
 
   if (_sound_v3_frames != 0) {
     --_sound_v3_frames;
@@ -693,31 +690,23 @@ void sound_update(void) {
     // half-finished gear click.
     _sound_v3_effect = V3_NONE;
     _sound_v3_frames = 0;
-    _sound_stall_phase = 0;
   } else if (events & FLIGHT_EV_CRASH) {
     _sound_v3_effect = V3_CRASH;
     _sound_v3_frames = kSoundCrashFrames;
     retrigger = true;
-  } else if (_sound_v3_effect == V3_CRASH && _sound_v3_frames != 0 &&
-             flight_crashed()) {
-    // The crash burst runs to the end, uninterrupted.
-    //
-    // The flight_crashed() term is what stops it running on past an `R`
-    // restart: that clears the status without going near the sound driver, and
-    // a wreck still rumbling over the first two seconds of the next attempt
-    // would be a strange thing to hear.
   } else if (_sound_v3_effect == V3_CRASH) {
-    // Either the burst is over or the aircraft is no longer wrecked. Dropped
-    // explicitly rather than left to fall through: the "a one-shot is still
-    // running" branch below would otherwise adopt it and keep it going, since
-    // a crash looks exactly like a long one-shot from there.
-    _sound_v3_effect = V3_NONE;
-    _sound_v3_frames = 0;
+    // The crash burst runs to the end, uninterrupted, unless the burst is over
+    // or an `R` restart cleared the status without going near the sound driver.
+    // Dropped explicitly rather than left to fall through: the "a one-shot is
+    // still running" branch below would otherwise adopt it and keep it going.
+    if (_sound_v3_frames == 0 || !flight_crashed()) {
+      _sound_v3_effect = V3_NONE;
+      _sound_v3_frames = 0;
+    }
   } else if (!flying) {
     // Out of fuel, or wrecked with the crash burst already finished.
     _sound_v3_effect = V3_NONE;
     _sound_v3_frames = 0;
-    _sound_stall_phase = 0;
   } else if (events & FLIGHT_EV_TOUCHDOWN) {
     // Outranks everything, including a stall in progress. It is a single
     // unmissable event, it is over in a fraction of a second, and by
@@ -739,7 +728,7 @@ void sound_update(void) {
     if (_sound_stall_phase == 0) {
       retrigger = true;
     }
-    stall_sounding = _sound_stall_phase < kSoundStallOnFrames;
+    stall_gap = _sound_stall_phase >= kSoundStallOnFrames;
     if (++_sound_stall_phase >= kSoundStallPeriodFrames) {
       _sound_stall_phase = 0;
     }
@@ -753,7 +742,6 @@ void sound_update(void) {
     retrigger = true;
   } else if (_sound_v3_frames == 0) {
     _sound_v3_effect = V3_NONE;
-    _sound_stall_phase = 0;
   }
 
   // Only the main line writes sound_gen; only sound_blit() writes
@@ -763,59 +751,54 @@ void sound_update(void) {
     ++sound_gen;
   }
 
+  // Registers that never move off zero (V2 PwLo/PwHi, V3 PwLo/AttDec, and the
+  // three unused filter registers) keep the zero sound_silence() wrote at init
+  // and on every screen transition. On each voice, Ctrl still goes last so a
+  // torn read by sound_blit() can never see a gate edge over a zeroed sustain.
+  const uint8_t effect = _sound_v3_effect;
   {
-    const uint8_t effect = _sound_v3_effect;
     uint16_t v3_freq = (uint16_t)((uint16_t)kSoundV3FreqHi[effect] << 8);
     if (effect == V3_CRASH) {
       // Sweeps down as the burst runs. _sound_v3_frames counts from
-      // kSoundCrashFrames to zero, so this is a plain linear interpolation
-      // across the span.
-      //
-      // Written as shifts rather than as a multiply, and that is worth the
-      // ugliness. The span divided by the frame count is
-      // (kSoundCrashFreqStart - kSoundCrashFreqEnd) >> kSoundCrashShift = 0xE00
-      // >> 4 = 224, and 224 is 256 - 32 - so the whole interpolation is two
-      // shifts and a subtract. The obvious spelling with a 32-bit cast pulled
-      // oscar64's mul32by8 runtime routine into the binary for this one line,
-      // and nothing else in the program used it.
-      //
-      // kSoundCrashSweepCheck below fails the build if the constants ever stop
-      // satisfying the identity.
-      v3_freq = kSoundCrashFreqEnd + ((uint16_t)_sound_v3_frames << 8) -
-                ((uint16_t)_sound_v3_frames << 5);
+      // kSoundCrashFrames (16) to zero, and the span per frame is 224 = 7 * 32,
+      // so 0x0200 + 224 * n == ((7 * n + 16) << 8) >> 3 with 7 * n + 16 <= 128.
+      uint8_t m = (uint8_t)((_sound_v3_frames << 3) - _sound_v3_frames +
+                            (uint8_t)(kSoundCrashFreqEnd >> 5));
+      v3_freq = ((uint16_t)((uint16_t)m << 8)) >> 3;
     }
-    // A one-shot sounds for the whole time it owns the voice; the stall only
-    // sounds during the on-half of its warble.
-    const bool gate_open =
-        effect == V3_STALL ? stall_sounding : effect != V3_NONE;
-    const uint8_t v3_wave = kSoundV3Wave[effect];
-    _sound_set_voice(kSoundRegV3, v3_freq,
-                     effect == V3_STALL ? kSoundStallPw : (uint16_t)0,
-                     gate_open ? (v3_wave | SID_CTRL_GATE) : v3_wave,
-                     kSoundStallAttDec | kSoundCrashAttDec | kSoundOneShotAttDec,
-                     kSoundV3SusRel[effect]);
+    _sound_poke(kSoundRegV3 + kSoundVoiceFreqLo, (uint8_t)v3_freq);
+    _sound_poke(kSoundRegV3 + kSoundVoiceFreqHi, (uint8_t)(v3_freq >> 8));
+    _sound_poke(kSoundRegV3 + kSoundVoicePwHi,
+                effect == V3_STALL ? (uint8_t)(kSoundStallPw >> 8) : 0);
+    _sound_poke(kSoundRegV3 + kSoundVoiceSusRel, kSoundV3SusRel[effect]);
+    _sound_poke(kSoundRegV3 + kSoundVoiceCtrl,
+                stall_gap ? SID_CTRL_RECT : kSoundV3Ctrl[effect]);
   }
 
   // Voice 1: engine. Gate clear when inaudible rather than the whole voice
   // blanked, so the envelope releases instead of being cut dead, and so the
   // sustain register is never zero underneath a gate that is about to be set.
-  _sound_set_voice(kSoundRegV1, freq, pw,
-                   flying ? (SID_CTRL_RECT | SID_CTRL_GATE) : SID_CTRL_RECT,
-                   kSoundEngineAttDec, kSoundEngineSusRel);
+  _sound_poke(kSoundRegV1 + kSoundVoiceFreqLo, (uint8_t)freq);
+  _sound_poke(kSoundRegV1 + kSoundVoiceFreqHi, (uint8_t)(freq >> 8));
+  _sound_poke(kSoundRegV1 + kSoundVoicePwLo, (uint8_t)pw);
+  _sound_poke(kSoundRegV1 + kSoundVoicePwHi, (uint8_t)(pw >> 8) & 0x0F);
+  _sound_poke(kSoundRegV1 + kSoundVoiceAttDec, kSoundEngineAttDec);
+  _sound_poke(kSoundRegV1 + kSoundVoiceSusRel, kSoundEngineSusRel);
+  _sound_poke(kSoundRegV1 + kSoundVoiceCtrl,
+              flying ? (SID_CTRL_RECT | SID_CTRL_GATE) : SID_CTRL_RECT);
 
   // Voice 2: wind, which additionally gates off below the speed threshold.
-  _sound_set_voice(kSoundRegV2, sound_wind_freq(flight_speed), 0,
-                   (flying && sound_wind_audible(flight_speed))
-                       ? (SID_CTRL_NOISE | SID_CTRL_GATE)
-                       : SID_CTRL_NOISE,
-                   kSoundWindAttDec, kSoundWindSusRel);
-
-  // The filter is deliberately unused - section 3 on why depending on it is a
-  // portability trap - but the registers still have to be written, since
-  // nothing zeroes them for us any more.
-  _sound_poke(kSoundRegCutoffLo, 0);
-  _sound_poke(kSoundRegCutoffHi, 0);
-  _sound_poke(kSoundRegResFilt, 0);
+  {
+    uint16_t wind_freq = sound_wind_freq(flight_speed);
+    _sound_poke(kSoundRegV2 + kSoundVoiceFreqLo, (uint8_t)wind_freq);
+    _sound_poke(kSoundRegV2 + kSoundVoiceFreqHi, (uint8_t)(wind_freq >> 8));
+    _sound_poke(kSoundRegV2 + kSoundVoiceAttDec, kSoundWindAttDec);
+    _sound_poke(kSoundRegV2 + kSoundVoiceSusRel, kSoundWindSusRel);
+    _sound_poke(kSoundRegV2 + kSoundVoiceCtrl,
+                (flying && sound_wind_audible(flight_speed))
+                    ? (SID_CTRL_NOISE | SID_CTRL_GATE)
+                    : SID_CTRL_NOISE);
+  }
 
   // Master volume last. It is the one register with no latching behaviour, so
   // a torn read that catches the old value is a single frame at the wrong
@@ -829,12 +812,9 @@ void sound_update(void) {
   //
   // On whenever something could be sounding, which is no longer the same as
   // "flying": the crash burst plays with the continuous voices already gated
-  // off. Zeroing it once nothing is left keeps silence expressible as a single
-  // property of the register set rather than as "gates clear, and also check
-  // whether anything is mid-release".
-  const bool anything_sounding = flying || _sound_v3_effect != V3_NONE;
+  // off. When !driver_live, both flying and effect are already false/V3_NONE.
   _sound_poke(kSoundRegModeVol,
-              (driver_live && anything_sounding)
+              (flying || effect != V3_NONE)
                   ? kMasterVolume[sound_volume < kSoundVolumeSteps
                                       ? sound_volume
                                       : kSoundVolumeDefault]
