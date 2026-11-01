@@ -316,6 +316,8 @@ __striped static const int16_t kOpponentBankSin[5] = {222, 128, 0, -128, -222};
 // greatest speed - so it never goes under.
 static const int16_t kOpponentFloor = 120;
 static const int16_t kOpponentFloorMargin = 16;
+// The temporary floor of a strafing run at a player on the ground, 30 m.
+static const int16_t kOpponentStrafeFloor = 60;
 
 // The pixel size, planes_frame_t::d, from which an aircraft is drawn in
 // kColorOpponentNear: about 620 m at kOpponentKn, and below
@@ -346,6 +348,11 @@ static uint8_t _opponent_down;
 // Bit i: slot i is in ATTACK, its mode against the player; clear, it is in
 // PATH (docs/opponent_ai.md §3). A hunting slot starts in it.
 static uint8_t _opponent_attack;
+// Bit i: slot i, a hunter, is pulling up - from a strafing run, or from
+// under kOpponentFloor - climbing straight ahead until it is back above the
+// floor, and while the player is on the ground ~1 km off, before it turns
+// for another run (_opponent_strafe()).
+static uint8_t _opponent_pullup;
 static uint8_t _opponent_hits[kOpponentMax];
 // 1 + the slot trailing smoke - the last one hit - or kOpponentNoSmoke; and
 // the frames it has left.
@@ -528,6 +535,7 @@ void opponent_reset(uint8_t mission) {
   _opponent_failed = false;
   _opponent_down = 0;
   _opponent_attack = 0;
+  _opponent_pullup = 0;
   _opponent_smoke = kOpponentNoSmoke;
   _opponent_substep = 0;
   const opponent_path_t *p = kOpponentPaths[mission];
@@ -623,9 +631,10 @@ static __noinline void _opponent_fly(uint8_t i, int8_t want, bool whole) {
 // dx, dy along the ground, all cut down as opponent_step() cuts them for the
 // turn, dx and dy to six bits (docs/opponent_ai.md §5): the level whose
 // slope comes nearest the player's, from dz against the distance along the
-// ground, max + min / 2 of |dx| and |dy|, all in bytes. And above ATTACK's
-// floor.
-static __noinline int8_t _opponent_want(uint8_t i, int8_t dx, int8_t dy, int16_t dz) {
+// ground, max + min / 2 of |dx| and |dy|, all in bytes. And above `floor`,
+// in half metres.
+static __noinline int8_t _opponent_want(uint8_t i, int8_t dx, int8_t dy, int16_t dz,
+                                        int16_t floor) {
   uint16_t az16 = (uint16_t)_opponent_abs(dz);
   uint8_t az = az16 > 255 ? 255 : (uint8_t)az16;
   uint8_t ax = (uint8_t)(dx < 0 ? -dx : dx), ay = (uint8_t)(dy < 0 ? -dy : dy);
@@ -648,14 +657,41 @@ static __noinline int8_t _opponent_want(uint8_t i, int8_t dx, int8_t dy, int16_t
     want = -want;
   }
   int16_t z = (int16_t)(_opponent_z[i] >> 8);
-  if (z < kOpponentFloor) {
+  if (z < floor) {
     if (want < 1) {
       want = 1;
     }
-  } else if (want < 0 && z < kOpponentFloor + kOpponentFloorMargin) {
+  } else if (want < 0 && z < floor + kOpponentFloorMargin) {
     want = 0;
   }
   return want;
+}
+
+// A hunting slot i's floor, in half metres, and whether it is pulling up
+// (docs/opponent_ai.md §5): `dot` and `across` are the player's along and
+// across its nose, and `cut` the halvings that took the player's distance
+// along the ground under 64 half metres - under 3, nearer than ~130 m; over
+// 5, farther than ~1 km. While the player is on the ground and dead ahead,
+// within ~14 degrees, a run, down to kOpponentStrafeFloor. It ends at that
+// floor, near the player, or once the player is no longer ahead, and the
+// slot pulls up: straight on, up to kOpponentFloor and out to ~1 km, then
+// round for the next. Under kOpponentFloor for any other reason it pulls up
+// too, and in the air that ends at the floor.
+static __noinline int16_t _opponent_strafe(uint8_t i, int16_t dot, int16_t across, uint8_t cut) {
+  uint8_t bit = _opponent_bit(i);
+  int16_t z = (int16_t)(_opponent_z[i] >> 8);
+  bool ground = flight_on_ground();
+  if (_opponent_pullup & bit) {
+    if (z >= kOpponentFloor && (cut > 5 || !ground)) {
+      _opponent_pullup &= (uint8_t)~bit;
+    }
+  } else if (ground && dot > 0 && across < (dot >> 2) && cut > 2 &&
+             z > kOpponentStrafeFloor + kOpponentFloorMargin) {
+    return kOpponentStrafeFloor;
+  } else if (z < kOpponentFloor) {
+    _opponent_pullup |= bit;
+  }
+  return kOpponentFloor;
 }
 
 static void _opponent_forget(uint8_t i);
@@ -743,22 +779,29 @@ void opponent_step(void) {
     // stays straight. The direction is cut down to six bits a component
     // first, so both products fit 16 bits, and taken as 8.8 so that
     // vec_fastmul8p8() forms them exactly, with no multiply linked for them.
+    uint8_t cut = 0;
     while (_opponent_abs(dx) > 63 || _opponent_abs(dy) > 63) {
       dx >>= 1;
       dy >>= 1;
       dz >>= 1;
+      ++cut;
     }
-    if (hunt) {
-      want = _opponent_want(i, (int8_t)dx, (int8_t)dy, dz);
-    }
+    int8_t dx8 = (int8_t)dx, dy8 = (int8_t)dy;
     dx <<= 8;
     dy <<= 8;
     int16_t hx = h->x, hy = h->y;
     int16_t cross = _opponent_dot(dy, hx, -dx, hy);
     int16_t dot = _opponent_dot(dx, hx, dy, hy);
     int16_t across = _opponent_abs(cross);
+    // A hunter's height, and whether it pulls up, straight ahead.
+    bool straight = false;
+    if (hunt) {
+      int16_t floor = _opponent_strafe(i, dot, across, cut);
+      straight = (_opponent_pullup & bit) != 0;
+      want = straight ? 1 : _opponent_want(i, dx8, dy8, dz, floor);
+    }
     int8_t turn = 0;
-    if (dot < 0 || across > (dot >> 5)) {
+    if (!straight && (dot < 0 || across > (dot >> 5))) {
       turn = (int8_t)(hunt ? 2 : 1);
       if (cross < 0) {
         turn = -turn;

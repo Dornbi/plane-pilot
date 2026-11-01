@@ -105,7 +105,8 @@ int16_t flight_gamma;
 int16_t flight_alpha16;
 #endif
 
-static bool model_on_ground = false;
+// Not static: flight_on_ground() (flight.h) reads it.
+bool model_on_ground = false;
 // Standing still on the ground as of the last step, so that coming to a halt
 // refuels once rather than every step parked. Starts true: a mission begun
 // parked has its tank already.

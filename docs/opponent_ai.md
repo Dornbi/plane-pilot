@@ -779,3 +779,51 @@ from step 8 on. Steps 9–13 are independent of each other once step 9's
 - **For step 13.** Pure pursuit flies a head-on hunter straight at the
   player. Once collisions count, hunters need to break off or offset
   inside ~150 m when closing head-on.
+
+### Step 7: strafing
+
+- **Code.**
+  - `flight.cc`'s `model_on_ground` is no longer static, and `flight.h`
+    reads it through `flight_on_ground()`. ppilot's free RAM is unchanged.
+  - `_opponent_strafe()` gives a hunter its floor and keeps
+    `_opponent_pullup`.
+- **A run.** It starts while the player is on the ground and within ~14°
+  of the nose, ~130 m or more away, and the hunter is above the temporary
+  floor plus its margin. The floor is then `kOpponentStrafeFloor` (30 m).
+- **Pulling up.**
+  - The run ends at that floor, near the player, or once the player is off
+    the nose.
+  - The hunter then climbs straight ahead at level 1. It stays straight
+    until it is back above `kOpponentFloor` and ~1 km out, then turns for
+    the next run.
+  - In the air, a hunter under `kOpponentFloor` (a Pass slot from a low
+    path) pulls up the same way, until it reaches the floor.
+- **Distances.** "Near" and "~1 km" come from counting the halvings of the
+  6-bit cut, so no extra distance arithmetic is needed.
+- **Test.** Against a player parked 16 m up, a hunter from 2 km at 200 m
+  makes 10 runs in 10 min. Each goes below 60 m, none below 38 m, and each
+  pull-up climbs back above 60 m. Once the player is airborne the hunter
+  stays above 60 m.
+- **Frame cost** after steps 2–7 (`tools/bench.sh`, against step 1):
+
+  | Scene | Before | After |
+  | :--- | ---: | ---: |
+  | scramble | 176,257 | 178,281 (+1.1%) |
+  | shootdown | 172,707 | 174,188 (+0.9%) |
+  | headon | — | 141,620 |
+  | chase | — | 155,354 |
+
+  The frozen scenes are within ±0.2%.
+- **RAM.** fpilot 2,221 → 1,989 B free (largest run 1,380).
+
+### Where the RAM stands after step 7
+
+Steps 2–7 took 1,368 B: fpilot went from 3,357 to 1,989 B free. §9
+estimated about 560–860 B for the same pieces, so the actual cost ran 1.6–2.4×
+over. The rest of the plan, steps 8–14, was estimated at about 840–1,170 B.
+At the same ratio that would be 1.5–2.5 KB, more than the 1,989 B left.
+Before step 9, decide which of these to do:
+- free RAM elsewhere;
+- cut scope (the rear gunner's normalise, the near-miss test, the blinking
+  message);
+- write the hottest new logic in assembly, as `planes_asm.cc` does.

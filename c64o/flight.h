@@ -71,6 +71,11 @@ extern enum FlightStatus flight_status;
 // physics and locks out the controls.
 inline bool flight_crashed(void) { return flight_status >= FLIGHT_CRASH_ROLL; }
 
+// True while the aircraft is on the ground - rolling, parked, or just
+// touched down - rather than flying. opponent.cc's hunters strafe it there.
+extern bool model_on_ground;
+inline bool flight_on_ground(void) { return model_on_ground; }
+
 extern mat3_t flight_cam;
 
 // Airspeed runs 0 .. kMaxSpeed and is clamped to it every step. Exported for

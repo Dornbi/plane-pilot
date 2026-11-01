@@ -48,6 +48,7 @@
 // --- What opponent.cc reads ---------------------------------------------------
 
 bool flight_paused = false;
+bool model_on_ground = false;
 view_state_t view_state = VIEW_CENTER;
 enum FlightStatus flight_status;
 uint8_t flight_step_shift = 0;
@@ -1320,6 +1321,51 @@ static void test_hunting(void) {
       nearest = std::min(nearest, to_eye(1, nullptr));
     }
     CHECK(nearest < 200, "pass: from %.0f m, no nearer than %.0f m", before / 2, nearest / 2);
+  }
+  // Strafing: a player parked on the ground, its eye 16 m up, and a hunter
+  // coming in from 2 km at 200 m. Runs, again and again, each down under
+  // kOpponentFloor but never under kOpponentStrafeFloor, each pull-up back
+  // over kOpponentFloor before the next run, and never into the ground. Then
+  // the player takes off, and the hunter keeps to kOpponentFloor.
+  {
+    opponent_reset(0);
+    _opponent_on[0] = false;
+    hunt(1, &kHunter);
+    model_on_ground = true;
+    flight_eye_x = _opponent_x[1] + (4000 << 8);
+    flight_eye_y = _opponent_y[1];
+    flight_eye_z = 32 << 8;
+    _opponent_z[1] = 400 << 8;
+    int runs = 0, nearest_run = 1 << 30;
+    bool low = false;
+    int32_t lowest = _opponent_z[1];
+    const int32_t floor = (int32_t)kOpponentFloor << 8;
+    for (int n = 0; n < 3750; ++n) {
+      opponent_step();
+      int32_t z = _opponent_z[1];
+      lowest = std::min(lowest, z);
+      if (!low && z < floor) {
+        low = true;
+        ++runs;
+      } else if (low && z >= floor) {
+        low = false;
+      }
+      if (low) nearest_run = std::min(nearest_run, (int)to_eye(1, nullptr));
+    }
+    CHECK(runs >= 4 && lowest >= (int32_t)kOpponentStrafeFloor << 8 && !(_opponent_down & 2),
+          "strafing: %d runs in 10 min, down to %.0f m", runs, lowest / 512.0);
+    printf("  strafing: %d runs in 10 min, down to %.0f m, the nearest %.0f m from the player\n",
+           runs, lowest / 512.0, nearest_run / 2.0);
+    // Off the ground: back to the permanent floor.
+    model_on_ground = false;
+    for (int n = 0; n < 300; ++n) opponent_step();
+    lowest = _opponent_z[1];
+    for (int n = 0; n < 1500; ++n) {
+      opponent_step();
+      lowest = std::min(lowest, _opponent_z[1]);
+    }
+    CHECK(lowest >= floor, "strafing: down to %.0f m with the player off the ground",
+          lowest / 512.0);
   }
   CHECK(_msgs == 0, "hunting: %d messages, the last \"%s\"", _msgs, _msg);
 }
