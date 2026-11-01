@@ -196,44 +196,67 @@ inline void sprites_init(void) {
   _sprites_draw_fin();
 }
 
+static const uint8_t kInstrumentPivotX[8] = {
+    (uint8_t)(kSpriteOffsetX + kSpriteVSpeedPivotX),
+    (uint8_t)(kSpriteOffsetX + kSpriteSpeedPivotX),
+    0,
+    0,
+    (uint8_t)(kSpriteOffsetX + kSpriteAltPivotX),
+    (uint8_t)(kSpriteOffsetX + kSpriteAltPivotX),
+    (uint8_t)(kSpriteOffsetX + kSpriteThrottlePivotX),
+    (uint8_t)(kSpriteOffsetX + kSpriteFuelPivotX),
+};
+
+static const uint8_t kInstrumentPivotY[8] = {
+    kSpriteOffsetY + kSpriteVSpeedPivotY,
+    kSpriteOffsetY + kSpriteSpeedPivotY,
+    0,
+    0,
+    kSpriteOffsetY + kSpriteAltPivotY,
+    kSpriteOffsetY + kSpriteAltPivotY,
+    kSpriteOffsetY + kSpriteThrottlePivotY,
+    kSpriteOffsetY + kSpriteFuelPivotY,
+};
+
 // dir is 0..31, clockwise from up. The arm tables hold the first half-turn
 // only: dir + 16 draws bitmap dir with its pivot mirrored through the centre.
 // __noinline: six gauges a frame; the mirror inlined at each cost 70 bytes.
 static __noinline void _sprites_set_instrument_sprite(uint8_t idx,
-                                           const sprite_arm_t *arm,
-                                           uint8_t bitmap, uint8_t dir,
-                                           uint8_t pivot_x, uint8_t pivot_y) {
-  const sprite_arm_t *a = &arm[dir & (kSpriteDefArmCount - 1)];
-  int8_t px = a->pivot_x;
-  int8_t py = a->pivot_y;
+                                                      uint8_t dir) {
+  uint8_t arm_idx = dir & (kSpriteDefArmCount - 1);
+  uint8_t off = (uint8_t)(arm_idx << 1);
+  int8_t px, py;
+  uint8_t bitmap;
+  if (idx == kSpriteIdxSpeed || idx == kSpriteIdxAlt1) {
+    px = ((const int8_t *)kSpriteDefLongArm)[off];
+    py = ((const int8_t *)kSpriteDefLongArm)[off + 1];
+    bitmap = kSpriteDefLongArmBitmap;
+  } else {
+    px = ((const int8_t *)kSpriteDefShortArm)[off];
+    py = ((const int8_t *)kSpriteDefShortArm)[off + 1];
+    bitmap = kSpriteDefShortArmBitmap;
+  }
   if (dir & kSpriteDefArmCount) {
     px = 2 * kSpriteDefArmCenterX - px;
     py = 2 * kSpriteDefArmCenterY - py;
   }
-  _sprites_instrument_xy[idx].x = pivot_x - px;
-  _sprites_instrument_xy[idx].y = pivot_y - py;
-  _sprites_instrument_idx[idx] = bitmap + (dir & (kSpriteDefArmCount - 1));
+  _sprites_instrument_xy[idx].x = kInstrumentPivotX[idx] - px;
+  _sprites_instrument_xy[idx].y = kInstrumentPivotY[idx] - py;
+  _sprites_instrument_idx[idx] = bitmap + arm_idx;
 }
 
 inline void sprites_set_speed(uint8_t speed) {
-  _sprites_set_instrument_sprite(
-      kSpriteIdxSpeed, kSpriteDefLongArm, kSpriteDefLongArmBitmap,
-      (speed >> 1) & 0x1f,
-      kSpriteOffsetX + kSpriteSpeedPivotX, kSpriteOffsetY + kSpriteSpeedPivotY);
+  _sprites_set_instrument_sprite(kSpriteIdxSpeed, speed >> 1);
 }
 
 inline void sprites_set_alt(uint16_t alt) {
-  _sprites_set_instrument_sprite(
-      kSpriteIdxAlt1, kSpriteDefLongArm, kSpriteDefLongArmBitmap,
-      (alt >> 4) & 0x1f,
-      kSpriteOffsetX + kSpriteAltPivotX, kSpriteOffsetY + kSpriteAltPivotY);
+  uint16_t a = alt >> 4;
+  _sprites_set_instrument_sprite(kSpriteIdxAlt1, (uint8_t)a);
   // ((alt >> 4) * 205) >> 11 needs a 32-bit intermediate; vec_fastmul8p8
   // returns the exact middle 16 bits ((t * 205) >> 8), so shifting 3 more
   // is bit-identical without pulling in the mul32 runtime.
-  _sprites_set_instrument_sprite(
-      kSpriteIdxAlt2, kSpriteDefShortArm, kSpriteDefShortArmBitmap,
-      ((uint16_t)vec_fastmul8p8(alt >> 4, 205) >> 3) & 0x1f,
-      kSpriteOffsetX + kSpriteAltPivotX, kSpriteOffsetY + kSpriteAltPivotY);
+  _sprites_set_instrument_sprite(kSpriteIdxAlt2,
+                                 ((uint8_t)vec_fastmul8p8(a, 205)) >> 3);
 }
 
 inline void sprites_set_vspeed(int16_t vspeed) {
@@ -242,11 +265,8 @@ inline void sprites_set_vspeed(int16_t vspeed) {
   } else if (vspeed < -0x300) {
     vspeed = -0x300;
   }
-  uint8_t dir = (0x18 + (vspeed >> 6)) & 0x1f;
-  _sprites_set_instrument_sprite(kSpriteIdxVSpeed, kSpriteDefShortArm,
-                                 kSpriteDefShortArmBitmap, dir,
-                                 kSpriteOffsetX + kSpriteVSpeedPivotX,
-                                 kSpriteOffsetY + kSpriteVSpeedPivotY);
+  _sprites_set_instrument_sprite(kSpriteIdxVSpeed,
+                                 (uint8_t)(0x18 + (vspeed >> 6)));
 }
 
 // The roll arm is drawn through its hub, so only its bitmap turns, and a
@@ -277,19 +297,13 @@ inline void sprites_set_roll(uint8_t roll_angle) {
 }
 
 inline void sprites_set_throttle(uint8_t throttle) {
-  _sprites_set_instrument_sprite(
-      kSpriteIdxThrottle, kSpriteDefShortArm, kSpriteDefShortArmBitmap,
-      (0x14 + throttle) & 0x1f,
-      (kSpriteOffsetX + kSpriteThrottlePivotX) & 0xff,
-      kSpriteOffsetY + kSpriteThrottlePivotY);
+  _sprites_set_instrument_sprite(kSpriteIdxThrottle,
+                                 (uint8_t)(0x14 + throttle));
 }
 
 inline void sprites_set_fuel(uint32_t fuel) {
-  _sprites_set_instrument_sprite(kSpriteIdxFuel, kSpriteDefShortArm,
-                                 kSpriteDefShortArmBitmap,
-                                 (0x18 + (uint8_t)(fuel >> 13)) & 0x1f,
-                                 (kSpriteOffsetX + kSpriteFuelPivotX) & 0xff,
-                                 kSpriteOffsetY + kSpriteFuelPivotY);
+  _sprites_set_instrument_sprite(
+      kSpriteIdxFuel, (uint8_t)(0x18 + ((uint16_t)(fuel >> 8) >> 5)));
 }
 
 // A terrain sprite that would land on the message text hides for as long as
