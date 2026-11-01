@@ -69,8 +69,11 @@ static uint8_t _gun_substep;
 static bool _gun_armed;
 uint8_t gun_player_hits;
 // Counted down a digit at a time, which is what the panel draws: no binary to
-// decimal step between the two.
-static const uint8_t kGunAmmoStart[kGunAmmoDigits] = {0, 3, 0, 0};
+// decimal step between the two. Ten a round, so the units digit stays 0 and
+// only the digits above it count. 50 rounds is about 20 s of fire: one every
+// kGunInterval model steps comes to 2.5-2.7 a second on the emulator.
+static const uint8_t kGunAmmoStart[kGunAmmoDigits] = {0, 5, 0, 0};
+static const uint8_t kGunAmmoTens = kGunAmmoDigits - 2;
 uint8_t gun_ammo[kGunAmmoDigits];
 bool gun_ammo_shown;
 #pragma bss(tscratch)
@@ -172,10 +175,11 @@ static uint8_t _gun_slot(void) {
   return slot;
 }
 
-// Takes a round off gun_ammo, or returns false if there are none left: the
-// lowest digit that is not 0 goes down one and every digit below it becomes 9.
+// Takes a round off gun_ammo, or returns false if there are none left: from
+// the tens up, the lowest digit that is not 0 goes down one and every digit
+// between it and the units becomes 9.
 static bool _gun_take_round(void) {
-  uint8_t i = kGunAmmoDigits - 1;
+  uint8_t i = kGunAmmoTens;
   while (gun_ammo[i] == 0) {
     if (i == 0) {
       return false;
@@ -183,7 +187,7 @@ static bool _gun_take_round(void) {
     --i;
   }
   --gun_ammo[i];
-  while (++i < kGunAmmoDigits) {
+  while (++i <= kGunAmmoTens) {
     gun_ammo[i] = 9;
   }
   gun_ammo_shown = false;
