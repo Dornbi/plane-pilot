@@ -106,6 +106,10 @@ int16_t flight_alpha16;
 #endif
 
 static bool model_on_ground = false;
+// Standing still on the ground as of the last step, so that coming to a halt
+// refuels once rather than every step parked. Starts true: a mission begun
+// parked has its tank already.
+static bool model_halted;
 static bool model_need_normalize;
 
 // The part of a step's speed change that was finer than one unit, carried to
@@ -480,6 +484,7 @@ void flight_init() {
   model_substep = 0;
   flight_fuel = kFlightFullFuel;
   model_on_ground = false;
+  model_halted = true;
   flight_nav_point_x[0] = 0x2000;
   flight_nav_point_y[0] = 0x3F80;
   flight_nav_point_x[1] = 0x6000;
@@ -528,6 +533,7 @@ void flight_init_from_mission(uint8_t mission_idx) {
   flight_eye_y = ((int32_t)kMissionStartY[mission_idx] << 16) + 0x8000;
   flight_eye_z = (int32_t)kMissionStartZ[mission_idx] << 16;
   model_on_ground = false;
+  model_halted = true;
   if (flight_eye_z <= kFlightMinEyeZ) {
     flight_eye_z = kFlightMinEyeZ;
     model_on_ground = true;
@@ -1394,14 +1400,16 @@ void flight_advance() {
       flight_fuel = 0;
       flight_throttle = 0;
     }
-    // Standing on a runway - anywhere else on the ground is a crash, and a
-    // crash stops the model before it gets here: filled up, and in fpilot
-    // rearmed. A dry tank has cut the throttle, so it rolls to a stop and
-    // refuels too.
-    if (model_on_ground && flight_speed == 0) {
+    // Come to a halt on a runway - anywhere else on the ground is a crash, and
+    // a crash stops the model before it gets here: filled up, and in fpilot
+    // rearmed, once until the aircraft moves again. A dry tank has cut the
+    // throttle, so it rolls to a stop and refuels too.
+    bool halted = model_on_ground && flight_speed == 0;
+    if (halted && !model_halted) {
       flight_fuel = kFlightFullFuel;
       gun_rearm();
     }
+    model_halted = halted;
 
 #ifdef __FLIGHT_AOA__
 

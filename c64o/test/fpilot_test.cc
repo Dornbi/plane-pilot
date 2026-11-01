@@ -106,15 +106,18 @@ int main() {
           m + 1, mission_completed[m]);
   }
 
-  // Parked, as 02 starts, the guns are rearmed; rolling, they are not.
+  // Rolling to a halt, the guns are rearmed once; begun parked, as 02
+  // starts, or rolling, they are not.
   flight_init_from_mission(1);
   _rearms = 0;
   flight_advance();
-  CHECK(_rearms > 0, "parked: not rearmed");
-  flight_speed = 0x100;
-  _rearms = 0;
+  CHECK(_rearms == 0, "begun parked: rearmed %d times", _rearms);
+  flight_speed = 0x0010;
   flight_advance();
   CHECK(_rearms == 0, "rolling: rearmed %d times", _rearms);
+  for (int n = 0; n < 50; ++n) flight_advance();
+  CHECK(flight_speed == 0 && _rearms == 1, "halted: speed %d, rearmed %d times", flight_speed,
+        _rearms);
 
   // The goals alone, nowhere near runway 1: one mark.
   mission_completed[0] = 0;

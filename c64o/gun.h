@@ -18,7 +18,8 @@
 void gun_reset(void);
 
 // Fills gun_ammo back up to what gun_reset() gives, marking it for a redraw
-// only if that changes it.
+// only if that changes it. flight.cc calls it when the aircraft comes to a
+// halt on the ground.
 void gun_rearm(void);
 
 // One model step, after opponent_step(): moves every round and hits what it

@@ -1401,22 +1401,36 @@ static void test_ground_braking() {
   printf("  PASS\n\n");
 }
 
-// Standing on the ground fills the tank up; rolling along it does not.
+// Coming to a halt on the ground fills the tank up, once; rolling along it,
+// or staying parked, does not.
 static void test_refuel_when_standing() {
   printf("Running test_refuel_when_standing...\n");
 
   flight_init_from_mission(0); // Parked on runway 1, with a full tank
   assert(flight_speed == 0);
   uint32_t full = flight_fuel;
-  flight_fuel = 0;
-  flight_advance();
-  assert(flight_fuel == full);
 
-  // Rolling at idle: nothing burnt, nothing added.
-  flight_speed = 0x0100;
+  // Begun parked: not a halt.
   flight_fuel = 1000;
   flight_advance();
-  assert(flight_speed > 0);
+  assert(flight_fuel == 1000);
+
+  // Rolling at idle: nothing burnt, nothing added.
+  flight_speed = 0x0010;
+  flight_advance();
+  assert(flight_fuel == 1000);
+
+  // Rolled to a stop: filled up.
+  for (int i = 0; i < 50 && flight_speed > 0; ++i) {
+    flight_advance();
+  }
+  assert(flight_speed == 0);
+  assert(flight_fuel == full);
+
+  // Still parked: not again.
+  flight_fuel = 1000;
+  flight_advance();
+  flight_advance();
   assert(flight_fuel == 1000);
 
   printf("  PASS\n\n");
