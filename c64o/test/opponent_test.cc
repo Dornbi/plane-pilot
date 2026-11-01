@@ -1124,6 +1124,25 @@ static void test_missions(void) {
           kSmokeDown);
     CHECK(_opponent_x[0] == fell, "smoke: a downed slot moved on");
 
+    // Into the ground: down as if shot down, with its message and the
+    // longer smoke where it fell, and counted towards the goal. A path
+    // holds its height, so it is put there by hand, 8 m under, deeper than
+    // the step's climb back towards the path's height; ATTACK's floors
+    // (step 6) keep a hunter off it too.
+    opponent_reset(3);
+    _msgs = 0;
+    _opponent_z[1] = 1 << 8;
+    opponent_step();
+    CHECK(!(_opponent_down & 2), "ground: down half a metre up");
+    _opponent_z[1] = -(16 << 8);
+    opponent_step();
+    CHECK((_opponent_down & 2) && _msgs == 1 && !strcmp(_msg, "ENEMY CRASHED") &&
+              opponent_smoke(p, h) && p[0] == _opponent_x[1] && _opponent_smoke_t == kSmokeDown,
+          "ground: not down on reaching it (%d messages, \"%s\")", _msgs, _msg);
+    CHECK(!opponent_target(1, p) && !(_opponent_cull() & 2), "ground: still a target, or drawn");
+    for (int k = 0; k < kOpponentHitsToDown; ++k) opponent_strike(0);
+    CHECK(opponent_targets_down(), "ground: one crashed, one shot down, but the targets are up");
+
     // A damaged one-way aircraft that escapes leaves no smoke behind it.
     opponent_reset(0);
     while (_opponent_next[0] < 3) opponent_step();

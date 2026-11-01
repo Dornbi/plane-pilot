@@ -727,3 +727,18 @@ from step 8 on. Steps 9–13 are independent of each other once step 9's
 - **Not done.** No VICE check yet; nothing climbs in the missions until
   step 6.
 - **RAM.** fpilot 2,917 → 2,766 B free (largest run 2,158).
+
+### Step 5: down on the ground
+
+- **Code.** `_opponent_destroy(i, text)` downs a slot: its down bit, the
+  kill smoke and the message. `opponent_strike()`'s third hit uses it with
+  "TARGET DOWN". `opponent_step()` uses it with "ENEMY CRASHED" when a
+  slot's height reaches 0 after its move.
+- **Test.** A slot 8 m below the ground (put there by hand, since a path
+  holds its height) goes down:
+  - with "ENEMY CRASHED" and `kSmokeDown`;
+  - it is no longer a target, and no longer drawn;
+  - it counts towards `WP_TARGETS_DOWN`.
+
+  Half a metre up, it stays flying.
+- **RAM.** fpilot 2,766 → 2,692 B free (largest run 2,084).

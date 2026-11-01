@@ -431,6 +431,17 @@ bool opponent_target(uint8_t i, int32_t *p) {
   return true;
 }
 
+// Slot i is down: shot down, or into the ground. It stops where it is, is
+// neither drawn nor a target, counts towards WP_TARGETS_DOWN, and its smoke
+// hangs there kSmokeDown frames.
+static __noinline void _opponent_destroy(uint8_t i, const char *text) {
+  uint8_t bit = _opponent_bit(i);
+  _opponent_down |= bit;
+  _opponent_smoke = bit;
+  _opponent_smoke_t = kSmokeDown;
+  msg_show(text);
+}
+
 void opponent_strike(uint8_t i) {
   uint8_t bit = _opponent_bit(i);
   if (_opponent_down & bit) {
@@ -439,9 +450,7 @@ void opponent_strike(uint8_t i) {
   _opponent_smoke = bit;
   _opponent_smoke_t = kSmokeHit;
   if (++_opponent_hits[i] == kOpponentHitsToDown) {
-    _opponent_down |= bit;
-    _opponent_smoke_t = kSmokeDown;
-    msg_show("TARGET DOWN");
+    _opponent_destroy(i, "TARGET DOWN");
   }
 }
 
@@ -684,6 +693,11 @@ void opponent_step(void) {
     // Up or down to the path's height, at level 1 only.
     int16_t dz = (int16_t)p->z - (int16_t)(_opponent_z[i] >> 8);
     _opponent_fly(i, dz > kOpponentPathBand ? 1 : dz < -kOpponentPathBand ? -1 : 0, turns);
+    // Into the ground, however unlikely: down, as if shot down.
+    if (_opponent_z[i] <= 0) {
+      _opponent_destroy(i, "ENEMY CRASHED");
+      continue;
+    }
 
     int16_t speed2 = _opponent_speed[i] << 1;
     _opponent_move(&_opponent_x[i], speed2, h->x);
