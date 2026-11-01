@@ -79,7 +79,8 @@ command -v x64sc >/dev/null || { echo "bench: x64sc not on PATH (see docs/emulat
 
 rm -rf "$BUILD"
 mkdir -p "$BUILD/src"
-cp "$REPO/c64o"/*.cc "$REPO/c64o"/*.h "$REPO/c64o"/*.bin "$REPO/c64o"/*.koa "$BUILD/src/"
+cp "$REPO/c64o"/*.cc "$REPO/c64o"/*.h "$REPO/c64o"/*.bin "$REPO/c64o"/*.koa \
+   "$REPO/c64o"/*.lzo "$BUILD/src/"
 rm -f "$BUILD/src/polydemo.cc" "$BUILD/src/vecdemo.cc" "$BUILD/src/vectest.cc"
 cp "$REPO/tools/shot.cc" "$REPO/tools/shot.h" "$REPO/tools/shot_pose.h" \
   "$REPO/tools/bench.cc" "$REPO/tools/bench.h" "$BUILD/src/"
