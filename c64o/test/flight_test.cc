@@ -1401,6 +1401,27 @@ static void test_ground_braking() {
   printf("  PASS\n\n");
 }
 
+// Standing on the ground fills the tank up; rolling along it does not.
+static void test_refuel_when_standing() {
+  printf("Running test_refuel_when_standing...\n");
+
+  flight_init_from_mission(0); // Parked on runway 1, with a full tank
+  assert(flight_speed == 0);
+  uint32_t full = flight_fuel;
+  flight_fuel = 0;
+  flight_advance();
+  assert(flight_fuel == full);
+
+  // Rolling at idle: nothing burnt, nothing added.
+  flight_speed = 0x0100;
+  flight_fuel = 1000;
+  flight_advance();
+  assert(flight_speed > 0);
+  assert(flight_fuel == 1000);
+
+  printf("  PASS\n\n");
+}
+
 // 12. Zero fuel flameout transition test
 static void test_zero_fuel_flameout_transition() {
   printf("Running test_zero_fuel_flameout_transition...\n");
@@ -4231,6 +4252,7 @@ int main(int argc, char **argv) {
   test_ground_deceleration_friction();
   test_ground_braking();
   test_zero_fuel_flameout_transition();
+  test_refuel_when_standing();
   test_vertical_dive_terminal_velocity_clamping();
   test_inverted_stall_and_nose_recovery();
   test_ground_roll_takeoff_abort();

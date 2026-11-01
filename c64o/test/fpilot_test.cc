@@ -8,8 +8,8 @@
 // runway 1's, in that order, selected as "TARGET" and "HOME BASE".
 //
 // flight.cc is linked as fpilot builds it, -D__FPILOT__, with fmission.cc.
-// What it asks opponent.cc - whether the targets are down - and what it tells
-// the message row are stubbed here.
+// What it asks opponent.cc - whether the targets are down - what it tells
+// the message row, and the guns it rearms are stubbed here.
 
 #include <stdio.h>
 #include <string.h>
@@ -20,6 +20,9 @@
 
 static bool _down = false;
 bool opponent_targets_down(void) { return _down; }
+
+static int _rearms = 0;
+void gun_rearm(void) { ++_rearms; }
 
 static const char *_msg = "";
 static int _msgs = 0;
@@ -102,6 +105,16 @@ int main() {
     CHECK(mission_completed[m] == kMissionCompleted, "mission %d: level %d after a second try",
           m + 1, mission_completed[m]);
   }
+
+  // Parked, as 02 starts, the guns are rearmed; rolling, they are not.
+  flight_init_from_mission(1);
+  _rearms = 0;
+  flight_advance();
+  CHECK(_rearms > 0, "parked: not rearmed");
+  flight_speed = 0x100;
+  _rearms = 0;
+  flight_advance();
+  CHECK(_rearms == 0, "rolling: rearmed %d times", _rearms);
 
   // The goals alone, nowhere near runway 1: one mark.
   mission_completed[0] = 0;

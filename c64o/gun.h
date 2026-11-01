@@ -17,6 +17,10 @@
 // No rounds in flight, the guns ready. With opponent_reset().
 void gun_reset(void);
 
+// Fills gun_ammo back up to what gun_reset() gives, marking it for a redraw
+// only if that changes it.
+void gun_rearm(void);
+
 // One model step, after opponent_step(): moves every round and hits what it
 // meets, then fires the next round if `trigger` is held.
 void gun_step(bool trigger);
@@ -49,6 +53,7 @@ extern bool gun_ammo_shown;
 #else
 
 inline void gun_reset(void) {}
+inline void gun_rearm(void) {}
 inline void gun_step(bool trigger) {}
 inline void gun_add_sprites(void) {}
 inline bool gun_tracer_up(void) { return false; }

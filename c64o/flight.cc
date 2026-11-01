@@ -4,6 +4,7 @@
 #include <stdlib.h>
 
 #include "fmath.h"
+#include "gun.h"
 #include "msg.h"
 #include "opponent.h"
 // For kSpriteDataCompressed / kSpriteScratchPath below. Nothing else here needs
@@ -258,6 +259,9 @@ static const uint32_t kFlightWpMaxAlt = 0x008000;
 // other constant here is measured against.
 static const int16_t kFlightTrimLift = 0x1000;
 static const uint8_t kFlightMinThrottle = 0x00;
+// A full tank: kMissionStartFuel's 0x22, as flight_init_from_mission() turns it
+// into fuel.
+static const uint32_t kFlightFullFuel = 0x21FFF;
 // kMaxThrottle lives in flight.h: sound.cc sizes its engine pitch table by it.
 
 #ifdef __FLIGHT_AOA__
@@ -474,7 +478,7 @@ void flight_init() {
   flight_events = 0;
   model_pending_events = 0;
   model_substep = 0;
-  flight_fuel = 0x21FFF;
+  flight_fuel = kFlightFullFuel;
   model_on_ground = false;
   flight_nav_point_x[0] = 0x2000;
   flight_nav_point_y[0] = 0x3F80;
@@ -1389,6 +1393,14 @@ void flight_advance() {
       }
       flight_fuel = 0;
       flight_throttle = 0;
+    }
+    // Standing on a runway - anywhere else on the ground is a crash, and a
+    // crash stops the model before it gets here: filled up, and in fpilot
+    // rearmed. A dry tank has cut the throttle, so it rolls to a stop and
+    // refuels too.
+    if (model_on_ground && flight_speed == 0) {
+      flight_fuel = kFlightFullFuel;
+      gun_rearm();
     }
 
 #ifdef __FLIGHT_AOA__

@@ -523,6 +523,20 @@ static void test_ammo(void) {
   CHECK(full % 10 == 0 && fired == full / 10, "%d rounds from %d", fired, full);
   gun_reset();
   CHECK(ammo() == full, "ammo %d after the next gun_reset()", ammo());
+
+  // gun_rearm() fills it back up, and asks for a redraw only when that
+  // changes it - it is called every step the aircraft stands on the ground.
+  gun_ammo_shown = true;
+  gun_rearm();
+  CHECK(ammo() == full && gun_ammo_shown, "full: rearm left ammo %d, redraw %d", ammo(),
+        !gun_ammo_shown);
+  step(false); // gun_reset() wants the trigger released first
+  for (int n = 0; n < 3 * kGunInterval; ++n) step(true);
+  CHECK(ammo() < full, "ammo %d after firing", ammo());
+  gun_ammo_shown = true;
+  gun_rearm();
+  CHECK(ammo() == full && !gun_ammo_shown, "spent: rearm left ammo %d, redraw %d", ammo(),
+        !gun_ammo_shown);
 }
 
 int main() {

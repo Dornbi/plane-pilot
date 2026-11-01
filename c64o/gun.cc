@@ -106,10 +106,17 @@ void gun_reset(void) {
   _gun_substep = 0;
   _gun_armed = false;
   gun_player_hits = 0;
-  for (uint8_t i = 0; i < kGunAmmoDigits; ++i) {
-    gun_ammo[i] = kGunAmmoStart[i];
-  }
+  gun_rearm();
   gun_ammo_shown = false;
+}
+
+void gun_rearm(void) {
+  for (uint8_t i = 0; i < kGunAmmoDigits; ++i) {
+    if (gun_ammo[i] != kGunAmmoStart[i]) {
+      gun_ammo[i] = kGunAmmoStart[i];
+      gun_ammo_shown = false;
+    }
+  }
 }
 
 // Axis c of the eye's step, `eye` being flight_eye_* on that axis: what it
