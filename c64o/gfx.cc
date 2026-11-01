@@ -529,11 +529,12 @@ inline void gfx_update_heading_bitmap(uint8_t heading) {
 static const char kGfxAmmoDigits[] = {
 #embed 80 4018 "fpanel.koa"
 };
-// The counter's window, row 18 columns 5-8.
-static char *const kGfxAmmoDest = (char *)0xE000 + 18 * 320 + 5 * 8;
+// The counter's window, row 18 columns 6-8.
+static const uint8_t kGfxAmmoColumn = 6;
+static char *const kGfxAmmoDest = (char *)0xE000 + 18 * 320 + kGfxAmmoColumn * 8;
 // The left view keeps the panel's first kCopyWidthChars columns, moved to the
 // right edge, so the window is still there with only its last digit cut off.
-static const uint8_t kGfxAmmoLeftDigits = kCopyWidthChars - 5;
+static const uint8_t kGfxAmmoLeftDigits = kCopyWidthChars - kGfxAmmoColumn;
 
 inline void gfx_update_ammo(void) {
   if (mem_debug_enabled || gun_ammo_shown) {

@@ -72,7 +72,7 @@ uint8_t gun_player_hits;
 // decimal step between the two. Ten a round, so the units digit stays 0 and
 // only the digits above it count. 50 rounds is about 20 s of fire: one every
 // kGunInterval model steps comes to 2.5-2.7 a second on the emulator.
-static const uint8_t kGunAmmoStart[kGunAmmoDigits] = {0, 5, 0, 0};
+static const uint8_t kGunAmmoStart[kGunAmmoDigits] = {5, 0, 0};
 static const uint8_t kGunAmmoTens = kGunAmmoDigits - 2;
 uint8_t gun_ammo[kGunAmmoDigits];
 bool gun_ammo_shown;

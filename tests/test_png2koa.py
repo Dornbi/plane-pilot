@@ -375,7 +375,7 @@ class TestShippedPanel(unittest.TestCase):
     # give the pairs the same colors (--pin-slots in the root Makefile).
     GLYPH_CELLS = ([(12, c) for c in range(22, 40)] + [(13, c) for c in range(40)]
                    + [(17, c) for c in range(17, 23)])
-    FPILOT_GLYPH_CELLS = [(18, c) for c in range(5, 9)]
+    FPILOT_GLYPH_CELLS = [(18, c) for c in range(6, 9)]
 
     def test_glyph_cells_share_one_slot_layout(self):
         for path in PANEL_KOAS:

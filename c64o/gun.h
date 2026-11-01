@@ -37,7 +37,7 @@ extern uint8_t gun_player_hits;
 // The player's rounds left, as the decimal digits the panel's ammo counter
 // shows, most significant first. gun_reset() fills them and every round fired
 // - one tracer, which stands for ten - takes ten; at zero the guns are silent.
-static const uint8_t kGunAmmoDigits = 4;
+static const uint8_t kGunAmmoDigits = 3;
 extern uint8_t gun_ammo[kGunAmmoDigits];
 
 // False once gun_ammo has changed since gfx_update_ammo() last drew it, or the

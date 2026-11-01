@@ -19,7 +19,7 @@ PANEL_FLAGS = --bg-color 0 --optimize-slots \
 	--pin-slots 1,12,15@17,17-22
 # fpilot's panel adds the ammo counter's window, which the digits are copied
 # into.
-FPANEL_FLAGS = $(PANEL_FLAGS) --pin-slots 1,12,15@18,5-8
+FPANEL_FLAGS = $(PANEL_FLAGS) --pin-slots 1,12,15@18,6-8
 
 # The programs c64o/Makefile builds. `make release` publishes these from
 # c64o/ (build output, gitignored) to bin/ (checked in, what README links to).
@@ -108,7 +108,7 @@ map-tiles-draft:
 # The --pin-slots cells are the other half of the same problem: gfx.cc copies
 # bitmap bytes from the off-screen head (row 12 cols 22-31, the ammo digits;
 # row 12 cols 32-39 and row 13, the heading strips) into the HDG window (row
-# 17 cols 17-22) and fpilot's AMMO window (row 18 cols 5-8). A copy carries
+# 17 cols 17-22) and fpilot's AMMO window (row 18 cols 6-8). A copy carries
 # bit pairs, not colors, so every one of those cells has to map 01, 10 and 11
 # to white, grey and light grey. The encoder only does that by itself when a
 # cell happens to use all three; the digit 0 has no grey in it.
