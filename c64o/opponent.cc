@@ -290,6 +290,11 @@ __striped static const uint16_t kOpponentMaxSpeed[2] = {2800, 2000};
 static_assert(kOpponentClimbCost % kOpponentLevelAccel == 0,
               "the speed moves in whole kOpponentLevelAccel (_opponent_fly())");
 
+// The pitch drawn by climb level + 3: the sine and cosine of the slope's
+// angle, atan(1/8), atan(1/4) and atan(1/2), 8.8.
+static const int8_t kOpponentPitchSin[7] = {-114, -62, -32, 0, 32, 62, 114};
+__striped static const int16_t kOpponentPitchCos[7] = {229, 248, 254, 256, 254, 248, 229};
+
 // The bank while turning, drawn only: cos and sin of 30 degrees, 8.8.
 static const int16_t kOpponentBankCos = 222;
 static const int16_t kOpponentBankSin = 128;
@@ -346,6 +351,10 @@ static int8_t _opponent_bank[kOpponentMax];
 // climb level, -3 to 3: below 0 a descent.
 __striped static int16_t _opponent_speed[kOpponentMax];
 static int8_t _opponent_climb[kOpponentMax];
+// The climb level drawn: the climb, once it has lasted two whole steps, as
+// the bank holds a turn, so that a one-step correction does not flick the
+// nose. Held, not levelled, in between.
+static int8_t _opponent_pitch[kOpponentMax];
 // Counts model steps, for the turns at a larger flight_step_shift.
 static uint8_t _opponent_substep;
 static planes_state_t _opponent_planes[kOpponentMax];
@@ -512,6 +521,7 @@ void opponent_reset(uint8_t mission) {
     _opponent_bank[i] = 0;
     _opponent_speed[i] = p->speed;
     _opponent_climb[i] = 0;
+    _opponent_pitch[i] = 0;
     _opponent_hits[i] = 0;
   }
   _opponent_track();
@@ -572,6 +582,9 @@ static __noinline void _opponent_fly(uint8_t i, int8_t want, bool whole) {
       speed -= kOpponentLevelAccel;
     }
     _opponent_speed[i] = (int16_t)speed + kOpponentClimbSpeed[climb + 3];
+    if (climb == _opponent_climb[i]) {
+      _opponent_pitch[i] = climb;
+    }
     _opponent_climb[i] = climb;
   }
   if (climb != 0) {
@@ -775,32 +788,51 @@ static __noinline bool _opponent_off_screen(void) {
 // reads them: only their screen components, y and z, which are each a dot
 // product with world_cam's left and up. The heading is level, so the front and
 // left have no z and the up is the world's, whose products are world_cam's own
-// z components. Then the bank, while turning: left and up turned about the
-// front by 30 degrees, towards the turn.
+// z components. Then the pitch, while climbing or descending: front and up
+// turned about the left by the slope's angle (kOpponentPitchSin/Cos), the
+// left staying level. Then the bank, while turning: left and up turned about
+// the front by 30 degrees, towards the turn.
 #pragma bss(tscratch)
 static mat3_t _opponent_axes_m;
 static planes_frame_t _opponent_f;
+// The pair _opponent_rot() turns, statics rather than parameters or locals:
+// oscar64's zero page temporaries have no room to spare on this chain.
+static int16_t _opponent_ra, _opponent_rb;
 #pragma bss(bss)
+
+// Turns the pair (_opponent_ra, _opponent_rb) by the angle whose cosine and
+// sine, 8.8, are c and s: a' = c a + s b, b' = c b - s a. The pitch turns
+// front and up so, and the bank left and up.
+static __noinline void _opponent_rot(int16_t c, int16_t s) {
+  int16_t a = _opponent_ra;
+  _opponent_ra = _opponent_dot(a, c, _opponent_rb, s);
+  _opponent_rb = _opponent_dot(_opponent_rb, c, a, -s);
+}
 
 static void _opponent_axes(uint8_t i) {
   int16_t hx = _opponent_head[i].x, hy = _opponent_head[i].y;
   int8_t turn = _opponent_bank[i];
-  int16_t sn = turn > 0 ? kOpponentBankSin : -kOpponentBankSin;
+  int16_t sn = turn > 0 ? -kOpponentBankSin : kOpponentBankSin;
+  int8_t pitch = _opponent_pitch[i];
   // y, then z: the products with world_cam's left, then with its up.
   const vec3_t *row = &world_cam.left;
   int16_t *out = &_opponent_axes_m.front.y;
   for (uint8_t c = 0; c < 2; ++c, ++row, ++out) {
-    int16_t l = _opponent_dot(row->x, -hy, row->y, hx);
-    int16_t u = row->z;
-    out[0] = _opponent_dot(row->x, hx, row->y, hy);
-    if (turn != 0) {
-      // Banked left, the left wing goes down and the top towards the left.
-      int16_t l0 = l;
-      l = _opponent_dot(l0, kOpponentBankCos, u, -sn);
-      u = _opponent_dot(u, kOpponentBankCos, l0, sn);
+    // Nose up, the front rises and the top tips back: front (c h, s), up
+    // (-s h, c), h the level heading.
+    _opponent_ra = _opponent_dot(row->x, hx, row->y, hy);
+    _opponent_rb = row->z;
+    if (pitch != 0) {
+      _opponent_rot(kOpponentPitchCos[pitch + 3], kOpponentPitchSin[pitch + 3]);
     }
-    out[3] = l;
-    out[6] = u;
+    out[0] = _opponent_ra;
+    // Banked left, the left wing goes down and the top towards the left.
+    _opponent_ra = _opponent_dot(row->x, -hy, row->y, hx);
+    if (turn != 0) {
+      _opponent_rot(kOpponentBankCos, sn);
+    }
+    out[3] = _opponent_ra;
+    out[6] = _opponent_rb;
   }
 }
 

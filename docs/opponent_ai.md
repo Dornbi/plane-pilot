@@ -702,3 +702,28 @@ from step 8 on. Steps 9–13 are independent of each other once step 9's
   406 B against §9's estimate of 150–200. oscar64's code for this kind of
   16-bit logic runs about twice what §9 assumed, so the later estimates
   are likely low too.
+
+### Step 4: the pitch drawn
+
+- **Code.**
+  - `_opponent_pitch[i]` follows the climb once it has lasted two whole
+    steps. In between it holds the old value rather than levelling.
+  - `_opponent_axes()` turns front and up by the pitch, then left and up by
+    the bank.
+  - Both turns go through one helper, `_opponent_rot()`, which turns a
+    static pair `_opponent_ra/rb`. The bank used to be its own copy of the
+    same code.
+- **What didn't work first.** Locals for the pitch's sine and cosine took
+  `_opponent_draw()` onto oscar64's software stack: a 9 B frame and slower
+  code, costing 206 B in all. Making them statics didn't help, because the
+  optimizer moved them back into temporaries. The shared helper and its
+  static pair fixed it.
+- **Tests.**
+  - The pitch appears on a climb's second whole step, and goes on a level
+    flight's second.
+  - At every pitch level, bank and 15° of heading, the axes read back
+    orthonormal: lengths within 1.4 of 256 and products within 1.8. The
+    front's z is the pitch's sine, and the left stays level unless banked.
+- **Not done.** No VICE check yet; nothing climbs in the missions until
+  step 6.
+- **RAM.** fpilot 2,917 → 2,766 B free (largest run 2,158).

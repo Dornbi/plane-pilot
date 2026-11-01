@@ -759,6 +759,66 @@ static void test_flight_model(void) {
     printf("  model: a 300 m %s in %d steps\n", what, steps);
   }
 
+  // The pitch drawn: the climb's, once it has lasted two whole steps, and
+  // held, not levelled, in between.
+  fly(0, &kHigh);
+  _opponent_z[0] -= 600 << 8;
+  _opponent_pitch[0] = 0;
+  opponent_step();
+  CHECK(_opponent_climb[0] == 1 && _opponent_pitch[0] == 0, "pitch: drawn on the climb's first step");
+  opponent_step();
+  CHECK(_opponent_pitch[0] == 1, "pitch: not drawn on the climb's second step");
+  _opponent_z[0] = (int32_t)kHigh.z << 8;
+  opponent_step();
+  CHECK(_opponent_climb[0] == 0 && _opponent_pitch[0] == 1, "pitch: levelled on the first step");
+  opponent_step();
+  CHECK(_opponent_pitch[0] == 0, "pitch: still up on the second level step");
+
+  // The axes drawn, at every pitch, bank and a sweep of headings: read back
+  // whole by putting the camera's rows on the world's axes, x and y, then z,
+  // they are orthonormal to within rounding, the front's z is the pitch's
+  // sine, and the left stays level unless banked.
+  {
+    const mat3_t saved = world_cam;
+    double worst_len = 0, worst_dot = 0;
+    for (int pitch = -3; pitch <= 3; ++pitch) {
+      for (int bank = -1; bank <= 1; ++bank) {
+        for (int deg = 0; deg < 360; deg += 15) {
+          _opponent_head[0] = make_vector((int16_t)lround(256 * cos(deg * M_PI / 180)),
+                                          (int16_t)lround(256 * sin(deg * M_PI / 180)), 0);
+          _opponent_pitch[0] = (int8_t)pitch;
+          _opponent_bank[0] = (int8_t)bank;
+          mat3_t xy, zz;
+          world_cam.left = make_vector(256, 0, 0);
+          world_cam.up = make_vector(0, 256, 0);
+          _opponent_axes(0, &xy);
+          world_cam.left = make_vector(0, 0, 256);
+          _opponent_axes(0, &zz);
+          double ax[3][3] = {{(double)xy.front.y, (double)xy.front.z, (double)zz.front.y},
+                             {(double)xy.left.y, (double)xy.left.z, (double)zz.left.y},
+                             {(double)xy.up.y, (double)xy.up.z, (double)zz.up.y}};
+          for (int a = 0; a < 3; ++a) {
+            double len = sqrt(ax[a][0] * ax[a][0] + ax[a][1] * ax[a][1] + ax[a][2] * ax[a][2]);
+            worst_len = std::max(worst_len, fabs(len - 256));
+            for (int b2 = a + 1; b2 < 3; ++b2) {
+              double d = (ax[a][0] * ax[b2][0] + ax[a][1] * ax[b2][1] + ax[a][2] * ax[b2][2]) / 256;
+              worst_dot = std::max(worst_dot, fabs(d));
+            }
+          }
+          CHECK(zz.front.y == kOpponentPitchSin[pitch + 3],
+                "axes: pitch %d heading %d, the front's z is %d", pitch, deg, zz.front.y);
+          CHECK(bank != 0 || zz.left.y == 0, "axes: pitch %d heading %d, unbanked left's z is %d",
+                pitch, deg, zz.left.y);
+        }
+      }
+    }
+    CHECK(worst_len <= 5 && worst_dot <= 5, "axes: lengths %.1f off, products %.1f off",
+          worst_len, worst_dot);
+    printf("  axes: lengths within %.1f, products within %.1f, of 256\n", worst_len, worst_dot);
+    world_cam = saved;
+    _opponent_pitch[0] = _opponent_bank[0] = 0;
+  }
+
   // Too slow to climb, too fast to descend: level until the speed is back
   // inside the range.
   for (int dir = 1; dir >= -1; dir -= 2) {
