@@ -145,6 +145,24 @@ static const shot_step_t kShotScript[] = {
     {1, SHOT_STRIKE},
     {4000, KSCAN_SPACE},
 };
+#elif __SHOT__ == 11 || __SHOT__ == 12
+// Mission 05, Head on, flown live and hands off: straight on at cruise while
+// the two hunters come in from 4.6 km, meet the player head-on at about
+// frame 280 and turn after it. Scene 11 looks ahead, at the approach; scene
+// 12 holds the back view from frame 300, at the chase. tools/bench.sh times
+// both: the hunters' manoeuvres and redraws against scene 9's pass.
+static const shot_step_t kShotScript[] = {
+    {100, SHOT_IDLE},
+    {1, KSCAN_K},      {6, SHOT_IDLE},
+    {1, KSCAN_K},      {6, SHOT_IDLE},
+    {1, KSCAN_K},      {6, SHOT_IDLE},
+    {1, KSCAN_K},      {6, SHOT_IDLE},
+    {1, KSCAN_RETURN},
+#if __SHOT__ == 12
+    {300, SHOT_IDLE},
+    {4000, KSCAN_4},
+#endif
+};
 #elif defined(SHOT_POSED)
 
 // --- The posed scenes ------------------------------------------------------

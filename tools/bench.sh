@@ -53,7 +53,10 @@ OSCAR64_INCLUDE="${OSCAR64_INCLUDE:-$REPO/../../oscar64-main/include}"
 
 # name, tools/shot.cc scene number, frames skipped, frames timed, live.
 # Shootdown is scramble with the first opponent hit three times on its pass
-# and downed (tools/shot.cc scene 10): the smoke and the hit logic.
+# and downed (tools/shot.cc scene 10): the smoke and the hit logic. Headon
+# and chase are mission 05 (scenes 11 and 12): the two hunters closing from
+# ~1.5 km to ~300 m ahead, then behind the player, turning after it, in the
+# back view.
 # Scramble's window is frames 48-175 of the mission: the close pass, from
 # just before the first opponent comes into view overhead, overtaking, to
 # both well ahead and shrinking. The frames cost most there (a sweep in
@@ -66,6 +69,8 @@ town     6  40  16 0
 lake     7  40  16 0
 scramble 9  48 128 1
 shootdown 10 48 128 1
+headon   11 200 64 1
+chase    12 330 128 1
 '
 
 command -v oscar64 >/dev/null || { echo "bench: oscar64 not on PATH" >&2; exit 1; }

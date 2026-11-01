@@ -200,6 +200,10 @@ static const uint16_t kOpponent3000Ft = 0x0600;
 // waypoints are 32 units apart straight ahead, and the fourth is where each
 // started, 128 units on: the world repeats every 128 units along x, so they
 // fly north for ever.
+//
+// 05, Head on: two fighters hunting from the start, at 2,000, side by side
+// 64 m apart, 4.6 km north of the player and 50 m above its 3,000 ft,
+// heading south at it. No waypoints: hunters steer for the player.
 static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
     {{kOpponentOneWay | kOpponentFighter | kOpponentPath, 4, 3, 0, 1750, 0x7E00, 0x6000, -256,
       0, kOpponent5000Ft},
@@ -216,6 +220,10 @@ static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
       0x3FE0, 256, 0, 0x0060},
      {kOpponentLoop | kOpponentFighter | kOpponentPath, 4, kOpponentNoFail, 14, 1500, 0x1900,
       0x3F20, 256, 0, 0x0060}},
+    {{kOpponentLoop | kOpponentFighter | kOpponentHunt, 0, kOpponentNoFail, 0, 2000, 0x5400,
+      0x9040, -256, 0, 0x0660},
+     {kOpponentLoop | kOpponentFighter | kOpponentHunt, 0, kOpponentNoFail, 0, 2000, 0x5400,
+      0x90C0, -256, 0, 0x0660}},
 };
 
 // Every path's waypoints, at its opponent_path_t::wp: 01's recon, 02's two
@@ -251,7 +259,8 @@ static const char *const kOpponentFailText[2] = {
 // radius, a quarter circle in 50 steps. At a larger shift the same angle
 // once every 1 << shift steps, not a smaller one every step: below 8 the
 // angle's product with a small component truncates to nothing, and the turn
-// would come out slower the faster the machine.
+// would come out slower the faster the machine. A fighter in ATTACK turns
+// twice as fast, `turn` 2 rather than 1: a turn of about half the radius.
 static const int16_t kOpponentTurn = 8;
 // Closer than this on both axes, in half metres, and the waypoint is
 // reached. No less than the turn's radius: a waypoint inside the circle the
@@ -295,9 +304,18 @@ static_assert(kOpponentClimbCost % kOpponentLevelAccel == 0,
 static const int8_t kOpponentPitchSin[7] = {-114, -62, -32, 0, 32, 62, 114};
 __striped static const int16_t kOpponentPitchCos[7] = {229, 248, 254, 256, 254, 248, 229};
 
-// The bank while turning, drawn only: cos and sin of 30 degrees, 8.8.
-static const int16_t kOpponentBankCos = 222;
-static const int16_t kOpponentBankSin = 128;
+// The bank while turning, drawn only, by the turn + 2: cos and sin of 30
+// degrees for a path's turn, 60 for a hunter's, 8.8. The sine is the one
+// _opponent_rot() takes, turning left and up towards the turn.
+__striped static const int16_t kOpponentBankCos[5] = {128, 222, 256, 222, 128};
+__striped static const int16_t kOpponentBankSin[5] = {222, 128, 0, -128, -222};
+
+// ATTACK's floors (docs/opponent_ai.md §5), in half metres: a hunter climbs
+// back above kOpponentFloor, and stops descending within kOpponentFloorMargin
+// of it - more than a step's steepest descent, ~11 at the fighter's
+// greatest speed - so it never goes under.
+static const int16_t kOpponentFloor = 120;
+static const int16_t kOpponentFloorMargin = 16;
 
 // The pixel size, planes_frame_t::d, from which an aircraft is drawn in
 // kColorOpponentNear: about 620 m at kOpponentKn, and below
@@ -601,6 +619,45 @@ static __noinline void _opponent_fly(uint8_t i, int8_t want, bool whole) {
   }
 }
 
+// The climb level a hunting slot i wants, for the player dz above it and
+// dx, dy along the ground, all cut down as opponent_step() cuts them for the
+// turn, dx and dy to six bits (docs/opponent_ai.md §5): the level whose
+// slope comes nearest the player's, from dz against the distance along the
+// ground, max + min / 2 of |dx| and |dy|, all in bytes. And above ATTACK's
+// floor.
+static __noinline int8_t _opponent_want(uint8_t i, int8_t dx, int8_t dy, int16_t dz) {
+  uint16_t az16 = (uint16_t)_opponent_abs(dz);
+  uint8_t az = az16 > 255 ? 255 : (uint8_t)az16;
+  uint8_t ax = (uint8_t)(dx < 0 ? -dx : dx), ay = (uint8_t)(dy < 0 ? -dy : dy);
+  // At most 94: 63 + 31.
+  uint8_t h = ax > ay ? (uint8_t)(ax + (ay >> 1)) : (uint8_t)(ay + (ax >> 1));
+  uint8_t h16 = h >> 4, h8 = h >> 3;
+  // From a slope of 1/16, between level 1's 1/8 and none; 3/16, between
+  // 1/8 and 1/4; and 3/8, between 1/4 and 1/2.
+  int8_t want = 0;
+  if (az > h16) {
+    want = 1;
+    if (az > (uint8_t)(h8 + h16)) {
+      want = 2;
+      if (az > (uint8_t)((h >> 2) + h8)) {
+        want = 3;
+      }
+    }
+  }
+  if (dz < 0) {
+    want = -want;
+  }
+  int16_t z = (int16_t)(_opponent_z[i] >> 8);
+  if (z < kOpponentFloor) {
+    if (want < 1) {
+      want = 1;
+    }
+  } else if (want < 0 && z < kOpponentFloor + kOpponentFloorMargin) {
+    want = 0;
+  }
+  return want;
+}
+
 static void _opponent_forget(uint8_t i);
 
 // The mission has failed: said once, and WP_TARGETS_DOWN never comes.
@@ -630,31 +687,53 @@ void opponent_step(void) {
       continue;
     }
     vec3_t *h = &_opponent_head[i];
+    uint8_t bit = _opponent_bit(i);
 
-    // The waypoint, relative, in half metres. Reached, and the next one is
-    // steered for from the next step on.
-    uint8_t w = _opponent_next[i];
-    uint8_t k = (uint8_t)(p->wp + w);
-    int16_t dx = _opponent_toward(kOpponentWpX[k], _opponent_x[i]);
-    int16_t dy = _opponent_toward(kOpponentWpY[k], _opponent_y[i]);
-    if (_opponent_abs(dx) < kOpponentReach &&
-        _opponent_abs(dy) < kOpponentReach) {
-      if (w == p->fail) {
-        _opponent_fail();
-      }
-      if (++w == p->count) {
-        if ((p->kind & kOpponentKindMask) == kOpponentOneWay) {
-          // Off the map: gone, and nothing of it on screen.
-          _opponent_on[i] = false;
-          if (_opponent_smoke == _opponent_bit(i)) {
-            _opponent_smoke = kOpponentNoSmoke;
-          }
-          _opponent_forget(i);
-          continue;
+    // What it steers for, relative, in half metres: a fighter in ATTACK, the
+    // player; anything else its waypoint at its path's height.
+    bool hunt = (_opponent_attack & bit) && !(p->kind & kOpponentBomber);
+    int16_t dx, dy, dz;
+    if (hunt) {
+      dx = _opponent_toward((uint16_t)(flight_eye_x >> 8), _opponent_x[i]);
+      dy = _opponent_toward((uint16_t)(flight_eye_y >> 8), _opponent_y[i]);
+      dz = (int16_t)(flight_eye_z >> 8);
+    } else {
+      // Reached, and the next one is steered for from the next step on.
+      uint8_t w = _opponent_next[i];
+      uint8_t k = (uint8_t)(p->wp + w);
+      dx = _opponent_toward(kOpponentWpX[k], _opponent_x[i]);
+      dy = _opponent_toward(kOpponentWpY[k], _opponent_y[i]);
+      dz = (int16_t)p->z;
+      if (_opponent_abs(dx) < kOpponentReach &&
+          _opponent_abs(dy) < kOpponentReach) {
+        if (w == p->fail) {
+          _opponent_fail();
         }
-        w = 0;
+        if (++w == p->count) {
+          if ((p->kind & kOpponentBehaviourMask) == kOpponentPass) {
+            // The pass is over: the player, from the next step on.
+            _opponent_attack |= bit;
+          } else if ((p->kind & kOpponentKindMask) == kOpponentOneWay) {
+            // Off the map: gone, and nothing of it on screen.
+            _opponent_on[i] = false;
+            if (_opponent_smoke == bit) {
+              _opponent_smoke = kOpponentNoSmoke;
+            }
+            _opponent_forget(i);
+            continue;
+          }
+          w = 0;
+        }
+        _opponent_next[i] = w;
       }
-      _opponent_next[i] = w;
+    }
+    dz -= (int16_t)(_opponent_z[i] >> 8);
+    // On a path, up or down at level 1 to the path's height.
+    int8_t want = 0;
+    if (dz > kOpponentPathBand) {
+      want = 1;
+    } else if (dz < -kOpponentPathBand) {
+      want = -1;
     }
 
     // Steer: the waypoint's side of the nose, from the cross product of the
@@ -667,6 +746,10 @@ void opponent_step(void) {
     while (_opponent_abs(dx) > 63 || _opponent_abs(dy) > 63) {
       dx >>= 1;
       dy >>= 1;
+      dz >>= 1;
+    }
+    if (hunt) {
+      want = _opponent_want(i, (int8_t)dx, (int8_t)dy, dz);
     }
     dx <<= 8;
     dy <<= 8;
@@ -676,12 +759,15 @@ void opponent_step(void) {
     int16_t across = _opponent_abs(cross);
     int8_t turn = 0;
     if (dot < 0 || across > (dot >> 5)) {
-      turn = cross >= 0 ? 1 : -1;
+      turn = (int8_t)(hunt ? 2 : 1);
+      if (cross < 0) {
+        turn = -turn;
+      }
       // The small-angle turn of vec_turn3_xy(), anticlockwise for a left
       // turn: h += s * left. The step lengthens the vector a little, and the
       // normalisation puts it back.
       if (turns) {
-        int16_t s = turn > 0 ? kOpponentTurn : -kOpponentTurn;
+        int16_t s = turn * kOpponentTurn;
         h->x = hx - vec_fastmul8p8(s, hy);
         h->y = hy + vec_fastmul8p8(s, hx);
         vec_normalize(h);
@@ -690,9 +776,7 @@ void opponent_step(void) {
     _opponent_bank[i] = turn == _opponent_turn[i] ? turn : 0;
     _opponent_turn[i] = turn;
 
-    // Up or down to the path's height, at level 1 only.
-    int16_t dz = (int16_t)p->z - (int16_t)(_opponent_z[i] >> 8);
-    _opponent_fly(i, dz > kOpponentPathBand ? 1 : dz < -kOpponentPathBand ? -1 : 0, turns);
+    _opponent_fly(i, want, turns);
     // Into the ground, however unlikely: down, as if shot down.
     if (_opponent_z[i] <= 0) {
       _opponent_destroy(i, "ENEMY CRASHED");
@@ -825,8 +909,7 @@ static __noinline void _opponent_rot(int16_t c, int16_t s) {
 
 static void _opponent_axes(uint8_t i) {
   int16_t hx = _opponent_head[i].x, hy = _opponent_head[i].y;
-  int8_t turn = _opponent_bank[i];
-  int16_t sn = turn > 0 ? -kOpponentBankSin : kOpponentBankSin;
+  uint8_t turn = (uint8_t)(_opponent_bank[i] + 2);
   int8_t pitch = _opponent_pitch[i];
   // y, then z: the products with world_cam's left, then with its up.
   const vec3_t *row = &world_cam.left;
@@ -842,8 +925,8 @@ static void _opponent_axes(uint8_t i) {
     out[0] = _opponent_ra;
     // Banked left, the left wing goes down and the top towards the left.
     _opponent_ra = _opponent_dot(row->x, -hy, row->y, hx);
-    if (turn != 0) {
-      _opponent_rot(kOpponentBankCos, sn);
+    if (turn != 2) {
+      _opponent_rot(kOpponentBankCos[turn], kOpponentBankSin[turn]);
     }
     out[3] = _opponent_ra;
     out[6] = _opponent_rb;

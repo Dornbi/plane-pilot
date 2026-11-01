@@ -28,7 +28,7 @@ enum MissionWaypointConstraint {
 // in pmission.cc, ppilot's. Only the two counts below differ.
 #ifdef __FPILOT__
 static const uint8_t kMissionWpCount = 2;
-static const uint8_t kMissionCount = 4;
+static const uint8_t kMissionCount = 5;
 #else
 static const uint8_t kMissionWpCount = 16;
 static const uint8_t kMissionCount = 10;

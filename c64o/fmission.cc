@@ -3,10 +3,11 @@
 // fpilot's missions. The tables are pmission.cc's, with the same names and the
 // same encoding - see mission.h - so everything that reads them is shared.
 //
-// Four interceptions, the last the scramble fpilot started with. What each
-// sends against the player is opponent.cc's kOpponentPaths, and what fails
-// it, opponent.cc too. The goal is the same for all four, so they share one
-// slice of the waypoints: every aircraft down (WP_TARGETS_DOWN), then home.
+// Four interceptions, the fourth the scramble fpilot started with, and a
+// head-on meeting with two hunting fighters. What each sends against the
+// player is opponent.cc's kOpponentPaths, and what fails it, opponent.cc
+// too. The goal is the same for all five, so they share one slice of the
+// waypoints: every aircraft down (WP_TARGETS_DOWN), then home.
 // Navpoint 1 is on the targets, wherever they are - the one, or midway
 // between two - and navpoint 2 is runway 1. flight.cc names them by number
 // when they are selected, TARGET and HOME BASE, so every mission keeps that
@@ -36,12 +37,14 @@ const uint8_t kMissionWpBegin[kMissionCount] = {
     kWaypointTargets, // 02
     kWaypointTargets, // 03
     kWaypointTargets, // 04
+    kWaypointTargets, // 05
 };
 const uint8_t kMissionWpEnd[kMissionCount] = {
     kWaypointLanded1 + 1, // 01
     kWaypointLanded1 + 1, // 02
     kWaypointLanded1 + 1, // 03
     kWaypointLanded1 + 1, // 04
+    kWaypointLanded1 + 1, // 05
 };
 
 const char *const kMissionTitles[kMissionCount] = {
@@ -49,6 +52,7 @@ const char *const kMissionTitles[kMissionCount] = {
     "02 BOMBER RAID",     // 02
     "03 AMBUSH",          // 03
     "04 SCRAMBLE",        // 04
+    "05 HEAD ON",         // 05
 };
 
 const char *const kMissionDesc[kMissionCount] = {
@@ -60,6 +64,8 @@ const char *const kMissionDesc[kMissionCount] = {
     "THE PARKED PLANES.",                 //
     "BANDITS ARE ATTACKING THE FIELD.\n"  // 04
     "DEFEND IT AS QUICKLY AS YOU CAN!",   //
+    "TWO FIGHTERS ARE COMING STRAIGHT\n"  // 05
+    "AT YOU. SHOOT THEM DOWN!",           //
 };
 
 // Where each starts: close enough to its targets that they are on screen,
@@ -70,12 +76,14 @@ const char *const kMissionDesc[kMissionCount] = {
 // under the recon's way in; 03 at 1,000 ft heading east, 1.8 km west of the
 // parked aircraft at runway 2, midway between them. 02 and 04 scramble: on
 // runway 1 heading north, engine at idle, the bombers coming south towards
-// it in 02, the bandits already about in 04.
+// it in 02, the bandits already about in 04. 05 in the air at cruise at
+// 3,000 ft heading north, the hunters coming south at it from 4.6 km.
 const uint8_t kMissionStartX[kMissionCount] = {
     0x5C, // 01
     0x1C, // 02
     0x5D, // 03
     0x1C, // 04
+    0x30, // 05
 };
 
 const uint8_t kMissionStartY[kMissionCount] = {
@@ -83,6 +91,7 @@ const uint8_t kMissionStartY[kMissionCount] = {
     0x3F, // 02
     0xCE, // 03
     0x3F, // 04
+    0x90, // 05
 };
 
 const uint8_t kMissionStartTurns[kMissionCount] = {
@@ -90,6 +99,7 @@ const uint8_t kMissionStartTurns[kMissionCount] = {
     0, // 02
     3, // 03
     0, // 04
+    0, // 05
 };
 
 const uint8_t kMissionStartZ[kMissionCount] = {
@@ -97,6 +107,7 @@ const uint8_t kMissionStartZ[kMissionCount] = {
     0x00, // 02
     0x02, // 03
     0x00, // 04
+    0x06, // 05
 };
 
 const uint8_t kMissionStartSpeed[kMissionCount] = {
@@ -104,6 +115,7 @@ const uint8_t kMissionStartSpeed[kMissionCount] = {
     0x00, // 02
     0x88, // 03
     0x00, // 04
+    0x88, // 05
 };
 
 const uint8_t kMissionStartThrottle[kMissionCount] = {
@@ -111,6 +123,7 @@ const uint8_t kMissionStartThrottle[kMissionCount] = {
     0x00, // 02
     0x12, // 03
     0x00, // 04
+    0x12, // 05
 };
 
 // About 15 minutes at full throttle. The longest way home, from runway 2 in
@@ -120,6 +133,7 @@ const uint8_t kMissionStartFuel[kMissionCount] = {
     0x22, // 02
     0x22, // 03
     0x22, // 04
+    0x22, // 05
 };
 
 const uint8_t kMissionWindX[kMissionCount] = {
@@ -127,6 +141,7 @@ const uint8_t kMissionWindX[kMissionCount] = {
     0x00, // 02
     0x00, // 03
     0x00, // 04
+    0x00, // 05
 };
 
 const uint8_t kMissionWindY[kMissionCount] = {
@@ -134,6 +149,7 @@ const uint8_t kMissionWindY[kMissionCount] = {
     0x00, // 02
     0x00, // 03
     0x00, // 04
+    0x00, // 05
 };
 
 uint8_t mission_completed[kMissionCount] = {
@@ -141,4 +157,5 @@ uint8_t mission_completed[kMissionCount] = {
     0, // 02
     0, // 03
     0, // 04
+    0, // 05
 };

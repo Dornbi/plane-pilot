@@ -686,17 +686,21 @@ static void test_paths(void) {
   world_cam.left = make_vector(0, 256, 0);
   world_cam.up = make_vector(0, 0, 256);
   _opponent_head[0] = make_vector(256, 0, 0);
-  for (int t = -1; t <= 1; ++t) {
+  // A path's turn, +-1, banks 30 degrees, a hunter's, +-2, 60.
+  for (int t = -2; t <= 2; ++t) {
     _opponent_bank[0] = (int8_t)t;
     mat3_t a;
     _opponent_axes(0, &a);
+    int sg = (t > 0) - (t < 0);
+    int sn = t == 0 ? 0 : abs(t) == 1 ? 128 : 222;
+    int cs = t == 0 ? 256 : abs(t) == 1 ? 222 : 128;
     CHECK(a.front.y == 0 && a.front.z == 0, "bank %d: the front moved, %d %d", t, a.front.y,
           a.front.z);
-    CHECK(a.left.z == -t * kOpponentBankSin && a.up.y == t * kOpponentBankSin,
-          "bank %d: left.z %d, up.y %d", t, a.left.z, a.up.y);
-    CHECK(a.left.y == (t ? kOpponentBankCos : 256) && a.up.z == (t ? kOpponentBankCos : 256),
-          "bank %d: left.y %d, up.z %d", t, a.left.y, a.up.z);
+    CHECK(a.left.z == -sg * sn && a.up.y == sg * sn, "bank %d: left.z %d, up.y %d", t, a.left.z,
+          a.up.y);
+    CHECK(a.left.y == cs && a.up.z == cs, "bank %d: left.y %d, up.z %d", t, a.left.y, a.up.z);
   }
+  _opponent_bank[0] = 0;
 }
 
 // --- 6b. The flight model ---------------------------------------------------------
@@ -894,6 +898,7 @@ static void test_missions(void) {
         {{kOpponentBomber, kOpponentPath}, {kOpponentBomber, kOpponentPath}},
         {{kOpponentFighter, kOpponentPath}, {kOpponentFighter, kOpponentPath}},
         {{kOpponentFighter, kOpponentPath}, {kOpponentFighter, kOpponentPath}},
+        {{kOpponentFighter, kOpponentHunt}, {kOpponentFighter, kOpponentHunt}},
     };
     for (int m = 0; m < kMissionCount; ++m) {
       opponent_reset((uint8_t)m);
@@ -1184,6 +1189,141 @@ static void test_missions(void) {
   }
 }
 
+// --- 8. Hunting ----------------------------------------------------------------------
+//
+// docs/opponent_ai.md §5: a fighter in ATTACK steers for the eye, at the
+// climb level that points it there, and keeps above kOpponentFloor. The eye
+// is moved here by hand, straight and level at the player's half-throttle
+// trim, 1,476.
+
+static const opponent_path_t kHunter = {kOpponentLoop | kOpponentFighter | kOpponentHunt, 0,
+                                        kOpponentNoFail, 0, 2000, 0x2000, 0x8080, 256, 0,
+                                        0x0600};
+// kSquare's lap, once, then the player.
+static const opponent_path_t kSquarePass = {kOpponentLoop | kOpponentFighter | kOpponentPass, 4,
+                                            kOpponentNoFail, kOpponentWpCount, 1500, 0x0A00,
+                                            0x6200, 256, 0, 0x0700};
+
+static void hunt(int slot, const opponent_path_t *p) {
+  fly(slot, p);
+  _opponent_attack |= _opponent_bit((uint8_t)slot);
+}
+
+// Half metres from slot i to the eye, and how far ahead of it the eye is
+// along x, north; the short way round x's 128 units.
+static double to_eye(int i, double *ahead) {
+  double dx = (double)(flight_eye_x - _opponent_x[i]) / 256.0;
+  double dy = (double)(flight_eye_y - _opponent_y[i]) / 256.0;
+  double dz = (double)(flight_eye_z - _opponent_z[i]) / 256.0;
+  dx = fmod(dx + 16384.0 + 4 * 32768.0, 32768.0) - 16384.0;
+  if (ahead) *ahead = dx;
+  return sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+static void test_hunting(void) {
+  flight_step_shift = 0;
+  kFlightSubstepMask = 0;
+  flight_paused = false;
+  flight_status = FLIGHT_ONGOING;
+  _msgs = 0;
+
+  // The chase: from 2 km behind and 300 m below the player, then from 300 m
+  // above; caught, within 300 m behind it and within 50 m of its height,
+  // inside 3.5 min.
+  for (int dir = -1; dir <= 1; dir += 2) {
+    opponent_reset(0);
+    _opponent_on[0] = false;
+    hunt(1, &kHunter);
+    flight_eye_x = _opponent_x[1] + (4000 << 8);
+    flight_eye_y = _opponent_y[1];
+    flight_eye_z = _opponent_z[1] - dir * (600 << 8);
+    int caught = -1, steep = 0;
+    for (int n = 0; n < (int)(210 * 6.25) && caught < 0; ++n) {
+      flight_eye_x += 1476 * 2;
+      opponent_step();
+      if (abs(_opponent_climb[1]) >= 2) ++steep;
+      double ahead, d = to_eye(1, &ahead);
+      double dz = (double)(flight_eye_z - _opponent_z[1]) / 512.0;
+      if (d < 600 && ahead > 0 && fabs(dz) < 50) caught = n;
+    }
+    CHECK(caught >= 0, "hunting: never caught a player %s it", dir < 0 ? "above" : "below");
+    printf("  hunting: caught a player 300 m %s in %.0f s, %d steps steeper than level 1\n",
+           dir < 0 ? "above" : "below", caught / 6.25, steep);
+  }
+
+  // Following the player's height: the hunter, already behind it, climbs
+  // and descends after it as it changes height by 200 m, up then down.
+  {
+    opponent_reset(0);
+    _opponent_on[0] = false;
+    hunt(1, &kHunter);
+    flight_eye_x = _opponent_x[1] + (1000 << 8);
+    flight_eye_y = _opponent_y[1];
+    flight_eye_z = _opponent_z[1];
+    int up = 0, down = 0;
+    for (int n = 0; n < 1200; ++n) {
+      flight_eye_x += 1476 * 2;
+      if (n >= 200 && n < 600) flight_eye_z += 256;
+      if (n >= 700 && n < 1100) flight_eye_z -= 256;
+      opponent_step();
+      if (_opponent_climb[1] > 0) ++up;
+      if (_opponent_climb[1] < 0) ++down;
+    }
+    double dz = (double)(flight_eye_z - _opponent_z[1]) / 512.0;
+    CHECK(up > 50 && down > 50 && fabs(dz) < 50,
+          "hunting: %d steps up, %d down, %.0f m off the player's height", up, down, dz);
+  }
+
+  // The floor: a player 20 m up, and the hunter never under kOpponentFloor
+  // over 5 min of passes.
+  {
+    opponent_reset(0);
+    _opponent_on[0] = false;
+    hunt(1, &kHunter);
+    flight_eye_x = _opponent_x[1] + (2000 << 8);
+    flight_eye_y = _opponent_y[1];
+    flight_eye_z = 40 << 8;
+    int32_t lowest = _opponent_z[1];
+    for (int n = 0; n < 1875; ++n) {
+      flight_eye_x += 1476 * 2;
+      opponent_step();
+      lowest = std::min(lowest, _opponent_z[1]);
+    }
+    CHECK(lowest >= (int32_t)kOpponentFloor << 8 && !(_opponent_down & 2),
+          "hunting: down to %.0f m over a low player", lowest / 512.0);
+    printf("  hunting: over a player 20 m up, never under %.0f m\n", lowest / 512.0);
+  }
+
+  // A pass: kSquare's lap, the player ignored, then the player. ATTACK
+  // starts at the last waypoint, and from there the range closes.
+  {
+    opponent_reset(0);
+    _opponent_on[0] = false;
+    fly(1, &kSquarePass);
+    flight_eye_x = 0x1000 << 8;
+    flight_eye_y = 0x6800 << 8;
+    flight_eye_z = (int32_t)kSquarePass.z << 8;
+    int reached = 0, at = -1;
+    uint8_t next = _opponent_next[1];
+    for (int n = 0; n < 3000 && at < 0; ++n) {
+      opponent_step();
+      if (_opponent_next[1] != next) {
+        ++reached;
+        next = _opponent_next[1];
+      }
+      if (_opponent_attack & 2) at = n;
+    }
+    CHECK(at >= 0 && reached == 4, "pass: ATTACK at step %d, after %d waypoints", at, reached);
+    double before = to_eye(1, nullptr), nearest = before;
+    for (int n = 0; n < 300; ++n) {
+      opponent_step();
+      nearest = std::min(nearest, to_eye(1, nullptr));
+    }
+    CHECK(nearest < 200, "pass: from %.0f m, no nearer than %.0f m", before / 2, nearest / 2);
+  }
+  CHECK(_msgs == 0, "hunting: %d messages, the last \"%s\"", _msgs, _msg);
+}
+
 int main() {
   test_look_back();
   test_through_the_dot();
@@ -1193,6 +1333,7 @@ int main() {
   test_paths();
   test_flight_model();
   test_missions();
+  test_hunting();
   if (_fails) {
     printf("opponent_test: %d checks FAILED\n", _fails);
     return 1;

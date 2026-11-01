@@ -742,3 +742,40 @@ from step 8 on. Steps 9–13 are independent of each other once step 9's
 
   Half a metre up, it stays flying.
 - **RAM.** fpilot 2,766 → 2,692 B free (largest run 2,084).
+
+### Step 6: pursuit, the floor, Hunt, Pass and mission 05
+
+- **What a fighter in ATTACK steers for.** It steers for the eye, wrapped
+  the same way a waypoint is. It turns at twice a path's rate (`turn` ±2)
+  and is drawn banked 60°. Its climb level comes from `_opponent_want()`:
+  the slope nearest the player's, worked out in bytes after the turn's
+  6-bit cut, and kept above `kOpponentFloor` (60 m).
+- **Bombers in ATTACK** keep their path.
+- **Pass.** A Pass slot enters ATTACK at its last waypoint.
+- **Bank tables.** The bank's cos and sin are now tables by the turn.
+- **Mission 05, "Head on".**
+  - The player starts at 3,000 ft at cruise, heading north.
+  - Two hunting fighters at 2,000 start 4.6 km north, 50 m higher,
+    side by side 64 m apart.
+  - `kMissionCount` is now 5.
+- **Tests.**
+  - A hunter catches a straight-flying player 300 m above or below it,
+    from 2 km behind, in ~133 s.
+  - It follows the player's height up and down 200 m.
+  - Over a player 20 m up it never goes below 65 m.
+  - A Pass slot flies its lap, attacks at the last waypoint, and closes
+    to within 100 m.
+  - `mission_test`: 05's hunters are on screen at 4.8 s and within 1 km
+    at 33 s.
+- **Emulator.** `tools/shot.cc` scenes 11 and 12 and the `headon` and
+  `chase` bench scenes fly 05 hands off. The approach shows the pair
+  ahead; looking back after the pass shows them turned and following.
+  Frame costs: headon 140,539 and chase 154,215 cycles, against
+  scramble's 176,257.
+- **The size of the first try.** `_opponent_want()` in 16-bit was 266 B.
+  In bytes after the cut it is 167.
+- **RAM.** fpilot 2,692 → 2,221 B free (largest run 1,613): 313 for the
+  code and 158 for mission 05's tables and strings. ppilot is unchanged.
+- **For step 13.** Pure pursuit flies a head-on hunter straight at the
+  player. Once collisions count, hunters need to break off or offset
+  inside ~150 m when closing head-on.
