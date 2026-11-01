@@ -635,3 +635,27 @@ from step 8 on. Steps 9–13 are independent of each other once step 9's
 - **Are the numbers right?** The two floors (60 m and 30 m), the speed
   ranges, 5 hits to be shot down, the gunner's scatter and the oil leak's
   30 s are all starting points for play.
+
+## 12. As built
+
+### Step 1: baseline (2026-11-01, at cdecc75)
+
+- **RAM.** fpilot has 3,357 B free and allocatable, with a largest run of
+  2,741 B. ppilot has 10,901 B free, with a largest run of 10,333 B.
+- **Frame cost** (`tools/bench.sh`, cycles per frame on x64sc):
+
+  | Scene | Cycles |
+  | :--- | ---: |
+  | start | 119,483 |
+  | approach | 143,666 |
+  | cruise | 152,265 |
+  | town | 144,290 |
+  | lake | 134,002 |
+  | scramble | 176,257 |
+  | shootdown | 172,707 |
+
+  `scramble` is mission 04's close pass, which step 14 compares a close
+  fight against.
+- **Fix.** `bench.sh` had stopped building at ff69c2c: it did not copy the
+  panels' precompressed `.lzo` files into its scratch tree.
+  `make_shots.sh` already did.
