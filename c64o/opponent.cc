@@ -96,10 +96,10 @@ static inline void _opponent_set_view(bool far, bool two) {
 
 // --- Paths ------------------------------------------------------------------
 //
-// No flight model: each aircraft flies level at one height and its one
-// airspeed, straight at its next waypoint, and turns at one fixed rate when
-// the waypoint is off its nose. Once the waypoint is within kOpponentReach it
-// heads for the next. After the last, a loop starts again at the first and a
+// Each aircraft holds its path's height, and in level flight its path's
+// speed (the flight model below). It flies straight at its next waypoint,
+// and turns at one fixed rate when the waypoint is off its nose. Once the
+// waypoint is within kOpponentReach it heads for the next. After the last, a loop starts again at the first and a
 // one-way path's aircraft is gone: it has left the map. It steers at a point,
 // not along the line between two: reacting to the player would only change
 // the point.
@@ -258,6 +258,38 @@ static const int16_t kOpponentTurn = 8;
 // aircraft is turning on would be circled for ever, and every such circle
 // passes within a radius of it.
 static const int16_t kOpponentReach = 512;
+// --- The flight model (docs/opponent_ai.md §4) -----------------------------
+//
+// Level, or climbing or descending at one of three slopes, a level each:
+// 1/8, 1/4 and 1/2, ~7, ~14 and ~27 degrees, so that the climb rate is the
+// speed shifted. The speed keeps to a range by role, and is pulled back to
+// the path's speed, the default, by kOpponentLevelAccel a step - the thrust
+// and the drag - while a climb takes kOpponentClimbCost off it at level 1,
+// twice that a level steeper, and a descent adds as much: gravity. Level 1
+// is therefore sustained, settling a step's cost below or above the
+// default; the steeper levels run the speed to the end of its range, where
+// too slow it cannot climb, nor too fast descend.
+//
+// The costs are about g sin(slope) at 6.25 steps a second, the speed's
+// units being ~41 to 1 m/s: 1.2 m/s2 at level 1 is 8 a step.
+static const int16_t kOpponentClimbCost = 8;
+static const int16_t kOpponentLevelAccel = 8;
+// By climb level + 3, -3 to 3: the slope, 8.8, and what a whole step of it
+// does to the speed.
+__striped static const int16_t kOpponentSlope[7] = {-128, -64, -32, 0, 32, 64, 128};
+static const int8_t kOpponentClimbSpeed[7] = {
+    4 * kOpponentClimbCost, 2 * kOpponentClimbCost, kOpponentClimbCost, 0,
+    -kOpponentClimbCost, -2 * kOpponentClimbCost, -4 * kOpponentClimbCost};
+// Within this of its path's height, in half metres, an aircraft on its path
+// flies level: 20 m.
+static const int16_t kOpponentPathBand = 40;
+// The speed's range by role (kOpponentFighter, kOpponentBomber >> 2). The
+// fighter's floor is above the player's 1,024 stall.
+__striped static const uint16_t kOpponentMinSpeed[2] = {1300, 1100};
+__striped static const uint16_t kOpponentMaxSpeed[2] = {2800, 2000};
+static_assert(kOpponentClimbCost % kOpponentLevelAccel == 0,
+              "the speed moves in whole kOpponentLevelAccel (_opponent_fly())");
+
 // The bank while turning, drawn only: cos and sin of 30 degrees, 8.8.
 static const int16_t kOpponentBankCos = 222;
 static const int16_t kOpponentBankSin = 128;
@@ -310,6 +342,10 @@ static vec3_t _opponent_head[kOpponentMax];
 // one-step corrections on a leg do not flick the wings.
 static int8_t _opponent_turn[kOpponentMax];
 static int8_t _opponent_bank[kOpponentMax];
+// The airspeed, which the path's speed is now only the default of, and the
+// climb level, -3 to 3: below 0 a descent.
+__striped static int16_t _opponent_speed[kOpponentMax];
+static int8_t _opponent_climb[kOpponentMax];
 // Counts model steps, for the turns at a larger flight_step_shift.
 static uint8_t _opponent_substep;
 static planes_state_t _opponent_planes[kOpponentMax];
@@ -474,6 +510,8 @@ void opponent_reset(uint8_t mission) {
     _opponent_head[i].z = 0;
     _opponent_turn[i] = 0;
     _opponent_bank[i] = 0;
+    _opponent_speed[i] = p->speed;
+    _opponent_climb[i] = 0;
     _opponent_hits[i] = 0;
   }
   _opponent_track();
@@ -504,6 +542,41 @@ static __noinline int16_t _opponent_toward(uint16_t w, int32_t pos) {
 // the step size after the multiply.
 static __noinline void _opponent_move(int32_t *pos, int16_t speed2, int16_t h) {
   *pos += flight_step_s(vec_fastmul8p8(speed2, h));
+}
+
+// One step of the flight model for slot i, asked to climb at level `want`,
+// descend below 0, or fly level: on a whole step the limits and the speed,
+// then on every step the height, the slope's share of the speed. The move
+// across the ground is opponent_step()'s, at the speed this leaves. Tables
+// rather than shifts by the level: oscar64 shifts by a variable through a
+// table of its own and two copies of the loop.
+static __noinline void _opponent_fly(uint8_t i, int8_t want, bool whole) {
+  int8_t climb = _opponent_climb[i];
+  if (whole) {
+    const opponent_path_t *p = _opponent_path[i];
+    // Unsigned: a speed is never below 0, and oscar64's signed compares
+    // cost twice the bytes.
+    uint16_t speed = (uint16_t)_opponent_speed[i];
+    uint8_t role = (uint8_t)((p->kind & kOpponentBomber) >> 2);
+    climb = want;
+    if (climb > 0 ? speed <= kOpponentMinSpeed[role]
+                  : climb < 0 && speed >= kOpponentMaxSpeed[role]) {
+      climb = 0;
+    }
+    // Back towards the default a whole kOpponentLevelAccel, never part of
+    // one: every change to the speed is a multiple of it, starting from the
+    // default, so it lands there exactly.
+    if (speed < (uint16_t)p->speed) {
+      speed += kOpponentLevelAccel;
+    } else if (speed > (uint16_t)p->speed) {
+      speed -= kOpponentLevelAccel;
+    }
+    _opponent_speed[i] = (int16_t)speed + kOpponentClimbSpeed[climb + 3];
+    _opponent_climb[i] = climb;
+  }
+  if (climb != 0) {
+    _opponent_move(&_opponent_z[i], _opponent_speed[i] << 1, kOpponentSlope[climb + 3]);
+  }
 }
 
 static void _opponent_forget(uint8_t i);
@@ -595,7 +668,11 @@ void opponent_step(void) {
     _opponent_bank[i] = turn == _opponent_turn[i] ? turn : 0;
     _opponent_turn[i] = turn;
 
-    int16_t speed2 = p->speed << 1;
+    // Up or down to the path's height, at level 1 only.
+    int16_t dz = (int16_t)p->z - (int16_t)(_opponent_z[i] >> 8);
+    _opponent_fly(i, dz > kOpponentPathBand ? 1 : dz < -kOpponentPathBand ? -1 : 0, turns);
+
+    int16_t speed2 = _opponent_speed[i] << 1;
     _opponent_move(&_opponent_x[i], speed2, h->x);
     _opponent_move(&_opponent_y[i], speed2, h->y);
   }

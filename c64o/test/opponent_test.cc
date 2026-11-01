@@ -591,6 +591,8 @@ static void fly(int slot, const opponent_path_t *p) {
   _opponent_z[slot] = (int32_t)p->z << 8;
   _opponent_head[slot] = make_vector(p->head_x, p->head_y, 0);
   _opponent_turn[slot] = _opponent_bank[slot] = 0;
+  _opponent_speed[slot] = p->speed;
+  _opponent_climb[slot] = 0;
 }
 
 static void test_paths(void) {
@@ -694,6 +696,82 @@ static void test_paths(void) {
           "bank %d: left.z %d, up.y %d", t, a.left.z, a.up.y);
     CHECK(a.left.y == (t ? kOpponentBankCos : 256) && a.up.z == (t ? kOpponentBankCos : 256),
           "bank %d: left.y %d, up.z %d", t, a.left.y, a.up.z);
+  }
+}
+
+// --- 6b. The flight model ---------------------------------------------------------
+//
+// docs/opponent_ai.md §4, on a path of the test's own: kStraight's line at
+// 2,000 ft, flown from 300 m below its height and from 300 m above. Level, the
+// speed is the path's to the unit; a climb to the height settles a step's
+// cost below it and a descent a step's cost above, and once there both come
+// back to it. Too slow, the aircraft does not climb until the speed is back;
+// too fast, it does not descend until the speed has come down.
+
+static const opponent_path_t kHigh = {kOpponentLoop, 4, kOpponentNoFail, 10, 1500,
+                                      0x1A70, 0x3FE0, 256, 0, 0x0400};
+
+// Half metres from slot 0 to kHigh's height.
+static int below(void) { return (int)kHigh.z - (int)(_opponent_z[0] >> 8); }
+
+static void test_flight_model(void) {
+  flight_step_shift = 0;
+  kFlightSubstepMask = 0;
+  flight_paused = false;
+  flight_status = FLIGHT_ONGOING;
+  opponent_reset(0);
+
+  // Level: the path's speed and height, to the unit.
+  fly(0, &kHigh);
+  for (int n = 0; n < 200; ++n) {
+    opponent_step();
+    CHECK(_opponent_speed[0] == kHigh.speed && _opponent_climb[0] == 0 && below() == 0,
+          "model: level at step %d, speed %d, climb %d, %d half metres off", n,
+          _opponent_speed[0], _opponent_climb[0], below());
+  }
+
+  for (int dir = 1; dir >= -1; dir -= 2) {
+    const char *what = dir > 0 ? "climb" : "descent";
+    fly(0, &kHigh);
+    _opponent_z[0] -= (int32_t)(dir * 600) << 8;
+    int steps = 0, last = below();
+    while (_opponent_climb[0] == dir || steps == 0) {
+      opponent_step();
+      ++steps;
+      int now = below();
+      int16_t sp = _opponent_speed[0];
+      CHECK(dir > 0 ? now <= last : now >= last, "model: %s went the wrong way at step %d",
+            what, steps);
+      CHECK(dir > 0 ? sp >= kHigh.speed - kOpponentClimbCost && sp <= kHigh.speed
+                    : sp <= kHigh.speed + kOpponentClimbCost && sp >= kHigh.speed,
+            "model: %s at speed %d at step %d", what, sp, steps);
+      last = now;
+      if (steps > 2000) break;
+    }
+    // ~0.73 m a step at level 1 and 1,500: 300 m in ~410 steps, ~66 s.
+    CHECK(abs(below()) <= kOpponentPathBand && steps > 350 && steps < 470,
+          "model: %s ended %d half metres off after %d steps", what, below(), steps);
+    for (int n = 0; n < 100; ++n) opponent_step();
+    CHECK(_opponent_speed[0] == kHigh.speed && _opponent_climb[0] == 0 &&
+              abs(below()) <= kOpponentPathBand,
+          "model: after the %s, speed %d, climb %d", what, _opponent_speed[0],
+          _opponent_climb[0]);
+    printf("  model: a 300 m %s in %d steps\n", what, steps);
+  }
+
+  // Too slow to climb, too fast to descend: level until the speed is back
+  // inside the range.
+  for (int dir = 1; dir >= -1; dir -= 2) {
+    fly(0, &kHigh);
+    _opponent_z[0] -= (int32_t)(dir * 600) << 8;
+    _opponent_speed[0] = dir > 0 ? kOpponentMinSpeed[0] : kOpponentMaxSpeed[0];
+    int32_t z = _opponent_z[0];
+    opponent_step();
+    CHECK(_opponent_climb[0] == 0 && _opponent_z[0] == z,
+          "model: %s at the end of the speed range", dir > 0 ? "climbed" : "descended");
+    opponent_step();
+    CHECK(_opponent_climb[0] == dir, "model: no %s once the speed was back in range",
+          dir > 0 ? "climb" : "descent");
   }
 }
 
@@ -1034,6 +1112,7 @@ int main() {
   test_two();
   test_both_close();
   test_paths();
+  test_flight_model();
   test_missions();
   if (_fails) {
     printf("opponent_test: %d checks FAILED\n", _fails);

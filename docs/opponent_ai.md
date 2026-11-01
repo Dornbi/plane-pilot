@@ -674,3 +674,31 @@ from step 8 on. Steps 9–13 are independent of each other once step 9's
   the mode each slot starts in.
 - **RAM.** fpilot 3,357 → 3,323 B free (largest run 2,709). ppilot is
   unchanged at 10,901.
+
+### Step 3: the flight model on today's paths
+
+- **Code.** `_opponent_fly()` does the work: on a whole step it checks the
+  speed limits and updates the speed, then on every step it moves the
+  height.
+- **The speed.** It moves back towards the path's speed by a whole
+  `kOpponentLevelAccel` (8) a step, never part of one. Every cost is a
+  multiple of 8, so the speed lands on the default exactly, with no clamp.
+- **Climbs.** Each climb level has a row in two tables: its slope, used
+  through `_opponent_move()`, and its effect on the speed. The first build
+  shifted by the level instead. oscar64 compiles a shift by a variable
+  through a 56 B `bitshift` table and duplicates the loop, which made
+  `_opponent_fly()` 386 B; with the tables it is 244 B.
+- **Behaviour.** An aircraft on a path climbs or descends at level 1 to
+  hold its path's height, within ±20 m. Every current path is level, so
+  the missions fly as before.
+- **Tests.**
+  - `opponent_test` §6b: level flight holds the path's speed and height
+    exactly.
+  - A 300 m climb takes 386 steps and a 300 m descent 381, each within one
+    climb cost of the default speed, and both end back at the default.
+  - At the minimum speed the aircraft does not climb, and at the maximum it
+    does not descend, until the speed is back in range.
+- **RAM.** fpilot 3,323 → 2,917 B free (largest run 2,306). That is
+  406 B against §9's estimate of 150–200. oscar64's code for this kind of
+  16-bit logic runs about twice what §9 assumed, so the later estimates
+  are likely low too.
