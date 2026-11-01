@@ -21,7 +21,9 @@ in. §10 is the step-by-step implementation order. Everything is fpilot only
 1. **Path.** Flies its waypoints, whatever happens.
 2. **Provoked.** Flies its waypoints until the player shoots at it, then
    attacks.
-3. **Hunt.** Attacks the player from the start.
+3. **Hunt.** Attacks the player from the start. A new mission, 05 "Head
+   on", uses this: the player starts at mid altitude, and two fighters
+   come in head-on from a distance, hunting.
 4. **Pass.** Flies its waypoints once, then attacks. Mission 04 uses this:
    a straight pass over the airfield, then the aircraft circles back to
    hunt.
@@ -448,11 +450,11 @@ fpilot today has **3,357 B free and allocatable, largest run 2,741 B**
 | — message blink | 20–30 |
 | Drawn pitch in `_opponent_axes()`, its table; bank by role | 80–110 |
 | Bomber colour | 10–20 |
-| Mission data (02, 04) | 0–30 |
+| Mission data (02, 04), and mission 05's row in every table | 60–100 |
 | State (§3, §8) | 28 |
-| **Total** | **~1,340–1,860** |
+| **Total** | **~1,400–1,930** |
 
-That leaves about 1.5–2.0 KB.
+That leaves about 1.4–2.0 KB.
 
 `-Op` page-aligns every array of 256 B or less, which can hide a saving or
 a loss in the gaps. So every step is measured with `analyze_ram.py`
@@ -552,6 +554,12 @@ files (`flight.cc`, `msg.cc`), where its size change is recorded.
      - it never goes below `kFloor` while the player is in the air;
      - a Pass slot switches to `ATTACK` at its last waypoint and turns
        back.
+   - Mission 05, "Head on": the player starts at 3,000 ft heading north at
+     cruise, and two hunting fighters start ~6 km north, at about the same
+     height, heading south. They meet head-on, pass, turn and chase.
+     `kMissionCount` goes to 5, with a row in every mission table.
+     `mission_test`'s plain pilot must see them within 10 s and be within
+     1 km inside 90 s.
 7. **Strafing.**
    - Code: `flight_on_ground()`, the pulling-up bit, `kStrafeFloor`, and
      the run, pull-up and extend sequence.
@@ -622,10 +630,6 @@ from step 8 on. Steps 9–13 are independent of each other once step 9's
 
 ## 11. Open questions
 
-- **Where does a pure Hunt mission go?** Mission 04 now covers Pass. A
-  mission where the fighters hunt from the start could rework 03 (the
-  ambush of two parked aircraft), or be a fifth mission, at ~60 B of
-  mission tables and a `kMissionCount` change in the menu.
 - **Should provoked fighters return to their path** when the player
   breaks off beyond ~3 km? Not planned: once in `ATTACK`, they stay.
 - **Are the numbers right?** The two floors (60 m and 30 m), the speed
