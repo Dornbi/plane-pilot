@@ -20,8 +20,13 @@
 // their per-call temporaries in tscratch below. Should they outgrow it the link
 // fails with error 3034 (static stack usage exceeds stack segment); raise this,
 // the region top below and MEM_BSS2_START together.
+#ifdef __FPILOT__
+#pragma stacksize(0x26)
+#define MEM_STACK_END 0x0226
+#else
 #pragma stacksize(0x40)
 #define MEM_STACK_END 0x0240
+#endif
 #ifdef __MAX_RAM__
 // Since the screen ram is moved to 0xE800 and 0xEC00, we can
 // use the original location for stack.

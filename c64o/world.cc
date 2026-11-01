@@ -167,10 +167,9 @@ void _world_init_start_dx_dy() {
 
   // Pre-calculate delta vectors for step in X and step in Y, and the start
   // point relative to the eye.
-  vec3_t p_start_world;
-  p_start_world.x = _world_init_axis(0, grid_spacing);
-  p_start_world.y = _world_init_axis(1, grid_spacing);
-  p_start_world.z = -_down_shift(flight_eye_z);
+  _world_p_start.x = _world_init_axis(0, grid_spacing);
+  _world_p_start.y = _world_init_axis(1, grid_spacing);
+  _world_p_start.z = -_down_shift(flight_eye_z);
 
   // Precompute Mitchell combinations
   for (uint8_t i = 0; i < 16; ++i) {
@@ -185,7 +184,7 @@ void _world_init_start_dx_dy() {
   // workaround around the old quarter-square multiply (it overflowed once
   // |a| + |b| exceeded 4095). The assembly vec_fastmul8p8 is exact for all
   // int16 inputs, so the transform can run at full precision.
-  vec_transform_inv(&world_cam, &p_start_world, &_world_p_start);
+  vec_transform_inv(&world_cam, &_world_p_start, &_world_p_start);
 }
 
 void _world_render_object(WorldMapType object_type) {
@@ -270,13 +269,15 @@ __noinline void world_render_grid() {
 void world_update_roll_state() {
   bool updated = false;
   // Vector pointing to the distance.
-  vec3_t v = {world_cam.front.x, world_cam.front.y, 0};
-  if (v.x != 0 || v.y != 0) {
+  vec_v.x = world_cam.front.x;
+  vec_v.y = world_cam.front.y;
+  vec_v.z = 0;
+  if (vec_v.x != 0 || vec_v.y != 0) {
     // Furthest possible point on the horizon.
     // With <<7 we could already overflow int16_t.
-    v.x <<= 6;
-    v.y <<= 6;
-    vec_transform_inv(&world_cam, &v, &vec_v);
+    vec_v.x <<= 6;
+    vec_v.y <<= 6;
+    vec_transform_inv(&world_cam, &vec_v, &vec_v);
     if (vec_project_once()) {
       render_cx_pixels = (int16_t)kScreenWidthPixels / 2 - vec_sx;
       render_cy_pixels = (int16_t)kViewportEndYPixels / 2 - vec_sy;
