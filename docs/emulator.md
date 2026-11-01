@@ -29,6 +29,20 @@ not — their `vice` package leaves them out, and `vice-roms` is in non-free. Pu
 `/usr/share/vice/C64/` yourself. Without them every screenshot comes out black
 and nothing says why.
 
+On macOS VICE takes the focus every time it starts, `-minimized` or not, and
+`make prg` starts it five times for the target test. With the official build in
+`/Applications/vice-*`, run
+
+```bash
+tools/vice_nofocus.sh
+```
+
+once (and again after upgrading VICE). It installs an `x64sc` at
+`~/.local/vice-nofocus/bin` that never comes to the front — its window still
+flashes up, but the keyboard stays where it was — and `vice_shot.sh` and `vice_dump.sh` — so everything built on them —
+use it whenever it is there. Screenshots are byte-identical to the stock
+build's.
+
 ## A screenshot
 
 ```bash

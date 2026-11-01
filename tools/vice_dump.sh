@@ -34,6 +34,8 @@ LBL="$BASE.lbl"
 ASM="$BASE.asm"
 
 [ -f "$PRG" ] || { echo "vice_dump: no such file: $PRG" >&2; exit 1; }
+# The x64sc that stays in the background on macOS, if tools/vice_nofocus.sh installed it.
+[ -x "$HOME/.local/vice-nofocus/bin/x64sc" ] && PATH="$HOME/.local/vice-nofocus/bin:$PATH"
 command -v x64sc >/dev/null || { echo "vice_dump: x64sc not on PATH" >&2; exit 1; }
 
 # Headless: wrap in a virtual X server. With a display (or on macOS) run direct.
