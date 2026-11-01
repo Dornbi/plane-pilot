@@ -90,7 +90,14 @@
 #else
 #define MEM_MAIN_END 0xD000
 #endif
-#pragma region( main, MEM_BOOT_END, MEM_MAIN_END, , , {code, data, data_box, data_compr, bss, heap} )
+// data_compr goes before data for the gaps. -Op keeps any array of 256 bytes
+// or less inside one page, which the small compressed blobs (the title's, the
+// panel's screen and color RAM) are, so each may push the next page boundary
+// ahead of itself and leave a hole. The linker fills holes with whatever it
+// places later, and data is hundreds of small tables that fit; with data_compr
+// last, the holes stayed empty and bytes saved on the compressed data went
+// into them rather than to the free run at the top.
+#pragma region( main, MEM_BOOT_END, MEM_MAIN_END, , , {code, data_compr, data, data_box, bss, heap} )
 // No heap: nothing calls malloc() or new. oscar64 otherwise keeps 1,024 bytes
 // at the end of the region for it whatever is left, and fails the link with
 // "Cannot place heap section" once less than that is - so the free figures

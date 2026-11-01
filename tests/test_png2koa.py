@@ -17,6 +17,10 @@ from tools.png2koa import (
     convert_png_to_koala,
     parse_pin,
     parse_slot_pin,
+    oscar64_lzo_size,
+    lzo_encode,
+    lzo_decode,
+    _copy_cell_pattern,
 )
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -24,6 +28,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PANEL_KOAS = [os.path.join(REPO_ROOT, "c64o", name)
               for name in ("ppanel.koa", "fpanel.koa")]
 GFX_CC = os.path.join(REPO_ROOT, "c64o", "gfx.cc")
+VIEW_CC = os.path.join(REPO_ROOT, "c64o", "view.cc")
 MAKEFILE = os.path.join(REPO_ROOT, "Makefile")
 
 # The indicator lamp color. gfx.cc switches the lamps by storing it into color
@@ -41,6 +46,26 @@ def pinned_cells_from_makefile() -> dict[tuple[int, int], int]:
         idx, color = parse_pin(spec)
         pins[(idx // 40, idx % 40)] = color
     return pins
+
+
+def lzo_outputs_from_makefile() -> dict[str, list[tuple[str, int, int]]]:
+    """
+    {panel: [(.lzo file name, .koa offset, length), ...]}: the --lzo-out files
+    each panel rule writes, paired in order with the --embed ranges in
+    PANEL_FLAGS, as png2koa.py pairs them.
+    """
+    with open(MAKEFILE) as f:
+        makefile = f.read()
+    flags = re.search(r"^PANEL_FLAGS\s*=(.*?)(?<!\\)\n", makefile, re.M | re.S)
+    ranges = [(int(off), int(length))
+              for off, length in re.findall(r"--embed\s+(\d+):(\d+)", flags.group(1))]
+    out = {}
+    for panel in ("ppanel", "fpanel"):
+        rule = re.search(rf"^{panel}:\n((?:\t.*\n)+)", makefile, re.M).group(1)
+        names = re.findall(r"--lzo-out\s+c64o/(\S+)", rule)
+        assert len(names) == len(ranges), f"{panel}: {names} for {ranges}"
+        out[panel] = [(name, off, length) for name, (off, length) in zip(names, ranges)]
+    return out
 
 
 def read_koa(path: str) -> tuple[bytes, bytes, bytes, int]:
@@ -339,6 +364,87 @@ class TestPinSlots(unittest.TestCase):
                 parse_slot_pin(bad)
 
 
+class TestLzo(unittest.TestCase):
+    """lzo_encode() against oscar_expand_lzo(), as lzo_decode() mirrors it."""
+
+    SAMPLES = [
+        b"",
+        b"x",
+        b"ab",
+        bytes(300),                                  # one long run
+        bytes(range(256)) * 3,                       # matches 256 back only
+        b"abcd" * 50 + bytes(range(200)),            # runs into literals
+        bytes((i * 37) & 0xFF for i in range(1000)),
+        bytes((i * i) >> 3 & 0x0F for i in range(2000)),
+    ]
+
+    @staticmethod
+    def _tokens(stream: bytes):
+        """(kind, length, offset) for each command, as the decoder sees them."""
+        sp = 0
+        while stream[sp]:
+            cmd = stream[sp]
+            if cmd & 0x80:
+                yield "match", cmd & 0x7F, stream[sp + 1]
+                sp += 2
+            else:
+                yield "literal", cmd, None
+                sp += 1 + cmd
+        assert sp == len(stream) - 1, "bytes after the terminating 0"
+
+    def test_round_trip(self):
+        for data in self.SAMPLES:
+            self.assertEqual(lzo_decode(lzo_encode(data)), data)
+
+    def test_never_bigger_than_oscar64(self):
+        for data in self.SAMPLES:
+            self.assertLessEqual(len(lzo_encode(data)), oscar64_lzo_size(data))
+
+    def test_commands_stay_within_the_decoder(self):
+        # oscar_expand_lzo() counts in a char and reads the offset from one
+        # byte: a match needs offset 1..255, and no command may be 0 long.
+        for data in self.SAMPLES:
+            for kind, length, offset in self._tokens(lzo_encode(data)):
+                self.assertTrue(1 <= length <= 127, (kind, length))
+                if kind == "match":
+                    self.assertTrue(1 <= offset <= 255, offset)
+
+
+class TestCopyCellPattern(unittest.TestCase):
+    """The slot optimizer's other freedom: a spare slot holding the background."""
+
+    BG = 0
+
+    def test_a_spare_slot_lets_background_copy_a_pattern(self):
+        # White on black in slot 1, slots 2 and 3 unused. The target draws a
+        # 10 where this cell has background: slot 2 becomes black.
+        bits = [1, 0, 0, 0] * 8
+        target = [1, 2, 0, 0] * 8
+        cand = _copy_cell_pattern(1, 5, 6, bits, target, self.BG, None)
+        self.assertIsNotNone(cand)
+        l1, l2, l3, new_bits = cand
+        self.assertEqual(new_bits, target)
+        self.assertEqual((l1, l2), (1, self.BG))
+        colors = (self.BG, l1, l2, l3)
+        self.assertEqual([colors[b] for b in new_bits],
+                         [(self.BG, 1, 5, 6)[b] for b in bits])
+
+    def test_a_drawn_pixel_cannot_become_background(self):
+        bits = [1, 2, 0, 0] * 8
+        target = [1, 0, 0, 0] * 8
+        self.assertIsNone(_copy_cell_pattern(1, 5, 6, bits, target, self.BG, None))
+
+    def test_two_colors_cannot_share_a_slot(self):
+        bits = [1, 2, 0, 0] * 8
+        target = [1, 1, 0, 0] * 8
+        self.assertIsNone(_copy_cell_pattern(1, 5, 6, bits, target, self.BG, None))
+
+    def test_a_slot_cannot_be_both_background_and_a_color(self):
+        bits = [1, 0, 0, 0] * 8
+        target = [1, 1, 0, 0] * 8
+        self.assertIsNone(_copy_cell_pattern(1, 5, 6, bits, target, self.BG, None))
+
+
 class TestShippedPanel(unittest.TestCase):
     """
     The checked-in panel image against the code that lights it. This is the
@@ -390,6 +496,26 @@ class TestShippedPanel(unittest.TestCase):
                     TestPinSlots.LAYOUT,
                     f"{name}: row {row} col {col} has another slot layout, so "
                     "glyphs copied to or from it would change color")
+
+    def test_lzo_streams_expand_to_the_koa(self):
+        # view.cc embeds the .lzo files as they are, and gfx.cc embeds part of
+        # the .koa too: both have to come from the same `make panel`.
+        for panel, outputs in lzo_outputs_from_makefile().items():
+            with open(os.path.join(REPO_ROOT, "c64o", f"{panel}.koa"), "rb") as f:
+                koa = f.read()
+            for name, off, length in outputs:
+                with open(os.path.join(REPO_ROOT, "c64o", name), "rb") as f:
+                    stream = f.read()
+                self.assertEqual(lzo_decode(stream), koa[off:off + length],
+                                 f"{name} does not expand to {panel}.koa bytes "
+                                 f"{off}-{off + length - 1}; rerun `make {panel}`")
+
+    def test_view_cc_embeds_the_lzo_streams(self):
+        with open(VIEW_CC) as f:
+            embedded = set(re.findall(r'#embed\s+"(\w+\.lzo)"', f.read()))
+        written = {name for outputs in lzo_outputs_from_makefile().values()
+                   for name, _, _ in outputs}
+        self.assertEqual(embedded, written)
 
 
 if __name__ == "__main__":

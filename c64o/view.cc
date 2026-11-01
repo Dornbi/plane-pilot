@@ -22,30 +22,34 @@ static view_state_t view_bitmap_state = VIEW_UNKNOWN;
 
 // Each game has its own dashboard art (the root Makefile's ppanel and fpanel
 // targets), at the same layout: gfx.cc pokes the same lamp cells in both.
+// png2koa.py compresses the three slices of the .koa that are used here
+// (bitmap from row 12 col 32, screen and color RAM from row 14) itself, into
+// the same format `#embed ... lzo` makes, so they expand with the same
+// oscar_expand_lzo(). Its compressor finds a smaller parse than oscar64's.
 #pragma data(data_compr)
 #ifdef __FPILOT__
 static const char kViewPanelBitmapCompressed[] = {
-#embed 3904 4098 lzo "fpanel.koa"
+#embed "fpanel_bitmap.lzo"
 };
 
 static const char kViewPanelScreenCompressed[] = {
-#embed 440 8562 lzo "fpanel.koa"
+#embed "fpanel_screen.lzo"
 };
 
 static const char kViewPanelColorCompressed[] = {
-#embed 440 9562 lzo "fpanel.koa"
+#embed "fpanel_color.lzo"
 };
 #else
 static const char kViewPanelBitmapCompressed[] = {
-#embed 3904 4098 lzo "ppanel.koa"
+#embed "ppanel_bitmap.lzo"
 };
 
 static const char kViewPanelScreenCompressed[] = {
-#embed 440 8562 lzo "ppanel.koa"
+#embed "ppanel_screen.lzo"
 };
 
 static const char kViewPanelColorCompressed[] = {
-#embed 440 9562 lzo "ppanel.koa"
+#embed "ppanel_color.lzo"
 };
 #endif
 #pragma data(data)

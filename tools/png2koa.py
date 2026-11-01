@@ -17,10 +17,15 @@ row-to-row redundancy is structurally unreachable; only horizontal reuse within
 ~31 char cells ever pays off. Screen/colour RAM rows are 40 bytes apart, so
 those streams do see ~6 rows back.
 
+--lzo-out writes the embedded ranges compressed by lzo_encode() instead: the
+same format, so the same oscar_expand_lzo() at run time, but parsed optimally,
+which saves about 2% over letting oscar64 compress the .koa itself.
+
 Usage:
     python png2koa.py input.png [output.koa] [output_pepto.png]
                       [--bg-color BG] [--bg-search [N]]
                       [--snap-tolerance N] [--snap-window N]
+                      [--embed OFF:LEN --lzo-out PATH ...]
 """
 
 from __future__ import annotations
@@ -28,6 +33,7 @@ import os
 import re
 import sys
 import zlib
+from collections import deque
 import argparse
 from itertools import combinations
 from PIL import Image
@@ -123,6 +129,119 @@ def oscar64_lzo_size(data: bytes) -> int:
             csize += 1 + pending
 
     return csize + 1
+
+
+def _lzo_longest_matches(data: bytes) -> list[int]:
+    """
+    The longest match oscar_expand_lzo() could copy at each position, offsets
+    1..255, lengths up to 127; 0 where there is none of at least 2 bytes. A
+    1-byte match costs as much as a 1-byte literal run, so it never pays.
+    """
+    n = len(data)
+    out = [0] * n
+    for i in range(n):
+        mx = min(LZO_MAX_MATCH, n - i)
+        if mx < 2:
+            continue
+        lo = max(0, i - LZO_WINDOW)
+        best = 0
+        # Look for 4-byte matches first, as oscar64 does: they are far rarer
+        # than 2-byte ones, and when there is one it is the longest anyway.
+        for plen in ((LZO_MIN_MATCH, 2) if mx >= LZO_MIN_MATCH else (2,)):
+            pat = data[i:i + plen]
+            p = data.find(pat, lo, i + plen - 1)
+            while p != -1:
+                j = plen
+                while j < mx and data[p + j] == data[i + j]:
+                    j += 1
+                if j > best:
+                    best = j
+                    if best >= mx:
+                        break
+                p = data.find(pat, p + 1, i + plen - 1)
+            if best:
+                break
+        out[i] = best
+    return out
+
+
+def lzo_encode(data: bytes) -> bytes:
+    """
+    The smallest stream oscar_expand_lzo() decodes back to `data`.
+
+    Same format as oscar64's `#embed ... lzo`, so the same decoder, but parsed
+    optimally rather than greedily. Exhaustively, by dynamic programming from
+    the end: cost[i] is the fewest bytes that encode data[i:]. Two things the
+    greedy compressor leaves on the table:
+
+      * A literal it takes because the next match is not the longest it could
+        have been, or a long match that swallows the start of a better one.
+      * 2 and 3-byte matches. The decoder copies any length 1..127, and next
+        to a literal run a 2-byte match saves the run's header byte.
+
+    A match of length L is never worse than one of length L-1 at the same
+    offset, so cost[] never decreases towards the start, and of all the match
+    lengths at a position only the longest needs trying.
+    """
+    data = bytes(data)
+    n = len(data)
+    longest = _lzo_longest_matches(data)
+    cost = [0] * (n + 1)
+    step = [0] * n  # > 0: a literal run that long; < 0: a match that long
+    # Positions j in (i, i + 127], in order, with cost[j] + j increasing: the
+    # front is the best place for a literal run starting at i to end.
+    ends: deque[int] = deque()
+    for i in range(n - 1, -1, -1):
+        j = i + 1
+        while ends and cost[ends[-1]] + ends[-1] >= cost[j] + j:
+            ends.pop()
+        ends.append(j)
+        if ends[0] > i + 127:
+            ends.popleft()
+        k = ends[0]
+        cost[i], step[i] = cost[k] + (k - i) + 1, k - i
+        m = longest[i]
+        if m and cost[i + m] + 2 < cost[i]:
+            cost[i], step[i] = cost[i + m] + 2, -m
+
+    out = bytearray()
+    i = 0
+    while i < n:
+        s = step[i]
+        if s > 0:
+            out.append(s)
+            out += data[i:i + s]
+            i += s
+            continue
+        length = -s
+        for off in range(1, min(LZO_WINDOW, i) + 1):
+            if all(data[i - off + t] == data[i + t] for t in range(length)):
+                break
+        else:
+            raise AssertionError(f"no match of length {length} at {i}")
+        out.append(0x80 | length)
+        out.append(off)
+        i += length
+    out.append(0)
+    assert len(out) == cost[0] + 1
+    return bytes(out)
+
+
+def lzo_decode(stream: bytes) -> bytes:
+    """What oscar_expand_lzo() (oscar64/include/oscar.c) writes for `stream`."""
+    out = bytearray()
+    sp = 0
+    while stream[sp]:
+        cmd = stream[sp]
+        if cmd & 0x80:
+            off, length = stream[sp + 1], cmd & 0x7F
+            for _ in range(length):
+                out.append(out[len(out) - off])
+            sp += 2
+        else:
+            out += stream[sp + 1:sp + 1 + cmd]
+            sp += 1 + cmd
+    return bytes(out)
 
 
 # ---------------------------------------------------------------------------
@@ -582,6 +701,48 @@ def _permute_cell(l1: int, l2: int, l3: int, bits: list[int], perm,
     return slots[1], slots[2], slots[3], new_bits
 
 
+def _copy_cell_pattern(l1: int, l2: int, l3: int, bits: list[int],
+                       target: list[int], bg: int,
+                       free_fill: tuple[int, int, int] | None):
+    """
+    Re-encodes one cell so that its bitmap bytes come out equal to `target`'s
+    bit pairs, keeping every pixel's colour, or returns None if no encoding
+    does.
+
+    Beyond _permute_cell()'s relabeling, this uses one more freedom: a slot no
+    pixel needs can be set to the background colour, and then each background
+    pixel may be either 00 or that slot. That lets a cell with a spare slot
+    copy the pattern of one that draws something where it has background.
+    """
+    old = (bg, l1, l2, l3)
+    code: dict[int, int] = {}  # non-background colour -> its slot
+    as_bg: set[int] = set()    # slots that hold the background colour
+    for b, t in zip(bits, target):
+        c = old[b]
+        if c == bg:
+            if t:
+                as_bg.add(t)
+        elif t == 0 or code.setdefault(c, t) != t:
+            return None
+    if len(set(code.values())) != len(code) or as_bg & set(code.values()):
+        return None
+    slots = [None, None, None, None]
+    for c, s in code.items():
+        slots[s] = c
+    for s in as_bg:
+        slots[s] = bg
+    for s in (1, 2, 3):
+        if slots[s] is None:
+            slots[s] = free_fill[s - 1] if free_fill else old[s]
+    return slots[1], slots[2], slots[3], list(target)
+
+
+def _cell_bits(koa, idx: int) -> list[int]:
+    base = BITMAP_BASE + idx * 8
+    return [(koa[base + ry] >> (6 - rx * 2)) & 0x03
+            for ry in range(8) for rx in range(4)]
+
+
 def _write_cell(koa, idx: int, l1: int, l2: int, l3: int, bits: list[int]) -> None:
     koa[SCREEN_BASE + idx] = ((l1 & 0x0F) << 4) | (l2 & 0x0F)
     koa[COLOR_BASE + idx] = l3 & 0x0F
@@ -593,7 +754,8 @@ def _write_cell(koa, idx: int, l1: int, l2: int, l3: int, bits: list[int]) -> No
         koa[base + ry] = v
 
 
-def optimize_slots(cells, plan: EmbedPlan, passes: int = 8, verbose: bool = True,
+def optimize_slots(cells, plan: EmbedPlan, bg: int, passes: int = 8,
+                   verbose: bool = True,
                    pins: dict[int, int] | None = None,
                    frozen: set[int] | frozenset[int] = frozenset()):
     """
@@ -611,15 +773,20 @@ def optimize_slots(cells, plan: EmbedPlan, passes: int = 8, verbose: bool = True
     2-bit patterns: two cells that look different can still be made to emit the
     same eight bytes, which inside the 255-byte window turns them into a 2-byte
     match. The per-cell encoder cannot see this because it decides each cell in
-    isolation.
+    isolation. Besides the six relabelings, each cell therefore also tries to
+    copy the bytes of every earlier cell in the window outright, which a spare
+    slot set to the background colour often makes possible
+    (_copy_cell_pattern).
 
     Greedy, cell by cell, repeated until no cell improves. Candidates are
-    screened on a 263-byte window (the LZO history plus the cell) and only the
-    survivors are scored on the real objective, which is the weighted sum of the
-    embedded ranges' compressed sizes.
+    screened on the LZO history plus the cell and a little of what follows,
+    and only the survivors are scored on the real objective, which is the
+    weighted sum of the embedded ranges' compressed sizes. Both use oscar64's
+    greedy compressor: it is some 20x faster than lzo_encode(), and what makes
+    one smaller makes the other smaller.
     """
     pins = pins or {}
-    koa = build_koa(cells, 0)
+    koa = build_koa(cells, bg)
     targets = [c for c in plan.permutable_cells() if c not in frozen]
     if not targets:
         return 0, 0.0, 0.0
@@ -643,30 +810,43 @@ def optimize_slots(cells, plan: EmbedPlan, passes: int = 8, verbose: bool = True
             slo = max(0, SCREEN_BASE + idx - LZO_WINDOW)
             clo = max(0, COLOR_BASE + idx - LZO_WINDOW)
             best = None
+            candidates = [_permute_cell(l1, l2, l3, bits, perm, fill)
+                          for perm in _SLOT_PERMUTATIONS for fill in fills]
+            # Earlier cells in the same embedded range and the LZO window,
+            # oldest first: that order breaks ties in the screening below, and
+            # measured a few bytes better than nearest first.
+            first = min(off for off, length, _ in plan.ranges
+                        if off <= base < off + length)
+            first_cell = (first - BITMAP_BASE + 7) // 8
+            for src in range(max(idx - CELL_WINDOW, first_cell), idx):
+                target = _cell_bits(koa, src)
+                for fill in fills:
+                    cand = _copy_cell_pattern(l1, l2, l3, bits, target, bg, fill)
+                    if cand:
+                        candidates.append(cand)
+            pin = pins.get(idx)
             seen = set()
             scored = []
-            for perm in _SLOT_PERMUTATIONS:
-                for fill in fills:
-                    cand = _permute_cell(l1, l2, l3, bits, perm, fill)
-                    pin = pins.get(idx)
-                    if pin is not None and (cand[0] == pin or cand[1] == pin
-                                            or cand[2] != pin):
-                        continue
-                    key = (cand[0], cand[1], cand[2], tuple(cand[3]))
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    _write_cell(koa, idx, *cand)
-                    # Screen on the local LZO window only: the full objective is
-                    # ~500x more expensive, so it is spent on the survivors.
-                    est = (oscar64_lzo_size(bytes(koa[lo:base + 8]))
-                           + oscar64_lzo_size(bytes(koa[slo:SCREEN_BASE + idx + 1]))
-                           + oscar64_lzo_size(bytes(koa[clo:COLOR_BASE + idx + 1])))
-                    scored.append((est, cand))
+            for cand in candidates:
+                if pin is not None and (cand[0] == pin or cand[1] == pin
+                                        or cand[2] != pin):
+                    continue
+                key = (cand[0], cand[1], cand[2], tuple(cand[3]))
+                if key in seen:
+                    continue
+                seen.add(key)
+                _write_cell(koa, idx, *cand)
+                # Screen on the local LZO window only: the full objective is
+                # ~500x more expensive, so it is spent on the survivors. The
+                # 64 bytes after the cell catch a match that runs on past it.
+                est = (oscar64_lzo_size(bytes(koa[lo:base + 8 + 64]))
+                       + oscar64_lzo_size(bytes(koa[slo:SCREEN_BASE + idx + 1]))
+                       + oscar64_lzo_size(bytes(koa[clo:COLOR_BASE + idx + 1])))
+                scored.append((est, cand))
             _write_cell(koa, idx, l1, l2, l3, bits)
 
             scored.sort(key=lambda t: t[0])
-            for _, cand in scored[:4]:
+            for _, cand in scored[:6]:
                 _write_cell(koa, idx, *cand)
                 value = plan.objective(koa)
                 if value < current:
@@ -786,16 +966,24 @@ def convert_png_to_koala(
     optimize_slot_order: bool = False,
     pins: dict[int, int] | None = None,
     slot_pins: dict[int, tuple[int, int, int]] | None = None,
+    lzo_paths: list[str] | None = None,
 ) -> None:
     """
     Loads a PNG, encodes it to Koala Painter format, optionally searching for the
     background colour that minimises the oscar64 LZO size, and optionally running
     the lossy cell-snapping pass.
+
+    `lzo_paths`, one per range of `plan`, receive those ranges compressed with
+    lzo_encode(), for the program to embed as they are instead of having
+    oscar64 compress the .koa.
     """
     img = Image.open(input_path)
     grid = downsample_to_multicolor_grid(img)
     cell_dists = build_cell_dists(grid)
     plan = plan or EmbedPlan()
+    if lzo_paths and len(lzo_paths) != len(plan.ranges):
+        raise ValueError(f"{len(lzo_paths)} LZO outputs for "
+                         f"{len(plan.ranges)} embedded ranges")
     pins = dict(pins or {})
     slot_pins = dict(slot_pins or {})
     both = sorted(set(pins) & set(slot_pins))
@@ -861,7 +1049,7 @@ def convert_png_to_koala(
               + (f" ({partial} skipped: bitmap embedded but screen/color are not)"
                  if partial else ""))
         before = [(a, b, c, list(d)) for a, b, c, d in cells]
-        changed, obj0, obj1 = optimize_slots(cells, plan, pins=pins,
+        changed, obj0, obj1 = optimize_slots(cells, plan, bg_color, pins=pins,
                                              frozen=set(slot_pins))
         moved = verify_lossless(before, cells, bg_color)
         if moved:
@@ -895,6 +1083,12 @@ def convert_png_to_koala(
     with open(koa_output_path, "wb") as f:
         f.write(koa_bytes)
 
+    streams = [lzo_encode(bytes(koa_bytes[off:off + length]))
+               for off, length, _ in plan.ranges]
+    for path, stream in zip(lzo_paths or (), streams):
+        with open(path, "wb") as f:
+            f.write(stream)
+
     bm, sc, cr = stream_sizes(koa_bytes)
     zlib_size = len(zlib.compress(bytes(koa_bytes), 9))
 
@@ -912,13 +1106,17 @@ def convert_png_to_koala(
 
     if plan.ranges != EmbedPlan().ranges:
         print("Embedded ranges (what actually reaches the binary):")
-        billed = 0.0
-        for off, length, w, size in plan.report(koa_bytes):
+        billed = shipped = 0.0
+        for (off, length, w, size), stream in zip(plan.report(koa_bytes), streams):
             note = "" if w else "   [weight 0, lands in linker slack]"
             billed += w * size
-            print(f"  - #embed {length} {off}: {size:5d} bytes"
+            shipped += w * len(stream)
+            print(f"  - #embed {length} {off}: {size:5d} bytes, "
+                  f"{len(stream):5d} with lzo_encode()"
                   f"{'' if w == 1.0 else f'  x{w:g}'}{note}")
-        print(f"  - Billed total:        {billed:.0f}")
+        print(f"  - Billed total:        {billed:.0f}, {shipped:.0f} with lzo_encode()")
+    for path, stream in zip(lzo_paths or (), streams):
+        print(f"Saved LZO stream: {path} ({len(stream)} bytes)")
 
     if png_output_path:
         render_preview(cells, bg_color).save(png_output_path)
@@ -1011,6 +1209,11 @@ def main():
                              "optimizer change it. Repeatable. For cells whose bitmap the program "
                              "copies into other cells, which only works if both use one layout. "
                              "A cell that draws in a color outside the layout is an error.")
+    parser.add_argument("--lzo-out", action="append", default=None, metavar="PATH",
+                        help="Write the range of the Nth --embed, compressed, to the Nth "
+                             "--lzo-out. Same format as `#embed ... lzo`, so the same "
+                             "oscar_expand_lzo(), but parsed optimally and so a few percent "
+                             "smaller; the program embeds the file as it is.")
     parser.add_argument("--snap-window", type=int, default=CELL_WINDOW, metavar="CELLS",
                         help=f"How many cells back snapping may reference (default {CELL_WINDOW}, "
                              "which is the 255-byte LZO window)")
@@ -1034,6 +1237,7 @@ def main():
         optimize_slot_order=args.optimize_slots,
         pins=dict(args.pin_color_ram or ()),
         slot_pins=dict(p for group in (args.pin_slots or ()) for p in group),
+        lzo_paths=args.lzo_out,
     )
 
 

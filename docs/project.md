@@ -14,7 +14,8 @@ The repository holds two related codebases:
   set, tile definitions and sprite data that the C64 code compiles in.
 
 Data flows one way: Python generates `chardefs`, `boxdefs`, `spritedef`,
-`clouddef`, `mapdefs`, `musicdef`, `gfx_chars.bin` and the panels `ppanel.koa` and `fpanel.koa`; the C64 code
+`clouddef`, `mapdefs`, `musicdef`, `gfx_chars.bin` and the panels `ppanel.koa` and `fpanel.koa`
+(with their compressed `.lzo` slices); the C64 code
 consumes them. `make data` runs the lot.
 
 ---

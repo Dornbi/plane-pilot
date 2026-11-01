@@ -37,8 +37,8 @@ help:
 	@echo "  make clouds      - c64o/clouddef.{h,cc} and lib/clouddef.py"
 	@echo "  make map-tiles   - c64o/mapdefs.{cc,h} from gfx/ppilot_map_tiles.png"
 	@echo "  make panel       - both instrument panels: make ppanel fpanel"
-	@echo "  make ppanel      - c64o/ppanel.koa from gfx/ppilot_panel_40.png"
-	@echo "  make fpanel      - c64o/fpanel.koa from gfx/fpilot_panel_40.png"
+	@echo "  make ppanel      - c64o/ppanel.koa and .lzo from gfx/ppilot_panel_40.png"
+	@echo "  make fpanel      - c64o/fpanel.koa and .lzo from gfx/fpilot_panel_40.png"
 	@echo "  make music       - c64o/musicdef.{cc,h} and docs/sid-intro-theme.html from lib/music.py"
 	@echo "  make planes      - c64o/planedef.h, the opponent model, from lib/planes.py"
 	@echo ""
@@ -95,8 +95,11 @@ map-tiles-draft:
 
 # The instrument panels: ppanel for ppilot and ppilota, fpanel for fpilot
 # (view.cc picks one by __FPILOT__). Both share one layout and one set of
-# flags, so the lamps below sit in the same cells of either. --embed names the three byte ranges view.cc actually
-# embeds, so the optimizer works on what reaches the binary and nothing else.
+# flags, so the lamps below sit in the same cells of either. --embed names the
+# three byte ranges view.cc actually embeds, so the optimizer works on what
+# reaches the binary and nothing else, and --lzo-out writes each of them
+# compressed, for view.cc to embed as is: png2koa's compressor beats the one
+# behind `#embed ... lzo` by about 2%, in the same format.
 #
 # The five --pin-color-ram cells are the indicator lamps: nav left and right,
 # stall, flaps, gear. gfx.cc switches those by storing light red or black into
@@ -116,12 +119,16 @@ panel: ppanel fpanel
 
 ppanel:
 	$(PYTHON) tools/png2koa.py gfx/ppilot_panel_40.png gfx/ppilot_panel_40.koa \
-		out/ppilot_panel_40_pepto.png $(PANEL_FLAGS)
+		out/ppilot_panel_40_pepto.png $(PANEL_FLAGS) \
+		--lzo-out c64o/ppanel_bitmap.lzo --lzo-out c64o/ppanel_screen.lzo \
+		--lzo-out c64o/ppanel_color.lzo
 	cp gfx/ppilot_panel_40.koa c64o/ppanel.koa
 
 fpanel:
 	$(PYTHON) tools/png2koa.py gfx/fpilot_panel_40.png gfx/fpilot_panel_40.koa \
-		out/fpilot_panel_40_pepto.png $(FPANEL_FLAGS)
+		out/fpilot_panel_40_pepto.png $(FPANEL_FLAGS) \
+		--lzo-out c64o/fpanel_bitmap.lzo --lzo-out c64o/fpanel_screen.lzo \
+		--lzo-out c64o/fpanel_color.lzo
 	cp gfx/fpilot_panel_40.koa c64o/fpanel.koa
 
 # --- Preview and build -----------------------------------------------------
