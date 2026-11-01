@@ -659,3 +659,18 @@ from step 8 on. Steps 9–13 are independent of each other once step 9's
 - **Fix.** `bench.sh` had stopped building at ff69c2c: it did not copy the
   panels' precompressed `.lzo` files into its scratch tree.
   `make_shots.sh` already did.
+
+### Step 2: roles, behaviours and the mode mask
+
+- **Code.** `opponent_path_t::kind` keeps the path kind in bits 0–1. Bit 2
+  is the role (`kOpponentFighter`, `kOpponentBomber`) and bits 3–4 the
+  behaviour (Path, Provoked, Hunt, Pass). `_opponent_attack` is the mode
+  mask; `opponent_reset()` sets a hunting slot's bit.
+- **Missions.** Every mission is still Path, with mission 02's two
+  aircraft as bombers, so nothing flies differently yet.
+- **Not yet.** The role table waits for step 3, the first step that reads
+  it.
+- **Test.** `opponent_test` checks each mission's roles and behaviours, and
+  the mode each slot starts in.
+- **RAM.** fpilot 3,357 → 3,323 B free (largest run 2,709). ppilot is
+  unchanged at 10,901.

@@ -746,6 +746,33 @@ static void test_missions(void) {
     }
   }
 
+  // Each mission's roles and behaviours (docs/opponent_ai.md §3), and the
+  // mode each slot starts in: ATTACK for a hunter, PATH for the rest.
+  {
+    static const struct {
+      uint8_t role, behaviour;
+    } kSent[kMissionCount][kOpponentMax] = {
+        {{kOpponentFighter, kOpponentPath}, {0, 0}},
+        {{kOpponentBomber, kOpponentPath}, {kOpponentBomber, kOpponentPath}},
+        {{kOpponentFighter, kOpponentPath}, {kOpponentFighter, kOpponentPath}},
+        {{kOpponentFighter, kOpponentPath}, {kOpponentFighter, kOpponentPath}},
+    };
+    for (int m = 0; m < kMissionCount; ++m) {
+      opponent_reset((uint8_t)m);
+      for (int k = 0; k < kOpponentMax; ++k) {
+        const opponent_path_t &p = kOpponentPaths[m][k];
+        if (p.kind == kOpponentNone) continue;
+        uint8_t behaviour = p.kind & kOpponentBehaviourMask;
+        CHECK((p.kind & ~(kOpponentKindMask | kOpponentBehaviourMask)) == kSent[m][k].role &&
+                  behaviour == kSent[m][k].behaviour,
+              "mission %d slot %d: role %d, behaviour %d", m + 1, k, p.kind & kOpponentBomber,
+              behaviour >> 3);
+        CHECK(!!(_opponent_attack & _opponent_bit(k)) == (behaviour == kOpponentHunt),
+              "mission %d slot %d: starts in the wrong mode", m + 1, k);
+      }
+    }
+  }
+
   // 01: the recon.
   {
     _msgs = 0;

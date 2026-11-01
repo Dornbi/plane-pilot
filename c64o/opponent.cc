@@ -115,6 +115,22 @@ enum opponent_kind_t {
   // On the ground where it starts, and stays: no waypoints, no airspeed.
   kOpponentParked,
 };
+// opponent_path_t::kind holds the above in its low two bits, and above them
+// the aircraft's role and its behaviour (docs/opponent_ai.md §3). kOpponentNone
+// is the whole byte 0: a slot with no aircraft has neither.
+static const uint8_t kOpponentKindMask = 0x03;
+// The role: what the aircraft does once it attacks. A fighter goes for the
+// player with its forward guns; a bomber keeps its path, and its rear gunner
+// fires.
+static const uint8_t kOpponentFighter = 0 << 2;
+static const uint8_t kOpponentBomber = 1 << 2;
+// The behaviour: when it attacks. Never on a path; once fired upon,
+// provoked; from the start, hunting; or after its last waypoint, a pass.
+static const uint8_t kOpponentPath = 0 << 3;
+static const uint8_t kOpponentProvoked = 1 << 3;
+static const uint8_t kOpponentHunt = 2 << 3;
+static const uint8_t kOpponentPass = 3 << 3;
+static const uint8_t kOpponentBehaviourMask = 3 << 3;
 // No waypoint fails the mission.
 static const uint8_t kOpponentNoFail = 0xFF;
 // The navpoint of the missions' WP_TARGETS_DOWN waypoint, which follows the
@@ -123,6 +139,7 @@ static const uint8_t kOpponentNoFail = 0xFF;
 // (test/fpilot_test.cc checks the order).
 static const uint8_t kOpponentNav = 0;
 struct opponent_path_t {
+  // opponent_kind_t, role and behaviour.
   uint8_t kind;
   uint8_t count;
   // The waypoint whose reaching fails the mission, or kOpponentNoFail.
@@ -184,14 +201,21 @@ static const uint16_t kOpponent3000Ft = 0x0600;
 // started, 128 units on: the world repeats every 128 units along x, so they
 // fly north for ever.
 static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
-    {{kOpponentOneWay, 4, 3, 0, 1750, 0x7E00, 0x6000, -256, 0, kOpponent5000Ft},
+    {{kOpponentOneWay | kOpponentFighter | kOpponentPath, 4, 3, 0, 1750, 0x7E00, 0x6000, -256,
+      0, kOpponent5000Ft},
      {kOpponentNone}},
-    {{kOpponentOneWay, 3, 1, 4, 1500, 0x4800, 0x4000, -256, 0, kOpponent3000Ft},
-     {kOpponentOneWay, 3, 1, 7, 1500, 0x48C8, 0x3F6A, -256, 0, kOpponent3000Ft}},
-    {{kOpponentParked, 0, kOpponentNoFail, 0, 0, 0x5C9C, 0xC096, 0, -256, 0x000A},
-     {kOpponentParked, 0, kOpponentNoFail, 0, 0, 0x5D64, 0xC096, 0, -256, 0x000A}},
-    {{kOpponentLoop, 4, kOpponentNoFail, 10, 1500, 0x1A70, 0x3FE0, 256, 0, 0x0060},
-     {kOpponentLoop, 4, kOpponentNoFail, 14, 1500, 0x1900, 0x3F20, 256, 0, 0x0060}},
+    {{kOpponentOneWay | kOpponentBomber | kOpponentPath, 3, 1, 4, 1500, 0x4800, 0x4000, -256,
+      0, kOpponent3000Ft},
+     {kOpponentOneWay | kOpponentBomber | kOpponentPath, 3, 1, 7, 1500, 0x48C8, 0x3F6A, -256,
+      0, kOpponent3000Ft}},
+    {{kOpponentParked | kOpponentFighter | kOpponentPath, 0, kOpponentNoFail, 0, 0, 0x5C9C,
+      0xC096, 0, -256, 0x000A},
+     {kOpponentParked | kOpponentFighter | kOpponentPath, 0, kOpponentNoFail, 0, 0, 0x5D64,
+      0xC096, 0, -256, 0x000A}},
+    {{kOpponentLoop | kOpponentFighter | kOpponentPath, 4, kOpponentNoFail, 10, 1500, 0x1A70,
+      0x3FE0, 256, 0, 0x0060},
+     {kOpponentLoop | kOpponentFighter | kOpponentPath, 4, kOpponentNoFail, 14, 1500, 0x1900,
+      0x3F20, 256, 0, 0x0060}},
 };
 
 // Every path's waypoints, at its opponent_path_t::wp: 01's recon, 02's two
@@ -264,6 +288,9 @@ static const opponent_path_t *_opponent_path[kOpponentMax];
 static uint8_t _opponent_mission;
 static bool _opponent_failed;
 static uint8_t _opponent_down;
+// Bit i: slot i is in ATTACK, its mode against the player; clear, it is in
+// PATH (docs/opponent_ai.md §3). A hunting slot starts in it.
+static uint8_t _opponent_attack;
 static uint8_t _opponent_hits[kOpponentMax];
 // 1 + the slot trailing smoke - the last one hit - or kOpponentNoSmoke; and
 // the frames it has left.
@@ -428,11 +455,15 @@ void opponent_reset(uint8_t mission) {
   _opponent_mission = mission;
   _opponent_failed = false;
   _opponent_down = 0;
+  _opponent_attack = 0;
   _opponent_smoke = kOpponentNoSmoke;
   _opponent_substep = 0;
   const opponent_path_t *p = kOpponentPaths[mission];
   for (uint8_t i = 0; i < kOpponentMax; ++i, ++p) {
     _opponent_on[i] = p->kind != kOpponentNone;
+    if ((p->kind & kOpponentBehaviourMask) == kOpponentHunt) {
+      _opponent_attack |= _opponent_bit(i);
+    }
     _opponent_path[i] = p;
     _opponent_next[i] = 0;
     _opponent_x[i] = (int32_t)p->start_x << 8;
@@ -500,7 +531,7 @@ void opponent_step(void) {
     }
     const opponent_path_t *p = _opponent_path[i];
     // Parked: it stays where it is.
-    if (p->kind == kOpponentParked) {
+    if ((p->kind & kOpponentKindMask) == kOpponentParked) {
       continue;
     }
     vec3_t *h = &_opponent_head[i];
@@ -517,7 +548,7 @@ void opponent_step(void) {
         _opponent_fail();
       }
       if (++w == p->count) {
-        if (p->kind == kOpponentOneWay) {
+        if ((p->kind & kOpponentKindMask) == kOpponentOneWay) {
           // Off the map: gone, and nothing of it on screen.
           _opponent_on[i] = false;
           if (_opponent_smoke == _opponent_bit(i)) {
