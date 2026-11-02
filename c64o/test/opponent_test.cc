@@ -1070,9 +1070,10 @@ static void test_missions(void) {
 
   // 04: the scramble. A pass and then a hunt: both fly north on their lines
   // either side of runway 1's, low and level, the second 184 m behind the
-  // first, to their waypoints ~90 s out; there both turn to ATTACK, within a
-  // step of each other, and come back for the player still parked on the
-  // runway, never failing the mission or leaving.
+  // first, past the player to their waypoints ~600 m beyond it, ~16 s out;
+  // there both turn to ATTACK, within a step of each other, and come back
+  // for the player still parked on the runway inside a minute, never
+  // failing the mission or leaving.
   {
     _msgs = 0;
     opponent_reset(3);
@@ -1099,10 +1100,10 @@ static void test_missions(void) {
               "scramble: the second is %.1f units behind", units(_opponent_x[0] - _opponent_x[1]));
       if (at[1] >= 0 && to_eye(0, nullptr) < 600 && to_eye(1, nullptr) < 600) back = n;
     }
-    CHECK(fabs(at[0] / 6.25 - 90) < 10 && abs(at[0] - at[1]) <= 1,
+    CHECK(fabs(at[0] / 6.25 - 16) < 4 && abs(at[0] - at[1]) <= 1,
           "scramble: ATTACK at %.1f s and %.1f s", at[0] / 6.25, at[1] / 6.25);
-    // From ~3.3 km at 1,500: ~90 s.
-    CHECK(back >= 0 && back - at[1] < 100 * 6.25, "scramble: back within 300 m %.0f s after",
+    // Round from ~600 m past it at 2,000: ~36 s.
+    CHECK(back >= 0 && back - at[1] < 60 * 6.25, "scramble: back within 300 m %.0f s after",
           (back - at[1]) / 6.25);
     CHECK(_opponent_on[0] && _opponent_on[1] && !_opponent_failed && _msgs == 0,
           "scramble: an aircraft left, or the mission failed");

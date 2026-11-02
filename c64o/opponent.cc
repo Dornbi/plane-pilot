@@ -193,14 +193,17 @@ static const uint16_t kOpponent3500Ft = 0x0700;
 // its wheels.
 //
 // 04, Scramble: a pass, then a hunt, from the player's start on runway 1.
-// Both at 1,500, the player's half-throttle level trim, and 48 m up: behind
-// the player parked on runway 1, low and level and heading north, so they
-// overtake alongside the runway. The first 200 m behind the player's 0x1C
-// and 48 m left of its centreline at 0x3F and a half - 32 m beyond the
-// runway's left edge; the second on the other side, 48 m right of it, and
-// 384 m behind. Each flies on north to its one waypoint, 26 units from its
-// start and ~2.5 km past the runway, ~90 s after the start, and there turns
-// back for the player: strafing it if it is still on the ground.
+// Both at 2,000, as fast as 05's hunters, and 48 m up: behind the player
+// parked on runway 1, low and level and heading north, so they overtake
+// alongside the runway. The first 200 m behind the player's 0x1C and 48 m
+// left of its centreline at 0x3F and a half - 32 m beyond the runway's left
+// edge; the second on the other side, 48 m right of it, and 384 m behind.
+// Each flies on north to its one waypoint, 8 units from its start and
+// ~600 m past the player, ~16 s after the start, and there turns back for
+// the player, following and shooting at it: strafing it if it is still on
+// the ground, ~50 s after the start. 1,500 and ~2.5 km out at first, which
+// took them ~90 s to turn and left a player who had taken off and flown
+// north far ahead, never to be seen again.
 //
 // 05, Head on: two fighters hunting from the start, at 2,000, side by side
 // 128 m apart, 2.3 km north of the player and 50 m above its 3,000 ft,
@@ -219,9 +222,9 @@ static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
       0xC096, 0, -256, 0x000A},
      {kOpponentParked | kOpponentFighter | kOpponentPath, 0, kOpponentNoFail, 0, 0, 0x5D64,
       0xC096, 0, -256, 0x000A}},
-    {{kOpponentOneWay | kOpponentFighter | kOpponentPass, 1, kOpponentNoFail, 10, 1500, 0x1A70,
+    {{kOpponentOneWay | kOpponentFighter | kOpponentPass, 1, kOpponentNoFail, 10, 2000, 0x1A70,
       0x3FE0, 256, 0, 0x0060},
-     {kOpponentOneWay | kOpponentFighter | kOpponentPass, 1, kOpponentNoFail, 11, 1500, 0x1900,
+     {kOpponentOneWay | kOpponentFighter | kOpponentPass, 1, kOpponentNoFail, 11, 2000, 0x1900,
       0x3F20, 256, 0, 0x0060}},
     {{kOpponentLoop | kOpponentFighter | kOpponentHunt, 0, kOpponentNoFail, 0, 2000, 0x4200,
       0x9000, -256, 0, 0x0660},
@@ -247,7 +250,7 @@ __striped static const uint16_t kOpponentWpX[kOpponentWpCount + OPPONENT_TEST_WP
     0x5C00, 0x3000, 0x1000, 0x0000,
     0x2800, 0x1000, 0x0000,
     0x28C8, 0x10C8, 0x00C8,
-    0x3470, 0x3300 OPPONENT_TEST_WP_X};
+    0x2270, 0x2100 OPPONENT_TEST_WP_X};
 __striped static const uint16_t kOpponentWpY[kOpponentWpCount + OPPONENT_TEST_WP_N] = {
     0x6000, 0x6400, 0x6800, 0x6800,
     0x4000, 0x6800, 0x6800,

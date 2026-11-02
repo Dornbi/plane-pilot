@@ -1124,3 +1124,13 @@ bomber flies at 3,500 ft, 500 ft above the first. The dogfight pilot takes
 02 by holding 100 m under each bomber until its pass and holding fire until
 it is within 400 m: both down at ~3.8 min, unhit. Firing from out of range
 had emptied its 50 rounds before it closed. fpilot is at 1,067 B free.
+
+04's pass was too long: the pair flew ~2.5 km north and turned only after
+~90 s, and a player who had taken off and flown north was by then far
+ahead of them, so they never came back. Their waypoints are now ~600 m past
+the player's start: they overtake, turn to ATTACK at ~16 s, and follow and
+shoot from there, at 2,000 instead of 1,500. A parked player is strafed
+from ~50 s. mission_test checks a player flying away north is followed, and
+its dogfight pilot still takes 04 unhit, turning to fight from 100 m - one
+that climbs on to 300 m with them on its tail is shot down. fpilot is at
+1,109 B free: the same code, and the data moved by page alignment.

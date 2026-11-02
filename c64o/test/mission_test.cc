@@ -205,8 +205,8 @@ static int dogfight(int m, double *closest, int min_m = 300) {
     const bool bomber = _opponent_path[t]->kind & kOpponentBomber;
     const double range = bomber ? 800 : 2000;
     // Throttled back on a target's tail inside 300 m: flying into it is a
-    // crash.
-    flight_throttle = ahead > 0 && d < 600 ? 10 : 24;
+    // crash. Not on the way up: 04's pair are that close from the start.
+    flight_throttle = up && ahead > 0 && d < 600 ? 10 : 24;
     if (ahead < 0 && d < 1000) {
       extend = true;
     } else if (d > 3000) {
@@ -400,11 +400,41 @@ int main() {
            first / kStepsPerSecond, down / kStepsPerSecond);
   }
 
+  // 04, taking off and flying away north at full throttle: the pair pass
+  // it, turn, and follow it - one of them within 500 m a minute in, both in
+  // ATTACK.
+  {
+    flight_init_from_mission(3);
+    opponent_reset(3);
+    gun_reset();
+    double nearest = 1e9;
+    for (int n = 0; n < (int)(kStepsPerSecond * 60); ++n) {
+      flight_throttle = 24;
+      if (flight_speed > 1300 || !model_on_ground) {
+        if (flight_cam.front.z < 60) {
+          flight_input(FLIGHT_INPUT_PITCH_UP);
+        } else if (flight_cam.front.z > 70) {
+          flight_input(FLIGHT_INPUT_PITCH_DOWN);
+        }
+      }
+      flight_advance();
+      opponent_step();
+      gun_step(false);
+    }
+    for (int i = 0; i < kOpponentMax; ++i) nearest = std::min(nearest, distance(i) / 2);
+    CHECK(_opponent_attack == 3 && nearest < 500 && !flight_crashed(),
+          "scramble, flying away: attack %d, nearest %.0f m a minute in", _opponent_attack,
+          nearest);
+    printf("  scramble, flying away: followed, the nearest %.0f m a minute in, %d hits taken\n",
+           nearest, gun_player_hits);
+  }
+
   // 04: the same pilot downs both fighters after the pass, as they come
-  // back for it.
+  // back for it - turning to fight from 100 m: climbing on to 300 m with
+  // them on its tail, it is shot down.
   {
     double closest;
-    int down = dogfight(3, &closest);
+    int down = dogfight(3, &closest, 100);
     CHECK(down >= 0 && down <= 6 * 60 * kStepsPerSecond,
           "scramble: both down at %.1f min, the nearest %.0f m", down / kStepsPerSecond / 60,
           closest);
