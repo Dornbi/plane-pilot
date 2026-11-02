@@ -18,6 +18,10 @@ void keys_poll(void) {
   }
   cia1.pra = ciaa_pra_def;
 }
+
+__noinline bool keys_pressed(enum KeyScanCode key) {
+  return !(keyb_matrix[key >> 3] & kBit[key & 7]);
+}
 #endif
 
 inline uint8_t keys_edges(uint8_t current, uint8_t *prev) {
@@ -26,7 +30,7 @@ inline uint8_t keys_edges(uint8_t current, uint8_t *prev) {
   return edges;
 }
 
-inline void keys_wait_release(enum KeyScanCode key) {
+__noinline void keys_wait_release(enum KeyScanCode key) {
   while (keys_pressed(key)) {
     keys_poll();
   }

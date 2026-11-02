@@ -55,9 +55,9 @@ void keys_poll(void);
 #ifdef __OSCAR64__
 // key_pressed() for a scan code that is not a constant. oscar64's own shifts
 // 1 by the code's low bits, and that shift pulls in its bitshift table.
-inline bool keys_pressed(enum KeyScanCode key) {
-  return !(keyb_matrix[key >> 3] & kBit[key & 7]);
-}
+// Called, not inlined: written out at every key table's loop it was ~20 B a
+// time, and the keys are polled a few times a frame at most.
+bool keys_pressed(enum KeyScanCode key);
 #endif
 
 // Returns which bits of `current` were not set in `*prev` (i.e. the keys
