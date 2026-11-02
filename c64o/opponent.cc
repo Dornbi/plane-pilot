@@ -181,7 +181,8 @@ static const uint16_t kOpponent3000Ft = 0x0600;
 // 75 m to the left of and 100 m behind the first - come south towards
 // runway 1 from 5.5 km as the player scrambles from it, pass 500 m north of
 // it, turn for the city and reach it after ~4.4 min, which fails the
-// mission. Then they leave over the south edge.
+// mission. Then they leave over the south edge. Their rear gunners fire
+// at a player behind them from the start.
 //
 // 03, Ambush: two on the ground beside the south end of runway 2, side by
 // side 100 m apart, both 75 m off its west edge at y 0xC0 and facing it, and
@@ -206,9 +207,9 @@ static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
     {{kOpponentOneWay | kOpponentFighter | kOpponentPath, 4, 3, 0, 1750, 0x7E00, 0x6000, -256,
       0, kOpponent5000Ft},
      {kOpponentNone}},
-    {{kOpponentOneWay | kOpponentBomber | kOpponentPath, 3, 1, 4, 1500, 0x4800, 0x4000, -256,
+    {{kOpponentOneWay | kOpponentBomber | kOpponentHunt, 3, 1, 4, 1500, 0x4800, 0x4000, -256,
       0, kOpponent3000Ft},
-     {kOpponentOneWay | kOpponentBomber | kOpponentPath, 3, 1, 7, 1500, 0x48C8, 0x3F6A, -256,
+     {kOpponentOneWay | kOpponentBomber | kOpponentHunt, 3, 1, 7, 1500, 0x48C8, 0x3F6A, -256,
       0, kOpponent3000Ft}},
     {{kOpponentParked | kOpponentFighter | kOpponentPath, 0, kOpponentNoFail, 0, 0, 0x5C9C,
       0xC096, 0, -256, 0x000A},
@@ -318,8 +319,16 @@ static const int16_t kOpponentStrafeFloor = 60;
 // The guns (docs/opponent_ai.md §6): a fighter in ATTACK fires a burst of
 // three rounds, one every second whole step, from the start of each
 // kOpponentGunCycle whole steps that finds the player in front of its nose:
-// ~0.8 s of fire and ~3.4 s to the next burst.
+// ~0.8 s of fire and ~3.4 s to the next burst. A bomber's rear gunner keeps
+// the same cycle, and fires its burst's rounds at a player behind it.
 static const uint8_t kOpponentGunCycle = 26;
+// The rear gunner's reach, in half metres on each axis: ~600 m.
+static const int16_t kOpponentGunnerReach = 1200;
+// Its aim's scatter, in the 8.8 of the direction it fires along, 4 being
+// ~0.9 degrees: by three random bits for x and for y, so that across the
+// tail it is up to ~6 degrees, and two for z. At 300 m about one round in
+// eight lands, closer in more (test/mission_test.cc).
+__striped static const int16_t kOpponentScatter[8] = {-28, -20, -12, -4, 4, 12, 20, 28};
 
 // The pixel size, planes_frame_t::d, from which an aircraft is drawn in
 // kColorOpponentNear: about 620 m at kOpponentKn, and below
@@ -360,6 +369,9 @@ static uint8_t _opponent_hits[kOpponentMax];
 // bit i: slot i fires a round this step (opponent_fires()).
 static uint8_t _opponent_gun[kOpponentMax];
 static uint8_t _opponent_firing;
+// An 8-bit xorshift, never 0 once opponent_reset() has run: the rear
+// gunners' scatter.
+static uint8_t _opponent_lfsr;
 // 1 + the slot trailing smoke - the last one hit - or kOpponentNoSmoke; and
 // the frames it has left.
 static uint8_t _opponent_smoke;
@@ -543,6 +555,7 @@ void opponent_reset(uint8_t mission) {
   _opponent_attack = 0;
   _opponent_pullup = 0;
   _opponent_firing = 0;
+  _opponent_lfsr |= 1;
   _opponent_smoke = kOpponentNoSmoke;
   _opponent_substep = 0;
   const opponent_path_t *p = kOpponentPaths[mission];
@@ -734,11 +747,41 @@ static __noinline void _opponent_guns(uint8_t i, int8_t want) {
   _opponent_gun[i] = g;
 }
 
-// The round leaves along the nose at the muzzle velocity, 3 x 256 in gun.cc's
-// sixteenths of a metre a step: three times the heading, with the climb's
-// sine for its z. No multiply: the aircraft's own speed, 3-11 m a step
-// against the round's 48, and the climb's cosine, 0.89 at the steepest, are
-// left out, which the guns not aiming makes nothing of.
+// The next of _opponent_lfsr's 255 values: xorshift 7, 5, 3. A Galois
+// LFSR's next is its last shifted by a bit, and a burst's rounds walked.
+static __noinline uint8_t _opponent_random(void) {
+  uint8_t r = _opponent_lfsr;
+  r ^= (uint8_t)(r << 7);
+  r ^= (uint8_t)(r >> 5);
+  r ^= (uint8_t)(r << 3);
+  _opponent_lfsr = r;
+  return r;
+}
+
+// Bomber i's rear gunner (docs/opponent_ai.md §6): whether the player is
+// behind it, within ~14 degrees of the tail across and in height, and less
+// than kOpponentGunnerReach back. The gunner fires straight back, scattered
+// (opponent_fires()): aiming it at the player, normalised, was 550 B. Asked
+// from opponent_fires(), under gun_step(): under opponent_step() its
+// multiplies cost that a software stack frame.
+static __noinline bool _opponent_gunner(uint8_t i) {
+  int16_t dx = _opponent_toward((uint16_t)(flight_eye_x >> 8), _opponent_x[i]);
+  int16_t dy = _opponent_toward((uint16_t)(flight_eye_y >> 8), _opponent_y[i]);
+  int16_t hx = _opponent_head[i].x, hy = _opponent_head[i].y;
+  int16_t back = -_opponent_dot(dx, hx, dy, hy);
+  int16_t q = back >> 2;
+  return back > 0 && back < kOpponentGunnerReach &&
+         _opponent_abs(_opponent_dot(dy, hx, -dx, hy)) < q &&
+         _opponent_abs((int16_t)((flight_eye_z - _opponent_z[i]) >> 8)) < q;
+}
+
+// The round leaves at the muzzle velocity, 3 x 256 in gun.cc's sixteenths
+// of a metre a step: three times a unit vector. A fighter's along its nose,
+// the heading with the climb's sine for its z; a bomber's gunner's straight
+// back, level, scattered by kOpponentScatter on each axis. No multiply: the
+// aircraft's own speed, 3-11 m a step against the round's 48, and the
+// climb's cosine, 0.89 at the steepest, are left out, which the guns not
+// aiming makes nothing of.
 static_assert(kGunMuzzle == 3 * 256, "the round is three times the nose");
 bool opponent_fires(uint8_t i, int16_t *v) {
   uint8_t bit = _opponent_bit(i);
@@ -746,8 +789,20 @@ bool opponent_fires(uint8_t i, int16_t *v) {
     return false;
   }
   _opponent_firing &= (uint8_t)~bit;
-  int16_t x = _opponent_head[i].x, y = _opponent_head[i].y;
-  int16_t z = kOpponentPitchSin[(uint8_t)(_opponent_climb[i] + 3)];
+  int16_t x, y, z;
+  if (_opponent_path[i]->kind & kOpponentBomber) {
+    if (!_opponent_gunner(i)) {
+      return false;
+    }
+    uint8_t r = _opponent_random();
+    x = kOpponentScatter[r & 7] - _opponent_head[i].x;
+    y = kOpponentScatter[(r >> 3) & 7] - _opponent_head[i].y;
+    z = kOpponentScatter[(r >> 6) + 2];
+  } else {
+    x = _opponent_head[i].x;
+    y = _opponent_head[i].y;
+    z = kOpponentPitchSin[(uint8_t)(_opponent_climb[i] + 3)];
+  }
   v[0] = (x << 1) + x;
   v[1] = (y << 1) + y;
   v[2] = (z << 1) + z;
@@ -859,9 +914,12 @@ void opponent_step(void) {
       int16_t floor = _opponent_strafe(i, dot, across, cut);
       straight = (_opponent_pullup & bit) != 0;
       want = straight ? 1 : _opponent_want(i, dx8, dy8, dz, floor);
-      if (turns) {
-        _opponent_guns(i, want);
-      }
+    } else {
+      // A bomber's rear gunner, in ATTACK: its cone is opponent_fires()'s.
+      _opponent_aim = (_opponent_attack & bit) != 0;
+    }
+    if (turns) {
+      _opponent_guns(i, want);
     }
     int8_t turn = 0;
     if (!straight && (dot < 0 || across > (dot >> 5))) {

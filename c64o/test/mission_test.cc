@@ -333,6 +333,28 @@ int main() {
   printf("  recon, shot down by the same pilot with guns: at %.1f min\n",
          down_at / kStepsPerSecond / 60);
 
+  // 02: a minute's tail chase 300 m behind the first bomber, held there by
+  // hand, level at its height: its rear gunner's hits.
+  {
+    flight_init_from_mission(1);
+    opponent_reset(1);
+    _opponent_on[1] = false;
+    const int32_t back = 300L * 512;
+    flight_eye_x = _opponent_x[0] + back;
+    flight_eye_y = _opponent_y[0];
+    flight_eye_z = _opponent_z[0];
+    gun_reset();
+    for (int n = 0; n < (int)(kStepsPerSecond * 60); ++n) {
+      opponent_step();
+      flight_eye_x = _opponent_x[0] + back;
+      flight_eye_y = _opponent_y[0];
+      gun_step(false);
+    }
+    CHECK(gun_player_hits >= 2 && gun_player_hits <= 8, "bombers, tail chase: %d hits in a minute",
+          gun_player_hits);
+    printf("  bombers, tail chase at 300 m: %d hits in a minute\n", gun_player_hits);
+  }
+
   // 04, parked and hands off: the pair come back from their pass and
   // strafe, and their rounds land.
   {

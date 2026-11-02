@@ -902,3 +902,33 @@ less pressing.
   an estimate of 240–320. `opponent_fires()` alone is 131 B for three
   16-bit sums, `_gun_fire_from()` 123 and the cone 74. ppilot is
   unchanged.
+
+### Step 10: the bombers' rear gunners
+
+- **Not aimed.** §6 planned a gunner that aims at the player within ~45°
+  of the tail, the 6-bit direction scattered and normalised. Built, that
+  was 550 B (`_opponent_gunner()` alone), so it was cut, as §12 above
+  allowed. The gunner fires straight back along the tail, scattered, while
+  the player is within ~14° of it across and in height and less than
+  ~600 m back. In a tail chase, where it matters, that is where the player
+  is.
+- **Scatter.** By an 8-bit xorshift (7, 5, 3; 255 values): three bits for
+  x and three for y, so up to ~6° across, and two for z, ~2.7°. A Galois
+  LFSR's next value is its last shifted a bit, which made a burst's
+  rounds walk. Values that straddle the 10 m hit box set the rate: about
+  one round in eight lands at 300 m, more closer in.
+- **Rate.** The fighters' cycle: a burst of three every 26 whole steps.
+- **Where it runs.** The cone is tested in `opponent_fires()`, under
+  `gun_step()`. Tested in `opponent_step()`, with the offset to the eye
+  shared for the steering, it cost a software stack frame and 57 B more.
+- **Mission 02's bombers are Hunt**: their gunners fire from the start, and
+  they keep to their path.
+- **Tests.**
+  - `opponent_test`: 300 m dead astern, a burst of three on the cycle,
+    within the scatter; 150 m back and 20 m off it, too. Not at a player
+    ahead, 30° off the tail, 100 m above it, or 700 m back.
+  - `mission_test`: a minute 300 m behind the first bomber, held there by
+    hand: 3 hits.
+- **RAM.** fpilot 2,603 → 2,178 B free (largest run 1,539): 425 B against
+  an estimate of 120–160. `_opponent_gunner()` is 204 B and the scatter
+  adds 100 to `opponent_fires()`. ppilot is unchanged.

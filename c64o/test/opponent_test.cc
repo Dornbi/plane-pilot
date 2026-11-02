@@ -903,7 +903,7 @@ static void test_missions(void) {
       uint8_t role, behaviour;
     } kSent[kMissionCount][kOpponentMax] = {
         {{kOpponentFighter, kOpponentPath}, {0, 0}},
-        {{kOpponentBomber, kOpponentPath}, {kOpponentBomber, kOpponentPath}},
+        {{kOpponentBomber, kOpponentHunt}, {kOpponentBomber, kOpponentHunt}},
         {{kOpponentFighter, kOpponentPath}, {kOpponentFighter, kOpponentPath}},
         {{kOpponentFighter, kOpponentPass}, {kOpponentFighter, kOpponentPass}},
         {{kOpponentFighter, kOpponentHunt}, {kOpponentFighter, kOpponentHunt}},
@@ -1478,6 +1478,40 @@ static void test_guns(void) {
   for (int n = 0; n < 50; ++n) fire_step();
   CHECK(_fired[1] == 0, "guns: fired on a path");
   printf("  guns: a burst at steps %d, %d and %d, the next at %d\n", at[0], at[1], at[2], at[3]);
+
+  // The rear gunner: 02's first bomber, in ATTACK from the start, heading
+  // south. Straight back at a player 300 m behind it, on the gun's cycle,
+  // scattered by at most kOpponentScatter; never at one ahead, 30 degrees
+  // off the tail, 100 m above it, or 700 m back.
+  static const struct {
+    double back, side, up;
+    bool fires;
+  } kTail[] = {{300, 0, 0, true}, {-300, 0, 0, false}, {300, 175, 0, false},
+               {300, 0, 100, false}, {700, 0, 0, false}, {150, 20, -20, true}};
+  for (const auto &k : kTail) {
+    opponent_reset(1);
+    _opponent_on[1] = false;
+    _fired[0] = 0;
+    int16_t sx = 0, sy = 0, sz = 0;
+    bool spread = true;
+    for (int n = 0; n < kOpponentGunCycle; ++n) {
+      // Behind is north, the bomber heading south; left of its tail is west, +y.
+      flight_eye_x = _opponent_x[0] + (int32_t)(k.back * 512);
+      flight_eye_y = _opponent_y[0] + (int32_t)(k.side * 512);
+      flight_eye_z = _opponent_z[0] + (int32_t)(k.up * 512);
+      fire_step();
+      if (_fired[0] && n < 6) {
+        sx = std::max(sx, (int16_t)abs(_fired_v[0] - 768));
+        sy = std::max(sy, (int16_t)abs(_fired_v[1]));
+        sz = std::max(sz, (int16_t)abs(_fired_v[2]));
+        spread &= abs(_fired_v[0] - 768) <= 3 * 28 && abs(_fired_v[1]) <= 3 * 28 &&
+                  abs(_fired_v[2]) <= 3 * 12;
+      }
+    }
+    CHECK(k.fires ? _fired[0] == 3 && spread : _fired[0] == 0,
+          "gunner: %.0f m back, %.0f across, %.0f up: %d rounds, spread %d %d %d", k.back, k.side,
+          k.up, _fired[0], sx, sy, sz);
+  }
 }
 
 int main() {
