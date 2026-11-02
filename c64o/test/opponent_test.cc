@@ -879,7 +879,7 @@ static void test_missions(void) {
   flight_paused = false;
   flight_status = FLIGHT_ONGOING;
 
-  // Every leg in reach: the rows, 06-10 sharing the last.
+  // Every leg in reach: the rows, 01-05; 06-10 have none.
   for (int m = 0; m < kOpponentMissions; ++m) {
     for (int k = 0; k < kOpponentMax; ++k) {
       const opponent_path_t &p = kOpponentPaths[m][k];
