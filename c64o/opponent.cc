@@ -1147,10 +1147,14 @@ static __noinline uint8_t _opponent_camera(uint8_t i) {
     }
   }
   for (uint8_t c = 0; c < 3; ++c) {
-    uint16_t u = (uint8_t)_opponent_s[c], f = (uint16_t)_opponent_d[c];
-    (&_opponent_c.x)[c] = range == kOpponentNear
-                              ? (int16_t)((u << 10) + (f >> 6))
-                              : (int16_t)((u << 8) + (f >> 8));
+    // The far range's half metres, and the near range's eighths from them:
+    // two bits more, the next two from the fraction's byte.
+    uint16_t f = (uint16_t)_opponent_d[c];
+    uint16_t v = ((uint16_t)(uint8_t)_opponent_s[c] << 8) | (f >> 8);
+    if (range == kOpponentNear) {
+      v = (v << 2) | ((uint8_t)f >> 6);
+    }
+    (&_opponent_c.x)[c] = (int16_t)v;
   }
   vec_transform_inv(&world_cam, &_opponent_c, &_opponent_c);
   return range;
