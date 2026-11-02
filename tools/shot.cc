@@ -163,6 +163,18 @@ static const shot_step_t kShotScript[] = {
     {4000, KSCAN_4},
 #endif
 };
+#elif __SHOT__ == 13
+// Mission 04 live and parked on runway 1, hands off, looking ahead: the pair
+// overtake, fly on north to their waypoints ~2.5 km past the runway, turn
+// back at about frame 525 and come in to strafe from about frame 1000.
+// tools/bench.sh times the runs.
+static const shot_step_t kShotScript[] = {
+    {100, SHOT_IDLE},
+    {1, KSCAN_K},      {6, SHOT_IDLE},
+    {1, KSCAN_K},      {6, SHOT_IDLE},
+    {1, KSCAN_K},      {6, SHOT_IDLE},
+    {1, KSCAN_RETURN},
+};
 #elif defined(SHOT_POSED)
 
 // --- The posed scenes ------------------------------------------------------

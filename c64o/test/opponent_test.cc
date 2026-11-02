@@ -87,10 +87,13 @@ static bool _test_offer(uint8_t slot, int16_t depth, int16_t x, int16_t y, int8_
 // opponent_add_sprites() offers each aircraft from inside its loop over the
 // slots, as `i`; the macro passes it on, so that each offer says whose it is.
 #define sprites_stack_add(...) _test_offer(i, __VA_ARGS__)
-// kSquare's waypoints (section 6), after the missions' in the pool.
-#define OPPONENT_TEST_WP_N 4
-#define OPPONENT_TEST_WP_X , 0x1600, 0x1600, 0x0A00, 0x0A00
-#define OPPONENT_TEST_WP_Y , 0x6200, 0x6E00, 0x6E00, 0x6200
+// kSquare's and kStraight's waypoints (section 6), after the missions' in
+// the pool.
+#define OPPONENT_TEST_WP_N 8
+#define OPPONENT_TEST_WP_X \
+  , 0x1600, 0x1600, 0x0A00, 0x0A00, 0x3A70, 0x5A70, 0x7A70, 0x9A70
+#define OPPONENT_TEST_WP_Y \
+  , 0x6200, 0x6E00, 0x6E00, 0x6200, 0x3FE0, 0x3FE0, 0x3FE0, 0x3FE0
 #include "../opponent.cc"
 #undef sprites_stack_add
 
@@ -573,10 +576,12 @@ static double metres(uint16_t w, int32_t pos, bool wrap) {
 
 // Two paths of the test's own, flown as opponent_reset() starts a mission's:
 // dead straight north for ever, the world repeating every 128 units of x,
-// and a 1.5 km square anticlockwise. The straight one's waypoints are 04's
-// first aircraft's, the pool's 10 to 13; the square's are appended to the
-// pool after the missions' (OPPONENT_TEST_WP_X/Y above).
-static const opponent_path_t kStraight = {kOpponentLoop, 4, kOpponentNoFail, 10, 1500,
+// and a 1.5 km square anticlockwise. Both paths' waypoints are appended to
+// the pool after the missions' (OPPONENT_TEST_WP_X/Y above): the square's,
+// then the straight one's, 32 units apart, the fourth 128 units on from its
+// start.
+static const opponent_path_t kStraight = {kOpponentLoop, 4, kOpponentNoFail,
+                                          kOpponentWpCount + 4, 1500,
                                           0x1A70, 0x3FE0, 256, 0, 0x0060};
 static const opponent_path_t kSquare = {kOpponentLoop, 4, kOpponentNoFail, kOpponentWpCount,
                                         1500, 0x0A00, 0x6200, 256, 0, 0x0700};
@@ -713,7 +718,7 @@ static void test_paths(void) {
 // back to it. Too slow, the aircraft does not climb until the speed is back;
 // too fast, it does not descend until the speed has come down.
 
-static const opponent_path_t kHigh = {kOpponentLoop, 4, kOpponentNoFail, 10, 1500,
+static const opponent_path_t kHigh = {kOpponentLoop, 4, kOpponentNoFail, kOpponentWpCount + 4, 1500,
                                       0x1A70, 0x3FE0, 256, 0, 0x0400};
 
 // Half metres from slot 0 to kHigh's height.
@@ -859,6 +864,7 @@ void msg_show(const char *text, uint8_t duration, bool permanent) {
 }
 
 static double units(int32_t d) { return d / 65536.0; }
+static double to_eye(int i, double *ahead);
 
 static void test_missions(void) {
   flight_step_shift = 0;
@@ -898,7 +904,7 @@ static void test_missions(void) {
         {{kOpponentFighter, kOpponentPath}, {0, 0}},
         {{kOpponentBomber, kOpponentPath}, {kOpponentBomber, kOpponentPath}},
         {{kOpponentFighter, kOpponentPath}, {kOpponentFighter, kOpponentPath}},
-        {{kOpponentFighter, kOpponentPath}, {kOpponentFighter, kOpponentPath}},
+        {{kOpponentFighter, kOpponentPass}, {kOpponentFighter, kOpponentPass}},
         {{kOpponentFighter, kOpponentHunt}, {kOpponentFighter, kOpponentHunt}},
     };
     for (int m = 0; m < kMissionCount; ++m) {
@@ -1049,25 +1055,47 @@ static void test_missions(void) {
           flight_nav_point_x[0]);
   }
 
-  // 04: the scramble. Two flying loops for ever: never failing, never gone,
-  // and navpoint 1 midway between them.
+  // 04: the scramble. A pass and then a hunt: both fly north on their lines
+  // either side of runway 1's, low and level, the second 184 m behind the
+  // first, to their waypoints ~90 s out; there both turn to ATTACK, within a
+  // step of each other, and come back for the player still parked on the
+  // runway, never failing the mission or leaving.
   {
     _msgs = 0;
     opponent_reset(3);
     CHECK(_opponent_on[0] && _opponent_on[1] &&
               kMissionWpConstraint[kMissionWpBegin[3]] == WP_TARGETS_DOWN,
           "scramble: not two aircraft, or the targets' navpoint is not 1");
-    for (int n = 0; n < 6000; ++n) opponent_step();
+    model_on_ground = true;
+    flight_eye_x = 0x1C00L << 8;
+    flight_eye_y = 0x3F80L << 8;
+    flight_eye_z = 32 << 8;
+    int at[2] = {-1, -1}, back = -1;
+    for (int n = 0; n < 1500 && back < 0; ++n) {
+      opponent_step();
+      for (int i = 0; i < 2; ++i) {
+        if (at[i] < 0 && (_opponent_attack & _opponent_bit((uint8_t)i))) at[i] = n;
+        if (at[i] < 0)
+          CHECK(_opponent_z[i] == (int32_t)0x0060 << 8 &&
+                    _opponent_y[i] == (i ? 0x3F20 : 0x3FE0) << 8,
+                "scramble: aircraft %d left its line at %.1f, height %.1f", i + 1,
+                units(_opponent_y[i]), units(_opponent_z[i]));
+      }
+      if (at[0] < 0)
+        CHECK(((_opponent_x[0] - _opponent_x[1]) >> 8 & 0x7FFF) == 0x170,
+              "scramble: the second is %.1f units behind", units(_opponent_x[0] - _opponent_x[1]));
+      if (at[1] >= 0 && to_eye(0, nullptr) < 600 && to_eye(1, nullptr) < 600) back = n;
+    }
+    CHECK(fabs(at[0] / 6.25 - 90) < 10 && abs(at[0] - at[1]) <= 1,
+          "scramble: ATTACK at %.1f s and %.1f s", at[0] / 6.25, at[1] / 6.25);
+    // From ~3.3 km at 1,500: ~90 s.
+    CHECK(back >= 0 && back - at[1] < 100 * 6.25, "scramble: back within 300 m %.0f s after",
+          (back - at[1]) / 6.25);
     CHECK(_opponent_on[0] && _opponent_on[1] && !_opponent_failed && _msgs == 0,
           "scramble: an aircraft left, or the mission failed");
-    // Both still low and on their lines either side of runway 1's, the
-    // second still 184 m behind the first.
-    for (int i = 0; i < 2; ++i)
-      CHECK(_opponent_z[i] == (int32_t)0x0060 << 8 && _opponent_y[i] == (i ? 0x3F20 : 0x3FE0) << 8,
-            "scramble: aircraft %d left its line at %.1f, height %.1f", i + 1,
-            units(_opponent_y[i]), units(_opponent_z[i]));
-    CHECK(((_opponent_x[0] - _opponent_x[1]) >> 8 & 0x7FFF) == 0x170,
-          "scramble: the second is %.1f units behind", units(_opponent_x[0] - _opponent_x[1]));
+    printf("  scramble: ATTACK at %.0f s, both back within 300 m of the player %.0f s later\n",
+           at[0] / 6.25, (back - at[1]) / 6.25);
+    model_on_ground = false;
     _opponent_down = 3;
     CHECK(opponent_targets_down(), "scramble: both down, but the targets are not down");
   }

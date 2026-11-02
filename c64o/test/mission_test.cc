@@ -19,6 +19,7 @@
 // What opponent.cc draws with and tells the message row is stubbed; nothing
 // here draws.
 
+#include <algorithm>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -149,6 +150,103 @@ static void chase(bool guns, int *caught_at, int *gone_at, int *down_at) {
   }
 }
 
+// A dogfight: from the mission's start - taking off first if it starts on
+// the runway, and climbing to 300 m - it goes for the nearest aircraft still
+// flying, banking towards it, matching its height, and inside 800 m putting
+// the nose on it, with the rudder for the last few degrees, and holding
+// Space while it is within ~3.5 degrees. A hunter
+// on its tail it does not try to out-turn: it extends, wings level, at its
+// greater speed until 1.5 km clear, then turns back for a head-on pass. When
+// the last went down, in steps, or -1; and the fewest metres it came to any.
+static int dogfight(int m, double *closest) {
+  flight_init_from_mission(m);
+  opponent_reset(m);
+  gun_reset();
+  *closest = 1e9;
+  const int32_t kMinZ = 600L << 8;
+  bool extend = false;
+  for (int n = 0; n < (int)(kStepsPerSecond * 600); ++n) {
+    flight_throttle = 24;
+    int t = -1;
+    double best = 1e9;
+    for (int i = 0; i < kOpponentMax; ++i) {
+      if (!_opponent_live(i)) continue;
+      double d = distance(i);
+      if (d < best) {
+        best = d;
+        t = i;
+      }
+    }
+    if (t < 0) return n;
+    double dx = (double)(_opponent_x[t] - flight_eye_x) / 256.0;
+    double dy = (double)(_opponent_y[t] - flight_eye_y) / 256.0;
+    double dz = (double)(_opponent_z[t] - flight_eye_z) / 256.0;
+    dx = fmod(dx + 16384.0 + 4 * 32768.0, 32768.0) - 16384.0;
+    *closest = std::min(*closest, sqrt(dx * dx + dy * dy + dz * dz) / 2);
+    double ahead = along(flight_cam.front, dx, dy, dz);
+    double side = along(flight_cam.left, dx, dy, dz);
+    double above = along(flight_cam.up, dx, dy, dz);
+    bool up = !model_on_ground && flight_eye_z > kMinZ;
+    double d = sqrt(dx * dx + dy * dy + dz * dz);
+    if (ahead < 0 && d < 1000) {
+      extend = true;
+    } else if (d > 3000) {
+      extend = false;
+    }
+    bool aiming = up && ahead > 0 && ahead < 1600;
+    if (!up) {
+      // Off the runway and up to 300 m, wings level.
+      if (flight_speed > 1300 || !model_on_ground) {
+        if (flight_cam.front.z < 80) {
+          flight_input(FLIGHT_INPUT_PITCH_UP);
+        } else if (flight_cam.front.z > 88) {
+          flight_input(FLIGHT_INPUT_PITCH_DOWN);
+        }
+      }
+    }
+    double err = degrees(dy, dx) - degrees(flight_cam.front.y, flight_cam.front.x);
+    while (err > 180) err -= 360;
+    while (err < -180) err += 360;
+    double want_roll = !up || extend ? 0 : err > 10 ? 45 : err < -10 ? -45 : err * 2;
+    double roll = degrees(-flight_cam.left.z, flight_cam.up.z);
+    if (roll < want_roll - 4) {
+      flight_input(FLIGHT_INPUT_ROLL_LEFT);
+    } else if (roll > want_roll + 4) {
+      flight_input(FLIGHT_INPUT_ROLL_RIGHT);
+    }
+    if (aiming && !extend) {
+      // The rudder for the last few degrees across.
+      if (side > ahead / 64) {
+        flight_input(FLIGHT_INPUT_YAW_LEFT);
+      } else if (side < -ahead / 64) {
+        flight_input(FLIGHT_INPUT_YAW_RIGHT);
+      }
+      if (above > ahead / 64) {
+        flight_input(FLIGHT_INPUT_PITCH_UP);
+      } else if (above < -ahead / 64) {
+        flight_input(FLIGHT_INPUT_PITCH_DOWN);
+      }
+    } else if (up) {
+      int32_t z = std::max(_opponent_z[t], kMinZ);
+      if (flight_eye_z < z && flight_vspeed <= 0) {
+        flight_input(FLIGHT_INPUT_PITCH_UP);
+      } else if (flight_eye_z > z && flight_vspeed >= 0) {
+        flight_input(FLIGHT_INPUT_PITCH_DOWN);
+      }
+    }
+    flight_advance();
+    opponent_step();
+    gun_step(aiming && !extend && ahead > 80 && ahead < 2000 && fabs(side) < ahead / 16 &&
+             fabs(above) < ahead / 16);
+    if (flight_crashed()) {
+      printf("  dogfight %d: crashed at %.0f s, %s\n", m + 1, n / kStepsPerSecond,
+             flight_status_text(flight_status, true));
+      return -1;
+    }
+  }
+  return -1;
+}
+
 int main() {
   static const char *const kNames[] = {"recon", "bombers", "ambush", "scramble", "head on"};
   static_assert(sizeof(kNames) / sizeof(kNames[0]) == kMissionCount, "a name a mission");
@@ -234,6 +332,18 @@ int main() {
         _opponent_failed, mission_completed[0]);
   printf("  recon, shot down by the same pilot with guns: at %.1f min\n",
          down_at / kStepsPerSecond / 60);
+
+  // 04: the same pilot downs both fighters after the pass, as they come
+  // back for it.
+  {
+    double closest;
+    int down = dogfight(3, &closest);
+    CHECK(down >= 0 && down <= 6 * 60 * kStepsPerSecond,
+          "scramble: both down at %.1f min, the nearest %.0f m", down / kStepsPerSecond / 60,
+          closest);
+    printf("  scramble, dogfight: both down at %.1f min, the nearest %.0f m\n",
+           down / kStepsPerSecond / 60, closest);
+  }
 
   if (_fails) {
     printf("mission_test: %d checks FAILED\n", _fails);

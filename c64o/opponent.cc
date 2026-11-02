@@ -189,17 +189,15 @@ static const uint16_t kOpponent3000Ft = 0x0600;
 // centres are 5 m up, about where a ~20 m aircraft's (kOpponentKn) is on
 // its wheels.
 //
-// 04, Scramble: fpilot's first mission's pass (docs/planes.md §13, "The
-// first enemy"), now flown by two, from its start on runway 1. Both at
-// 1,500, the player's half-throttle level trim, and 48 m up: behind the
-// player parked on runway 1, low and level and heading north, so they
-// overtake alongside the runway and fly on north, slowly enough to catch
-// after take-off. The first 200 m behind the player's 0x1C and 48 m left of
-// its centreline at 0x3F and a half - 32 m beyond the runway's left edge;
-// the second on the other side, 48 m right of it, and 384 m behind. Their
-// waypoints are 32 units apart straight ahead, and the fourth is where each
-// started, 128 units on: the world repeats every 128 units along x, so they
-// fly north for ever.
+// 04, Scramble: a pass, then a hunt, from the player's start on runway 1.
+// Both at 1,500, the player's half-throttle level trim, and 48 m up: behind
+// the player parked on runway 1, low and level and heading north, so they
+// overtake alongside the runway. The first 200 m behind the player's 0x1C
+// and 48 m left of its centreline at 0x3F and a half - 32 m beyond the
+// runway's left edge; the second on the other side, 48 m right of it, and
+// 384 m behind. Each flies on north to its one waypoint, 26 units from its
+// start and ~2.5 km past the runway, ~90 s after the start, and there turns
+// back for the player: strafing it if it is still on the ground.
 //
 // 05, Head on: two fighters hunting from the start, at 2,000, side by side
 // 64 m apart, 4.6 km north of the player and 50 m above its 3,000 ft,
@@ -216,9 +214,9 @@ static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
       0xC096, 0, -256, 0x000A},
      {kOpponentParked | kOpponentFighter | kOpponentPath, 0, kOpponentNoFail, 0, 0, 0x5D64,
       0xC096, 0, -256, 0x000A}},
-    {{kOpponentLoop | kOpponentFighter | kOpponentPath, 4, kOpponentNoFail, 10, 1500, 0x1A70,
+    {{kOpponentOneWay | kOpponentFighter | kOpponentPass, 1, kOpponentNoFail, 10, 1500, 0x1A70,
       0x3FE0, 256, 0, 0x0060},
-     {kOpponentLoop | kOpponentFighter | kOpponentPath, 4, kOpponentNoFail, 14, 1500, 0x1900,
+     {kOpponentOneWay | kOpponentFighter | kOpponentPass, 1, kOpponentNoFail, 11, 1500, 0x1900,
       0x3F20, 256, 0, 0x0060}},
     {{kOpponentLoop | kOpponentFighter | kOpponentHunt, 0, kOpponentNoFail, 0, 2000, 0x5400,
       0x9040, -256, 0, 0x0660},
@@ -227,9 +225,9 @@ static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
 };
 
 // Every path's waypoints, at its opponent_path_t::wp: 01's recon, 02's two
-// bombers, then 04's two. test/opponent_test.cc appends its own paths' after
+// bombers, then 04's one each. test/opponent_test.cc appends its own paths' after
 // the missions', through OPPONENT_TEST_WP_N/X/Y; nothing else does.
-static const uint8_t kOpponentWpCount = 18;
+static const uint8_t kOpponentWpCount = 12;
 #ifndef OPPONENT_TEST_WP_N
 #define OPPONENT_TEST_WP_N 0
 #define OPPONENT_TEST_WP_X
@@ -239,14 +237,12 @@ __striped static const uint16_t kOpponentWpX[kOpponentWpCount + OPPONENT_TEST_WP
     0x5C00, 0x3000, 0x1000, 0x0000,
     0x2800, 0x1000, 0x0000,
     0x28C8, 0x10C8, 0x00C8,
-    0x3A70, 0x5A70, 0x7A70, 0x9A70,
-    0x3900, 0x5900, 0x7900, 0x9900 OPPONENT_TEST_WP_X};
+    0x3470, 0x3300 OPPONENT_TEST_WP_X};
 __striped static const uint16_t kOpponentWpY[kOpponentWpCount + OPPONENT_TEST_WP_N] = {
     0x6000, 0x6400, 0x6800, 0x6800,
     0x4000, 0x6800, 0x6800,
     0x3F6A, 0x676A, 0x676A,
-    0x3FE0, 0x3FE0, 0x3FE0, 0x3FE0,
-    0x3F20, 0x3F20, 0x3F20, 0x3F20 OPPONENT_TEST_WP_Y};
+    0x3FE0, 0x3F20 OPPONENT_TEST_WP_Y};
 
 // What the message says when the mission fails, for the missions that can.
 static const char *const kOpponentFailText[2] = {

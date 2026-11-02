@@ -1,5 +1,5 @@
 #!/bin/sh
-# Time fpilot's work per frame in seven scenes, on the emulator.
+# Time fpilot's work per frame in ten scenes, on the emulator.
 #
 #   tools/bench.sh                 # every scene
 #   tools/bench.sh runway town     # just those
@@ -15,11 +15,12 @@
 # render, everything but the wait for the flip.
 #
 # Five scenes are frozen, timed over 16 frames: tools/shot.cc's poses, and
-# the start of the first mission (fpilot's 01 Recon, airborne). Two are live,
-# timed over the frames in which the opponents are near and redrawn:
-# scramble, fpilot's mission 04 with both opponents overtaking the parked
-# aeroplane and the guns firing, and shootdown, the same with the first
-# opponent hit three times and downed on its pass. They are the only scenes
+# the start of the first mission (fpilot's 01 Recon, airborne). The other
+# five are live, timed over the frames in which the opponents are near and
+# redrawn: scramble, fpilot's mission 04 with both opponents overtaking the
+# parked aeroplane and the guns firing; shootdown, the same with the first
+# opponent hit three times and downed on its pass; headon and chase, mission
+# 05; and strafe, mission 04's pair coming back to strafe. They are the only scenes
 # in which the opponents' and the rounds' model steps, the opponents' fills
 # and the smoke cost anything; frozen, everything stands still and a
 # silhouette is filled once.
@@ -56,7 +57,9 @@ OSCAR64_INCLUDE="${OSCAR64_INCLUDE:-$REPO/../../oscar64-main/include}"
 # and downed (tools/shot.cc scene 10): the smoke and the hit logic. Headon
 # and chase are mission 05 (scenes 11 and 12): the two hunters closing from
 # ~1.5 km to ~300 m ahead, then behind the player, turning after it, in the
-# back view.
+# back view. Strafe is mission 04 again, hands off and parked, as the pair
+# come back from their pass and run in at the player (scene 13): over 900
+# frames to get there, which is why a scene may take 400 million cycles.
 # Scramble's window is frames 48-175 of the mission: the close pass, from
 # just before the first opponent comes into view overhead, overtaking, to
 # both well ahead and shrinking. The frames cost most there (a sweep in
@@ -71,6 +74,7 @@ scramble 9  48 128 1
 shootdown 10 48 128 1
 headon   11 200 64 1
 chase    12 330 128 1
+strafe   13 900  64 1
 '
 
 command -v oscar64 >/dev/null || { echo "bench: oscar64 not on PATH" >&2; exit 1; }
@@ -143,7 +147,7 @@ echo "$SCENES" | {
     png=""
     [ -n "${BENCH_SHOTS:-}" ] && mkdir -p "$BENCH_SHOTS" && png="$BENCH_SHOTS/bench_$name.png"
     while ! out=$(VICE_DUMP_SHOT="$png" "$REPO/tools/vice_dump.sh" "$BUILD/$name.prg" @spin:bench_end \
-        g_bench_cycles 4 "$BUILD/$name.dump.bin" 200000000 2>&1); do
+        g_bench_cycles 4 "$BUILD/$name.dump.bin" 400000000 2>&1); do
       try=$((try + 1))
       [ "$try" -le 3 ] || { echo "bench: $name never reached the end of its frames" >&2; echo "$out" >&2; exit 1; }
     done
