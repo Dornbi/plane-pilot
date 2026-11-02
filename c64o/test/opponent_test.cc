@@ -37,6 +37,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "../color.h"
 #include "../flight.h"
 #include "../mission.h"
 #include "../planes.h"
@@ -1187,6 +1188,34 @@ static void test_missions(void) {
     CHECK(opponent_smoke(p, h), "smoke: not up after hitting the recon");
     while (_opponent_on[0]) opponent_step();
     CHECK(!opponent_smoke(p, h), "smoke: still up after the recon escaped");
+  }
+
+  // The colour: near, a bomber brown and a fighter dark grey; far, both
+  // black.
+  {
+    static const struct {
+      int mission;
+      double back;
+      uint8_t color;
+    } kColors[] = {{1, 150, kColorBrown}, {3, 150, kColorOpponentNear}, {1, 1500, kColorOpponentFar}};
+    for (const auto &k : kColors) {
+      opponent_reset((uint8_t)k.mission);
+      _opponent_on[1] = false;
+      world_cam.front = make_vector(_opponent_head[0].x, _opponent_head[0].y, 0);
+      world_cam.left = make_vector(-_opponent_head[0].y, _opponent_head[0].x, 0);
+      world_cam.up = make_vector(0, 0, 256);
+      flight_eye_x = _opponent_x[0] - (int32_t)(k.back * 512) * _opponent_head[0].x / 256;
+      flight_eye_y = _opponent_y[0];
+      flight_eye_z = _opponent_z[0];
+      _offer[0].on = false;
+      for (int n = 0; n < 4; ++n) {
+        _offer[0].on = false;
+        opponent_add_sprites();
+      }
+      CHECK(_offer[0].on && _offer[0].color == k.color,
+            "colour: mission %d at %.0f m: offered %d, colour %d, not %d", k.mission + 1, k.back,
+            _offer[0].on, _offer[0].color, k.color);
+    }
   }
 
   // The budget with smoke and a tracer: in front, four and two and one of

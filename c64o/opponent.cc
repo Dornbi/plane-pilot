@@ -408,8 +408,11 @@ static uint8_t _opponent_pending;
 // The slot that goes first next frame: the one that did not start the last
 // redraw (opponent_add_sprites()).
 static uint8_t _opponent_first;
-// Bit i: slot i is near enough for kColorOpponentNear.
+// Bit i: slot i is near enough for its near colour; and that colour, by
+// role: a bomber's kColorBrown, a fighter's kColorOpponentNear. Far away
+// both are kColorOpponentFar.
 static uint8_t _opponent_near;
+static uint8_t _opponent_color[kOpponentMax];
 // The layout of what is in slot i's front set.
 static planes_layout_t _opponent_shown[kOpponentMax];
 // The slot taken for the nearer while both are in view, and bit i: slot i is
@@ -600,6 +603,7 @@ void opponent_reset(uint8_t mission) {
     _opponent_pitch[i] = 0;
     _opponent_hits[i] = 0;
     _opponent_gun[i] = 0;
+    _opponent_color[i] = (p->kind & kOpponentBomber) ? kColorBrown : kColorOpponentNear;
   }
   _opponent_track();
   opponent_invalidate();
@@ -1320,8 +1324,7 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
   } else if (_opponent_f.d < kOpponentNearD - 1) {
     _opponent_near &= (uint8_t)~bit;
   }
-  uint8_t color =
-      (_opponent_near & bit) ? kColorOpponentNear : kColorOpponentFar;
+  uint8_t color = (_opponent_near & bit) ? _opponent_color[i] : kColorOpponentFar;
   // Depth in the clouds' 1 m units, so that the two sort together.
   sprites_stack_add(far ? _opponent_c.x >> 1 : _opponent_c.x >> 3,
                     _opponent_f.x, _opponent_f.y, 0, 0, bitmap, bitmap2, color,

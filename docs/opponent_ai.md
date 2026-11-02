@@ -8,7 +8,10 @@ covers:
 - collisions, and opponents hitting the ground;
 - a damage model for the player.
 
-*Plan only, 2026-11-01; nothing here is built.* It builds on
+*Planned and built 2026-11-01; §12 records what was built and where it
+differs from the plan - notably the bombers' rear gunner, which fires
+straight back rather than aiming, and the hunters' break-off before a
+collision, which the plan did not have.* It builds on
 `c64o/opponent.cc` as of ff69c2c, on [planes.md](planes.md) §13, and on
 [projectiles.md](projectiles.md) §6, whose opponent-gun provision it fills
 in. §10 is the step-by-step implementation order. Everything is fpilot only
@@ -1036,3 +1039,42 @@ less pressing.
 - **RAM.** fpilot 1,696 → 1,364 B free (largest run 737): 332 B against an
   estimate of 90–130 for the collision; the break-off was not in it.
   ppilot is unchanged.
+
+### Step 14: colour, timing and docs
+
+- **Brown bombers.** `opponent_reset()` gives each slot its near colour,
+  `_opponent_color[i]`: `kColorBrown` for a bomber, `kColorOpponentNear`
+  for a fighter. `_opponent_draw()` reads it: 15 B. `opponent_test`
+  checks a bomber 150 m away offered brown, a fighter dark grey, and a
+  bomber 1.5 km away black. Not seen on the emulator: in mission 02 a
+  parked player never gets within the ~620 m the colour needs, and a scene
+  that flies there was not scripted.
+- **Timing** (`tools/bench.sh`, against step 1):
+
+  | Scene | Step 1 | Step 14 |
+  | :--- | ---: | ---: |
+  | start | 119,483 | 119,542 |
+  | approach | 143,666 | 144,314 |
+  | cruise | 152,265 | 153,559 (+0.8%) |
+  | town | 144,290 | 144,642 |
+  | lake | 134,002 | 133,895 |
+  | scramble | 176,257 | 180,749 (+2.5%) |
+  | shootdown | 172,707 | 176,736 (+2.3%) |
+  | headon | — | 146,759 |
+  | chase | — | 167,039 |
+  | strafe | — | 168,548 |
+
+  The close fight in mission 04 is 2.5% dearer, well inside the 10% at
+  which §10 would have drawn fewer pitch levels, so all seven stay.
+- **README.** fpilot's line describes the five missions.
+- **RAM.** fpilot 1,364 → 1,349 B free (largest run 724). ppilot is
+  unchanged at 11,345.
+
+### Where the RAM stands after step 14
+
+Steps 8–14 took 1,703 B: fpilot went from 3,052 B free after the argon-loop
+merge to 1,349 B (largest run 724). §9 estimated 840–1,170 B for the same
+steps, without the break-off; they ran 1.5–2× over, as steps 2–7 did, even
+with the aimed gunner cut. The biggest pieces were the guns (473 B), the
+rear gunner (425 B), the damage model (370 B) and the collision with the
+break-off (332 B). ppilot is unchanged: 11,345 B free.
