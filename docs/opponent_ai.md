@@ -1087,7 +1087,8 @@ frame grew from 10 to 12 B.
 
 fpilot then got room for ten missions. `kMissionCount` is 10 in both games,
 and fmission.cc's 06–10 are placeholders titled RESERVED: each starts parked
-on runway 1, sends nothing (empty rows in `kOpponentPaths`) and so has its
+on runway 1, sends nothing (one empty row in `kOpponentPaths`, shared since the RAM
+loop's pass of 2026-11-01; it was one row each at first) and so has its
 goals met at once. fpilot's one-page menu is gone, replaced by ppilot's
 scrolling one, four missions to a page. Together that cost 495 B: the
 scrolling menu 159, the empty opponent rows 160, the other table rows and

@@ -209,8 +209,12 @@ static const uint16_t kOpponent3500Ft = 0x0700;
 // 128 m apart, 2.3 km north of the player and 50 m above its 3,000 ft,
 // heading south at it. No waypoints: hunters steer for the player.
 //
-// 06-10: placeholders (fmission.cc), sending nothing.
-static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
+// 06-10: placeholders (fmission.cc), sending nothing. They share the last
+// row, which opponent_reset() takes for every mission past it, rather than
+// a row of their own each.
+static const uint8_t kOpponentMissions = 6;
+static_assert(kOpponentMissions <= kMissionCount, "a row for every mission at most");
+static const opponent_path_t kOpponentPaths[kOpponentMissions][kOpponentMax] = {
     {{kOpponentOneWay | kOpponentFighter | kOpponentPath, 4, 3, 0, 1750, 0x7E00, 0x6000, -256,
       0, kOpponent5000Ft},
      {kOpponentNone}},
@@ -230,10 +234,6 @@ static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
       0x9000, -256, 0, 0x0660},
      {kOpponentLoop | kOpponentFighter | kOpponentHunt, 0, kOpponentNoFail, 0, 2000, 0x4200,
       0x9100, -256, 0, 0x0660}},
-    {{kOpponentNone}, {kOpponentNone}},
-    {{kOpponentNone}, {kOpponentNone}},
-    {{kOpponentNone}, {kOpponentNone}},
-    {{kOpponentNone}, {kOpponentNone}},
     {{kOpponentNone}, {kOpponentNone}},
 };
 
@@ -617,6 +617,9 @@ void opponent_reset(uint8_t mission) {
   _opponent_lfsr |= 1;
   _opponent_smoke = kOpponentNoSmoke;
   _opponent_substep = 0;
+  if (mission >= kOpponentMissions) {
+    mission = kOpponentMissions - 1;
+  }
   const opponent_path_t *p = &kOpponentPaths[0][0] + (mission << 1);
   for (uint8_t i = 0; i < kOpponentMax; ++i, ++p) {
     _opponent_on[i] = p->kind != kOpponentNone;

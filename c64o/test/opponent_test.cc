@@ -879,8 +879,8 @@ static void test_missions(void) {
   flight_paused = false;
   flight_status = FLIGHT_ONGOING;
 
-  // Every leg in reach.
-  for (int m = 0; m < kMissionCount; ++m) {
+  // Every leg in reach: the rows, 06-10 sharing the last.
+  for (int m = 0; m < kOpponentMissions; ++m) {
     for (int k = 0; k < kOpponentMax; ++k) {
       const opponent_path_t &p = kOpponentPaths[m][k];
       if (p.kind == kOpponentNone) continue;
@@ -907,14 +907,14 @@ static void test_missions(void) {
   {
     static const struct {
       uint8_t role, behaviour;
-    } kSent[kMissionCount][kOpponentMax] = {
+    } kSent[kOpponentMissions][kOpponentMax] = {
         {{kOpponentFighter, kOpponentPath}, {0, 0}},
         {{kOpponentBomber, kOpponentHunt}, {kOpponentBomber, kOpponentHunt}},
         {{kOpponentFighter, kOpponentPath}, {kOpponentFighter, kOpponentPath}},
         {{kOpponentFighter, kOpponentPass}, {kOpponentFighter, kOpponentPass}},
         {{kOpponentFighter, kOpponentHunt}, {kOpponentFighter, kOpponentHunt}},
     };
-    for (int m = 0; m < kMissionCount; ++m) {
+    for (int m = 0; m < kOpponentMissions; ++m) {
       opponent_reset((uint8_t)m);
       for (int k = 0; k < kOpponentMax; ++k) {
         const opponent_path_t &p = kOpponentPaths[m][k];
