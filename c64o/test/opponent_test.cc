@@ -67,6 +67,7 @@ uint8_t *kOpponentBank = _bank;
 // gun.cc's say in the sprite budget: whether a tracer is up.
 static bool _tracer_up = false;
 bool gun_tracer_up(void) { return _tracer_up; }
+bool gun_puff_up(void) { return false; }
 
 
 // --- What it writes -----------------------------------------------------------

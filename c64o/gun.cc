@@ -40,6 +40,9 @@ static const int16_t kRoundNear = 40 * 16;
 // axis: 12 m, about the ~20 m span the opponents are drawn at and the
 // player's own.
 static const int16_t kGunCollide = 12 * 16;
+// Frames the smoke where a round hits the ground lasts: ~1.5 s at the 6-8 a
+// second a stock C64 renders.
+static const uint8_t kPuffFrames = 10;
 
 // Muzzle velocity, kGunMuzzle (gun.h), 48 m a step: slower than a real gun,
 // so a tracer is seen for a dozen frames rather than two
@@ -76,6 +79,10 @@ static uint8_t _gun_last;
 static uint8_t _gun_wait;
 static uint8_t _gun_side;
 static uint8_t _gun_substep;
+// Where the last round to hit the ground did, relative to the eye like a
+// round, and frames left of its smoke, 0 for none.
+static __striped int16_t _gun_puff[3];
+static uint8_t _gun_puff_t;
 // The trigger has been released since gun_reset().
 static bool _gun_armed;
 uint8_t gun_player_hits;
@@ -121,6 +128,7 @@ void gun_reset(void) {
   _gun_wait = 0;
   _gun_side = 0;
   _gun_substep = 0;
+  _gun_puff_t = 0;
   _gun_armed = false;
   gun_player_hits = 0;
   damage_reset();
@@ -381,13 +389,20 @@ void gun_step(bool trigger) {
     }
   }
   _gun_hit_opponents();
-  // The ground, z 0, in the rounds' frame: a round below it is gone. Past
-  // int16's reach the eye is too high for a round to get down there. Ages,
-  // and the trigger, run once a whole step: at a larger flight_step_shift
-  // the substeps only share its distance out.
+  // The ground, z 0, in the rounds' frame: a round below it is gone, and
+  // leaves its smoke where it went in. Past int16's reach the eye is too high
+  // for a round to get down there. Ages, and the trigger, run once a whole
+  // step: at a larger flight_step_shift the substeps only share its distance
+  // out. The smoke's frames run down every call, which is one a frame.
   bool whole = (++_gun_substep & kFlightSubstepMask) == 0;
   _gun_p[2] = 0;
   int16_t ground = _gun_rel(2) ? _gun_t[2] : -32767;
+  if (_gun_puff_t != 0) {
+    --_gun_puff_t;
+    for (uint8_t c = 0; c < 3; ++c) {
+      _gun_puff[c] -= _gun_moved[c];
+    }
+  }
   for (uint8_t r = 0; r < kRoundMax; ++r) {
     if (_round_age[r] == 0) {
       continue;
@@ -396,8 +411,13 @@ void gun_step(bool trigger) {
     for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {
       _round_p[i] += flight_step_s(_round_v[i]) - _gun_moved[c];
     }
-    if (_round_p[2 * kRoundMax + r] < ground ||
-        (whole && ++_round_age[r] > kRoundLife)) {
+    if (_round_p[2 * kRoundMax + r] < ground) {
+      _gun_puff[0] = _round_p[r];
+      _gun_puff[1] = _round_p[kRoundMax + r];
+      _gun_puff[2] = ground;
+      _gun_puff_t = kPuffFrames;
+      _round_age[r] = 0;
+    } else if (whole && ++_round_age[r] > kRoundLife) {
       _round_age[r] = 0;
     }
   }
@@ -518,24 +538,37 @@ static uint8_t _gun_shown(void) {
 
 bool gun_tracer_up(void) { return _gun_shown() != kRoundNone; }
 
+bool gun_puff_up(void) { return _gun_puff_t != 0; }
+
 // --- Smoke --------------------------------------------------------------------
 //
-// One sprite, behind the aircraft opponent.cc says is smoking: a cloud blob
-// drawn black, from the cloud ladder's single-sprite rungs, 1 to 4, picked
-// for a ~16 m puff rather than the clouds' 96 m - rung 4 inside ~186 m, down
-// to rung 1 past ~292 m, tested directly in camera space's eighth metres.
+// One sprite, behind the aircraft opponent.cc says is smoking, or failing
+// that where the last round hit the ground: a cloud blob drawn black, from
+// the cloud ladder's single-sprite rungs, 1 to 4, picked for a ~16 m puff
+// rather than the clouds' 96 m - rung 4 inside ~186 m, down to rung 1 past
+// ~292 m, tested directly in camera space's eighth metres.
 static const uint16_t kSmokeRungX[3] = {(292 + 1) * 8, (228 + 1) * 8,
                                         (186 + 1) * 8};
-// 25 m behind the aircraft along its heading, and 4 m above.
+// 25 m behind the aircraft along its heading, and 4 m above; or 4 m above
+// where a round hit the ground.
 static const int16_t kSmokeBack = 25 * 16;
 static const int16_t kSmokeUp = 4 * 16;
 
 static void _gun_smoke(void) {
-  if (!opponent_smoke(_gun_p, _gun_h) || !_gun_rel3_to()) {
+  if (opponent_smoke(_gun_p, _gun_h)) {
+    if (!_gun_rel3_to()) {
+      return;
+    }
+    for (uint8_t c = 0; c < 2; ++c) {
+      (&_gun_c.x)[c] = (_gun_t[c] - vec_fastmul8p8(_gun_h[c], kSmokeBack)) >> 1;
+    }
+  } else if (_gun_puff_t != 0) {
+    _gun_t[2] = _gun_puff[2];
+    for (uint8_t c = 0; c < 2; ++c) {
+      (&_gun_c.x)[c] = _gun_puff[c] >> 1;
+    }
+  } else {
     return;
-  }
-  for (uint8_t c = 0; c < 2; ++c) {
-    (&_gun_c.x)[c] = (_gun_t[c] - vec_fastmul8p8(_gun_h[c], kSmokeBack)) >> 1;
   }
   _gun_c.z = (_gun_t[2] + kSmokeUp) >> 1;
   if (!_gun_view()) {
@@ -587,7 +620,6 @@ void gun_add_sprites(void) {
     }
   }
   bitmap += _gun_dir(dx, dy);
-  uint8_t color =
-      _round_owner[r] == kRoundPlayer ? kColorYellow : kColorLightRed;
-  _gun_offer(bitmap, color, flags);
+  // Everyone's tracers yellow.
+  _gun_offer(bitmap, kColorYellow, flags);
 }

@@ -30,6 +30,7 @@
 #include "../opponent.h"
 #include "../sprites.h"
 #include "../vec.h"
+#include "../vic.h"
 #include "../view.h"
 #include "../world.h"
 
@@ -44,7 +45,9 @@ bool sprites_stack_add(int16_t, int16_t, int16_t, int8_t, int8_t, uint8_t, uint8
   return true;
 }
 void msg_show(const char *, uint8_t, bool) {}
-void msg_blink(void) {}
+// The border damage.cc flashes.
+static uint8_t _vic[0x40];
+struct VIC *vic_host = (struct VIC *)_vic;
 
 // opponent.cc, for where the aircraft are, and gun.cc, to shoot them.
 #include "../opponent.cc"
@@ -156,22 +159,23 @@ static void chase(bool guns, int *caught_at, int *gone_at, int *down_at) {
 }
 
 // A dogfight: from the mission's start - taking off first if it starts on
-// the runway, and climbing to 300 m - it goes for the nearest aircraft still
-// flying, banking towards it, matching its height, and inside 800 m putting
+// the runway, and climbing to `min_m`, 300 m unless the targets are on the
+// ground - it goes for the nearest aircraft still flying, banking towards
+// it, matching its height but no lower than that, throttled back on its tail
+// inside 300 m, and inside 800 m putting
 // the nose on it, with the rudder for the last few degrees, and holding
 // Space while it is within ~3.5 degrees. A hunter
 // on its tail it does not try to out-turn: it extends, wings level, at its
 // greater speed until 1.5 km clear, then turns back for a head-on pass. When
 // the last went down, in steps, or -1; and the fewest metres it came to any.
-static int dogfight(int m, double *closest) {
+static int dogfight(int m, double *closest, int min_m = 300) {
   flight_init_from_mission(m);
   opponent_reset(m);
   gun_reset();
   *closest = 1e9;
-  const int32_t kMinZ = 600L << 8;
+  const int32_t kMinZ = (int32_t)min_m << 9;
   bool extend = false;
   for (int n = 0; n < (int)(kStepsPerSecond * 600); ++n) {
-    flight_throttle = 24;
     int t = -1;
     double best = 1e9;
     for (int i = 0; i < kOpponentMax; ++i) {
@@ -193,6 +197,9 @@ static int dogfight(int m, double *closest) {
     double above = along(flight_cam.up, dx, dy, dz);
     bool up = !model_on_ground && flight_eye_z > kMinZ;
     double d = sqrt(dx * dx + dy * dy + dz * dz);
+    // Throttled back on a target's tail inside 300 m: flying into it is a
+    // crash.
+    flight_throttle = ahead > 0 && d < 600 ? 10 : 24;
     if (ahead < 0 && d < 1000) {
       extend = true;
     } else if (d > 3000) {
@@ -393,6 +400,36 @@ int main() {
           "scramble: both down at %.1f min, the nearest %.0f m", down / kStepsPerSecond / 60,
           closest);
     printf("  scramble, dogfight: both down at %.1f min, the nearest %.0f m, %d hits taken\n",
+           down / kStepsPerSecond / 60, closest, gun_player_hits);
+  }
+
+  // 03: the same pilot, down to 60 m for aircraft on the ground, strafes
+  // both, unhit - parked, they do not shoot. It is no strafing ace: it
+  // circles them for minutes, and 03 has no time limit to fail it.
+  {
+    double closest;
+    int down = dogfight(2, &closest, 60);
+    CHECK(down >= 0 && down <= 8 * 60 * kStepsPerSecond && gun_player_hits == 0,
+          "ambush: both down at %.1f min, %d hits taken", down / kStepsPerSecond / 60,
+          gun_player_hits);
+    printf("  ambush, strafing: both down at %.1f min, the nearest %.0f m\n",
+           down / kStepsPerSecond / 60, closest);
+  }
+
+  // 05: the pair start 2.3 km ahead, 128 m apart, and the same pilot downs
+  // both, meeting them head-on.
+  {
+    flight_init_from_mission(4);
+    opponent_reset(4);
+    double sep = (double)(_opponent_y[1] - _opponent_y[0]) / 512.0;
+    CHECK(fabs(distance(0) / 2 - 2300) < 100 && fabs(sep - 128) < 1,
+          "head on: %.0f m out, %.0f m apart", distance(0) / 2, sep);
+    double closest;
+    int down = dogfight(4, &closest);
+    CHECK(down >= 0 && down <= 4 * 60 * kStepsPerSecond && gun_player_hits < kDamageHitsToDown,
+          "head on: both down at %.1f min, %d hits taken", down / kStepsPerSecond / 60,
+          gun_player_hits);
+    printf("  head on, dogfight: both down at %.1f min, the nearest %.0f m, %d hits taken\n",
            down / kStepsPerSecond / 60, closest, gun_player_hits);
   }
 

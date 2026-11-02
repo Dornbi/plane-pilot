@@ -103,7 +103,7 @@ const char *const kMissionDesc[kMissionCount] = {
 // parked aircraft at runway 2, midway between them. 02 and 04 scramble: on
 // runway 1 heading north, engine at idle, the bombers coming south towards
 // it in 02, the bandits already about in 04. 05 in the air at cruise at
-// 3,000 ft heading north, the hunters coming south at it from 4.6 km. The
+// 3,000 ft heading north, the hunters coming south at it from 2.3 km. The
 // placeholders as 02 and 04.
 const uint8_t kMissionStartX[kMissionCount] = {
     0x5C, // 01

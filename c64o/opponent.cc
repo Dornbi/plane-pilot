@@ -201,7 +201,7 @@ static const uint16_t kOpponent3000Ft = 0x0600;
 // back for the player: strafing it if it is still on the ground.
 //
 // 05, Head on: two fighters hunting from the start, at 2,000, side by side
-// 64 m apart, 4.6 km north of the player and 50 m above its 3,000 ft,
+// 128 m apart, 2.3 km north of the player and 50 m above its 3,000 ft,
 // heading south at it. No waypoints: hunters steer for the player.
 //
 // 06-10: placeholders (fmission.cc), sending nothing.
@@ -221,10 +221,10 @@ static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
       0x3FE0, 256, 0, 0x0060},
      {kOpponentOneWay | kOpponentFighter | kOpponentPass, 1, kOpponentNoFail, 11, 1500, 0x1900,
       0x3F20, 256, 0, 0x0060}},
-    {{kOpponentLoop | kOpponentFighter | kOpponentHunt, 0, kOpponentNoFail, 0, 2000, 0x5400,
-      0x9040, -256, 0, 0x0660},
-     {kOpponentLoop | kOpponentFighter | kOpponentHunt, 0, kOpponentNoFail, 0, 2000, 0x5400,
-      0x90C0, -256, 0, 0x0660}},
+    {{kOpponentLoop | kOpponentFighter | kOpponentHunt, 0, kOpponentNoFail, 0, 2000, 0x4200,
+      0x9000, -256, 0, 0x0660},
+     {kOpponentLoop | kOpponentFighter | kOpponentHunt, 0, kOpponentNoFail, 0, 2000, 0x4200,
+      0x9100, -256, 0, 0x0660}},
     {{kOpponentNone}, {kOpponentNone}},
     {{kOpponentNone}, {kOpponentNone}},
     {{kOpponentNone}, {kOpponentNone}},
@@ -1223,9 +1223,10 @@ static __noinline uint8_t _opponent_cull(void) {
 // So while both are in view the farther is held to two sprites, which
 // changes nothing unless it is within ~115 m (kViewTwo). The back view's fin
 // takes 0 and 1 (sprites.cc kSpriteFinCount), which leaves the stack six.
-// The smoke and a tracer (gun.cc) take one each: four and two still fit in
-// front with one of them, not with both, nor behind with either - and then
-// both aircraft are held to two. Which is nearer goes by depth, and changes
+// The smoke - an aircraft's, or where a round hit the ground - and a tracer
+// (gun.cc) take one each: four and two still fit in front with one of them,
+// not with both, nor behind with either - and then both aircraft are held
+// to two. Which is nearer goes by depth, and changes
 // only once the other is an eighth nearer, so that two at about the same
 // range do not trade sizes every frame; one in the far range is the farther.
 // Sets _opponent_capped.
@@ -1242,7 +1243,8 @@ static __noinline void _opponent_cap(uint8_t seen) {
       }
     }
     uint8_t extra =
-        (uint8_t)(_opponent_smoke != kOpponentNoSmoke) + (uint8_t)gun_tracer_up();
+        (uint8_t)(_opponent_smoke != kOpponentNoSmoke || gun_puff_up()) +
+        (uint8_t)gun_tracer_up();
     capped = extra > (view_state == VIEW_BACK ? 0 : 1)
                  ? 3
                  : _opponent_bit(_opponent_nearer ^ 1);

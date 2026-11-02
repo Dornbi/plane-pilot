@@ -16,10 +16,16 @@
 
 #include "../vec.h"
 
+#include "../color.h"
 #include "../damage.h"
 #include "../flight.h"
 #include "../mission.h"
 #include "../opponent.h"
+#include "../vic.h"
+
+// The border damage.cc flashes.
+static uint8_t _vic[0x40];
+struct VIC *vic_host = (struct VIC *)_vic;
 
 static bool _down = false;
 bool opponent_targets_down(void) { return _down; }
@@ -33,15 +39,12 @@ uint8_t opponent_random(void) { return _random; }
 
 static const char *_msg = "";
 static int _msgs = 0;
-static bool _blink = false;
 void msg_show(const char *text, uint8_t duration, bool permanent) {
   (void)duration;
   (void)permanent;
   _msg = text;
-  _blink = false;
   ++_msgs;
 }
-void msg_blink(void) { _blink = true; }
 
 static int _fails = 0;
 
@@ -142,7 +145,7 @@ int main() {
   //
   // Mission 05 starts in the air. Each failure by itself, picked by hand
   // (damage.cc takes the random byte's low four bits, folded to 0-4): its
-  // blinking message, and what it does.
+  // message, the border's flash, and what it does.
   struct {
     uint8_t bit;
     const char *text;
@@ -157,9 +160,29 @@ int main() {
     flight_throttle = kMaxThrottle;
     _random = (uint8_t)k;
     damage_hit(1);
-    CHECK(damage_bits == kFailures[k].bit && !strcmp(_msg, kFailures[k].text) && _blink,
-          "damage %d: bits %02x, \"%s\", blink %d", k, damage_bits, _msg, _blink);
+    CHECK(damage_bits == kFailures[k].bit && !strcmp(_msg, kFailures[k].text),
+          "damage %d: bits %02x, \"%s\"", k, damage_bits, _msg);
   }
+
+  // A hit flashes the border red three times, a frame each, and leaves it
+  // black; the fifth, which shoots the player down, as well.
+  for (int hits = 1; hits <= kDamageHitsToDown; hits += kDamageHitsToDown - 1) {
+    flight_init_from_mission(4);
+    damage_reset();
+    damage_hit((uint8_t)hits);
+    char seen[16] = "";
+    for (int n = 0; n < 8; ++n) {
+      damage_frame();
+      seen[n] = vic.color_border == kColorRed ? 'R' : vic.color_border == kColorBlack ? '.' : '?';
+    }
+    CHECK(!strcmp(seen, "R.R.R..."), "hit %d: border %s", hits, seen);
+  }
+  // A restart in the middle of one leaves it black.
+  damage_hit(1);
+  damage_frame();
+  damage_reset();
+  damage_frame();
+  CHECK(vic.color_border == kColorBlack, "restart: border %d", vic.color_border);
 
   // Engine: the throttle cut to half, and no higher after.
   flight_init_from_mission(4);
@@ -198,7 +221,7 @@ int main() {
     damage_step();
     if (damage_bits & kDamageSeized) seized = n + 1;
   }
-  CHECK(seized == 200 && flight_throttle == 0 && !strcmp(_msg, "ENGINE SEIZED") && _blink,
+  CHECK(seized == 200 && flight_throttle == 0 && !strcmp(_msg, "ENGINE SEIZED"),
         "oil: seized after %d steps, throttle %d, \"%s\"", seized, flight_throttle, _msg);
   flight_input(FLIGHT_INPUT_THROTTLE_UP);
   CHECK(flight_throttle == 0, "oil: the seized engine took throttle");

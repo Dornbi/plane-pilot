@@ -9,7 +9,7 @@
 
 // The player's damage (docs/opponent_ai.md §8): each hit from an opponent's
 // round causes a new failure, picked at random from those the player does
-// not have yet, and a blinking message says which. The fifth hit shoots the
+// not have yet, and a message says which, while the border flashes red. The fifth hit shoots the
 // player down. Nothing repairs a failure, and nothing on the panel shows
 // one.
 //
@@ -42,6 +42,9 @@ void damage_hit(uint8_t hits);
 // A whole model step: the oil leak's countdown.
 void damage_step(void);
 
+// Once a frame, from the simulation loop: the border's flash after a hit.
+void damage_frame(void);
+
 // The hooks in flight.cc, one line each: the throttle's top...
 inline uint8_t damage_throttle_max(void) {
   return (damage_bits & kDamageSeized)   ? 0
@@ -65,6 +68,7 @@ inline bool damage_skip_input(void) {
 
 inline void damage_reset(void) {}
 inline void damage_hit(uint8_t hits) {}
+inline void damage_frame(void) {}
 inline void damage_step(void) {}
 inline uint8_t damage_throttle_max(void) { return kMaxThrottle; }
 inline uint8_t damage_burn(uint8_t t) { return t; }

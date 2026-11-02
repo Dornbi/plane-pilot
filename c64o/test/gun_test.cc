@@ -510,7 +510,59 @@ static void test_ground(void) {
     ++steps;
   }
   CHECK(steps < 4, "a round into the ground flew %d steps", steps);
-  // Level, a round 10 m up flies its whole life.
+
+  printf("  and leave smoke where they hit it, for kPuffFrames frames\n");
+  // Where the round went in, at the ground 10 m below the eye and, the eye
+  // having flown on behind it, ~60 m ahead of it now: drawn as the smoke is,
+  // 4 m above that.
+  CHECK(gun_puff_up(), "no smoke where the round went in");
+  double want_x = _gun_puff[0] / 16.0, want_z = _gun_puff[2] / 16.0;
+  CHECK(want_x > 20 && want_x < 100 && fabs(want_z + flight_eye_z / 512.0) < 1,
+        "smoke %.1f m ahead, %.1f m up, the ground %.1f m down", want_x, want_z,
+        flight_eye_z / 512.0);
+  level_north();
+  _offers = 0;
+  gun_add_sprites();
+  CHECK(_offers == 1 && _offer.color == kColorBlack &&
+            _offer.flags == (kSpriteFlagExpandX | kSpriteFlagAlignDither) &&
+            _offer.bitmap == kSpriteDefCloudRung[4].bitmap && _offer.y > 56,
+        "ground smoke: %d offers, colour %d flags %d bitmap %d at y %d", _offers, _offer.color,
+        _offer.flags, _offer.bitmap, _offer.y);
+  // Up on the frame it went in and the next kPuffFrames - 1.
+  int32_t x0 = flight_eye_x;
+  int frames = 1;
+  for (int n = 0; n < 40; ++n) {
+    step(false);
+    if (!gun_puff_up()) break;
+    ++frames;
+  }
+  CHECK(frames == kPuffFrames, "ground smoke lasted %d frames", frames);
+  // It stayed where the round went in while the eye flew on.
+  double moved = (flight_eye_x - x0) / 512.0;
+  CHECK(fabs(_gun_puff[0] / 16.0 - (want_x - moved)) < 1, "smoke drifted: %.1f m ahead, not %.1f",
+        _gun_puff[0] / 16.0, want_x - moved);
+  _offers = 0;
+  gun_add_sprites();
+  CHECK(_offers == 0, "ground smoke drawn after it cleared");
+
+  printf("  a smoking aircraft takes the one smoke sprite first\n");
+  start(1500);
+  _gun_puff[0] = 40 * 16;
+  _gun_puff[1] = 0;
+  _gun_puff[2] = -4 * 16;
+  _gun_puff_t = kPuffFrames;
+  _smoke_on = true;
+  _smoke_p[0] = flight_eye_x + 400 * kMetre;
+  _smoke_p[1] = flight_eye_y;
+  _smoke_p[2] = flight_eye_z;
+  _smoke_h[0] = 256;
+  _smoke_h[1] = 0;
+  _offers = 0;
+  gun_add_sprites();
+  CHECK(_offers == 1 && _offer.depth > 360, "%d offers, the smoke at depth %d", _offers,
+        _offer.depth);
+
+  // Level, a round 10 m up flies its whole life, and leaves no smoke.
   start(1500);
   flight_eye_z = 20L << 8;
   reset_guns();
@@ -518,6 +570,7 @@ static void test_ground(void) {
   r = _gun_last;
   for (steps = 0; _round_age[r] != 0 && steps < 20; ++steps) step(false);
   CHECK(steps == kRoundLife, "a level round 10 m up flew %d steps", steps);
+  CHECK(!gun_puff_up(), "smoke from a round that never reached the ground");
 }
 
 static void test_smoke(void) {
@@ -658,6 +711,11 @@ static void test_enemy_fire(void) {
   CHECK(r >= 0 && _round_owner[r] == 2 && fabs(ahead_m(r) - 352) < 0.1 && _round_v[r] == -768,
         "fired: owner %d at %.1f m, velocity %d", r < 0 ? -1 : _round_owner[r],
         r < 0 ? 0.0 : ahead_m(r), r < 0 ? 0 : _round_v[r]);
+  // Drawn yellow, as the player's are.
+  _offers = 0;
+  gun_add_sprites();
+  CHECK(_offers == 1 && _offer.color == kColorYellow, "enemy tracer: %d offers, colour %d",
+        _offers, _offer.color);
   // Straight back at a stationary eye: a hit inside its life.
   int n = 0;
   while (gun_player_hits == 0 && n++ < 12) step(false);

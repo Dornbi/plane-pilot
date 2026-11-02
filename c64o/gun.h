@@ -39,6 +39,10 @@ void gun_add_sprites(void);
 // aircraft must share the stack with.
 bool gun_tracer_up(void);
 
+// Whether there is smoke where a round hit the ground, which takes the smoke
+// sprite when no aircraft is smoking: for the same count.
+bool gun_puff_up(void);
+
 // Hits the player has taken. Only opponents' rounds can land them, and each
 // is damage (damage.h).
 extern uint8_t gun_player_hits;
@@ -62,6 +66,7 @@ inline void gun_rearm(void) {}
 inline void gun_step(bool trigger) {}
 inline void gun_add_sprites(void) {}
 inline bool gun_tracer_up(void) { return false; }
+inline bool gun_puff_up(void) { return false; }
 
 #endif
 

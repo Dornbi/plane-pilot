@@ -1,6 +1,8 @@
 #include "damage.h"
 
+#include "color.h"
 #include "msg.h"
+#include "vic.h"
 
 // docs/opponent_ai.md §8.
 
@@ -11,8 +13,11 @@ static uint8_t _damage_oil;
 
 // ~32 s at 6.25 whole steps a second.
 static const uint8_t kDamageOilSteps = 200;
-// The message blinks for ~3 s at 6-8 frames a second.
-static const uint8_t kDamageSaid = 24;
+// Frames of the border's flash after a hit, red on the odd ones as they
+// count down: three flashes in under a second at 6-8 frames a second, and
+// black at the end.
+static const uint8_t kDamageFlash = 6;
+static uint8_t _damage_flash;
 
 // By failure, in kDamage* bit order.
 static const uint8_t kDamageBit[5] = {kDamageEngine, kDamageFuel, kDamageOil, kDamageHydraulics,
@@ -24,6 +29,9 @@ void damage_reset(void) {
   damage_bits = 0;
   damage_toggle = 0;
   _damage_oil = 0;
+  // A restart mid-flash would leave the border red.
+  _damage_flash = 0;
+  vic.color_border = kColorBlack;
 }
 
 // A new failure's effects that are not the hooks' to apply: the throttle cut
@@ -33,11 +41,11 @@ static void _damage_new(const char *text) {
   if (flight_throttle > top) {
     flight_throttle = top;
   }
-  msg_show(text, kDamageSaid);
-  msg_blink();
+  msg_show(text);
 }
 
 void damage_hit(uint8_t hits) {
+  _damage_flash = kDamageFlash;
   if (hits >= kDamageHitsToDown) {
     flight_status = FLIGHT_CRASH_SHOT_DOWN;
     return;
@@ -59,6 +67,12 @@ void damage_hit(uint8_t hits) {
     _damage_oil = kDamageOilSteps;
   }
   _damage_new(kDamageText[k]);
+}
+
+void damage_frame(void) {
+  if (_damage_flash != 0) {
+    vic.color_border = (--_damage_flash & 1) ? kColorRed : kColorBlack;
+  }
 }
 
 void damage_step(void) {

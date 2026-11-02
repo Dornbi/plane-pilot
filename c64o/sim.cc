@@ -5,6 +5,7 @@
 #include "benchmark.h"
 #include "box.h"
 #include "chardefs.h"
+#include "damage.h"
 #include "flight.h"
 #include "gfx.h"
 #include "help.h"
@@ -289,6 +290,7 @@ void sim_run(uint8_t selected_mission) {
       msg_show(msg, MSG_FOREVER, true);
     }
     msg_update();
+    damage_frame();
     bm_model_end(630, "MDL:");
 
     bm_start();

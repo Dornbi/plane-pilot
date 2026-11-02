@@ -1094,3 +1094,25 @@ scrolling menu 159, the empty opponent rows 160, the other table rows and
 the placeholder text the rest. fpilot is at 1,262 B free (largest run 637),
 and ppilot is unchanged. A written mission will cost more than its
 placeholder: longer text, and waypoints for its opponents.
+
+Then some tweaks after play:
+
+- **05, Head on.** The pair start 2.3 km north of the player instead of 4.6,
+  and 128 m apart instead of 64.
+- **Rounds into the ground.** A round that goes below the ground leaves a
+  puff of smoke there for 10 frames (gun.cc `_gun_puff`), kept relative to
+  the eye like the rounds. It takes the one smoke sprite only when no
+  aircraft is smoking, so the sprite count in `_opponent_cap()` is
+  unchanged: `gun_puff_up()` counts as the smoke.
+- **Hits on the player.** The failure's message shows like any other,
+  without blinking (`msg_blink()` is gone), and the border flashes red three
+  times instead (`damage_frame()`, once a frame from sim.cc). The fifth hit
+  flashes too; `damage_reset()` leaves the border black.
+- **Tracers.** The opponents' are yellow, like the player's.
+
+That came to 204 B: fpilot is at 1,058 B free (largest run 600), and
+ppilot is unchanged. mission_test now flies 03 and 05 to the end as well:
+the dogfight pilot strafes 03's parked pair from 60 m, and downs 05's pair
+head-on in ~2.3 min unhit. 02's bombers it cannot win: on their tail it is
+shot down by the rear gunners, standing off it is still hit, and going round
+to meet them head-on takes it past the 4.4 min they need to reach the city.

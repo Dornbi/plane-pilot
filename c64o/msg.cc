@@ -25,12 +25,6 @@ uint16_t msg_span_x1 = 0;
 static uint8_t msg_color_col = 0;
 static uint8_t msg_color_len = 0;
 
-#ifdef __FPILOT__
-static bool msg_blinking = false;
-
-void msg_blink(void) { msg_blinking = true; }
-#endif
-
 void msg_clear(void) {
   msg_text = nullptr;
   msg_duration = 0;
@@ -45,9 +39,6 @@ void msg_show(const char *text, uint8_t duration, bool permanent) {
   }
   msg_text = text;
   msg_duration = permanent ? 0 : duration;
-#ifdef __FPILOT__
-  msg_blinking = false;
-#endif
 
   uint8_t len = (uint8_t)strlen(text);
   if (len > kScreenWidth) {
@@ -80,14 +71,7 @@ void msg_render(void) {
   }
 
   memcpy(mem_screen_row_ptrs[0] + msg_col, msg_text, msg_len);
-  uint8_t color = kColorBlack;
-#ifdef __FPILOT__
-  // White on every other pair of frames.
-  if (msg_blinking && (msg_duration & 2)) {
-    color = kColorWhite;
-  }
-#endif
-  memset(mem_color_buffer + msg_col, color, msg_len);
+  memset(mem_color_buffer + msg_col, kColorBlack, msg_len);
   msg_color_col = msg_col;
   msg_color_len = msg_len;
 }
