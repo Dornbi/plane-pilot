@@ -51,7 +51,7 @@ bool opponent_target(uint8_t i, int32_t *p);
 
 // Slot i is hit. It trails smoke for ~2 s, and the third hit downs it: it
 // stops, is no longer drawn or a target, and counts towards WP_TARGETS_DOWN,
-// and its smoke hangs where it fell for ~5 s.
+// and its smoke hangs where it fell for ~5 s. A hit provokes it too.
 void opponent_strike(uint8_t i);
 
 // For gun.cc, after opponent_step(): whether slot i fires a round this step
@@ -59,6 +59,14 @@ void opponent_strike(uint8_t i);
 // a metre a step, from the muzzle along the nose plus the aircraft's own.
 // Once: a second call the same step says no.
 bool opponent_fires(uint8_t i, int16_t *v);
+
+// For gun.cc: whether slot i waits to be fired upon - Provoked, and not yet
+// attacking - and so whether a near miss is worth testing for.
+bool opponent_calm(uint8_t i);
+
+// Slot i is fired upon: a hit, or a round past it within ~40 m. A Provoked
+// slot attacks from now on; any other carries on as it was.
+void opponent_provoke(uint8_t i);
 
 // For gun.cc, which draws it: the smoking aircraft's position, as
 // opponent_target() gives it, and its heading's x and y, 8.8 - the last one
@@ -79,6 +87,8 @@ inline bool opponent_target(uint8_t i, int32_t *p) { return false; }
 inline void opponent_strike(uint8_t i) {}
 inline bool opponent_smoke(int32_t *p, int16_t *h) { return false; }
 inline bool opponent_fires(uint8_t i, int16_t *v) { return false; }
+inline bool opponent_calm(uint8_t i) { return false; }
+inline void opponent_provoke(uint8_t i) {}
 
 #endif
 

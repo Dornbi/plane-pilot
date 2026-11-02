@@ -485,11 +485,26 @@ static __noinline void _opponent_destroy(uint8_t i, const char *text) {
   msg_show(text);
 }
 
+static inline bool _opponent_provoked(uint8_t i) {
+  return (_opponent_path[i]->kind & kOpponentBehaviourMask) == kOpponentProvoked;
+}
+
+bool opponent_calm(uint8_t i) {
+  return _opponent_provoked(i) && !(_opponent_attack & _opponent_bit(i));
+}
+
+void opponent_provoke(uint8_t i) {
+  if (_opponent_provoked(i)) {
+    _opponent_attack |= _opponent_bit(i);
+  }
+}
+
 void opponent_strike(uint8_t i) {
   uint8_t bit = _opponent_bit(i);
   if (_opponent_down & bit) {
     return;
   }
+  opponent_provoke(i);
   _opponent_smoke = bit;
   _opponent_smoke_t = kSmokeHit;
   if (++_opponent_hits[i] == kOpponentHitsToDown) {

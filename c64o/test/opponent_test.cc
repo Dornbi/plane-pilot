@@ -1399,6 +1399,51 @@ static void test_hunting(void) {
   CHECK(_msgs == 0, "hunting: %d messages, the last \"%s\"", _msgs, _msg);
 }
 
+// --- 8b. Fired upon -----------------------------------------------------------------
+//
+// A Provoked slot keeps to its path, calm, until it is fired upon - a hit,
+// or gun.cc's near miss - and then hunts. A Path slot is never provoked.
+
+static void test_provoked(void) {
+  flight_step_shift = 0;
+  kFlightSubstepMask = 0;
+  flight_paused = false;
+  flight_status = FLIGHT_ONGOING;
+  model_on_ground = false;
+  static const opponent_path_t kCalm = {kOpponentLoop | kOpponentFighter | kOpponentProvoked, 4,
+                                        kOpponentNoFail, kOpponentWpCount, 1500, 0x0A00, 0x6200,
+                                        256, 0, 0x0700};
+  for (int how = 0; how < 3; ++how) {
+    opponent_reset(0);
+    _opponent_on[0] = false;
+    fly(1, how == 2 ? &kSquare : &kCalm);
+    flight_eye_x = (int32_t)0x1000 << 8;
+    flight_eye_y = (int32_t)0x6800 << 8;
+    flight_eye_z = (int32_t)kCalm.z << 8;
+    CHECK(opponent_calm(1) == (how != 2), "provoked %d: calm %d at the start", how,
+          opponent_calm(1));
+    for (int n = 0; n < 200; ++n) opponent_step();
+    CHECK(!(_opponent_attack & 2), "provoked %d: attacked unprovoked", how);
+    if (how == 0) {
+      opponent_strike(1);
+    } else {
+      opponent_provoke(1);
+    }
+    bool attacking = (_opponent_attack & 2) != 0;
+    CHECK(attacking == (how != 2) && !opponent_calm(1),
+          "provoked %d: attacking %d, calm %d after it was fired upon", how, attacking,
+          opponent_calm(1));
+    // Then, provoked, it closes on the player.
+    double before = to_eye(1, nullptr), nearest = before;
+    for (int n = 0; n < 600; ++n) {
+      opponent_step();
+      nearest = std::min(nearest, to_eye(1, nullptr));
+    }
+    CHECK(how == 2 || nearest < 200, "provoked %d: from %.0f m, no nearer than %.0f m", how,
+          before / 2, nearest / 2);
+  }
+}
+
 // --- 9. The fighters' guns ---------------------------------------------------------
 //
 // docs/opponent_ai.md §6: a hunter with the player within ~7 degrees of its
@@ -1524,6 +1569,7 @@ int main() {
   test_flight_model();
   test_missions();
   test_hunting();
+  test_provoked();
   test_guns();
   if (_fails) {
     printf("opponent_test: %d checks FAILED\n", _fails);

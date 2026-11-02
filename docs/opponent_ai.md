@@ -932,3 +932,23 @@ less pressing.
 - **RAM.** fpilot 2,603 → 2,178 B free (largest run 1,539): 425 B against
   an estimate of 120–160. `_opponent_gunner()` is 204 B and the scatter
   adds 100 to `opponent_fires()`. ppilot is unchanged.
+
+### Step 11: fired upon
+
+- **Code.** `_gun_hits()` takes its box's half-side as a parameter and no
+  longer frees the round; its callers do, on a hit. For a slot that
+  `opponent_calm()` says is still waiting (Provoked, not yet in ATTACK),
+  `_gun_hit_opponents()` tests each round that missed it again at 40 m, and
+  a near miss calls `opponent_provoke()`. `opponent_strike()` provokes too.
+  A Provoked slot then hunts; any other behaviour ignores both.
+- **No mission uses Provoked yet.** The code costs nothing a frame until
+  one does: the second test runs only for a calm slot.
+- **Tests.**
+  - `gun_test`: rounds passing a calm slot at 60 m leave it calm, at 30 m
+    provoke it once, and neither strikes it; a slot that is not calm is
+    never provoked.
+  - `opponent_test`: a Provoked fighter holds its path, calm, for 200
+    steps; a hit, or a near miss, puts it in ATTACK and it closes to within
+    100 m of the player. A Path slot is neither calm nor provoked.
+- **RAM.** fpilot 2,178 → 2,066 B free (largest run 1,427): 112 B against
+  an estimate of 60–80. ppilot is unchanged.

@@ -31,8 +31,10 @@ static const uint8_t kRoundPlayer = 0;
 // Model steps a round flies before it is gone: ~600 m at 48 m a step.
 static const uint8_t kRoundLife = 12;
 // Half the hit box's side: 10 m against the ~20 m span the opponents are
-// drawn at (opponent.cc kOpponentKn).
+// drawn at (opponent.cc kOpponentKn). And a near miss's, which provokes an
+// aircraft that waits to be fired upon (opponent_provoke()): 40 m.
 static const int16_t kRoundHit = 10 * 16;
+static const int16_t kRoundNear = 40 * 16;
 
 // Muzzle velocity, kGunMuzzle (gun.h), 48 m a step: slower than a real gun,
 // so a tracer is seen for a dozen frames rather than two
@@ -250,12 +252,12 @@ static void _gun_fire_from(uint8_t i) {
   _round_owner[r] = (uint8_t)(i + 1);
 }
 
-// Whether round r, moving one step from where it is, passes within the hit
-// box of the point in _gun_t. Tested at four points along the step: a
-// round moves up to 63 m a step with the aircraft's own speed in it, and
-// would jump a 20 m aircraft, while the points are at most 16 m apart,
-// inside the box's 20 m side.
-static __noinline bool _gun_hits(uint8_t r, bool player) {
+// Whether round r, moving one step from where it is, passes within `box`,
+// half the side of a box round the point in _gun_t. Tested at four points
+// along the step: a round moves up to 63 m a step with the aircraft's own
+// speed in it, and would jump a 20 m aircraft, while the points are at most
+// 16 m apart, inside the hit box's 20 m side.
+static __noinline bool _gun_hits(uint8_t r, bool player, int16_t box) {
   if (_round_age[r] == 0 || (_round_owner[r] == kRoundPlayer) != player) {
     return false;
   }
@@ -264,7 +266,7 @@ static __noinline bool _gun_hits(uint8_t r, bool player) {
     int16_t d = _gun_t[c] - _round_p[i];
     int16_t v = flight_step_s(_round_v[i]);
     // Out of reach of the whole step on any axis: nowhere near.
-    if (_gun_abs(d) > _gun_abs(v) + kRoundHit) {
+    if (_gun_abs(d) > _gun_abs(v) + box) {
       return false;
     }
     _gun_d[c] = d;
@@ -275,12 +277,11 @@ static __noinline bool _gun_hits(uint8_t r, bool player) {
     for (uint8_t c = 0; c < 3; ++c) {
       int16_t d = _gun_d[c] - _gun_q[c];
       _gun_d[c] = d;
-      if (_gun_abs(d) > kRoundHit) {
+      if (_gun_abs(d) > box) {
         in = false;
       }
     }
     if (in) {
-      _round_age[r] = 0;
       return true;
     }
   }
@@ -288,15 +289,21 @@ static __noinline bool _gun_hits(uint8_t r, bool player) {
 }
 
 // The player's rounds into the opponents: each that hits frees its round
-// and strikes the slot.
+// and strikes the slot. One that misses a slot still waiting to be fired
+// upon, but by no more than kRoundNear, provokes it.
 static void _gun_hit_opponents(void) {
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
     if (!opponent_target(i, _gun_p) || !_gun_rel3_to()) {
       continue;
     }
+    bool calm = opponent_calm(i);
     for (uint8_t r = 0; r < kRoundMax; ++r) {
-      if (_gun_hits(r, true)) {
+      if (_gun_hits(r, true, kRoundHit)) {
+        _round_age[r] = 0;
         opponent_strike(i);
+      } else if (calm && _gun_hits(r, true, kRoundNear)) {
+        opponent_provoke(i);
+        calm = false;
       }
     }
   }
@@ -321,7 +328,8 @@ void gun_step(bool trigger) {
   // rounds' frame; then the player's into the opponents; and every round
   // left on a step.
   for (uint8_t r = 0; r < kRoundMax; ++r) {
-    if (_gun_hits(r, false)) {
+    if (_gun_hits(r, false, kRoundHit)) {
+      _round_age[r] = 0;
       ++gun_player_hits;
     }
   }

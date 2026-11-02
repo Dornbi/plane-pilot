@@ -40,6 +40,14 @@ bool opponent_target(uint8_t i, int32_t *p) {
   return true;
 }
 void opponent_strike(uint8_t i) { ++_strikes[i]; }
+// Which slots wait to be fired upon, and the near misses that provoked them.
+static bool _calm[kOpponentMax];
+static int _provoked[kOpponentMax];
+bool opponent_calm(uint8_t i) { return _calm[i]; }
+void opponent_provoke(uint8_t i) {
+  ++_provoked[i];
+  _calm[i] = false;
+}
 // A round each opponent asks to fire, once, at _fires_v.
 static bool _fires[kOpponentMax];
 static int16_t _fires_v[3];
@@ -120,6 +128,8 @@ static void start(int16_t speed) {
   level_north();
   memset(_target_on, 0, sizeof(_target_on));
   memset(_strikes, 0, sizeof(_strikes));
+  memset(_calm, 0, sizeof(_calm));
+  memset(_provoked, 0, sizeof(_provoked));
   _smoke_on = false;
   reset_guns();
 }
@@ -272,6 +282,32 @@ static void test_hits(void) {
     }
     CHECK(_strikes[0] == 1, "offset %d m: %d hits", off, _strikes[0]);
   }
+}
+
+// A slot waiting to be fired upon: a round past it at 60 m leaves it calm,
+// one at 30 m provokes it, once, and neither is a hit. A slot that is not
+// calm is never provoked.
+static void test_near_miss(void) {
+  printf("  a round within 40 m provokes a calm slot, one at 60 m does not\n");
+  static const struct {
+    double left;
+    bool calm;
+    int provoked;
+  } kCases[] = {{60, true, 0}, {30, true, 1}, {30, false, 0}};
+  for (const auto &k : kCases) {
+    start(1500);
+    place_target(0, 300, k.left, -1.5);
+    _calm[0] = k.calm;
+    _provoked[0] = 0;
+    for (int n = 0; n < 40; ++n) {
+      step(n < 4);
+      _target[0][0] += vec_fastmul8p8(256, 1500 << 1);
+    }
+    CHECK(_provoked[0] == k.provoked && _strikes[0] == 0,
+          "near miss: %.0f m off, calm %d: provoked %d, struck %d", k.left, k.calm, _provoked[0],
+          _strikes[0]);
+  }
+  _calm[0] = false;
 }
 
 static void test_wrap(void) {
@@ -607,6 +643,7 @@ int main() {
   test_life();
   test_world_frame();
   test_hits();
+  test_near_miss();
   test_wrap();
   test_incoming();
   test_enemy_fire();
