@@ -1078,3 +1078,9 @@ steps, without the break-off; they ran 1.5–2× over, as steps 2–7 did, even
 with the aimed gunner cut. The biggest pieces were the guns (473 B), the
 rear gunner (425 B), the damage model (370 B) and the collision with the
 break-off (332 B). ppilot is unchanged: 11,345 B free.
+
+Merging argon-loop's passes 58–60 afterwards brought fpilot to 1,757 B free
+(+408, largest run 1,132 B) and ppilot to 11,446 B (+101). The passes claimed
++432 B for fpilot on their own; the rear gunner's bounds, moved to unsigned
+with `_opponent_abs()`, gave back some of it, and `opponent_step()`'s stack
+frame grew from 10 to 12 B.

@@ -99,7 +99,11 @@ static __striped int16_t _gun_moved[3];
 static int16_t _gun_v[3];
 #pragma bss(bss)
 
-static __noinline int16_t _gun_abs(int16_t v) { return v < 0 ? -v : v; }
+static __noinline uint16_t _gun_abs(int16_t v) {
+  return (uint16_t)(v < 0 ? -v : v);
+}
+
+static __noinline int16_t _gun_asr5(int16_t v) { return v >> 5; }
 
 static __noinline int16_t _gun_dot(int16_t a, int16_t b, int16_t c, int16_t d) {
   return vec_fastmul8p8(a, b) + vec_fastmul8p8(c, d);
@@ -133,19 +137,19 @@ void gun_rearm(void) {
   }
 }
 
-// Axis c of the eye's step, `eye` being flight_eye_* on that axis: what it
-// moved, in sixteenths, into _gun_moved[c]. What the shift loses is kept in
-// _gun_eye, so nothing drifts; the eye moves at most 15 m a step, so the
-// difference fits int16 before the shift.
+// Axis c of the eye's step, `eye_lo` being the low 16 bits of flight_eye_* on
+// that axis: what it moved, in sixteenths, into _gun_moved[c]. What the shift
+// loses is kept in _gun_eye, so nothing drifts; the eye moves at most 15 m a
+// step, so the difference fits int16 before the shift.
 //
 // Called once an axis with the eye spelled out, never from a loop over c
 // that picks flight_eye_* by c: oscar64 compiled that loop to pass the axis
 // in A and, from the second time round, left the loop's byte offset there
 // instead - 4 and 8 for 1 and 2 - so the y axis read the eye's z, and every
 // target came out half a unit, 64 m, to one side.
-static __noinline void _gun_track(uint8_t c, int32_t eye) {
-  int16_t d = (int16_t)(eye - _gun_eye[c]);
-  _gun_moved[c] = d >> 5;
+static __noinline void _gun_track(uint8_t c, uint16_t eye_lo) {
+  int16_t d = (int16_t)(eye_lo - (uint16_t)_gun_eye[c]);
+  _gun_moved[c] = _gun_asr5(d);
   _gun_eye[c] += (int16_t)(d & ~31);
   _gun_t[c] = 0;
 }
@@ -198,20 +202,19 @@ static uint8_t _gun_slot(bool enemy) {
   return slot;
 }
 
-// Takes a round off gun_ammo, or returns false if there are none left: from
-// the tens up, the lowest digit that is not 0 goes down one and every digit
-// between it and the units becomes 9.
+// Takes a round off gun_ammo, or returns false if there are none left: ten a
+// round, so the tens digit goes down one, borrowing from the hundreds.
+static_assert(kGunAmmoDigits == 3 && kGunAmmoTens == 1,
+              "three ammo digits, units fixed at 0");
 static bool _gun_take_round(void) {
-  uint8_t i = kGunAmmoTens;
-  while (gun_ammo[i] == 0) {
-    if (i == 0) {
+  if (gun_ammo[1] == 0) {
+    if (gun_ammo[0] == 0) {
       return false;
     }
-    --i;
-  }
-  --gun_ammo[i];
-  while (++i <= kGunAmmoTens) {
-    gun_ammo[i] = 9;
+    --gun_ammo[0];
+    gun_ammo[1] = 9;
+  } else {
+    --gun_ammo[1];
   }
   gun_ammo_shown = false;
   return true;
@@ -230,15 +233,14 @@ static void _gun_fire(void) {
   int16_t in = _gun_side ? kGunConverge : -kGunConverge;
   _gun_side ^= 1;
   int16_t speed2 = flight_speed << 1;
-  uint8_t i = r;
   const int16_t *cam = &flight_cam.front.x;
-  for (uint8_t c = 0; c < 3; ++c, ++cam, i += kRoundMax) {
+  for (uint8_t i = r; i < kRoundAxes; ++cam, i += kRoundMax) {
     int16_t fc = cam[0];
     int16_t lc = cam[3];
     _round_p[i] = _gun_dot(fc, kGunAhead, lc, wing) -
                   vec_fastmul8p8(cam[6], kGunDrop);
-    int16_t own = c == 2 ? flight_vspeed : vec_fastmul8p8(fc, speed2);
-    _round_v[i] = (fc << 1) + fc + vec_fastmul8p8(lc, in) + (own >> 5);
+    int16_t own = i >= 2 * kRoundMax ? flight_vspeed : vec_fastmul8p8(fc, speed2);
+    _round_v[i] = (fc << 1) + fc + vec_fastmul8p8(lc, in) + _gun_asr5(own);
   }
   _round_age[r] = 1;
   _round_owner[r] = kRoundPlayer;
@@ -275,20 +277,21 @@ static __noinline bool _gun_hits(uint8_t r, bool player, int16_t box) {
   uint8_t i = r;
   for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {
     int16_t d = _gun_t[c] - _round_p[i];
+    _gun_d[c] = d;
     int16_t v = flight_step_s(_round_v[i]);
+    _gun_q[c] = v >> 2;
     // Out of reach of the whole step on any axis: nowhere near.
-    if (_gun_abs(d) > _gun_abs(v) + box) {
+    uint16_t lim = _gun_abs(v) + (uint16_t)box;
+    if (_gun_abs(d) > lim) {
       return false;
     }
-    _gun_d[c] = d;
-    _gun_q[c] = v >> 2;
   }
   for (uint8_t n = 0; n < 4; ++n) {
     bool in = true;
     for (uint8_t c = 0; c < 3; ++c) {
       int16_t d = _gun_d[c] - _gun_q[c];
       _gun_d[c] = d;
-      if (_gun_abs(d) > box) {
+      if (_gun_abs(d) > (uint16_t)box) {
         in = false;
       }
     }
@@ -308,10 +311,10 @@ static __noinline bool _gun_collides(uint8_t k, bool prev) {
   bool now = true, mid = prev;
   for (uint8_t c = 0; c < 3; ++c, k += kOpponentMax) {
     int16_t t = _gun_t[c];
-    if (_gun_abs(t) > kGunCollide) {
+    if (_gun_abs(t) > (uint16_t)kGunCollide) {
       now = false;
     }
-    if (_gun_abs((int16_t)((t + _gun_prev[k]) >> 1)) > kGunCollide) {
+    if (_gun_abs((int16_t)((t + _gun_prev[k]) >> 1)) > (uint16_t)kGunCollide) {
       mid = false;
     }
     _gun_prev[k] = t;
@@ -354,9 +357,9 @@ void gun_step(bool trigger) {
     return;
   }
   // The eye has moved since the last step: take it off every round.
-  _gun_track(0, flight_eye_x);
-  _gun_track(1, flight_eye_y);
-  _gun_track(2, flight_eye_z);
+  _gun_track(0, (uint16_t)flight_eye_x);
+  _gun_track(1, (uint16_t)flight_eye_y);
+  _gun_track(2, (uint16_t)flight_eye_z);
   // Anyone else's rounds into the player, at the eye, which is 0 in the
   // rounds' frame; then the player's into the opponents; and every round
   // left on a step.
@@ -382,7 +385,7 @@ void gun_step(bool trigger) {
   // int16's reach the eye is too high for a round to get down there. Ages,
   // and the trigger, run once a whole step: at a larger flight_step_shift
   // the substeps only share its distance out.
-  ++_gun_substep;
+  bool whole = (++_gun_substep & kFlightSubstepMask) == 0;
   _gun_p[2] = 0;
   int16_t ground = _gun_rel(2) ? _gun_t[2] : -32767;
   for (uint8_t r = 0; r < kRoundMax; ++r) {
@@ -394,14 +397,14 @@ void gun_step(bool trigger) {
       _round_p[i] += flight_step_s(_round_v[i]) - _gun_moved[c];
     }
     if (_round_p[2 * kRoundMax + r] < ground ||
-        (!(_gun_substep & kFlightSubstepMask) && ++_round_age[r] > kRoundLife)) {
+        (whole && ++_round_age[r] > kRoundLife)) {
       _round_age[r] = 0;
     }
   }
   if (_gun_last != kRoundNone && _round_age[_gun_last] == 0) {
     _gun_last = kRoundNone;
   }
-  if (_gun_substep & kFlightSubstepMask) {
+  if (!whole) {
     return;
   }
   damage_step();
@@ -444,8 +447,8 @@ static uint8_t _gun_dir(int16_t dx, int16_t dy) {
     dx = -dx;
     dy = -dy;
   }
-  uint16_t a = (uint16_t)_gun_abs(dy), b = (uint16_t)dx;
-  while (a >= 128 || b >= 128) {
+  uint16_t a = _gun_abs(dy), b = (uint16_t)dx;
+  while ((a | b) >= 128) {
     a >>= 1;
     b >>= 1;
   }
@@ -477,13 +480,23 @@ static int16_t _gun_h[2];
 #pragma bss(bss)
 static __noinline bool _gun_view(void) {
   vec_transform_inv(&world_cam, &_gun_c, &_gun_c);
-  if (_gun_c.x <= 64 || _gun_abs(_gun_c.y) >= _gun_c.x ||
-      _gun_abs(_gun_c.z) >= _gun_c.x) {
+  if (_gun_c.x <= 64 || _gun_abs(_gun_c.y) >= (uint16_t)_gun_c.x ||
+      _gun_abs(_gun_c.z) >= (uint16_t)_gun_c.x) {
     return false;
   }
   _gun_sx = kScreenWidthPixels / 2 - vec_div8p8(_gun_c.y, _gun_c.x);
   _gun_sy = kViewportEndYPixels / 2 - vec_div8p8(_gun_c.z, _gun_c.x);
   return true;
+}
+
+// Depth in the clouds' 1 m units, like the opponents', so all sort together.
+// Both the tracer needle and the single-sprite cloud rungs (1..4) pivot at
+// (12, 10) = (kSpriteDefArmCenterX, kSpriteDefArmCenterY).
+static __noinline void _gun_offer(uint8_t bitmap, uint8_t color,
+                                  uint8_t flags) {
+  sprites_stack_add((int16_t)((uint16_t)_gun_c.x >> 3), _gun_sx, _gun_sy,
+                    kSpriteDefArmCenterX, kSpriteDefArmCenterY, bitmap,
+                    kSpriteNoBitmap, color, flags);
 }
 
 // The round worth drawing: the player's newest while firing, else the
@@ -510,8 +523,9 @@ bool gun_tracer_up(void) { return _gun_shown() != kRoundNone; }
 // One sprite, behind the aircraft opponent.cc says is smoking: a cloud blob
 // drawn black, from the cloud ladder's single-sprite rungs, 1 to 4, picked
 // for a ~16 m puff rather than the clouds' 96 m - rung 4 inside ~186 m, down
-// to rung 1 past ~292 m, in metres.
-static const int16_t kSmokeRungDepth[3] = {292, 228, 186};
+// to rung 1 past ~292 m, tested directly in camera space's eighth metres.
+static const uint16_t kSmokeRungX[3] = {(292 + 1) * 8, (228 + 1) * 8,
+                                        (186 + 1) * 8};
 // 25 m behind the aircraft along its heading, and 4 m above.
 static const int16_t kSmokeBack = 25 * 16;
 static const int16_t kSmokeUp = 4 * 16;
@@ -527,17 +541,13 @@ static void _gun_smoke(void) {
   if (!_gun_view()) {
     return;
   }
-  int16_t depth = _gun_c.x >> 3;
-  uint8_t rung = 1;
+  uint8_t bitmap = kSpriteDefCloudRung[1].bitmap;
   for (uint8_t k = 0; k < 3; ++k) {
-    if (depth <= kSmokeRungDepth[k]) {
-      ++rung;
+    if ((uint16_t)_gun_c.x < kSmokeRungX[k]) {
+      ++bitmap;
     }
   }
-  const sprite_cloud_rung_t *meta = &kSpriteDefCloudRung[rung];
-  sprites_stack_add(depth, _gun_sx, _gun_sy, meta->pivot_x, meta->pivot_y,
-                    meta->bitmap, kSpriteNoBitmap, kColorBlack,
-                    kSpriteFlagExpandX | kSpriteFlagAlignDither);
+  _gun_offer(bitmap, kColorBlack, kSpriteFlagExpandX | kSpriteFlagAlignDither);
 }
 
 void gun_add_sprites(void) {
@@ -567,9 +577,9 @@ void gun_add_sprites(void) {
   int16_t dy = _gun_dot(_gun_c.z, _gun_w.x, _gun_w.z, nx);
   uint8_t bitmap = kSpriteDefShortArmBitmap;
   uint8_t flags = 0;
-  if (_gun_c.x < kTracerLong) {
+  if ((uint16_t)_gun_c.x < (uint16_t)kTracerLong) {
     bitmap = kSpriteDefLongArmBitmap;
-    if (_gun_c.x < kTracerExpand) {
+    if ((uint16_t)_gun_c.x < (uint16_t)kTracerExpand) {
       // Expansion doubles x, so the bitmap is the one for half the run: the
       // stretched line comes out along the true one.
       flags = kSpriteFlagExpandX;
@@ -579,7 +589,5 @@ void gun_add_sprites(void) {
   bitmap += _gun_dir(dx, dy);
   uint8_t color =
       _round_owner[r] == kRoundPlayer ? kColorYellow : kColorLightRed;
-  // Depth in the clouds' 1 m units, like the opponents', so all sort together.
-  sprites_stack_add(_gun_c.x >> 3, _gun_sx, _gun_sy, kSpriteDefArmCenterX,
-                    kSpriteDefArmCenterY, bitmap, kSpriteNoBitmap, color, flags);
+  _gun_offer(bitmap, color, flags);
 }

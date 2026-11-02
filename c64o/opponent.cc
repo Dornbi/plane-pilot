@@ -280,12 +280,12 @@ static const int16_t kOpponentReach = 512;
 // units being ~41 to 1 m/s: 1.2 m/s2 at level 1 is 8 a step.
 static const int16_t kOpponentClimbCost = 8;
 static const int16_t kOpponentLevelAccel = 8;
-// By climb level + 3, -3 to 3: the slope, 8.8, and what a whole step of it
-// does to the speed.
-__striped static const int16_t kOpponentSlope[7] = {-128, -64, -32, 0, 32, 64, 128};
+// By climb level + 3, -3 to 3: what a whole step of it does to the speed;
+// -4 times this is the 8.8 slope.
 static const int8_t kOpponentClimbSpeed[7] = {
     4 * kOpponentClimbCost, 2 * kOpponentClimbCost, kOpponentClimbCost, 0,
     -kOpponentClimbCost, -2 * kOpponentClimbCost, -4 * kOpponentClimbCost};
+static_assert(kOpponentClimbCost == 8, "8.8 slope is -4 * kOpponentClimbSpeed");
 // Within this of its path's height, in half metres, an aircraft on its path
 // flies level: 20 m.
 static const int16_t kOpponentPathBand = 40;
@@ -297,14 +297,16 @@ static_assert(kOpponentClimbCost % kOpponentLevelAccel == 0,
               "the speed moves in whole kOpponentLevelAccel (_opponent_fly())");
 
 // The pitch drawn by climb level + 3: the sine and cosine of the slope's
-// angle, atan(1/8), atan(1/4) and atan(1/2), 8.8.
+// angle, atan(1/8), atan(1/4) and atan(1/2), 8.8. Level's cosine (256) is
+// unused: _opponent_axes() skips _opponent_rot() there.
 static const int8_t kOpponentPitchSin[7] = {-114, -62, -32, 0, 32, 62, 114};
-__striped static const int16_t kOpponentPitchCos[7] = {229, 248, 254, 256, 254, 248, 229};
+static const uint8_t kOpponentPitchCos[7] = {229, 248, 254, 0, 254, 248, 229};
 
 // The bank while turning, drawn only, by the turn + 2: cos and sin of 30
 // degrees for a path's turn, 60 for a hunter's, 8.8. The sine is the one
-// _opponent_rot() takes, turning left and up towards the turn.
-__striped static const int16_t kOpponentBankCos[5] = {128, 222, 256, 222, 128};
+// _opponent_rot() takes, turning left and up towards the turn; wings-level's
+// cosine (256) is unused.
+static const uint8_t kOpponentBankCos[5] = {128, 222, 0, 222, 128};
 __striped static const int16_t kOpponentBankSin[5] = {222, 128, 0, -128, -222};
 
 // ATTACK's floors (docs/opponent_ai.md §5), in half metres: a hunter climbs
@@ -378,10 +380,12 @@ static uint8_t _opponent_smoke;
 static uint8_t _opponent_smoke_t;
 // The waypoint it is flying to.
 static uint8_t _opponent_next[kOpponentMax];
-// Position in flight_eye_*'s 24.8 half metres.
-static int32_t _opponent_x[kOpponentMax];
-static int32_t _opponent_y[kOpponentMax];
-static int32_t _opponent_z[kOpponentMax];
+// Position in flight_eye_*'s 24.8 half metres: x, y, then z, packed for
+// _opponent_pos() and _opponent_move().
+static int32_t _opponent_xyz[3 * kOpponentMax];
+#define _opponent_x (_opponent_xyz)
+#define _opponent_y (_opponent_xyz + kOpponentMax)
+#define _opponent_z (_opponent_xyz + 2 * kOpponentMax)
 // The heading: the front, a unit vector in 8.8. Always level, so z is 0, the
 // left is (-y, x, 0) and the up is the world's.
 static vec3_t _opponent_head[kOpponentMax];
@@ -464,9 +468,14 @@ static inline bool _opponent_live(uint8_t i) {
 }
 
 static __noinline void _opponent_pos(uint8_t i, int32_t *p) {
-  p[0] = _opponent_x[i];
-  p[1] = _opponent_y[i];
-  p[2] = _opponent_z[i];
+  uint8_t *d = (uint8_t *)p;
+  uint8_t o = (uint8_t)(i << 2);
+  for (uint8_t c = 0; c < 12; ++c, ++o) {
+    if (c == 4 || c == 8) {
+      o += 4;
+    }
+    d[c] = ((const uint8_t *)_opponent_xyz)[o];
+  }
 }
 
 bool opponent_target(uint8_t i, int32_t *p) {
@@ -544,32 +553,29 @@ bool opponent_targets_down(void) {
   return true;
 }
 
+static __noinline uint16_t _opponent_mid(uint8_t a, uint8_t b) {
+  uint16_t pa = (uint16_t)(_opponent_xyz[a] >> 8);
+  uint16_t pb = (uint16_t)(_opponent_xyz[b] >> 8);
+  return pa + (uint16_t)((int16_t)(pb - pa) >> 1);
+}
+
 // Moves the targets' navpoint onto them: the one still flying or parked, or
 // midway between two - half their difference, which is the short way round
 // across the world's edges as long as they are close, as a formation is. Where
 // there are none left it stays where they were last.
 static void _opponent_track(void) {
-  uint16_t x = 0, y = 0;
-  uint8_t n = 0;
-  for (uint8_t i = 0; i < kOpponentMax; ++i) {
-    if (!_opponent_live(i)) {
-      continue;
-    }
+  bool l0 = _opponent_live(0), l1 = _opponent_live(1);
+  if (l0 || l1) {
     // Navpoints are 8.8 world units, positions 24.8 half metres.
-    uint16_t px = (uint16_t)(_opponent_x[i] >> 8);
-    uint16_t py = (uint16_t)(_opponent_y[i] >> 8);
-    if (n++ == 0) {
-      x = px;
-      y = py;
-    } else {
-      x += (uint16_t)((int16_t)(px - x) >> 1);
-      y += (uint16_t)((int16_t)(py - y) >> 1);
-    }
+    uint8_t a = l0 ? 0 : 1, b = l1 ? 1 : 0;
+    flight_nav_point_x[kOpponentNav] = _opponent_mid(a, b);
+    flight_nav_point_y[kOpponentNav] =
+        _opponent_mid((uint8_t)(a + kOpponentMax), (uint8_t)(b + kOpponentMax));
   }
-  if (n != 0) {
-    flight_nav_point_x[kOpponentNav] = x;
-    flight_nav_point_y[kOpponentNav] = y;
-  }
+}
+
+static __noinline void _opponent_set_pos(uint8_t idx, uint16_t w) {
+  _opponent_xyz[idx] = (int32_t)w << 8;
 }
 
 void opponent_reset(uint8_t mission) {
@@ -582,7 +588,7 @@ void opponent_reset(uint8_t mission) {
   _opponent_lfsr |= 1;
   _opponent_smoke = kOpponentNoSmoke;
   _opponent_substep = 0;
-  const opponent_path_t *p = kOpponentPaths[mission];
+  const opponent_path_t *p = &kOpponentPaths[0][0] + (mission << 1);
   for (uint8_t i = 0; i < kOpponentMax; ++i, ++p) {
     _opponent_on[i] = p->kind != kOpponentNone;
     if ((p->kind & kOpponentBehaviourMask) == kOpponentHunt) {
@@ -590,9 +596,9 @@ void opponent_reset(uint8_t mission) {
     }
     _opponent_path[i] = p;
     _opponent_next[i] = 0;
-    _opponent_x[i] = (int32_t)p->start_x << 8;
-    _opponent_y[i] = (int32_t)p->start_y << 8;
-    _opponent_z[i] = (int32_t)p->z << 8;
+    _opponent_set_pos(i, p->start_x);
+    _opponent_set_pos((uint8_t)(i + kOpponentMax), p->start_y);
+    _opponent_set_pos((uint8_t)(i + 2 * kOpponentMax), p->z);
     _opponent_head[i].x = p->head_x;
     _opponent_head[i].y = p->head_y;
     _opponent_head[i].z = 0;
@@ -609,7 +615,12 @@ void opponent_reset(uint8_t mission) {
   opponent_invalidate();
 }
 
-static __noinline int16_t _opponent_abs(int16_t v) { return v < 0 ? -v : v; }
+static_assert((kOpponentReach & (kOpponentReach - 1)) == 0,
+              "power-of-two reach lets waypoint range OR the axes");
+
+static __noinline uint16_t _opponent_abs(int16_t v) {
+  return (uint16_t)(v < 0 ? -v : v);
+}
 
 // a * b + c * d, each in 8.8 with b and d no more than 256: every product
 // below, which are all two-term dot products, called rather than written out.
@@ -631,8 +642,9 @@ static __noinline int16_t _opponent_toward(uint16_t w, int32_t pos) {
 // What flight.cc's _flight_move_forward() adds along one axis for a level
 // aircraft: the airspeed doubled times the heading's component, shifted by
 // the step size after the multiply.
-static __noinline void _opponent_move(int32_t *pos, int16_t speed2, int16_t h) {
-  *pos += flight_step_s(vec_fastmul8p8(speed2, h));
+static __noinline void _opponent_move(uint8_t i, uint8_t idx, int16_t h) {
+  _opponent_xyz[idx] +=
+      flight_step_s(vec_fastmul8p8(_opponent_speed[i] << 1, h));
 }
 
 // One step of the flight model for slot i, asked to climb at level `want`,
@@ -669,7 +681,8 @@ static __noinline void _opponent_fly(uint8_t i, int8_t want, bool whole) {
     _opponent_climb[i] = climb;
   }
   if (climb != 0) {
-    _opponent_move(&_opponent_z[i], _opponent_speed[i] << 1, kOpponentSlope[climb + 3]);
+    _opponent_move(i, (uint8_t)(i + 2 * kOpponentMax),
+                   (int16_t)(-kOpponentClimbSpeed[climb + 3] * 4));
   }
 }
 
@@ -679,6 +692,13 @@ static bool _opponent_aim;
 static bool _opponent_break;
 #pragma bss(bss)
 
+static_assert(kOpponentFloor + kOpponentFloorMargin < 256,
+              "floor heights fit in uint8_t");
+
+static __noinline bool _opponent_below(uint8_t i, uint8_t lim) {
+  return (int16_t)(_opponent_z[i] >> 8) < (int16_t)lim;
+}
+
 // The climb level a hunting slot i wants, for the player dz above it and
 // dx, dy along the ground, all cut down as opponent_step() cuts them for the
 // turn, dx and dy to six bits (docs/opponent_ai.md §5): the level whose
@@ -686,8 +706,8 @@ static bool _opponent_break;
 // ground, max + min / 2 of |dx| and |dy|, all in bytes; or, breaking off,
 // the steepest away from it. And above `floor`, in half metres.
 static __noinline int8_t _opponent_want(uint8_t i, int8_t dx, int8_t dy, int16_t dz,
-                                        int16_t floor) {
-  uint16_t az16 = (uint16_t)_opponent_abs(dz);
+                                        uint8_t floor) {
+  uint16_t az16 = _opponent_abs(dz);
   uint8_t az = az16 > 255 ? 255 : (uint8_t)az16;
   uint8_t ax = (uint8_t)(dx < 0 ? -dx : dx), ay = (uint8_t)(dy < 0 ? -dy : dy);
   // At most 94: 63 + 31.
@@ -714,12 +734,12 @@ static __noinline int8_t _opponent_want(uint8_t i, int8_t dx, int8_t dy, int16_t
   if (dz < 0) {
     want = -want;
   }
-  int16_t z = (int16_t)(_opponent_z[i] >> 8);
-  if (z < floor) {
+  if (_opponent_below(i, floor)) {
     if (want < 1) {
       want = 1;
     }
-  } else if (want < 0 && z < floor + kOpponentFloorMargin) {
+  } else if (want < 0 &&
+             _opponent_below(i, (uint8_t)(floor + kOpponentFloorMargin))) {
     want = 0;
   }
   return want;
@@ -745,22 +765,24 @@ static __noinline int8_t _opponent_want(uint8_t i, int8_t dx, int8_t dy, int16_t
 // and pure pursuit flies a head-on pass into the player; closing at up to
 // ~20 m a step head-on, it needs the room, and in a tail chase, at 2-5, it
 // would climb away from a player it should follow.
-static __noinline int16_t _opponent_strafe(uint8_t i, int16_t dot, int16_t across, uint8_t cut) {
+static __noinline uint8_t _opponent_strafe(uint8_t i, int16_t dot,
+                                           uint16_t across, uint8_t cut) {
   uint8_t bit = _opponent_bit(i);
-  int16_t z = (int16_t)(_opponent_z[i] >> 8);
   bool ground = flight_on_ground();
-  int16_t floor = kOpponentFloor;
+  uint8_t floor = (uint8_t)kOpponentFloor;
   if (_opponent_pullup & bit) {
-    if (z >= kOpponentFloor && (cut > 5 || !ground)) {
+    if (!_opponent_below(i, kOpponentFloor) && (cut > 5 || !ground)) {
       _opponent_pullup &= (uint8_t)~bit;
     }
-  } else if (ground && dot > 0 && across < (dot >> 2) && cut > 2 &&
-             z > kOpponentStrafeFloor + kOpponentFloorMargin) {
-    floor = kOpponentStrafeFloor;
-  } else if (z < kOpponentFloor) {
+  } else if (ground && dot > 0 && across < ((uint16_t)dot >> 2) && cut > 2 &&
+             !_opponent_below(
+                 i, (uint8_t)(kOpponentStrafeFloor + kOpponentFloorMargin + 1))) {
+    floor = (uint8_t)kOpponentStrafeFloor;
+  } else if (_opponent_below(i, kOpponentFloor)) {
     _opponent_pullup |= bit;
   }
-  _opponent_aim = !(_opponent_pullup & bit) && cut <= 4 && dot > 0 && across < (dot >> 3);
+  _opponent_aim = !(_opponent_pullup & bit) && cut <= 4 && dot > 0 &&
+                  across < ((uint16_t)dot >> 3);
   _opponent_break = !ground && dot > 0 &&
                     (cut <= 1 || (cut == 2 && _opponent_dot(flight_cam.front.x, _opponent_head[i].x,
                                                             flight_cam.front.y,
@@ -813,7 +835,7 @@ static __noinline bool _opponent_gunner(uint8_t i) {
   int16_t dy = _opponent_toward((uint16_t)(flight_eye_y >> 8), _opponent_y[i]);
   int16_t hx = _opponent_head[i].x, hy = _opponent_head[i].y;
   int16_t back = -_opponent_dot(dx, hx, dy, hy);
-  int16_t q = back >> 2;
+  uint16_t q = (uint16_t)back >> 2;
   return back > 0 && back < kOpponentGunnerReach &&
          _opponent_abs(_opponent_dot(dy, hx, -dx, hy)) < q &&
          _opponent_abs((int16_t)((flight_eye_z - _opponent_z[i]) >> 8)) < q;
@@ -889,40 +911,40 @@ void opponent_step(void) {
     // What it steers for, relative, in half metres: a fighter in ATTACK, the
     // player; anything else its waypoint at its path's height.
     bool hunt = (_opponent_attack & bit) && !(p->kind & kOpponentBomber);
-    int16_t dx, dy, dz;
-    if (hunt) {
-      dx = _opponent_toward((uint16_t)(flight_eye_x >> 8), _opponent_x[i]);
-      dy = _opponent_toward((uint16_t)(flight_eye_y >> 8), _opponent_y[i]);
-      dz = (int16_t)(flight_eye_z >> 8);
-    } else {
+    uint16_t tx = (uint16_t)(flight_eye_x >> 8);
+    uint16_t ty = (uint16_t)(flight_eye_y >> 8);
+    int16_t dz = (int16_t)(flight_eye_z >> 8);
+    if (!hunt) {
+      uint8_t k = (uint8_t)(p->wp + _opponent_next[i]);
+      tx = kOpponentWpX[k];
+      ty = kOpponentWpY[k];
+      dz = (int16_t)p->z;
+    }
+    int16_t dx = _opponent_toward(tx, _opponent_x[i]);
+    int16_t dy = _opponent_toward(ty, _opponent_y[i]);
+    if (!hunt &&
+        (_opponent_abs(dx) | _opponent_abs(dy)) < (uint16_t)kOpponentReach) {
       // Reached, and the next one is steered for from the next step on.
       uint8_t w = _opponent_next[i];
-      uint8_t k = (uint8_t)(p->wp + w);
-      dx = _opponent_toward(kOpponentWpX[k], _opponent_x[i]);
-      dy = _opponent_toward(kOpponentWpY[k], _opponent_y[i]);
-      dz = (int16_t)p->z;
-      if (_opponent_abs(dx) < kOpponentReach &&
-          _opponent_abs(dy) < kOpponentReach) {
-        if (w == p->fail) {
-          _opponent_fail();
-        }
-        if (++w == p->count) {
-          if ((p->kind & kOpponentBehaviourMask) == kOpponentPass) {
-            // The pass is over: the player, from the next step on.
-            _opponent_attack |= bit;
-          } else if ((p->kind & kOpponentKindMask) == kOpponentOneWay) {
-            // Off the map: gone, and nothing of it on screen.
-            _opponent_on[i] = false;
-            if (_opponent_smoke == bit) {
-              _opponent_smoke = kOpponentNoSmoke;
-            }
-            _opponent_forget(i);
-            continue;
-          }
-          w = 0;
-        }
-        _opponent_next[i] = w;
+      if (w == p->fail) {
+        _opponent_fail();
       }
+      if (++w == p->count) {
+        if ((p->kind & kOpponentBehaviourMask) == kOpponentPass) {
+          // The pass is over: the player, from the next step on.
+          _opponent_attack |= bit;
+        } else if ((p->kind & kOpponentKindMask) == kOpponentOneWay) {
+          // Off the map: gone, and nothing of it on screen.
+          _opponent_on[i] = false;
+          if (_opponent_smoke == bit) {
+            _opponent_smoke = kOpponentNoSmoke;
+          }
+          _opponent_forget(i);
+          continue;
+        }
+        w = 0;
+      }
+      _opponent_next[i] = w;
     }
     dz -= (int16_t)(_opponent_z[i] >> 8);
     // On a path, up or down at level 1 to the path's height.
@@ -941,7 +963,7 @@ void opponent_step(void) {
     // first, so both products fit 16 bits, and taken as 8.8 so that
     // vec_fastmul8p8() forms them exactly, with no multiply linked for them.
     uint8_t cut = 0;
-    while (_opponent_abs(dx) > 63 || _opponent_abs(dy) > 63) {
+    while (_opponent_abs(dx) >= 64 || _opponent_abs(dy) >= 64) {
       dx >>= 1;
       dy >>= 1;
       dz >>= 1;
@@ -953,11 +975,11 @@ void opponent_step(void) {
     int16_t hx = h->x, hy = h->y;
     int16_t cross = _opponent_dot(dy, hx, -dx, hy);
     int16_t dot = _opponent_dot(dx, hx, dy, hy);
-    int16_t across = _opponent_abs(cross);
+    uint16_t across = _opponent_abs(cross);
     // A hunter's height, whether it pulls up, straight ahead, and its guns.
     bool straight = false;
     if (hunt) {
-      int16_t floor = _opponent_strafe(i, dot, across, cut);
+      uint8_t floor = _opponent_strafe(i, dot, across, cut);
       straight = (_opponent_pullup & bit) != 0;
       want = straight ? 1 : _opponent_want(i, dx8, dy8, dz, floor);
     } else {
@@ -968,7 +990,7 @@ void opponent_step(void) {
       _opponent_guns(i, want);
     }
     int8_t turn = 0;
-    if (!straight && (dot < 0 || across > (dot >> 5))) {
+    if (!straight && (dot < 0 || across > ((uint16_t)dot >> 5))) {
       turn = (int8_t)(hunt ? 2 : 1);
       if (cross < 0) {
         turn = -turn;
@@ -993,9 +1015,8 @@ void opponent_step(void) {
       continue;
     }
 
-    int16_t speed2 = _opponent_speed[i] << 1;
-    _opponent_move(&_opponent_x[i], speed2, h->x);
-    _opponent_move(&_opponent_y[i], speed2, h->y);
+    _opponent_move(i, i, h->x);
+    _opponent_move(i, (uint8_t)(i + kOpponentMax), h->y);
   }
   _opponent_track();
 }
@@ -1086,8 +1107,8 @@ static __noinline bool _opponent_off_screen(void) {
   uint16_t half = (uint16_t)_opponent_c.x >> 1;
   uint16_t eighth = half >> 2;
   uint16_t px4 = eighth >> 3;
-  uint16_t ay = (uint16_t)_opponent_abs(_opponent_c.y);
-  uint16_t az = (uint16_t)_opponent_abs(_opponent_c.z);
+  uint16_t ay = _opponent_abs(_opponent_c.y);
+  uint16_t az = _opponent_abs(_opponent_c.z);
   return ay > half + eighth + px4 + kOpponentReachX ||
          az > (half >> 1) - (eighth >> 2) + px4 + kOpponentReachZ;
 }
@@ -1109,9 +1130,9 @@ static int16_t _opponent_ra, _opponent_rb;
 #pragma bss(bss)
 
 // Turns the pair (_opponent_ra, _opponent_rb) by the angle whose cosine and
-// sine, 8.8, are c and s: a' = c a + s b, b' = c b - s a. The pitch turns
-// front and up so, and the bank left and up.
-static __noinline void _opponent_rot(int16_t c, int16_t s) {
+// sine, 8.8, are c (< 256) and s: a' = c a + s b, b' = c b - s a. The pitch
+// turns front and up so, and the bank left and up.
+static __noinline void _opponent_rot(uint8_t c, int16_t s) {
   int16_t a = _opponent_ra;
   _opponent_ra = _opponent_dot(a, c, _opponent_rb, s);
   _opponent_rb = _opponent_dot(_opponent_rb, c, a, -s);
@@ -1120,7 +1141,7 @@ static __noinline void _opponent_rot(int16_t c, int16_t s) {
 static void _opponent_axes(uint8_t i) {
   int16_t hx = _opponent_head[i].x, hy = _opponent_head[i].y;
   uint8_t turn = (uint8_t)(_opponent_bank[i] + 2);
-  int8_t pitch = _opponent_pitch[i];
+  uint8_t pitch = (uint8_t)(_opponent_pitch[i] + 3);
   // y, then z: the products with world_cam's left, then with its up.
   const vec3_t *row = &world_cam.left;
   int16_t *out = &_opponent_axes_m.front.y;
@@ -1129,8 +1150,8 @@ static void _opponent_axes(uint8_t i) {
     // (-s h, c), h the level heading.
     _opponent_ra = _opponent_dot(row->x, hx, row->y, hy);
     _opponent_rb = row->z;
-    if (pitch != 0) {
-      _opponent_rot(kOpponentPitchCos[pitch + 3], kOpponentPitchSin[pitch + 3]);
+    if (pitch != 3) {
+      _opponent_rot(kOpponentPitchCos[pitch], kOpponentPitchSin[pitch]);
     }
     out[0] = _opponent_ra;
     // Banked left, the left wing goes down and the top towards the left.
@@ -1178,7 +1199,10 @@ static __noinline uint8_t _opponent_cull(void) {
       if (range == kOpponentFar) {
         far |= bit;
       }
-      _opponent_cs[i] = _opponent_c;
+      uint8_t o = i ? (uint8_t)sizeof(vec3_t) : 0;
+      for (uint8_t k = 0; k < sizeof(vec3_t); ++k, ++o) {
+        ((uint8_t *)_opponent_cs)[o] = ((const uint8_t *)&_opponent_c)[k];
+      }
       continue;
     }
     _opponent_forget(i);
@@ -1201,12 +1225,14 @@ static __noinline uint8_t _opponent_cull(void) {
 static __noinline void _opponent_cap(uint8_t seen) {
   uint8_t capped = 0;
   if (seen == 3) {
-    uint8_t n = _opponent_nearer, o = n ^ 1;
-    int16_t dn = _opponent_cs[n].x;
-    bool fn = (_opponent_far & _opponent_bit(n)) != 0;
-    bool fo = (_opponent_far & _opponent_bit(o)) != 0;
-    if (fn != fo ? fn : _opponent_cs[o].x < dn - (dn >> 3)) {
-      _opponent_nearer = o;
+    if (_opponent_far == 1 || _opponent_far == 2) {
+      _opponent_nearer = _opponent_far & 1;
+    } else {
+      uint8_t n = _opponent_nearer, o = n ^ 1;
+      uint16_t dn = (uint16_t)_opponent_cs[n].x;
+      if ((uint16_t)_opponent_cs[o].x < dn - (dn >> 3)) {
+        _opponent_nearer = o;
+      }
     }
     uint8_t extra =
         (uint8_t)(_opponent_smoke != kOpponentNoSmoke) + (uint8_t)gun_tracer_up();
@@ -1233,6 +1259,15 @@ static __noinline void _opponent_cap(uint8_t seen) {
   _opponent_capped = capped;
 }
 
+static __noinline void _opponent_latch_shown(uint8_t i) {
+  uint8_t si = i ? (uint8_t)sizeof(planes_state_t) : 0;
+  uint8_t di = i ? (uint8_t)sizeof(planes_layout_t) : 0;
+  for (uint8_t k = 0; k < sizeof(planes_layout_t); ++k, ++si, ++di) {
+    ((uint8_t *)_opponent_shown)[di] =
+        ((const uint8_t *)&_opponent_planes[0].lay)[si];
+  }
+}
+
 // Slot i, in view at _opponent_cs[i]: its redraw, or the half of one that is
 // due, and its offer to the stack. `busy` if another slot has a redraw in
 // flight this frame; true if this one starts one.
@@ -1241,7 +1276,10 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
   bool started = false;
   bool far = (_opponent_far & bit) != 0;
   _opponent_set_view(far, (_opponent_capped & bit) != 0);
-  _opponent_c = _opponent_cs[i];
+  uint8_t o = i ? (uint8_t)sizeof(vec3_t) : 0;
+  for (uint8_t k = 0; k < sizeof(vec3_t); ++k, ++o) {
+    ((uint8_t *)&_opponent_c)[k] = ((const uint8_t *)_opponent_cs)[o];
+  }
   // A redraw takes two frames, the projection in one and the fill in the
   // next (docs/planes.md §13, "The silhouette at half rate"), so neither
   // frame pays for both. The position is this frame's either way: the
@@ -1267,7 +1305,7 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
     planes_fill(&_opponent_planes[i], _opponent_block(front));
     mmap_set(MMAP_NO_ROM);
     _opponent_pending &= (uint8_t)~bit;
-    _opponent_shown[i] = _opponent_planes[i].lay;
+    _opponent_latch_shown(i);
   }
   if (busy) {
     // What is on screen (just filled, or while the other slot redraws), where
@@ -1283,7 +1321,7 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
     } else if (_opponent_f.cached) {
       // The front set holds the state's silhouette - after a forget too,
       // as the state has not been projected since it was filled.
-      _opponent_shown[i] = _opponent_planes[i].lay;
+      _opponent_latch_shown(i);
     } else {
       // A new silhouette, filled next frame; until then the old bitmap,
       // or the dot if there is none.
