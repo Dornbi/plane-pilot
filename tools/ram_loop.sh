@@ -9,8 +9,8 @@
 #      log) and implements ONE new saving of RAM or cycles. It does not
 #      commit.
 #   2. This script rebuilds everything from clean, runs every test, measures
-#      fpilot's "Free, allocatable" and times seven scenes with
-#      tools/bench.sh, five frozen and two live dogfights. The change is
+#      fpilot's "Free, allocatable" and times ten scenes with
+#      tools/bench.sh, five frozen and five live. The change is
 #      reverted on any failure, if free RAM drops, if any scene is more than
 #      2% slower than the cycle baseline in docs/ram-loop.md, or if it gains
 #      neither RAM nor at least 0.5% of total cycles.
@@ -218,7 +218,7 @@ already tried: never retry one, or a trivial variant of one. Your auto-memory no
 fpilot RAM, inlining and oscar64 bugs are background.
 
 Current state: fpilot $1 B free allocatable. The tree is clean on branch $BRANCH.
-Cycles per frame now (tools/bench.sh; scramble and shootdown are the live dogfights):
+Cycles per frame now (tools/bench.sh; the last five scenes are live combat):
 $2
 The fixed budget: every scene must stay within +$CYCLE_SLACK_PERCENT% of: $BASELINE
 
@@ -227,8 +227,9 @@ Your task: find ONE new saving and implement it. It must either raise fpilot's
 least 0.$SPEED_GAIN_PERMILLE% without losing any free RAM. A change that does both is best.
 Prefer changes that are cycle-neutral or faster.
 - Measure RAM with: make -C c64o all && make fram
-- Measure cycles with: tools/bench.sh   (about 30 s). BENCH_SHOTS=<dir> also saves each
-  scene's frame, the way to see fpilot's opponents, tracers and smoke.
+- Measure cycles with: tools/bench.sh   (about 2 min; tools/bench.sh <scene>... times just
+  those). BENCH_SHOTS=<dir> also saves each scene's frame, the way to see fpilot's
+  opponents, tracers and smoke.
 - Before you finish, make sure that make -C c64o all and make test pass.
 - If the change could affect rendering, look at the bench frames, and at tools/make_shots.sh
   for the menu, help and map (SHOT_BUILD_DIR is already set to a short path). make_shots
@@ -257,7 +258,7 @@ Read the rules in $LEDGER. A worker made an uncommitted change. Inspect it with
 git status and git diff HEAD. The worker's summary is in $RUN_DIR/summary.txt.
 
 It already builds and passes every test. fpilot free RAM goes from $1 to $2 B.
-Cycles per frame, before and after (tools/bench.sh; scramble and shootdown are the live dogfights):
+Cycles per frame, before and after (tools/bench.sh; the last five scenes are live combat):
 $4
 These are within the cycle budget, which the loop has already checked.
 
@@ -269,8 +270,8 @@ Judge only against the rules:
 - Rendering: is it the same, apart from allowed minor dot or polygon differences? Look at
   every changed screenshot pair with Read.
 - Flight model: does it behave similarly (loops, climb, turn, takeoff, landing)?
-- Combat: do the opponents still fly their paths, the guns fire and hit, and hits smoke
-  and bring aircraft down as before? Scrutinise any change to test expectations, in
+- Combat: do the opponents still fly their paths and hunt, the guns (the player's and
+  the gunners') fire and hit, and hits smoke and bring aircraft down to fall as before? Scrutinise any change to test expectations, in
   flight_test, opponent_test, gun_test, mission_test and fpilot_test alike.
 - Every feature kept, the change small and readable, and docs/comments kept accurate?
 

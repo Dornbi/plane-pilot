@@ -32,53 +32,41 @@
 #endif
 static const uint16_t kBenchSkip = __BENCH_SKIP__;
 static const uint16_t kBenchFrames = __BENCH_FRAMES__;
+// bench_end() loads the timers at the end of the last skipped frame.
+static_assert(kBenchSkip > 0, "a scene must skip at least one frame");
 
 // volatile, or oscar64 deletes it: it is only ever written.
 volatile uint32_t g_bench_cycles;
 
-static bool _bench_running = false;
 static uint16_t _bench_frame = 0;
-static uint32_t _bench_t0;
 
-// Timer B counts timer A underflows, so the pair is one 32-bit down-counter.
-// Re-read when B moved between the two reads, so an underflow cannot glitch
-// the sample by 65,536 cycles - benchmark.cc's readings can, which is fine
-// for a debug readout and not for a 2% gate.
-static uint32_t _bench_now(void) {
-  uint16_t b, a;
-  do {
-    b = cia2.tb;
-    a = cia2.ta;
-  } while (b != cia2.tb);
-  return ((uint32_t)b << 16) | a;
-}
-
+// Timer B counts timer A's underflows, so the pair is one 32-bit down-counter,
+// and timer A runs only between bench_begin() and bench_end(): the pair sums
+// the frames' work by itself, with no 32-bit arithmetic here. That keeps this
+// file small enough to link beside fpilot, which has no room to spare.
 void bench_begin(void) {
-  if (!_bench_running) {
-    // bm_init() is a no-op outside debug builds, so start the timers here.
-    cia2.cra = 0;
-    cia2.crb = 0;
-    cia2.ta = 0xffff;
-    cia2.tb = 0xffff;
-    cia2.crb = 0x41;
-    cia2.cra = 0x11;
-    _bench_running = true;
-  }
-  _bench_t0 = _bench_now();
+  cia2.cra = 0x01;
 }
 
 void bench_end(void) {
-  const uint32_t cycles = _bench_t0 - _bench_now();
+  cia2.cra = 0;
 #ifndef __BENCH_LIVE__
   if (!flight_paused) {
     return;
   }
 #endif
   ++_bench_frame;
-  if (_bench_frame > kBenchSkip) {
-    g_bench_cycles += cycles;
-  }
-  if (_bench_frame == kBenchSkip + kBenchFrames) {
+  if (_bench_frame == kBenchSkip) {
+    // Both latches to $FFFF, force-loaded, B counting A's underflows; A
+    // loaded but left stopped until the next bench_begin().
+    cia2.ta = 0xffff;
+    cia2.tb = 0xffff;
+    cia2.crb = 0x51;
+    cia2.cra = 0x10;
+  } else if (_bench_frame == kBenchSkip + kBenchFrames) {
+    const uint16_t b = cia2.tb;
+    const uint16_t a = cia2.ta;
+    g_bench_cycles = ~(((uint32_t)b << 16) | a);
     for (;;) {
     }
   }

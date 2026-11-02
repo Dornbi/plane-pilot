@@ -106,6 +106,10 @@ perl -0pi -e 's/^(#include "screen\.h")$/$1\n#include "shot.h"/m' menu.cc sim.cc
 perl -0pi -e 's/^(#include "screen\.h")$/$1\n#include "bench.h"/m' sim.cc
 perl -0pi -e 's/^(    )(bm_model_start\(\);)$/$1bench_begin();\n$1$2/m' sim.cc
 perl -0pi -e 's/^(    bm_total\(990, "TOT:"\);)$/$1\n    bench_end();/m' sim.cc
+# The help screen is never timed and no script opens it, and fpilot has no
+# room for the bench's own code beside it: help_run() returns at once, and
+# oscar64 drops the rest of it, about 550 B.
+perl -0pi -e 's/^(void help_run\(void\) \{)$/$1\n  return;/m' help.cc
 for f in menu.cc help.cc sim.cc; do
   [ "$(grep -c 'shot_poll();' "$f")" = 1 ] ||
     { echo "bench: could not redirect the keyboard poll in c64o/$f" >&2; exit 1; }
@@ -114,6 +118,7 @@ for p in 'bench_begin();' 'bench_end();' '#include "bench.h"'; do
   [ "$(grep -cF "$p" sim.cc)" = 1 ] ||
     { echo "bench: could not patch '$p' into c64o/sim.cc" >&2; exit 1; }
 done
+perl -0ne 'exit !/^void help_run\(void\) \{\n  return;$/m' help.cc || { echo "bench: could not stub help_run() in c64o/help.cc" >&2; exit 1; }
 
 CFLAGS="-ii=../include -D__OSCAR64__ -g -xz -O2 -Op -Oa -Oi -Oz -Oo"
 CFLAGS="$CFLAGS -D__ENABLE_SOUND__ -D__ENABLE_CLOUDS__ -D__FPILOT__ -D__MAX_RAM__"

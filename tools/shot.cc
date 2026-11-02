@@ -251,7 +251,7 @@ void shot_poll(void) {
   const uint8_t key = kShotScript[shot_idx].key;
   if (key < 64) {
     // The matrix is active low: a cleared bit is a key that is down.
-    keyb_matrix[key >> 3] &= ~(1 << (key & 7));
+    keyb_matrix[key >> 3] &= ~kBit[key & 7];
   } else if (key == SHOT_FREEZE) {
     flight_paused = true;
 #ifdef SHOT_POSED

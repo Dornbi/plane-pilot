@@ -18,23 +18,27 @@ This file is the loop's memory. Every pass reads it first.
   `make -C c64o all`.
 - **Cycles:** `tools/bench.sh` gives a frame's work (`bm_model_start()`
   through `bm_total()` in `sim_run()`: the model step and the render, all but
-  the wait for the flip) in seven fpilot scenes:
+  the wait for the flip) in ten fpilot scenes:
   - Five frozen, timed over 16 frames: start (01 Recon's start, airborne),
     approach, cruise, town and lake.
-  - **scramble**, live: mission 04 with both opponents overtaking the parked
-    aeroplane and the guns firing, timed over frames 48-175. It is the only
-    scene where the opponents' and the rounds' model steps and the
-    opponents' silhouette fills cost anything: frozen, they stand still and
-    a silhouette is filled once.
-  - **shootdown**, live: scramble with the first opponent hit three times on
-    its pass and downed (the hits scripted, at frames ~77, 101 and 125), so
-    the smoke and the hit and downing logic are timed too. Opponents do not
-    fire yet; when they do, a scene for their rounds belongs here.
+  - Five live, timed over the frames in which the opponents are near and
+    redrawn. They are the only scenes where the opponents' and the rounds'
+    model steps, the opponents' silhouette fills and the smoke cost
+    anything: frozen, they stand still and a silhouette is filled once.
+    - **scramble:** mission 04's pair making their pass over the parked
+      aeroplane, the guns firing, frames 48-175.
+    - **shootdown:** scramble with the first opponent hit three times on its
+      pass and downed (the hits scripted), so the smoke and the hit and
+      downing logic are timed too.
+    - **headon** and **chase:** mission 05's two hunters closing from ahead,
+      then behind the player and turning after it, in the back view.
+    - **strafe:** mission 04's pair coming back to run in at the parked
+      player, over 900 frames in.
 
   The emulator is cycle-exact, frozen scenes hold still, and the live ones'
   models step once a frame however long the frame takes, so the numbers are
   deterministic. Only code changes move them. A change to the flight or
-  opponent model can change what the live scene shows, and so its cost.
+  opponent model can change what a live scene shows, and so its cost.
 
 A change is kept only when all of these hold:
 
@@ -49,7 +53,7 @@ logged in the table but is not a goal or a gate.
 
 The script reads this line, so keep its format exactly:
 
-cycles-baseline: start=119463 approach=144228 cruise=152154 town=144007 lake=133350 scramble=184492 shootdown=179998
+cycles-baseline: start=119431 approach=144722 cruise=152338 town=144513 lake=134136 scramble=187667 shootdown=180408 headon=128118 chase=169815 strafe=187334
 
 ## Rules (binding for the worker and the reviewer)
 
@@ -68,9 +72,10 @@ cycles-baseline: start=119463 approach=144228 cruise=152154 town=144007 lake=133
 2. **The flight model must behave similarly.** Loops, climbs, turns, takeoff
    and landing must all still work and feel the same. Small numeric
    differences are fine if every one of these stays supported.
-   - **Combat behaves the same:** the opponents fly their paths, the guns
-     fire, rounds hit and stop at the ground, hits smoke and three bring an
-     aircraft down, and the missions complete and fail as before.
+   - **Combat behaves the same:** the opponents fly their paths and hunt,
+     the guns (the player's and the gunners') fire, rounds hit and stop at
+     the ground, hits flash and smoke, three bring an aircraft down and it
+     falls, and the missions complete and fail as before.
    - Changing an expectation in `flight_test`, `opponent_test`, `gun_test`,
      `mission_test` or `fpilot_test` is a red flag. Do it only for a
      tolerance-sized shift, and give the reason in the summary. Never delete
@@ -123,20 +128,24 @@ These come from earlier work (see the auto-memory notes `fpilot-ram-survey`,
 - A loop that passes its counter to a function taking it in A can leave the
   loop's byte offset in A from the second iteration on (gun.cc's
   `_gun_track()` works around it). Spell the calls out, or check the asm.
-- fpilot is nearly full (about 3.5 KB free after row 50), and
-  `tools/bench.sh` links more code into it than the game does. A change that
-  frees RAM gives the bench room too; one that grows code can stop the bench
-  scenes linking even when fpilot.prg itself still does.
-- fpilot's static frames leave 25 B of the stack region's 64 B spare
-  (`$0200-$0218` in `analyze_ram.py`) since argon-loop moved the opponents'
-  frame and axes into tscratch (row 44.e). A change that outgrows it fails
-  to link with error 3034; raise `stacksize` and `MEM_STACK_END` in `mem.h`
-  together, and count the bytes that costs bss2 against the change's gain.
-- fpilot's `tscratch` is full: the clouds', opponents', guns' and
-  renderer's per-call temporaries fill its 440 B (rows 44.e and 44.g). A new
-  tenant fails to link with error 3034 ("Available 0 in section
-  'tscratch'"). Reuse an array that is dead at the time instead, as row 49
-  does with the projection's vertices for the fill.
+- fpilot is nearly full: 707 B free at 740aa57 (2026-11-01), 568 B of it
+  in bss2. `tools/bench.sh` links about 250 B of its own code beside the
+  game, and fits only because it stubs out the help screen (about 550 B). A
+  change that grows the main region can stop the bench scenes linking even
+  when fpilot.prg itself still does.
+- bss2 (`$0226-$0800`) holds most of fpilot's free RAM. Moving a main bss
+  object there with `#pragma bss(bss2)` only moves free bytes, so it gains
+  nothing by itself, but it is how the main region gets room. Only
+  zero-initialised objects that nothing reads before `mem_init()` can go.
+- fpilot's static frames leave 2 B of the stack region spare
+  (`$0200-$0226`, row 54). A change that outgrows it fails to link with
+  error 3034; raise `stacksize` and `MEM_STACK_END` in `mem.h` together, and
+  count the bytes that costs bss2 against the change's gain.
+- fpilot's `tscratch` (the clouds', opponents', guns' and renderer's
+  per-call temporaries, `$EA30-$EBE8`) has 23 B left. A tenant that does not
+  fit fails to link with error 3034 ("Available 0 in section 'tscratch'").
+  Reuse an array that is dead at the time instead, as row 49 does with the
+  projection's vertices for the fill.
 
 ## Measured dead ends (do not retry)
 
@@ -172,6 +181,10 @@ These come from earlier work (see the auto-memory notes `fpilot-ram-survey`,
   sharing, gun.cc's round checks and loops, and the title flyby. Less
   looked at: the smoke, gun.cc's sprite placement, and `planes_fill()`'s
   polygon order.
+- New on main since row 60 and not yet through the loop: the hunting
+  fighters and the opponents' guns (rear gunners), the falling of downed
+  aircraft, ground smoke and the hit flash, the ten-mission menu with
+  ppilot's scrolling, and fpanel's simplified frames.
 
 ## Log
 
@@ -237,6 +250,23 @@ before. After row 50: fpilot 3,556 B free (+2,119 since 1787679), bench
 total 1,060,133 (+0.23%; start 119,931, approach 143,677, cruise 152,278,
 town 144,309, lake 134,008, scramble 185,386, shootdown 180,544, worst
 scramble +0.48% of its baseline).
+
+Rows 51-60 are argon-loop's passes on main through 2026-11-01, each against
+its own rebased bench.
+
+The cycles baseline was reset again on 2026-11-01 at 740aa57, after fpilot
+gained the hunting fighters, the opponents' guns, falling aircraft and ten
+missions, and `tools/bench.sh` grew the headon, chase and strafe scenes. The
+bench had stopped linking (its own code overflowed fpilot's main region by
+about 220 B), so three tooling changes came first: bench.sh stubs out the
+help screen, `tools/bench.cc` runs the CIA timer pair only inside the timed
+work instead of summing 32-bit differences on the C64, and `tools/shot.cc`
+masks keys through `kBit` instead of oscar64's bitshift table. On the same
+code the new timer reads 0.1-0.25% lower per scene than the old one. fpilot
+707 B free (largest run 568 B), ppilot 11,446 B. Cycles per frame: start
+119,431, approach 144,722, cruise 152,338, town 144,513, lake 134,136,
+scramble 187,667, shootdown 180,408, headon 128,118, chase 169,815, strafe
+187,334; total 1,548,482.
 
 The script appends one row per pass. The branch column names the loop the
 change came from: claude (claude-loop) or argon (argon-loop).
