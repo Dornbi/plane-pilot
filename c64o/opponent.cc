@@ -372,8 +372,7 @@ static const opponent_path_t *_opponent_path[kOpponentMax];
 static uint8_t _opponent_mission;
 static bool _opponent_failed;
 //
-// And above those, in the same byte rather than two more - oscar64 promotes
-// such bytes to the zero page, and it has no room for them: bit i <<
+// And above those, in the same byte rather than two more: bit i <<
 // kOpponentFalling, slot i has been shot down and is falling, in a steep
 // dive - and with bit i << kOpponentSpin, spinning - until it hits the
 // ground, and only then down. Neither flying nor firing meanwhile, and no

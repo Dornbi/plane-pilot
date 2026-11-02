@@ -1145,8 +1145,7 @@ Shot down now means falling, not stopping:
   degrees. It neither flies its path nor fires, and takes no more hits. It
   is down - towards WP_TARGETS_DOWN, with the longer smoke where it fell -
   only when it hits the ground; parked, at once. The falling and spinning
-  bits share `_opponent_down`'s byte: two more bytes went to the zero page
-  and pushed objects out of it.
+  bits share `_opponent_down`'s byte.
 - **The player.** The fifth hit in the air takes the controls away and
   says SHOT DOWN!; flight.cc's `_flight_fall()` pushes the nose down to 60
   degrees whichever way up, and in a spin rolls on as well. The crash is
