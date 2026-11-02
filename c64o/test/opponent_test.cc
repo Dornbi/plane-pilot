@@ -1599,12 +1599,13 @@ static void test_guns(void) {
   // The rear gunner: 02's first bomber, in ATTACK from the start, heading
   // south. Straight back at a player 300 m behind it, on the gun's cycle,
   // scattered by at most kOpponentScatter; never at one ahead, 30 degrees
-  // off the tail, 100 m above it, or 700 m back.
+  // off the tail, 100 m above it, 700 m back, or below the wings at all.
   static const struct {
     double back, side, up;
     bool fires;
   } kTail[] = {{300, 0, 0, true}, {-300, 0, 0, false}, {300, 175, 0, false},
-               {300, 0, 100, false}, {700, 0, 0, false}, {150, 20, -20, true}};
+               {300, 0, 100, false}, {700, 0, 0, false}, {150, 20, 20, true},
+               {150, 20, -20, false}, {300, 0, -1, false}};
   for (const auto &k : kTail) {
     opponent_reset(1);
     _opponent_on[1] = false;

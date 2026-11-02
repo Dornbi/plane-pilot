@@ -160,6 +160,7 @@ struct opponent_path_t {
 // Heights on flight.cc's scale, 1,000 ft to 0x0200; the ground is at 0.
 static const uint16_t kOpponent5000Ft = 0x0A00;
 static const uint16_t kOpponent3000Ft = 0x0600;
+static const uint16_t kOpponent3500Ft = 0x0700;
 
 // The missions (fmission.cc). Runway 1, home, is at (0x20, 0x3F), runway 2 at
 // (0x60, 0xBF) and the city at (0x10, 0x68). Each puts its targets on screen
@@ -177,12 +178,13 @@ static const uint16_t kOpponent3000Ft = 0x0600;
 // before it leaves (test/mission_test.cc). 2,000 at first, from the runway,
 // which play found too hard.
 //
-// 02, Bombers: two at 3,000 ft and 1,500, in loose formation - the second
-// 75 m to the left of and 100 m behind the first - come south towards
+// 02, Bombers: two at 1,500, in loose formation - the second 75 m to the
+// left of, 100 m behind and 500 ft above the first, at 3,500 ft to its
+// 3,000 - come south towards
 // runway 1 from 5.5 km as the player scrambles from it, pass 500 m north of
 // it, turn for the city and reach it after ~4.4 min, which fails the
 // mission. Then they leave over the south edge. Their rear gunners fire
-// at a player behind them from the start.
+// at a player behind and above them from the start; from below they cannot.
 //
 // 03, Ambush: two on the ground beside the south end of runway 2, side by
 // side 100 m apart, both 75 m off its west edge at y 0xC0 and facing it, and
@@ -212,7 +214,7 @@ static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
     {{kOpponentOneWay | kOpponentBomber | kOpponentHunt, 3, 1, 4, 1500, 0x4800, 0x4000, -256,
       0, kOpponent3000Ft},
      {kOpponentOneWay | kOpponentBomber | kOpponentHunt, 3, 1, 7, 1500, 0x48C8, 0x3F6A, -256,
-      0, kOpponent3000Ft}},
+      0, kOpponent3500Ft}},
     {{kOpponentParked | kOpponentFighter | kOpponentPath, 0, kOpponentNoFail, 0, 0, 0x5C9C,
       0xC096, 0, -256, 0x000A},
      {kOpponentParked | kOpponentFighter | kOpponentPath, 0, kOpponentNoFail, 0, 0, 0x5D64,
@@ -832,8 +834,9 @@ __noinline uint8_t opponent_random(void) {
 }
 
 // Bomber i's rear gunner (docs/opponent_ai.md §6): whether the player is
-// behind it, within ~14 degrees of the tail across and in height, and less
-// than kOpponentGunnerReach back. The gunner fires straight back, scattered
+// behind it, within ~14 degrees of the tail across, and above the plane of
+// its wings by as much, and less than kOpponentGunnerReach back: the gun
+// cannot bear on a player attacking from below. The gunner fires straight back, scattered
 // (opponent_fires()): aiming it at the player, normalised, was 550 B. Asked
 // from opponent_fires(), under gun_step(): under opponent_step() its
 // multiplies cost that a software stack frame.
@@ -845,7 +848,7 @@ static __noinline bool _opponent_gunner(uint8_t i) {
   uint16_t q = (uint16_t)back >> 2;
   return back > 0 && back < kOpponentGunnerReach &&
          _opponent_abs(_opponent_dot(dy, hx, -dx, hy)) < q &&
-         _opponent_abs((int16_t)((flight_eye_z - _opponent_z[i]) >> 8)) < q;
+         (uint16_t)(int16_t)((flight_eye_z - _opponent_z[i]) >> 8) < q;
 }
 
 // The round leaves at the muzzle velocity, 3 x 256 in gun.cc's sixteenths

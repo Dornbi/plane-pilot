@@ -158,13 +158,16 @@ static void chase(bool guns, int *caught_at, int *gone_at, int *down_at) {
   }
 }
 
+// How far under a bomber dogfight() holds until its pass, in metres.
+static const int kBelow = 100;
+
 // A dogfight: from the mission's start - taking off first if it starts on
 // the runway, and climbing to `min_m`, 300 m unless the targets are on the
 // ground - it goes for the nearest aircraft still flying, banking towards
-// it, matching its height but no lower than that, throttled back on its tail
-// inside 300 m, and inside 800 m putting
+// it, matching its height but no lower than that - or kBelow under a
+// bomber - throttled back on its tail inside 300 m, and inside 800 m putting
 // the nose on it, with the rudder for the last few degrees, and holding
-// Space while it is within ~3.5 degrees. A hunter
+// Space while it is within ~3.5 degrees - and, at a bomber, 400 m. A hunter
 // on its tail it does not try to out-turn: it extends, wings level, at its
 // greater speed until 1.5 km clear, then turns back for a head-on pass. When
 // the last went down, in steps, or -1; and the fewest metres it came to any.
@@ -197,6 +200,10 @@ static int dogfight(int m, double *closest, int min_m = 300) {
     double above = along(flight_cam.up, dx, dy, dz);
     bool up = !model_on_ground && flight_eye_z > kMinZ;
     double d = sqrt(dx * dx + dy * dy + dz * dz);
+    // A bomber it closes on slowly, from behind: firing beyond the rounds'
+    // ~600 m reach would empty the guns before it got there.
+    const bool bomber = _opponent_path[t]->kind & kOpponentBomber;
+    const double range = bomber ? 800 : 2000;
     // Throttled back on a target's tail inside 300 m: flying into it is a
     // crash.
     flight_throttle = ahead > 0 && d < 600 ? 10 : 24;
@@ -239,7 +246,9 @@ static int dogfight(int m, double *closest, int min_m = 300) {
         flight_input(FLIGHT_INPUT_PITCH_DOWN);
       }
     } else if (up) {
-      int32_t z = std::max(_opponent_z[t], kMinZ);
+      // Under a bomber, where its rear gunner cannot bear.
+      int32_t below = bomber ? (int32_t)kBelow << 9 : 0;
+      int32_t z = std::max(_opponent_z[t] - below, kMinZ);
       if (flight_eye_z < z && flight_vspeed <= 0) {
         flight_input(FLIGHT_INPUT_PITCH_UP);
       } else if (flight_eye_z > z && flight_vspeed >= 0) {
@@ -248,7 +257,7 @@ static int dogfight(int m, double *closest, int min_m = 300) {
     }
     flight_advance();
     opponent_step();
-    gun_step(aiming && !extend && ahead > 80 && ahead < 2000 && fabs(side) < ahead / 16 &&
+    gun_step(aiming && !extend && ahead > 80 && ahead < range && fabs(side) < ahead / 16 &&
              fabs(above) < ahead / 16);
     if (flight_crashed()) {
       printf("  dogfight %d: crashed at %.0f s, %s\n", m + 1, n / kStepsPerSecond,
@@ -433,6 +442,21 @@ int main() {
            down / kStepsPerSecond / 60, closest, gun_player_hits);
   }
 
+  // 02: the same pilot downs both bombers before they reach the city,
+  // attacking each from below, where its rear gunner cannot bear.
+  {
+    opponent_reset(1);
+    // 500 ft, 128 m on flight.cc's scale.
+    CHECK(_opponent_z[1] - _opponent_z[0] == 128L * 512, "bombers: %.0f m apart in height",
+          (_opponent_z[1] - _opponent_z[0]) / 512.0);
+    double closest;
+    int down = dogfight(1, &closest);
+    CHECK(down >= 0 && !_opponent_failed && gun_player_hits == 0,
+          "bombers: both down at %.1f min, failed %d, %d hits taken", down / kStepsPerSecond / 60,
+          _opponent_failed, gun_player_hits);
+    printf("  bombers, from below: both down at %.1f min, the nearest %.0f m\n",
+           down / kStepsPerSecond / 60, closest);
+  }
   if (_fails) {
     printf("mission_test: %d checks FAILED\n", _fails);
     return 1;

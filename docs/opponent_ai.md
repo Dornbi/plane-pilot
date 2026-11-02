@@ -1113,6 +1113,14 @@ Then some tweaks after play:
 That came to 204 B: fpilot is at 1,058 B free (largest run 600), and
 ppilot is unchanged. mission_test now flies 03 and 05 to the end as well:
 the dogfight pilot strafes 03's parked pair from 60 m, and downs 05's pair
-head-on in ~2.3 min unhit. 02's bombers it cannot win: on their tail it is
-shot down by the rear gunners, standing off it is still hit, and going round
-to meet them head-on takes it past the 4.4 min they need to reach the city.
+head-on in ~2.3 min unhit. 02's bombers it could not win: on their tail it
+was shot down by the rear gunners, standing off it was still hit, and going
+round to meet them head-on took it past the 4.4 min they need to reach the
+city.
+
+So the rear gunner now fires only at a player above the plane of its wings
+(`_opponent_gunner()`, 9 B smaller than the two-sided test), and 02's second
+bomber flies at 3,500 ft, 500 ft above the first. The dogfight pilot takes
+02 by holding 100 m under each bomber until its pass and holding fire until
+it is within 400 m: both down at ~3.8 min, unhit. Firing from out of range
+had emptied its 50 rounds before it closed. fpilot is at 1,067 B free.
