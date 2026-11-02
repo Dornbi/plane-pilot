@@ -315,6 +315,12 @@ static const int16_t kOpponentFloorMargin = 16;
 // The temporary floor of a strafing run at a player on the ground, 30 m.
 static const int16_t kOpponentStrafeFloor = 60;
 
+// The guns (docs/opponent_ai.md §6): a fighter in ATTACK fires a burst of
+// three rounds, one every second whole step, from the start of each
+// kOpponentGunCycle whole steps that finds the player in front of its nose:
+// ~0.8 s of fire and ~3.4 s to the next burst.
+static const uint8_t kOpponentGunCycle = 26;
+
 // The pixel size, planes_frame_t::d, from which an aircraft is drawn in
 // kColorOpponentNear: about 620 m at kOpponentKn, and below
 // kOpponentNearD - 1, ~720 m, back to kColorOpponentFar.
@@ -350,6 +356,10 @@ static uint8_t _opponent_attack;
 // for another run (_opponent_strafe()).
 static uint8_t _opponent_pullup;
 static uint8_t _opponent_hits[kOpponentMax];
+// Whole steps left of the gun's cycle, 0 when it is ready for a burst; and
+// bit i: slot i fires a round this step (opponent_fires()).
+static uint8_t _opponent_gun[kOpponentMax];
+static uint8_t _opponent_firing;
 // 1 + the slot trailing smoke - the last one hit - or kOpponentNoSmoke; and
 // the frames it has left.
 static uint8_t _opponent_smoke;
@@ -532,6 +542,7 @@ void opponent_reset(uint8_t mission) {
   _opponent_down = 0;
   _opponent_attack = 0;
   _opponent_pullup = 0;
+  _opponent_firing = 0;
   _opponent_smoke = kOpponentNoSmoke;
   _opponent_substep = 0;
   const opponent_path_t *p = kOpponentPaths[mission];
@@ -554,6 +565,7 @@ void opponent_reset(uint8_t mission) {
     _opponent_climb[i] = 0;
     _opponent_pitch[i] = 0;
     _opponent_hits[i] = 0;
+    _opponent_gun[i] = 0;
   }
   _opponent_track();
   opponent_invalidate();
@@ -673,21 +685,73 @@ static __noinline int8_t _opponent_want(uint8_t i, int8_t dx, int8_t dy, int16_t
 // slot pulls up: straight on, up to kOpponentFloor and out to ~1 km, then
 // round for the next. Under kOpponentFloor for any other reason it pulls up
 // too, and in the air that ends at the floor.
+//
+// Also whether the player is in its guns' cone, in _opponent_aim: within ~7
+// degrees of the nose across, and within ~500 m, the cut no more than 4
+// halvings; not while pulling up. _opponent_guns() adds the height.
+#pragma bss(tscratch)
+static bool _opponent_aim;
+#pragma bss(bss)
 static __noinline int16_t _opponent_strafe(uint8_t i, int16_t dot, int16_t across, uint8_t cut) {
   uint8_t bit = _opponent_bit(i);
   int16_t z = (int16_t)(_opponent_z[i] >> 8);
   bool ground = flight_on_ground();
+  int16_t floor = kOpponentFloor;
   if (_opponent_pullup & bit) {
     if (z >= kOpponentFloor && (cut > 5 || !ground)) {
       _opponent_pullup &= (uint8_t)~bit;
     }
   } else if (ground && dot > 0 && across < (dot >> 2) && cut > 2 &&
              z > kOpponentStrafeFloor + kOpponentFloorMargin) {
-    return kOpponentStrafeFloor;
+    floor = kOpponentStrafeFloor;
   } else if (z < kOpponentFloor) {
     _opponent_pullup |= bit;
   }
-  return kOpponentFloor;
+  _opponent_aim = !(_opponent_pullup & bit) && cut <= 4 && dot > 0 && across < (dot >> 3);
+  return floor;
+}
+
+// Hunting slot i's gun, on a whole step, wanting climb level `want`: the
+// cycle counted down, and _opponent_firing's bit set if a round is due and
+// the player is in front of the nose - in _opponent_strafe()'s cone across,
+// and in height too, the level it flies being the one that points at the
+// player. The guns do not aim. gun.cc fires the round (opponent_fires()):
+// a call from here, this deep in opponent_step()'s call graph, cost it its
+// zero page temporaries.
+static __noinline void _opponent_guns(uint8_t i, int8_t want) {
+  uint8_t g = _opponent_gun[i];
+  if (g != 0) {
+    --g;
+  }
+  if (_opponent_aim && want == _opponent_climb[i]) {
+    if (g == 0) {
+      g = kOpponentGunCycle;
+    }
+    if (g >= kOpponentGunCycle - 4 && !(g & 1)) {
+      _opponent_firing |= _opponent_bit(i);
+    }
+  }
+  _opponent_gun[i] = g;
+}
+
+// The round leaves along the nose at the muzzle velocity, 3 x 256 in gun.cc's
+// sixteenths of a metre a step: three times the heading, with the climb's
+// sine for its z. No multiply: the aircraft's own speed, 3-11 m a step
+// against the round's 48, and the climb's cosine, 0.89 at the steepest, are
+// left out, which the guns not aiming makes nothing of.
+static_assert(kGunMuzzle == 3 * 256, "the round is three times the nose");
+bool opponent_fires(uint8_t i, int16_t *v) {
+  uint8_t bit = _opponent_bit(i);
+  if (!(_opponent_firing & bit)) {
+    return false;
+  }
+  _opponent_firing &= (uint8_t)~bit;
+  int16_t x = _opponent_head[i].x, y = _opponent_head[i].y;
+  int16_t z = kOpponentPitchSin[(uint8_t)(_opponent_climb[i] + 3)];
+  v[0] = (x << 1) + x;
+  v[1] = (y << 1) + y;
+  v[2] = (z << 1) + z;
+  return true;
 }
 
 static void _opponent_forget(uint8_t i);
@@ -789,12 +853,15 @@ void opponent_step(void) {
     int16_t cross = _opponent_dot(dy, hx, -dx, hy);
     int16_t dot = _opponent_dot(dx, hx, dy, hy);
     int16_t across = _opponent_abs(cross);
-    // A hunter's height, and whether it pulls up, straight ahead.
+    // A hunter's height, whether it pulls up, straight ahead, and its guns.
     bool straight = false;
     if (hunt) {
       int16_t floor = _opponent_strafe(i, dot, across, cut);
       straight = (_opponent_pullup & bit) != 0;
       want = straight ? 1 : _opponent_want(i, dx8, dy8, dz, floor);
+      if (turns) {
+        _opponent_guns(i, want);
+      }
     }
     int8_t turn = 0;
     if (!straight && (dot < 0 || across > (dot >> 5))) {

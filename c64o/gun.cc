@@ -34,9 +34,9 @@ static const uint8_t kRoundLife = 12;
 // drawn at (opponent.cc kOpponentKn).
 static const int16_t kRoundHit = 10 * 16;
 
-// Muzzle velocity, 48 m a step: slower than a real gun, so a tracer is seen
-// for a dozen frames rather than two (docs/projectiles.md §10).
-static const int16_t kGunMuzzle = 48 * 16;
+// Muzzle velocity, kGunMuzzle (gun.h), 48 m a step: slower than a real gun,
+// so a tracer is seen for a dozen frames rather than two
+// (docs/projectiles.md §10).
 // Where a round starts, in the aircraft's frame: 20 m ahead of the eye -
 // clear of the renderer's 8 m near cull - 4 m out on the wing that fires it
 // and 1.5 m below, so it enters from the lower left or right.
@@ -85,6 +85,7 @@ static __striped int16_t _gun_t[3];
 static __striped int16_t _gun_d[3];
 static __striped int16_t _gun_q[3];
 static __striped int16_t _gun_moved[3];
+static int16_t _gun_v[3];
 #pragma bss(bss)
 
 static __noinline int16_t _gun_abs(int16_t v) { return v < 0 ? -v : v; }
@@ -166,15 +167,17 @@ static __noinline bool _gun_rel3_to(void) {
   return true;
 }
 
-// A free slot, or failing one the oldest round's.
-static uint8_t _gun_slot(void) {
-  uint8_t slot = 0, oldest = 0;
+// A free slot, or failing one the oldest round's. For an opponent's round,
+// the oldest of the opponents' rounds only, or kRoundNone: enemy fire never
+// takes a round the player has in flight.
+static uint8_t _gun_slot(bool enemy) {
+  uint8_t slot = kRoundNone, oldest = 0;
   for (uint8_t r = 0; r < kRoundMax; ++r) {
     uint8_t age = _round_age[r];
     if (age == 0) {
       return r;
     }
-    if (age > oldest) {
+    if (age > oldest && !(enemy && _round_owner[r] == kRoundPlayer)) {
       oldest = age;
       slot = r;
     }
@@ -208,7 +211,7 @@ static bool _gun_take_round(void) {
 static_assert(kGunMuzzle == 3 * 256, "muzzle product is 3 * fc");
 
 static void _gun_fire(void) {
-  uint8_t r = _gun_slot();
+  uint8_t r = _gun_slot(false);
   // +left is the left wing; each turns in towards the other side.
   int16_t wing = _gun_side ? -kGunWing : kGunWing;
   int16_t in = _gun_side ? kGunConverge : -kGunConverge;
@@ -227,6 +230,24 @@ static void _gun_fire(void) {
   _round_age[r] = 1;
   _round_owner[r] = kRoundPlayer;
   _gun_last = r;
+}
+
+// A round from opponent slot i, from where it is, at the velocity
+// opponent_fires() left in _gun_v. Into a free slot or the oldest of the
+// opponents' rounds, never one the player has in flight; not fired if there
+// is none.
+static void _gun_fire_from(uint8_t i) {
+  uint8_t r = _gun_slot(true);
+  if (r == kRoundNone || !opponent_target(i, _gun_p) || !_gun_rel3_to()) {
+    return;
+  }
+  uint8_t k = r;
+  for (uint8_t c = 0; c < 3; ++c, k += kRoundMax) {
+    _round_p[k] = _gun_t[c];
+    _round_v[k] = _gun_v[c];
+  }
+  _round_age[r] = 1;
+  _round_owner[r] = (uint8_t)(i + 1);
 }
 
 // Whether round r, moving one step from where it is, passes within the hit
@@ -289,6 +310,13 @@ void gun_step(bool trigger) {
   _gun_track(0, flight_eye_x);
   _gun_track(1, flight_eye_y);
   _gun_track(2, flight_eye_z);
+  // The opponents' rounds, from where they are now, relative to the eye
+  // just tracked.
+  for (uint8_t i = 0; i < kOpponentMax; ++i) {
+    if (opponent_fires(i, _gun_v)) {
+      _gun_fire_from(i);
+    }
+  }
   // Anyone else's rounds into the player, at the eye, which is 0 in the
   // rounds' frame; then the player's into the opponents; and every round
   // left on a step.

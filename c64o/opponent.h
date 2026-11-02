@@ -54,6 +54,12 @@ bool opponent_target(uint8_t i, int32_t *p);
 // and its smoke hangs where it fell for ~5 s.
 void opponent_strike(uint8_t i);
 
+// For gun.cc, after opponent_step(): whether slot i fires a round this step
+// and, if it does, the round's velocity into v - x, y and z in sixteenths of
+// a metre a step, from the muzzle along the nose plus the aircraft's own.
+// Once: a second call the same step says no.
+bool opponent_fires(uint8_t i, int16_t *v);
+
 // For gun.cc, which draws it: the smoking aircraft's position, as
 // opponent_target() gives it, and its heading's x and y, 8.8 - the last one
 // hit, for ~2 s after the hit or ~5 s after it went down. False if no smoke
@@ -72,6 +78,7 @@ inline bool opponent_targets_down(void) { return false; }
 inline bool opponent_target(uint8_t i, int32_t *p) { return false; }
 inline void opponent_strike(uint8_t i) {}
 inline bool opponent_smoke(int32_t *p, int16_t *h) { return false; }
+inline bool opponent_fires(uint8_t i, int16_t *v) { return false; }
 
 #endif
 

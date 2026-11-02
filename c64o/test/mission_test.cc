@@ -333,6 +333,24 @@ int main() {
   printf("  recon, shot down by the same pilot with guns: at %.1f min\n",
          down_at / kStepsPerSecond / 60);
 
+  // 04, parked and hands off: the pair come back from their pass and
+  // strafe, and their rounds land.
+  {
+    flight_init_from_mission(3);
+    opponent_reset(3);
+    gun_reset();
+    int first = -1;
+    for (int n = 0; n < (int)(kStepsPerSecond * 300); ++n) {
+      flight_advance();
+      opponent_step();
+      gun_step(false);
+      if (first < 0 && gun_player_hits > 0) first = n;
+    }
+    CHECK(gun_player_hits > 0, "scramble, parked: never hit in 5 min");
+    printf("  scramble, parked: %d hits in 5 min, the first at %.0f s\n", gun_player_hits,
+           first / kStepsPerSecond);
+  }
+
   // 04: the same pilot downs both fighters after the pass, as they come
   // back for it.
   {
@@ -341,8 +359,8 @@ int main() {
     CHECK(down >= 0 && down <= 6 * 60 * kStepsPerSecond,
           "scramble: both down at %.1f min, the nearest %.0f m", down / kStepsPerSecond / 60,
           closest);
-    printf("  scramble, dogfight: both down at %.1f min, the nearest %.0f m\n",
-           down / kStepsPerSecond / 60, closest);
+    printf("  scramble, dogfight: both down at %.1f min, the nearest %.0f m, %d hits taken\n",
+           down / kStepsPerSecond / 60, closest, gun_player_hits);
   }
 
   if (_fails) {

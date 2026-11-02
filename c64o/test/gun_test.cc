@@ -40,6 +40,15 @@ bool opponent_target(uint8_t i, int32_t *p) {
   return true;
 }
 void opponent_strike(uint8_t i) { ++_strikes[i]; }
+// A round each opponent asks to fire, once, at _fires_v.
+static bool _fires[kOpponentMax];
+static int16_t _fires_v[3];
+bool opponent_fires(uint8_t i, int16_t *v) {
+  if (!_fires[i]) return false;
+  _fires[i] = false;
+  for (int c = 0; c < 3; ++c) v[c] = _fires_v[c];
+  return true;
+}
 // The smoking aircraft, when a case puts one up.
 static bool _smoke_on;
 static int32_t _smoke_p[3];
@@ -285,7 +294,7 @@ static void test_incoming(void) {
   printf("  an opponent's round into the player counts a hit on the player\n");
   start(1500);
   // By hand, as no opponent fires yet: 300 m ahead, coming straight back.
-  uint8_t r = _gun_slot();
+  uint8_t r = _gun_slot(false);
   _round_p[r] = 300 * 16;
   _round_p[kRoundMax + r] = 2 * 16;
   _round_p[2 * kRoundMax + r] = 0;
@@ -539,6 +548,58 @@ static void test_ammo(void) {
         !gun_ammo_shown);
 }
 
+// An opponent's round (opponent_fires()): fired by the next step, from the
+// slot's position at its velocity; into a free slot or over the oldest
+// opponent's round, never over one of the player's.
+static void enemy_round(int i, int16_t vx) {
+  _fires[i] = true;
+  _fires_v[0] = vx;
+  _fires_v[1] = _fires_v[2] = 0;
+}
+
+static void test_enemy_fire(void) {
+  printf("  an opponent fires from where it is, and never over the player's rounds\n");
+  start(0);
+  place_target(1, 400, 0, 0);
+  enemy_round(1, -768);
+  step(false);
+  int r = -1;
+  for (int k = 0; k < kRoundMax; ++k)
+    if (_round_age[k] != 0) r = k;
+  // Fired, and its first step flown: 48 m nearer.
+  CHECK(r >= 0 && _round_owner[r] == 2 && fabs(ahead_m(r) - 352) < 0.1 && _round_v[r] == -768,
+        "fired: owner %d at %.1f m, velocity %d", r < 0 ? -1 : _round_owner[r],
+        r < 0 ? 0.0 : ahead_m(r), r < 0 ? 0 : _round_v[r]);
+  // Straight back at a stationary eye: a hit inside its life.
+  int n = 0;
+  while (gun_player_hits == 0 && n++ < 12) step(false);
+  CHECK(gun_player_hits == 1, "fired: %d hits on the eye after %d steps", gun_player_hits, n);
+
+  // A pool full of the player's rounds: nothing displaced, nothing fired.
+  start(0);
+  place_target(0, 400, 0, 0);
+  for (int k = 0; k < kRoundMax; ++k) {
+    _round_age[k] = (uint8_t)(1 + k);
+    _round_owner[k] = kRoundPlayer;
+  }
+  enemy_round(0, -768);
+  gun_step(false);
+  bool any = false;
+  for (int k = 0; k < kRoundMax; ++k) any |= _round_owner[k] != kRoundPlayer;
+  CHECK(!any, "full: an enemy round displaced one of the player's");
+  // One of them the opponents', and the youngest: that one goes.
+  _round_owner[2] = 1;
+  _round_age[2] = 1;
+  _round_v[2] = 0;
+  enemy_round(0, -768);
+  gun_step(false);
+  CHECK(_round_owner[2] == 1 && _round_v[2] == -768,
+        "full: the opponents' round was not the one replaced");
+  // The player's own fire still takes the oldest of all.
+  CHECK(_round_owner[_gun_slot(false)] == kRoundPlayer, "full: the player's next round goes over "
+        "an opponent's");
+}
+
 int main() {
   printf("Running gun_test...\n");
   test_wings();
@@ -548,6 +609,7 @@ int main() {
   test_hits();
   test_wrap();
   test_incoming();
+  test_enemy_fire();
   test_dir();
   test_tracer();
   test_ground();

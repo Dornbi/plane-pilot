@@ -65,6 +65,7 @@ uint8_t *kOpponentBank = _bank;
 static bool _tracer_up = false;
 bool gun_tracer_up(void) { return _tracer_up; }
 
+
 // --- What it writes -----------------------------------------------------------
 
 struct offer_t {
@@ -1398,6 +1399,87 @@ static void test_hunting(void) {
   CHECK(_msgs == 0, "hunting: %d messages, the last \"%s\"", _msgs, _msg);
 }
 
+// --- 9. The fighters' guns ---------------------------------------------------------
+//
+// docs/opponent_ai.md §6: a hunter with the player within ~7 degrees of its
+// nose and ~500 m fires three rounds, a whole step apart and one every
+// second, along its nose, and then none until kOpponentGunCycle whole steps
+// after the first. Off the nose, too far, or on a path, it does not fire.
+
+// What each slot fires, counted, and the last round's velocity.
+static int _fired[2];
+static int16_t _fired_v[3];
+
+// A hunter at kHunter's height, `deg` degrees off the bearing to a
+// stationary eye `m` metres north of it.
+static void aim_at(double m, double deg) {
+  opponent_reset(0);
+  _opponent_on[0] = false;
+  hunt(1, &kHunter);
+  flight_eye_x = _opponent_x[1] + (int32_t)(m * 512);
+  flight_eye_y = _opponent_y[1];
+  flight_eye_z = _opponent_z[1];
+  _opponent_head[1] = make_vector((int16_t)lround(256 * cos(deg * M_PI / 180)),
+                                  (int16_t)lround(256 * sin(deg * M_PI / 180)), 0);
+  _fired[0] = _fired[1] = 0;
+}
+
+// One model step, then what gun_step() would ask for.
+static void fire_step(void) {
+  opponent_step();
+  for (uint8_t i = 0; i < 2; ++i) {
+    if (opponent_fires(i, _fired_v)) ++_fired[i];
+  }
+  int16_t v[3];
+  CHECK(!opponent_fires(0, v) && !opponent_fires(1, v), "guns: a slot fired twice in a step");
+}
+
+static void test_guns(void) {
+  flight_step_shift = 0;
+  kFlightSubstepMask = 0;
+  flight_paused = false;
+  flight_status = FLIGHT_ONGOING;
+  model_on_ground = false;
+
+  // Nose on at 400 m: a burst of three, rounds along the nose, then quiet
+  // until the cycle comes round, and another.
+  aim_at(400, 0);
+  int at[8], n_at = 0;
+  for (int n = 0; n < kOpponentGunCycle + 2; ++n) {
+    int before = _fired[1];
+    fire_step();
+    if (_fired[1] != before && n_at < 8) at[n_at++] = n;
+  }
+  CHECK(n_at == 4 && at[0] == 0 && at[1] == 2 && at[2] == 4 && at[3] == kOpponentGunCycle,
+        "guns: fired %d rounds, at steps %d %d %d %d", n_at, at[0], at[1], at[2], at[3]);
+  CHECK(_fired_v[0] > 750 && abs(_fired_v[1]) < 24 && _fired_v[2] == 0,
+        "guns: fired at %d %d %d, not 768 along the nose", _fired_v[0], _fired_v[1], _fired_v[2]);
+
+  // 5 degrees off: the first step fires; 10 degrees off, it does not - it
+  // turns onto the player first.
+  aim_at(400, 5);
+  fire_step();
+  CHECK(_fired[1] == 1, "guns: did not fire 5 degrees off the nose");
+  aim_at(400, 10);
+  fire_step();
+  CHECK(_fired[1] == 0, "guns: fired 10 degrees off the nose");
+  // 700 m off: out of range.
+  aim_at(700, 0);
+  fire_step();
+  CHECK(_fired[1] == 0, "guns: fired at 700 m");
+  // 300 m above at 400 m: off the steepest level's slope, so no.
+  aim_at(400, 0);
+  flight_eye_z += 600 << 8;
+  fire_step();
+  CHECK(_fired[1] == 0, "guns: fired at a player 37 degrees above the nose");
+  // On a path: never, the player dead ahead or not.
+  aim_at(400, 0);
+  _opponent_attack = 0;
+  for (int n = 0; n < 50; ++n) fire_step();
+  CHECK(_fired[1] == 0, "guns: fired on a path");
+  printf("  guns: a burst at steps %d, %d and %d, the next at %d\n", at[0], at[1], at[2], at[3]);
+}
+
 int main() {
   test_look_back();
   test_through_the_dot();
@@ -1408,6 +1490,7 @@ int main() {
   test_flight_model();
   test_missions();
   test_hunting();
+  test_guns();
   if (_fails) {
     printf("opponent_test: %d checks FAILED\n", _fails);
     return 1;

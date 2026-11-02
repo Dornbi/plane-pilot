@@ -22,9 +22,13 @@ void gun_reset(void);
 // halt on the ground.
 void gun_rearm(void);
 
-// One model step, after opponent_step(): moves every round and hits what it
-// meets, then fires the next round if `trigger` is held.
+// One model step, after opponent_step(): fires the opponents' rounds it
+// asked for, moves every round and hits what it meets, then fires the
+// player's next round if `trigger` is held.
 void gun_step(bool trigger);
+
+// A round's speed from the muzzle, 48 m a step in sixteenths of a metre.
+static const int16_t kGunMuzzle = 48 * 16;
 
 // Per frame, after opponent_add_sprites(): the smoke behind the last aircraft
 // hit, and the round worth seeing, as a tracer, offered to the sprite stack.
@@ -35,8 +39,7 @@ void gun_add_sprites(void);
 // aircraft must share the stack with.
 bool gun_tracer_up(void);
 
-// Hits the player has taken. Only opponents' rounds can land them, and
-// nothing fires those yet.
+// Hits the player has taken. Only opponents' rounds can land them.
 extern uint8_t gun_player_hits;
 
 // The player's rounds left, as the decimal digits the panel's ammo counter

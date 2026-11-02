@@ -832,3 +832,73 @@ Merging argon-loop's RAM passes 51–57 (62aa403) brought fpilot back to 3,052 B
 free, largest run 2,409 B. That covers the low end of the projected 1.5–2.5 KB
 for steps 8–14 but not the high end, so the decision above still stands; it is
 less pressing.
+
+### Step 8: mission 04, the pass and then the hunt
+
+- **Data.** Both fighters are Pass on one-way paths, each with one
+  waypoint ~2.5 km north of runway 1. They overtake the parked player as
+  before, reach their waypoints at ~84 s, enter ATTACK and are back over
+  the runway ~84 s later. The waypoint pool shrinks from 18 to 12.
+  `opponent_test`'s straight path, which borrowed 04's waypoints, has its
+  own.
+- **Tests.**
+  - Both stay on their lines until ATTACK, which they enter within a step
+    of each other, and both come back within 300 m of a parked player.
+  - `mission_test` gains a dogfight pilot. It takes off, climbs to 300 m
+    and goes for the nearest fighter. It does not try to out-turn a hunter
+    on its tail: it extends at its greater speed to 1.5 km, then turns
+    back for a head-on pass, aiming the last few degrees with the rudder.
+    It downs both at 4.5 min. Turning with them instead, it never lands a
+    hit: the pair sit ~380 m behind in a circle.
+- **Emulator.** Bench scene `strafe` (`tools/shot.cc` scene 13) is mission
+  04 parked and hands off, timed over frames 900–964 as the pair run back
+  in, low and ahead: 165,569 cycles a frame. Getting there takes ~280 M
+  cycles, so the bench's per-scene cap is now 400 M.
+- **RAM.** fpilot 3,052 → 3,076 B free (largest run 2,433). ppilot is
+  unchanged.
+
+### Step 9: the fighters' guns
+
+- **The cone.** `_opponent_strafe()` works it out, as it already holds the
+  dot and cross products and the cut: the player within ~7° of the nose
+  across, within ~500 m (no more than 4 halvings), and the hunter not
+  pulling up. `_opponent_guns()` adds the height: the level wanted is the
+  level flown, so the nose points at the player's slope.
+- **Bursts.** Three rounds, on whole steps 0, 2 and 4 of a 26-step cycle
+  (~0.8 s of fire, ~3.4 s to the next burst). The cycle only runs while
+  hunting.
+- **Who fires.** `opponent_step()` only sets a bit, `_opponent_firing`.
+  `gun_step()`, right after it, asks `opponent_fires()` and fires the round
+  itself with `_gun_fire_from()`. Calling into gun.cc from
+  `opponent_step()` gave it a 13 B software stack frame and +80 B: the
+  deeper call graph pushed its temporaries out of the zero page.
+- **The round.** Three times the nose vector, with the climb's sine as its
+  z: 48 m a step. The shooter's own speed and the climb's cosine are left
+  out; with them it took three multiplies and 66 B more.
+- **Slots.** A free slot, or else the oldest enemy round; never one of the
+  player's. The player's own fire still takes the oldest of all.
+- **Tests.**
+  - `gun_test`: a round fired from 400 m straight back hits a stationary
+    eye; a pool full of the player's rounds takes no enemy round; with one
+    enemy round in it, that one is replaced.
+  - `opponent_test`: nose-on at 400 m, rounds at steps 0, 2, 4 and 26;
+    5° off fires, 10° off, 700 m away, 37° above, or on a path does not.
+  - `mission_test`: parked in 04, the pair's strafing runs land 18 hits in
+    5 min, the first at 231 s. The dogfight pilot takes 8 hits on its way
+    to downing both, which step 12's five-hit limit will have to allow
+    for.
+- **Frame cost.**
+
+  | Scene | Step 8 | Step 9 |
+  | :--- | ---: | ---: |
+  | scramble | 177,884 | 178,308 |
+  | shootdown | — | 174,118 |
+  | headon | 141,175 | 144,966 (+2.7%) |
+  | chase | 154,599 | 164,768 (+6.6%) |
+  | strafe | 165,569 | 166,162 |
+
+  The chase pays for the enemy rounds' hit tests and their tracer.
+- **RAM.** fpilot 3,076 → 2,603 B free (largest run 1,963): 473 B against
+  an estimate of 240–320. `opponent_fires()` alone is 131 B for three
+  16-bit sums, `_gun_fire_from()` 123 and the cone 74. ppilot is
+  unchanged.
