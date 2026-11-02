@@ -186,11 +186,20 @@ static inline void _map_draw_path(void) {
 //
 // Drawn ascending so that when two navpoints share a cell the higher number
 // is the one left standing.
+#ifdef __FPILOT__
+static_assert(kGfxNumNavpoints <= kMapDigitCount,
+              "fpilot navpoints must fit kMapDigitMask");
+#endif
+
 static inline void _map_draw_navpoints(void) {
+#ifdef __FPILOT__
+  const uint8_t n = kGfxNumNavpoints;
+#else
   uint8_t n = flight_num_nav_points;
   if (n > kMapDigitCount) {
     n = kMapDigitCount;
   }
+#endif
   for (uint8_t i = 0; i < n; ++i) {
     // x selects the row and y the column; + 4 centres cells on multiples
     // of 8 world units.
@@ -237,24 +246,16 @@ static const uint8_t kMapSprOriginY =
 // of the screen RAM.
 static const uint16_t kMapSprPtrOffset = 1016;
 
-// Positions one sprite, handling the $D010 MSB. The map spans sprite x
-// 44..298, so both sprites cross 255.
-static inline void _map_set_sprite_pos(uint8_t idx, int16_t x, uint8_t y) {
-  vic.spr_pos[idx].x = (uint8_t)x;
-  vic.spr_pos[idx].y = y;
-  if (x > 255) {
-    vic.spr_msbx |= 1 << idx;
-  } else {
-    vic.spr_msbx &= ~(1 << idx);
-  }
-}
+static_assert(kMapSprBody == 0 && kMapSprWing == 1,
+              "spr_msbx bit layout assumes body=0, wing=1");
 
-// Maps a WorldMapType to a tile index. Empty ground carries the dotted
-// gridline, whose art has a two-cell period, so it picks one of the four
+// Maps cell (row, col) of kWorldMap to a tile index. Empty ground carries the
+// dotted gridline, whose art has a two-cell period, so it picks one of the four
 // grid variants by the parity of its *map* row and column -- matching
 // tools/render_map_preview.py, which is the reference for what the finished
 // screen should look like.
-static uint8_t _map_tile_index(uint8_t cell, uint8_t row, uint8_t col) {
+static __noinline uint8_t _map_tile_at(uint8_t row, uint8_t col) {
+  const uint8_t cell = world_map_cell(world_map_row(row), col);
   if (cell == MAP_DOT_GROUND) {
     return kMapTileGrid + (((row & 1) << 1) | (col & 1));
   }
@@ -277,22 +278,14 @@ static inline void _map_draw_object_layer(void) {
   uint8_t *bm = kMapBitmap + kMapCharOffset * 8;
   uint8_t *cr = kColorRam + kMapCharOffset;
   for (uint8_t row = kWorldMapHeight; row-- != 0;) {
-    const uint8_t *map_row = world_map_row(row);
     for (uint8_t col = kWorldMapWidth; col-- != 0;) {
-      const uint8_t idx =
-          _map_tile_index(world_map_cell(map_row, col), row, col);
-      // Eight indexed loads sharing one index register, off a
-      // compile-time-constant base per row. This is what kMapTileRows is
-      // transposed for: a [tile][8] layout would need a multiply by 8 and a
-      // pointer per cell.
-      bm[0] = kMapTileRows[0][idx];
-      bm[1] = kMapTileRows[1][idx];
-      bm[2] = kMapTileRows[2][idx];
-      bm[3] = kMapTileRows[3][idx];
-      bm[4] = kMapTileRows[4][idx];
-      bm[5] = kMapTileRows[5][idx];
-      bm[6] = kMapTileRows[6][idx];
-      bm[7] = kMapTileRows[7][idx];
+      const uint8_t idx = _map_tile_at(row, col);
+      uint8_t t = idx;
+      uint8_t r = 0;
+      do {
+        bm[r] = kMapTileRows[0][t];
+        t += kMapTileCount;
+      } while (++r < 8);
       bm += 8;
       *cr++ = kMapTileCol[idx];
     }
@@ -309,10 +302,8 @@ static inline void _map_draw_object_layer(void) {
 static void _map_draw_screen_layer(void) {
   uint8_t *sm = kMapScreenRam + kMapCharOffset;
   for (uint8_t row = kWorldMapHeight; row-- != 0;) {
-    const uint8_t *map_row = world_map_row(row);
     for (uint8_t col = kWorldMapWidth; col-- != 0;) {
-      const uint8_t idx =
-          _map_tile_index(world_map_cell(map_row, col), row, col);
+      const uint8_t idx = _map_tile_at(row, col);
       *sm++ = (kColorWhite << 4) | kMapTileLo[idx];
     }
     sm += kMapCharGap;
@@ -394,15 +385,17 @@ void map_enter() {
   // cross read as an aircraft rather than a plus sign -- and it needs no
   // table of its own.
   const sprite_arm_t *arm = &kSpriteDefLongArm[dir & 15];
-  int8_t fx = (kMapSprCenterX - arm->pivot_x) >> 1;
-  int8_t fy = (kMapSprCenterY - arm->pivot_y) >> 1;
+  int8_t dx = (int8_t)(kMapSprCenterX - arm->pivot_x);
+  int8_t dy = (int8_t)(kMapSprCenterY - arm->pivot_y);
   if (dir & 16) {
-    fx = (arm->pivot_x - kMapSprCenterX) >> 1;
-    fy = (arm->pivot_y - kMapSprCenterY) >> 1;
+    dx = -dx;
+    dy = -dy;
   }
 
   const int16_t body_x = kMapSprOriginX + 2 * (int16_t)flight_map_px;
+  const int16_t wing_x = body_x + (dx >> 1);
   const uint8_t body_y = kMapSprOriginY + flight_map_py;
+  const uint8_t wing_y = (uint8_t)(body_y + (dy >> 1));
 
   // Sprite pointers live past the 1000 bytes the memset covers, so only the
   // two in use are written; the other six are left as they are and stay
@@ -416,8 +409,14 @@ void map_enter() {
 
   // I/O is back, so the VIC registers are reachable again. The simulation is
   // frozen while the map is up, so this is the only time they are set.
-  _map_set_sprite_pos(kMapSprBody, body_x, body_y);
-  _map_set_sprite_pos(kMapSprWing, body_x + fx, body_y + fy);
+  // The map spans sprite x 44..298 (40..301 with the wing offset), so the high
+  // byte is always 0 or 1.
+  vic.spr_pos[kMapSprBody].x = (uint8_t)body_x;
+  vic.spr_pos[kMapSprBody].y = body_y;
+  vic.spr_pos[kMapSprWing].x = (uint8_t)wing_x;
+  vic.spr_pos[kMapSprWing].y = wing_y;
+  vic.spr_msbx = (uint8_t)(((uint16_t)body_x >> 8) |
+                           (((uint16_t)wing_x >> 8) << 1));
   vic.spr_color[kMapSprBody] = kColorLightGreen;
   vic.spr_color[kMapSprWing] = kColorLightGreen;
   vic.spr_enable = (1 << kMapSprBody) | (1 << kMapSprWing);
