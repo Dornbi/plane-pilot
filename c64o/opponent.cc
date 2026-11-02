@@ -203,6 +203,8 @@ static const uint16_t kOpponent3000Ft = 0x0600;
 // 05, Head on: two fighters hunting from the start, at 2,000, side by side
 // 64 m apart, 4.6 km north of the player and 50 m above its 3,000 ft,
 // heading south at it. No waypoints: hunters steer for the player.
+//
+// 06-10: placeholders (fmission.cc), sending nothing.
 static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
     {{kOpponentOneWay | kOpponentFighter | kOpponentPath, 4, 3, 0, 1750, 0x7E00, 0x6000, -256,
       0, kOpponent5000Ft},
@@ -223,6 +225,11 @@ static const opponent_path_t kOpponentPaths[kMissionCount][kOpponentMax] = {
       0x9040, -256, 0, 0x0660},
      {kOpponentLoop | kOpponentFighter | kOpponentHunt, 0, kOpponentNoFail, 0, 2000, 0x5400,
       0x90C0, -256, 0, 0x0660}},
+    {{kOpponentNone}, {kOpponentNone}},
+    {{kOpponentNone}, {kOpponentNone}},
+    {{kOpponentNone}, {kOpponentNone}},
+    {{kOpponentNone}, {kOpponentNone}},
+    {{kOpponentNone}, {kOpponentNone}},
 };
 
 // Every path's waypoints, at its opponent_path_t::wp: 01's recon, 02's two

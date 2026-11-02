@@ -927,6 +927,14 @@ static void test_missions(void) {
     }
   }
 
+  // 06-10, the placeholders (fmission.cc): nothing sent, so the goals are
+  // met from the start.
+  for (int m = 5; m < kMissionCount; ++m) {
+    opponent_reset((uint8_t)m);
+    CHECK(!_opponent_on[0] && !_opponent_on[1] && opponent_targets_down(),
+          "mission %d: a placeholder sends aircraft", m + 1);
+  }
+
   // 01: the recon.
   {
     _msgs = 0;

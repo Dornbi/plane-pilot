@@ -253,14 +253,17 @@ static int dogfight(int m, double *closest) {
 }
 
 int main() {
+  // The missions written so far; fmission.cc's 06-10 are placeholders that
+  // send nothing, so there is nothing to fly to.
   static const char *const kNames[] = {"recon", "bombers", "ambush", "scramble", "head on"};
-  static_assert(sizeof(kNames) / sizeof(kNames[0]) == kMissionCount, "a name a mission");
+  static const int kWritten = sizeof(kNames) / sizeof(kNames[0]);
+  static_assert(kWritten <= kMissionCount, "a name a mission");
   // Seconds to the targets on screen, from the start in the air or the
   // lift-off; 0 for none. 04's come from behind: the pair from 200 m and
   // 384 m back down the runway, overtaking only a pilot slower off it than
   // this one.
   static const int kInView[] = {10, 20, 10, 0, 10};
-  for (int m = 0; m < kMissionCount; ++m) {
+  for (int m = 0; m < kWritten; ++m) {
     flight_init_from_mission(m);
     opponent_reset(m);
     const bool on_ground = kMissionStartZ[m] == 0;

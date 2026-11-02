@@ -1084,3 +1084,13 @@ Merging argon-loop's passes 58–60 afterwards brought fpilot to 1,757 B free
 +432 B for fpilot on their own; the rear gunner's bounds, moved to unsigned
 with `_opponent_abs()`, gave back some of it, and `opponent_step()`'s stack
 frame grew from 10 to 12 B.
+
+fpilot then got room for ten missions. `kMissionCount` is 10 in both games,
+and fmission.cc's 06–10 are placeholders titled RESERVED: each starts parked
+on runway 1, sends nothing (empty rows in `kOpponentPaths`) and so has its
+goals met at once. fpilot's one-page menu is gone, replaced by ppilot's
+scrolling one, four missions to a page. Together that cost 495 B: the
+scrolling menu 159, the empty opponent rows 160, the other table rows and
+the placeholder text the rest. fpilot is at 1,262 B free (largest run 637),
+and ppilot is unchanged. A written mission will cost more than its
+placeholder: longer text, and waypoints for its opponents.

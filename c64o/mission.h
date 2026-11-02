@@ -25,14 +25,14 @@ enum MissionWaypointConstraint {
 // of this header is the same for both, and so is every reader of it. fpilot is
 // ppilot.cc built with -D__FPILOT__ (c64o/Makefile), and its missions live in
 // fmission.cc, whose tables have the same names and layout as the ones
-// in pmission.cc, ppilot's. Only the two counts below differ.
+// in pmission.cc, ppilot's. Only the waypoint count differs: both have ten
+// missions, though fpilot's 06-10 are still placeholders (fmission.cc).
 #ifdef __FPILOT__
 static const uint8_t kMissionWpCount = 2;
-static const uint8_t kMissionCount = 5;
 #else
 static const uint8_t kMissionWpCount = 16;
-static const uint8_t kMissionCount = 10;
 #endif
+static const uint8_t kMissionCount = 10;
 
 // Waypoints across all missions.
 extern const uint8_t kMissionWpX[kMissionWpCount]; // flight_eye_x = x << 16;
