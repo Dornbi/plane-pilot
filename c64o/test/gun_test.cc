@@ -40,6 +40,12 @@ bool opponent_target(uint8_t i, int32_t *p) {
   return true;
 }
 void opponent_strike(uint8_t i) { ++_strikes[i]; }
+// Collisions, counted; the slot is then down, no longer a target.
+static int _collisions[kOpponentMax];
+void opponent_collide(uint8_t i) {
+  ++_collisions[i];
+  _target_on[i] = false;
+}
 // damage.cc, which counts nothing here: gun_player_hits does.
 void damage_reset(void) {}
 void damage_hit(uint8_t) {}
@@ -133,6 +139,7 @@ static void start(int16_t speed) {
   memset(_target_on, 0, sizeof(_target_on));
   memset(_strikes, 0, sizeof(_strikes));
   memset(_calm, 0, sizeof(_calm));
+  memset(_collisions, 0, sizeof(_collisions));
   memset(_provoked, 0, sizeof(_provoked));
   _smoke_on = false;
   reset_guns();
@@ -312,6 +319,47 @@ static void test_near_miss(void) {
           _strikes[0]);
   }
   _calm[0] = false;
+}
+
+// Collisions (docs/opponent_ai.md §7): head-on at the greatest closing
+// speed, through the middle of the box, is caught at every phase of the
+// steps against it; 30 m to one side, or above, is not; nor a target that
+// was far away on the last step; and taxiing into a parked aircraft is.
+static void test_collide(void) {
+  printf("  head-on through the player collides, 30 m off does not; taxiing into one does\n");
+  // The fighter's top speed against the player's, closing.
+  static const int16_t kTheirs = 2800;
+  static const struct {
+    double left, up;
+    int caught;
+  } kCases[] = {{0, 0, 1}, {11, 0, 1}, {30, 0, 0}, {0, 30, 0}, {8, -8, 1}};
+  for (const auto &k : kCases) {
+    for (int phase = 0; phase < 8; ++phase) {
+      start((int16_t)kMaxSpeed);
+      place_target(0, 600 + phase * 3.3, k.left, k.up);
+      for (int n = 0; n < 80; ++n) {
+        step(false);
+        _target[0][0] -= vec_fastmul8p8(256, kTheirs << 1);
+      }
+      CHECK(_collisions[0] == k.caught, "collide: %.0f m left, %.0f up, phase %d: %d",
+            k.left, k.up, phase, _collisions[0]);
+    }
+  }
+  // Taxiing at a walking pace into one parked, its centre 11 m under the eye.
+  start(200);
+  place_target(1, 60, 4, -11);
+  for (int n = 0; n < 400 && !_collisions[1]; ++n) step(false);
+  CHECK(_collisions[1] == 1, "collide: taxied into a parked one %d times", _collisions[1]);
+  // Far on the last step (out of _gun_rel()'s reach), near on this one: the
+  // last step's offset is not used.
+  start(0);
+  place_target(0, 1000, 0, 0);
+  step(false);
+  _target[0][1] = flight_eye_y + (20L << 16);
+  step(false);
+  place_target(0, 13, 13, 13);
+  step(false);
+  CHECK(_collisions[0] == 0, "collide: a stale offset made a collision");
 }
 
 static void test_wrap(void) {
@@ -648,6 +696,7 @@ int main() {
   test_world_frame();
   test_hits();
   test_near_miss();
+  test_collide();
   test_wrap();
   test_incoming();
   test_enemy_fire();

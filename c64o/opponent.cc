@@ -474,9 +474,10 @@ bool opponent_target(uint8_t i, int32_t *p) {
   return true;
 }
 
-// Slot i is down: shot down, or into the ground. It stops where it is, is
-// neither drawn nor a target, counts towards WP_TARGETS_DOWN, and its smoke
-// hangs there kSmokeDown frames.
+// Slot i is down: shot down, into the ground, or into the player. It stops
+// where it is, is neither drawn nor a target, counts towards
+// WP_TARGETS_DOWN, and its smoke hangs there kSmokeDown frames. `text` is
+// the message, or null for none.
 static __noinline void _opponent_destroy(uint8_t i, const char *text) {
   uint8_t bit = _opponent_bit(i);
   _opponent_down |= bit;
@@ -497,6 +498,11 @@ void opponent_provoke(uint8_t i) {
   if (_opponent_provoked(i)) {
     _opponent_attack |= _opponent_bit(i);
   }
+}
+
+void opponent_collide(uint8_t i) {
+  flight_status = FLIGHT_CRASH_COLLISION;
+  _opponent_destroy(i, nullptr);
 }
 
 void opponent_strike(uint8_t i) {
@@ -663,12 +669,18 @@ static __noinline void _opponent_fly(uint8_t i, int8_t want, bool whole) {
   }
 }
 
+// A hunter's guns' cone, and whether it breaks off: _opponent_strafe()'s.
+#pragma bss(tscratch)
+static bool _opponent_aim;
+static bool _opponent_break;
+#pragma bss(bss)
+
 // The climb level a hunting slot i wants, for the player dz above it and
 // dx, dy along the ground, all cut down as opponent_step() cuts them for the
 // turn, dx and dy to six bits (docs/opponent_ai.md §5): the level whose
 // slope comes nearest the player's, from dz against the distance along the
-// ground, max + min / 2 of |dx| and |dy|, all in bytes. And above `floor`,
-// in half metres.
+// ground, max + min / 2 of |dx| and |dy|, all in bytes; or, breaking off,
+// the steepest away from it. And above `floor`, in half metres.
 static __noinline int8_t _opponent_want(uint8_t i, int8_t dx, int8_t dy, int16_t dz,
                                         int16_t floor) {
   uint16_t az16 = (uint16_t)_opponent_abs(dz);
@@ -688,6 +700,12 @@ static __noinline int8_t _opponent_want(uint8_t i, int8_t dx, int8_t dy, int16_t
         want = 3;
       }
     }
+  }
+  // Breaking off (_opponent_strafe()): away from the player's height at the
+  // steepest, over a player level with it or below.
+  if (_opponent_break) {
+    want = 3;
+    dz = -dz;
   }
   if (dz < 0) {
     want = -want;
@@ -716,10 +734,13 @@ static __noinline int8_t _opponent_want(uint8_t i, int8_t dx, int8_t dy, int16_t
 //
 // Also whether the player is in its guns' cone, in _opponent_aim: within ~7
 // degrees of the nose across, and within ~500 m, the cut no more than 4
-// halvings; not while pulling up. _opponent_guns() adds the height.
-#pragma bss(tscratch)
-static bool _opponent_aim;
-#pragma bss(bss)
+// halvings; not while pulling up. _opponent_guns() adds the height. And
+// whether it breaks off, in _opponent_break: the player in the air and
+// ahead, within ~127 m along the ground, the cut no more than 2, if it is
+// coming the other way, or ~63 m if not. A collision is a crash (gun.cc),
+// and pure pursuit flies a head-on pass into the player; closing at up to
+// ~20 m a step head-on, it needs the room, and in a tail chase, at 2-5, it
+// would climb away from a player it should follow.
 static __noinline int16_t _opponent_strafe(uint8_t i, int16_t dot, int16_t across, uint8_t cut) {
   uint8_t bit = _opponent_bit(i);
   int16_t z = (int16_t)(_opponent_z[i] >> 8);
@@ -736,6 +757,10 @@ static __noinline int16_t _opponent_strafe(uint8_t i, int16_t dot, int16_t acros
     _opponent_pullup |= bit;
   }
   _opponent_aim = !(_opponent_pullup & bit) && cut <= 4 && dot > 0 && across < (dot >> 3);
+  _opponent_break = !ground && dot > 0 &&
+                    (cut <= 1 || (cut == 2 && _opponent_dot(flight_cam.front.x, _opponent_head[i].x,
+                                                            flight_cam.front.y,
+                                                            _opponent_head[i].y) < 0));
   return floor;
 }
 

@@ -60,6 +60,10 @@ void opponent_strike(uint8_t i);
 // Once: a second call the same step says no.
 bool opponent_fires(uint8_t i, int16_t *v);
 
+// For gun.cc: slot i has flown into the player, or the player into it. The
+// flight ends, FLIGHT_CRASH_COLLISION, and the slot is down.
+void opponent_collide(uint8_t i);
+
 // For gun.cc: whether slot i waits to be fired upon - Provoked, and not yet
 // attacking - and so whether a near miss is worth testing for.
 bool opponent_calm(uint8_t i);
@@ -92,6 +96,7 @@ inline bool opponent_smoke(int32_t *p, int16_t *h) { return false; }
 inline bool opponent_fires(uint8_t i, int16_t *v) { return false; }
 inline bool opponent_calm(uint8_t i) { return false; }
 inline void opponent_provoke(uint8_t i) {}
+inline void opponent_collide(uint8_t i) {}
 inline uint8_t opponent_random(void) { return 1; }
 
 #endif

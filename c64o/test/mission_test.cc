@@ -82,7 +82,8 @@ static double along(const vec3_t &a, double dx, double dy, double dz) {
 }
 
 // 01: holds the start's height until the recon is past overhead, then turns
-// after it in a 45 degree bank and climbs to its height, and chases it there.
+// after it in a 45 degree bank and climbs to its height, and chases it there,
+// throttling back inside 150 m.
 // When it first gets within 250 m of it, in steps, and when the recon left.
 //
 // With `guns`, it also shoots: inside 400 m it puts its nose on the recon in
@@ -96,10 +97,12 @@ static void chase(bool guns, int *caught_at, int *gone_at, int *down_at) {
   bool passed = false;
   *caught_at = *gone_at = *down_at = -1;
   for (int n = 0; n < (int)(kStepsPerSecond * 600) && *gone_at < 0 && *down_at < 0; ++n) {
-    flight_throttle = 24;
     double dx = (double)(_opponent_x[0] - flight_eye_x) / 256.0;
     double dy = (double)(_opponent_y[0] - flight_eye_y) / 256.0;
     double dz = (double)(_opponent_z[0] - flight_eye_z) / 256.0;
+    // Full throttle, but for holding back once on the recon's tail: flying
+    // into it is a crash.
+    flight_throttle = passed && sqrt(dx * dx + dy * dy + dz * dz) < 300 ? 10 : 24;
     passed = passed || dx < 0;
     double ahead = along(flight_cam.front, dx, dy, dz);
     double side = along(flight_cam.left, dx, dy, dz);

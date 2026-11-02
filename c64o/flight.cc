@@ -742,6 +742,7 @@ static const char *const kFlightFaultText[] = {
     "NOT ON RUNWAY",  // FLIGHT_CRASH_NOT_ON_RUNWAY
 #ifdef __FPILOT__
     "SHOT DOWN",      // FLIGHT_CRASH_SHOT_DOWN
+    "COLLISION",      // FLIGHT_CRASH_COLLISION
 #endif
 };
 

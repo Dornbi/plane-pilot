@@ -55,6 +55,8 @@ uint8_t flight_step_shift = 0;
 uint8_t kFlightSubstepMask = 0;
 int32_t flight_eye_x, flight_eye_y, flight_eye_z;
 mat3_t world_cam;
+// The player's heading, for a hunter breaking off: head-on or not.
+mat3_t flight_cam;
 uint16_t flight_nav_point_x[kMaxNavPoints];
 uint16_t flight_nav_point_y[kMaxNavPoints];
 
@@ -1282,11 +1284,16 @@ static void test_hunting(void) {
   }
 
   // Following the player's height: the hunter, already behind it, climbs
-  // and descends after it as it changes height by 200 m, up then down.
+  // and descends after it as it changes height by 200 m, up then down. A
+  // hunter slower than the player, so that it stays behind: a faster one
+  // overtakes, breaking off over it (below), and turns back.
   {
+    static const opponent_path_t kSlow = {kOpponentLoop | kOpponentFighter | kOpponentHunt, 0,
+                                          kOpponentNoFail, 0, 1400, 0x2000, 0x8080, 256, 0,
+                                          0x0600};
     opponent_reset(0);
     _opponent_on[0] = false;
-    hunt(1, &kHunter);
+    hunt(1, &kSlow);
     flight_eye_x = _opponent_x[1] + (1000 << 8);
     flight_eye_y = _opponent_y[1];
     flight_eye_z = _opponent_z[1];
@@ -1395,6 +1402,32 @@ static void test_hunting(void) {
     }
     CHECK(lowest >= floor, "strafing: down to %.0f m with the player off the ground",
           lowest / 512.0);
+  }
+  // Breaking off: head-on at the player flying straight at it, at its height
+  // or 8 m above or below, the hunter never comes within gun.cc's 12 m
+  // collision box on all three axes at once.
+  flight_cam.front = make_vector(256, 0, 0);
+  for (int up = -16; up <= 16; up += 16) {
+    opponent_reset(0);
+    _opponent_on[0] = false;
+    hunt(1, &kHunter);
+    _opponent_head[1] = make_vector(-256, 0, 0);
+    flight_eye_x = _opponent_x[1] - (1500 << 9);
+    flight_eye_y = _opponent_y[1];
+    flight_eye_z = _opponent_z[1] + (up << 8);
+    double closest = 1e9;
+    for (int n = 0; n < 400; ++n) {
+      flight_eye_x += 1476 * 2;
+      opponent_step();
+      double dx = (double)(flight_eye_x - _opponent_x[1]) / 512.0;
+      dx = fmod(dx + 8192.0 + 4 * 16384.0, 16384.0) - 8192.0;
+      double dy = (double)(flight_eye_y - _opponent_y[1]) / 512.0;
+      double dz = (double)(flight_eye_z - _opponent_z[1]) / 512.0;
+      closest = std::min(closest, std::max(fabs(dx), std::max(fabs(dy), fabs(dz))));
+    }
+    CHECK(closest > 12, "breaking off: %d m above, within %.1f m on every axis", up / 2, closest);
+    printf("  breaking off, the player %d m above: never within %.0f m on every axis\n", up / 2,
+           closest);
   }
   CHECK(_msgs == 0, "hunting: %d messages, the last \"%s\"", _msgs, _msg);
 }

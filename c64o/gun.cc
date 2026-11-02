@@ -36,6 +36,10 @@ static const uint8_t kRoundLife = 12;
 // aircraft that waits to be fired upon (opponent_provoke()): 40 m.
 static const int16_t kRoundHit = 10 * 16;
 static const int16_t kRoundNear = 40 * 16;
+// Half the side of the box an opponent and the player collide in, on every
+// axis: 12 m, about the ~20 m span the opponents are drawn at and the
+// player's own.
+static const int16_t kGunCollide = 12 * 16;
 
 // Muzzle velocity, kGunMuzzle (gun.h), 48 m a step: slower than a real gun,
 // so a tracer is seen for a dozen frames rather than two
@@ -62,6 +66,10 @@ static uint8_t _round_age[kRoundMax];
 static uint8_t _round_owner[kRoundMax];
 // The eye the rounds are relative to, in flight_eye_*'s 24.8 half metres.
 static int32_t _gun_eye[3];
+// Each opponent's offset from the eye on the last step, as _gun_t holds it,
+// for the collision test, and bit i: slot i's is from the last step.
+static __striped int16_t _gun_prev[3 * kOpponentMax];
+static uint8_t _gun_near;
 // The player's newest round, the one drawn while firing, or kRoundNone.
 static uint8_t _gun_last;
 // Steps until the next round may go, and which wing it goes from.
@@ -105,6 +113,7 @@ void gun_reset(void) {
   _gun_eye[1] = flight_eye_y;
   _gun_eye[2] = flight_eye_z;
   _gun_last = kRoundNone;
+  _gun_near = 0;
   _gun_wait = 0;
   _gun_side = 0;
   _gun_substep = 0;
@@ -290,13 +299,41 @@ static __noinline bool _gun_hits(uint8_t r, bool player, int16_t box) {
   return false;
 }
 
+// Whether the opponent at _gun_t is within kGunCollide of the eye on every
+// axis, at this step's offset or midway to last step's: closing at up to
+// ~26 m a step, head-on at both aircraft's top speeds, it could jump the
+// box's 24 m between two steps, but not half that. `prev` says whether
+// _gun_prev[k...] holds the last step's; it is overwritten with this one's.
+static __noinline bool _gun_collides(uint8_t k, bool prev) {
+  bool now = true, mid = prev;
+  for (uint8_t c = 0; c < 3; ++c, k += kOpponentMax) {
+    int16_t t = _gun_t[c];
+    if (_gun_abs(t) > kGunCollide) {
+      now = false;
+    }
+    if (_gun_abs((int16_t)((t + _gun_prev[k]) >> 1)) > kGunCollide) {
+      mid = false;
+    }
+    _gun_prev[k] = t;
+  }
+  return now || mid;
+}
+
 // The player's rounds into the opponents: each that hits frees its round
 // and strikes the slot. One that misses a slot still waiting to be fired
-// upon, but by no more than kRoundNear, provokes it.
+// upon, but by no more than kRoundNear, provokes it. And each slot into the
+// player, which is a crash.
 static void _gun_hit_opponents(void) {
+  uint8_t near = 0;
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
     if (!opponent_target(i, _gun_p) || !_gun_rel3_to()) {
       continue;
+    }
+    uint8_t bit = (uint8_t)(i + 1);
+    near |= bit;
+    if (_gun_collides(i, (_gun_near & bit) != 0)) {
+      opponent_collide(i);
+      return;
     }
     bool calm = opponent_calm(i);
     for (uint8_t r = 0; r < kRoundMax; ++r) {
@@ -309,6 +346,7 @@ static void _gun_hit_opponents(void) {
       }
     }
   }
+  _gun_near = near;
 }
 
 void gun_step(bool trigger) {

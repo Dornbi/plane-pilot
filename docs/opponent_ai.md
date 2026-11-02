@@ -1000,3 +1000,39 @@ less pressing.
 - **RAM.** fpilot 2,066 → 1,696 B free (largest run 1,056): 370 B, of
   which ~20 the fighters' scatter, against an estimate of 290–380. ppilot
   is unchanged.
+
+### Step 13: collisions, and breaking off
+
+- **Where the test runs.** In `gun.cc`'s `_gun_hit_opponents()`, which
+  already has each live slot's offset from the eye in `_gun_t` every step,
+  parked slots included. `_gun_collides()` tests it against a ±12 m box,
+  and the midpoint with last step's offset (`_gun_prev`, 12 B), which is
+  only used if the slot was in reach on the last step too (`_gun_near`).
+  On a hit, `opponent_collide()` sets `FLIGHT_CRASH_COLLISION`,
+  "CRASHED: COLLISION", and downs the slot with no message of its own.
+- **Breaking off.** Pure pursuit flew a head-on hunter into the player, so
+  `_opponent_strafe()` also sets `_opponent_break`: the player in the air
+  and ahead, within ~127 m along the ground if it is coming the other way
+  (its heading against the hunter's), ~63 m if not. `_opponent_want()` then
+  climbs or dives at level 3, away from the player's height, over a player
+  level with it or below. Head-on it closes at up to ~20 m a step and needs
+  the room; a tail chase closes at 2–5 and, given the same room, climbed
+  away from a player it should follow. The head-on test is 69 B.
+- **Tests.**
+  - `gun_test`: head-on at the greatest closing speed, through the box's
+    centre, 11 m off it, and 8 m off on two axes, collides, at each of
+    eight phases of the steps; 30 m to one side or above does not; taxiing
+    into a parked aircraft does; an offset from a step on which the slot
+    was out of reach is not used.
+  - `opponent_test`: head-on at the player's height, 8 m above and 8 m
+    below, a hunter is never within 29 m on every axis at once. The
+    height-following test now uses a hunter slower than the player: a
+    faster one overtakes, breaking off over it.
+  - `mission_test`: the recon chase without guns flew into the recon, so
+    its pilot throttles back inside 150 m. The dogfight pilot's nearest
+    pass is now 50 m, and it takes 1 hit.
+- **Frame cost.** Scramble 180,797 cycles (+1.4%), shootdown 176,885,
+  headon 146,785, chase 167,083, strafe 168,628.
+- **RAM.** fpilot 1,696 → 1,364 B free (largest run 737): 332 B against an
+  estimate of 90–130 for the collision; the break-off was not in it.
+  ppilot is unchanged.
