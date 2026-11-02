@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include "damage.h"
 #include "fmath.h"
 #include "gun.h"
 #include "msg.h"
@@ -739,6 +740,9 @@ static const char *const kFlightFaultText[] = {
     "TOO FAST",       // FLIGHT_CRASH_SPEED
     "GEAR RETRACTED", // FLIGHT_CRASH_GEAR
     "NOT ON RUNWAY",  // FLIGHT_CRASH_NOT_ON_RUNWAY
+#ifdef __FPILOT__
+    "SHOT DOWN",      // FLIGHT_CRASH_SHOT_DOWN
+#endif
 };
 
 #ifndef __FPILOT__
@@ -1440,6 +1444,7 @@ void flight_advance() {
 
     // Fuel
     uint8_t fuel_consumption = whole_step ? flight_throttle : 0;
+    fuel_consumption = damage_burn(fuel_consumption);
     if (flight_fuel > fuel_consumption) {
       flight_fuel -= fuel_consumption;
     } else {
@@ -1634,7 +1639,7 @@ void flight_input(enum flight_input_t input) {
   // of what those switches had in common.
   switch (input) {
   case FLIGHT_INPUT_THROTTLE_UP:
-    if (flight_throttle < kMaxThrottle) {
+    if (flight_throttle < damage_throttle_max()) {
       flight_throttle += 1;
     }
     return;
@@ -1644,11 +1649,14 @@ void flight_input(enum flight_input_t input) {
     }
     return;
   case FLIGHT_INPUT_TOGGLE_FLAP:
+    if (damage_hydraulics()) {
+      return;
+    }
     flight_flap = 1 - flight_flap;
     model_pending_events |= FLIGHT_EV_FLAP;
     return;
   case FLIGHT_INPUT_TOGGLE_GEAR:
-    if (!model_on_ground || !flight_gear) {
+    if (!damage_hydraulics() && (!model_on_ground || !flight_gear)) {
       flight_gear = 1 - flight_gear;
       model_pending_events |= FLIGHT_EV_GEAR;
     }
@@ -1761,7 +1769,8 @@ void flight_input(enum flight_input_t input) {
   // Airborne, every axis is the same action with a different step, so the six
   // switch arms are one indexed call. The rotation inputs are in vec_step_t's
   // order and the static_assert above is what keeps it that way.
-  if (input >= FLIGHT_INPUT_ROLL_LEFT && input <= FLIGHT_INPUT_YAW_RIGHT) {
+  if (input >= FLIGHT_INPUT_ROLL_LEFT && input <= FLIGHT_INPUT_YAW_RIGHT &&
+      !damage_skip_input()) {
     vec_rotate_step(input - FLIGHT_INPUT_ROLL_LEFT, &flight_cam);
     model_need_normalize = true;
   }

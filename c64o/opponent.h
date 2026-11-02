@@ -68,6 +68,9 @@ bool opponent_calm(uint8_t i);
 // slot attacks from now on; any other carries on as it was.
 void opponent_provoke(uint8_t i);
 
+// A random byte, never 0: the next of 255 in a fixed order.
+uint8_t opponent_random(void);
+
 // For gun.cc, which draws it: the smoking aircraft's position, as
 // opponent_target() gives it, and its heading's x and y, 8.8 - the last one
 // hit, for ~2 s after the hit or ~5 s after it went down. False if no smoke
@@ -89,6 +92,7 @@ inline bool opponent_smoke(int32_t *p, int16_t *h) { return false; }
 inline bool opponent_fires(uint8_t i, int16_t *v) { return false; }
 inline bool opponent_calm(uint8_t i) { return false; }
 inline void opponent_provoke(uint8_t i) {}
+inline uint8_t opponent_random(void) { return 1; }
 
 #endif
 

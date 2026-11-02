@@ -57,6 +57,8 @@ enum FlightStatus {
   FLIGHT_CRASH_SPEED,
   FLIGHT_CRASH_GEAR,
   FLIGHT_CRASH_NOT_ON_RUNWAY,
+  // fpilot's: the fifth hit from an opponent's round (damage.h).
+  FLIGHT_CRASH_SHOT_DOWN,
 };
 
 // Message for a status: "WARNING: ..." on the approach, "CRASHED: ..." after

@@ -1497,8 +1497,9 @@ static void test_guns(void) {
   }
   CHECK(n_at == 4 && at[0] == 0 && at[1] == 2 && at[2] == 4 && at[3] == kOpponentGunCycle,
         "guns: fired %d rounds, at steps %d %d %d %d", n_at, at[0], at[1], at[2], at[3]);
-  CHECK(_fired_v[0] > 750 && abs(_fired_v[1]) < 24 && _fired_v[2] == 0,
-        "guns: fired at %d %d %d, not 768 along the nose", _fired_v[0], _fired_v[1], _fired_v[2]);
+  CHECK(abs(_fired_v[0] - 768) <= 3 * 28 && abs(_fired_v[1]) <= 3 * 28 && abs(_fired_v[2]) <= 3 * 12,
+        "guns: fired at %d %d %d, not 768 along the nose, scattered", _fired_v[0], _fired_v[1],
+        _fired_v[2]);
 
   // 5 degrees off: the first step fires; 10 degrees off, it does not - it
   // turns onto the player first.

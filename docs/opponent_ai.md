@@ -952,3 +952,51 @@ less pressing.
     100 m of the player. A Path slot is neither calm nor provoked.
 - **RAM.** fpilot 2,178 → 2,066 B free (largest run 1,427): 112 B against
   an estimate of 60–80. ppilot is unchanged.
+
+### Step 12: player damage
+
+- **`damage.h`/`damage.cc`.** The failure bits, the oil countdown and the
+  controls' toggle: 3 bytes. Outside fpilot the hooks are the undamaged
+  values; ppilot's free RAM is unchanged, once the fuel hook was written as
+  a statement of its own (inside the `?:` it cost ppilot's
+  `flight_advance()` 36 B).
+- **The hooks in `flight.cc`**, one line each: the throttle's top
+  (`damage_throttle_max()`), the fuel burnt (`damage_burn()`), flaps and
+  gear (`damage_hydraulics()`), and the airborne rotation
+  (`damage_skip_input()`, every other input lost).
+- **A hit.** `gun_step()` counts it and calls `damage_hit()`. Hits 1–4
+  pick a failure from `opponent_random()`'s low four bits, folded to 0–4;
+  if the player has it, the next one round they do not. The throttle is
+  cut to its new top, and the message blinks for ~3 s. The fifth hit sets
+  `FLIGHT_CRASH_SHOT_DOWN`, "CRASHED: SHOT DOWN".
+- **The oil leak.** `damage_step()`, on `gun_step()`'s whole steps, seizes
+  the engine 200 whole steps (~32 s) after the leak: "ENGINE SEIZED",
+  blinking, and the throttle's top 0.
+- **The blink.** `msg_blink()`, fpilot only, after `msg_show()`:
+  `msg_render()` writes white for black on every other pair of frames until
+  the message expires. The next `msg_show()` stops it.
+- **A bug from step 9.** `gun_step()` fired the opponents' new rounds before
+  testing the rounds against the player, and `_gun_fire_from()` overwrites
+  `_gun_t`, which holds the eye for that test. So each round was tested
+  against its own muzzle, and one fired slowly across the line of sight -
+  head-on - hit as it left. A head-on pass cost the dogfight pilot four hits
+  in three seconds. The rounds are now fired after the test, and their
+  first step, within 50 m of the shooter, is not tested. The step 9 counts
+  above were inflated by it.
+- **Scatter for the fighters too.** Pure pursuit keeps a fighter's nose on
+  the player, and in a tail chase the player moves along the line of fire,
+  so every round landed. The fighters' rounds now get the gunners'
+  scatter. Without it the dogfight pilot is shot down; with it, it takes 2
+  hits on the way to downing both.
+- **Tests** (`fpilot_test`, which links `flight.cc` as fpilot builds it):
+  - each failure's message, blinking, and effect: the throttle held at
+    half; twice the fuel; the engine seized after exactly 200 whole steps,
+    and no throttle after; flaps and gear stuck; ten rolls doing what five
+    do;
+  - four hits give four different failures for each of the 255 random
+    bytes; the fifth gives "CRASHED: SHOT DOWN".
+  - `mission_test`: parked in 04, the first hit at 227 s and shot down at
+    296 s; the bomber tail chase still takes 3 hits a minute.
+- **RAM.** fpilot 2,066 → 1,696 B free (largest run 1,056): 370 B, of
+  which ~20 the fighters' scatter, against an estimate of 290–380. ppilot
+  is unchanged.

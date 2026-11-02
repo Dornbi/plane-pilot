@@ -14,6 +14,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "../vec.h"
+
+#include "../damage.h"
 #include "../flight.h"
 #include "../mission.h"
 #include "../opponent.h"
@@ -24,14 +27,21 @@ bool opponent_targets_down(void) { return _down; }
 static int _rearms = 0;
 void gun_rearm(void) { ++_rearms; }
 
+// damage.cc's pick, set by hand.
+static uint8_t _random = 1;
+uint8_t opponent_random(void) { return _random; }
+
 static const char *_msg = "";
 static int _msgs = 0;
+static bool _blink = false;
 void msg_show(const char *text, uint8_t duration, bool permanent) {
   (void)duration;
   (void)permanent;
   _msg = text;
+  _blink = false;
   ++_msgs;
 }
+void msg_blink(void) { _blink = true; }
 
 static int _fails = 0;
 
@@ -127,6 +137,123 @@ int main() {
   flight_advance();
   flight_advance();
   CHECK(mission_completed[0] == kMissionGoals, "away from home: level %d", mission_completed[0]);
+
+  // --- Damage (damage.cc, docs/opponent_ai.md §8) -------------------------
+  //
+  // Mission 05 starts in the air. Each failure by itself, picked by hand
+  // (damage.cc takes the random byte's low four bits, folded to 0-4): its
+  // blinking message, and what it does.
+  struct {
+    uint8_t bit;
+    const char *text;
+  } const kFailures[5] = {{kDamageEngine, "ENGINE DAMAGED"},
+                          {kDamageFuel, "FUEL LEAK"},
+                          {kDamageOil, "OIL LEAK"},
+                          {kDamageHydraulics, "HYDRAULICS HIT"},
+                          {kDamageControls, "CONTROLS DAMAGED"}};
+  for (int k = 0; k < 5; ++k) {
+    flight_init_from_mission(4);
+    damage_reset();
+    flight_throttle = kMaxThrottle;
+    _random = (uint8_t)k;
+    damage_hit(1);
+    CHECK(damage_bits == kFailures[k].bit && !strcmp(_msg, kFailures[k].text) && _blink,
+          "damage %d: bits %02x, \"%s\", blink %d", k, damage_bits, _msg, _blink);
+  }
+
+  // Engine: the throttle cut to half, and no higher after.
+  flight_init_from_mission(4);
+  damage_reset();
+  flight_throttle = kMaxThrottle;
+  _random = 0;
+  damage_hit(1);
+  for (int n = 0; n < 30; ++n) flight_input(FLIGHT_INPUT_THROTTLE_UP);
+  CHECK(flight_throttle == kMaxThrottle / 2, "engine: throttle %d", flight_throttle);
+
+  // Fuel leak: twice the fuel a whole step.
+  {
+    uint32_t burnt[2];
+    for (int leak = 0; leak < 2; ++leak) {
+      flight_init_from_mission(4);
+      damage_reset();
+      if (leak) damage_bits = kDamageFuel;
+      flight_throttle = 0x10;
+      uint32_t f = flight_fuel;
+      for (int n = 0; n < 20; ++n) flight_advance();
+      burnt[leak] = f - flight_fuel;
+    }
+    CHECK(burnt[0] == 20 * 0x10 && burnt[1] == 2 * burnt[0], "fuel leak: %u, then %u",
+          (unsigned)burnt[0], (unsigned)burnt[1]);
+  }
+
+  // Oil leak: the engine seizes, throttle and its top 0, after its count of
+  // whole steps and not before.
+  flight_init_from_mission(4);
+  damage_reset();
+  flight_throttle = 0x10;
+  _random = 2;
+  damage_hit(1);
+  int seized = -1;
+  for (int n = 0; n < 300 && seized < 0; ++n) {
+    damage_step();
+    if (damage_bits & kDamageSeized) seized = n + 1;
+  }
+  CHECK(seized == 200 && flight_throttle == 0 && !strcmp(_msg, "ENGINE SEIZED") && _blink,
+        "oil: seized after %d steps, throttle %d, \"%s\"", seized, flight_throttle, _msg);
+  flight_input(FLIGHT_INPUT_THROTTLE_UP);
+  CHECK(flight_throttle == 0, "oil: the seized engine took throttle");
+
+  // Hydraulics: flaps and gear stay where they are.
+  flight_init_from_mission(4);
+  damage_reset();
+  uint8_t flap = flight_flap, gear = flight_gear;
+  damage_bits = kDamageHydraulics;
+  flight_input(FLIGHT_INPUT_TOGGLE_FLAP);
+  flight_input(FLIGHT_INPUT_TOGGLE_GEAR);
+  CHECK(flight_flap == flap && flight_gear == gear, "hydraulics: flaps %d gear %d moved",
+        flight_flap, flight_gear);
+  damage_bits = 0;
+  flight_input(FLIGHT_INPUT_TOGGLE_FLAP);
+  CHECK(flight_flap != flap, "hydraulics: undamaged flaps did not move");
+
+  // Controls: every other rotation input, so ten rolls do what five do.
+  {
+    mat3_t after[2];
+    for (int hurt = 0; hurt < 2; ++hurt) {
+      flight_init_from_mission(4);
+      damage_reset();
+      if (hurt) damage_bits = kDamageControls;
+      for (int n = 0; n < (hurt ? 10 : 5); ++n) flight_input(FLIGHT_INPUT_ROLL_LEFT);
+      after[hurt] = flight_cam;
+    }
+    CHECK(!memcmp(&after[0], &after[1], sizeof(mat3_t)),
+          "controls: ten rolls damaged are not five undamaged");
+  }
+
+  // Four hits, four different failures, whatever the random byte; the
+  // fifth shoots the player down.
+  {
+    bool all = true;
+    for (int r = 1; r < 256; ++r) {
+      flight_init_from_mission(4);
+      damage_reset();
+      _random = (uint8_t)r;
+      int n = 0;
+      for (int h = 1; h <= 4; ++h) {
+        uint8_t before = damage_bits;
+        damage_hit((uint8_t)h);
+        if (__builtin_popcount(damage_bits) == __builtin_popcount(before) + 1) ++n;
+        _random = (uint8_t)(_random * 5 + 3);
+      }
+      all &= n == 4 && flight_status == FLIGHT_ONGOING;
+    }
+    CHECK(all, "damage: four hits did not always give four failures");
+    damage_hit(5);
+    CHECK(flight_status == FLIGHT_CRASH_SHOT_DOWN && flight_crashed() &&
+              !strcmp(flight_status_text(flight_status, true), "CRASHED: SHOT DOWN"),
+          "damage: the fifth hit left status %d, \"%s\"", flight_status,
+          flight_status_text(flight_status, true));
+  }
 
   if (_fails) {
     printf("fpilot_test: %d checks FAILED\n", _fails);

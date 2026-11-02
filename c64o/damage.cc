@@ -1,0 +1,69 @@
+#include "damage.h"
+
+#include "msg.h"
+
+// docs/opponent_ai.md §8.
+
+uint8_t damage_bits;
+uint8_t damage_toggle;
+// Whole steps until the leaking engine seizes, 0 if it is not leaking.
+static uint8_t _damage_oil;
+
+// ~32 s at 6.25 whole steps a second.
+static const uint8_t kDamageOilSteps = 200;
+// The message blinks for ~3 s at 6-8 frames a second.
+static const uint8_t kDamageSaid = 24;
+
+// By failure, in kDamage* bit order.
+static const uint8_t kDamageBit[5] = {kDamageEngine, kDamageFuel, kDamageOil, kDamageHydraulics,
+                                      kDamageControls};
+static const char *const kDamageText[5] = {"ENGINE DAMAGED", "FUEL LEAK", "OIL LEAK",
+                                           "HYDRAULICS HIT", "CONTROLS DAMAGED"};
+
+void damage_reset(void) {
+  damage_bits = 0;
+  damage_toggle = 0;
+  _damage_oil = 0;
+}
+
+// A new failure's effects that are not the hooks' to apply: the throttle cut
+// to its new top, and the message.
+static void _damage_new(const char *text) {
+  uint8_t top = damage_throttle_max();
+  if (flight_throttle > top) {
+    flight_throttle = top;
+  }
+  msg_show(text, kDamageSaid);
+  msg_blink();
+}
+
+void damage_hit(uint8_t hits) {
+  if (hits >= kDamageHitsToDown) {
+    flight_status = FLIGHT_CRASH_SHOT_DOWN;
+    return;
+  }
+  // One of the five, near enough evenly, and if the player has it already
+  // the next one round that they do not: hits 1-4 always find one.
+  uint8_t k = opponent_random() & 15;
+  while (k >= 5) {
+    k -= 5;
+  }
+  while (damage_bits & kDamageBit[k]) {
+    if (++k == 5) {
+      k = 0;
+    }
+  }
+  uint8_t bit = kDamageBit[k];
+  damage_bits |= bit;
+  if (bit == kDamageOil) {
+    _damage_oil = kDamageOilSteps;
+  }
+  _damage_new(kDamageText[k]);
+}
+
+void damage_step(void) {
+  if (_damage_oil != 0 && --_damage_oil == 0) {
+    damage_bits |= kDamageSeized;
+    _damage_new("ENGINE SEIZED");
+  }
+}

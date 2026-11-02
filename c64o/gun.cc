@@ -1,6 +1,7 @@
 #include "gun.h"
 
 #include "color.h"
+#include "damage.h"
 #include "flight.h"
 #include "mem.h"
 #include "spritedef.h"
@@ -109,6 +110,7 @@ void gun_reset(void) {
   _gun_substep = 0;
   _gun_armed = false;
   gun_player_hits = 0;
+  damage_reset();
   gun_rearm();
   gun_ammo_shown = false;
 }
@@ -317,20 +319,24 @@ void gun_step(bool trigger) {
   _gun_track(0, flight_eye_x);
   _gun_track(1, flight_eye_y);
   _gun_track(2, flight_eye_z);
-  // The opponents' rounds, from where they are now, relative to the eye
-  // just tracked.
-  for (uint8_t i = 0; i < kOpponentMax; ++i) {
-    if (opponent_fires(i, _gun_v)) {
-      _gun_fire_from(i);
-    }
-  }
   // Anyone else's rounds into the player, at the eye, which is 0 in the
   // rounds' frame; then the player's into the opponents; and every round
   // left on a step.
   for (uint8_t r = 0; r < kRoundMax; ++r) {
     if (_gun_hits(r, false, kRoundHit)) {
       _round_age[r] = 0;
-      ++gun_player_hits;
+      damage_hit(++gun_player_hits);
+    }
+  }
+  // The opponents' new rounds, from where they are now, relative to the eye
+  // just tracked. After the test above, whose point at the eye, 0 in
+  // _gun_t, _gun_fire_from() overwrites: before it, every round was tested
+  // against its own muzzle, and one fired slowly across the line of sight -
+  // head-on - hit as it left. Their first step is not tested, within 50 m
+  // of the shooter.
+  for (uint8_t i = 0; i < kOpponentMax; ++i) {
+    if (opponent_fires(i, _gun_v)) {
+      _gun_fire_from(i);
     }
   }
   _gun_hit_opponents();
@@ -360,6 +366,7 @@ void gun_step(bool trigger) {
   if (_gun_substep & kFlightSubstepMask) {
     return;
   }
+  damage_step();
   // After the rounds have moved, so a new one is drawn where it leaves the
   // wing before its first step takes it 48 m on.
   // Not until the trigger has been let go once since the mission started:

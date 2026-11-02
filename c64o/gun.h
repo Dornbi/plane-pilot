@@ -14,7 +14,7 @@
 // below compiles to nothing and the call sites need no guards.
 #ifdef __ENABLE_OPPONENT__
 
-// No rounds in flight, the guns ready. With opponent_reset().
+// No rounds in flight, the guns ready, and no damage. With opponent_reset().
 void gun_reset(void);
 
 // Fills gun_ammo back up to what gun_reset() gives, marking it for a redraw
@@ -39,7 +39,8 @@ void gun_add_sprites(void);
 // aircraft must share the stack with.
 bool gun_tracer_up(void);
 
-// Hits the player has taken. Only opponents' rounds can land them.
+// Hits the player has taken. Only opponents' rounds can land them, and each
+// is damage (damage.h).
 extern uint8_t gun_player_hits;
 
 // The player's rounds left, as the decimal digits the panel's ammo counter

@@ -13,6 +13,12 @@ void msg_show(const char *text, uint8_t duration = MSG_DEFAULT_DURATION,
               bool permanent = false);
 void msg_update(void);
 
+#ifdef __FPILOT__
+// The message just shown blinks, black and white, until it expires: new
+// damage (damage.cc). The next msg_show() stops it.
+void msg_blink(void);
+#endif
+
 // Restores the color buffer span painted by the previous msg_render().
 // Must be called before the sky/ground fill of the next frame, since ground
 // rows never rewrite the color buffer and would keep the hires text color.

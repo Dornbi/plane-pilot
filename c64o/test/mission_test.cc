@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "../damage.h"
 #include "../flight.h"
 #include "../mission.h"
 #include "../opponent.h"
@@ -43,6 +44,7 @@ bool sprites_stack_add(int16_t, int16_t, int16_t, int8_t, int8_t, uint8_t, uint8
   return true;
 }
 void msg_show(const char *, uint8_t, bool) {}
+void msg_blink(void) {}
 
 // opponent.cc, for where the aircraft are, and gun.cc, to shoot them.
 #include "../opponent.cc"
@@ -356,21 +358,24 @@ int main() {
   }
 
   // 04, parked and hands off: the pair come back from their pass and
-  // strafe, and their rounds land.
+  // strafe, their rounds land, and the fifth shoots the player down.
   {
     flight_init_from_mission(3);
     opponent_reset(3);
     gun_reset();
-    int first = -1;
-    for (int n = 0; n < (int)(kStepsPerSecond * 300); ++n) {
+    int first = -1, down = -1;
+    for (int n = 0; n < (int)(kStepsPerSecond * 600) && down < 0; ++n) {
       flight_advance();
       opponent_step();
       gun_step(false);
       if (first < 0 && gun_player_hits > 0) first = n;
+      if (flight_status == FLIGHT_CRASH_SHOT_DOWN) down = n;
     }
-    CHECK(gun_player_hits > 0, "scramble, parked: never hit in 5 min");
-    printf("  scramble, parked: %d hits in 5 min, the first at %.0f s\n", gun_player_hits,
-           first / kStepsPerSecond);
+    CHECK(first >= 0 && down >= 0 && gun_player_hits == kDamageHitsToDown,
+          "scramble, parked: first hit at %d, shot down at %d, %d hits", first, down,
+          gun_player_hits);
+    printf("  scramble, parked: the first hit at %.0f s, shot down at %.0f s\n",
+           first / kStepsPerSecond, down / kStepsPerSecond);
   }
 
   // 04: the same pilot downs both fighters after the pass, as they come

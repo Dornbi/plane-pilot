@@ -40,6 +40,10 @@ bool opponent_target(uint8_t i, int32_t *p) {
   return true;
 }
 void opponent_strike(uint8_t i) { ++_strikes[i]; }
+// damage.cc, which counts nothing here: gun_player_hits does.
+void damage_reset(void) {}
+void damage_hit(uint8_t) {}
+void damage_step(void) {}
 // Which slots wait to be fired upon, and the near misses that provoked them.
 static bool _calm[kOpponentMax];
 static int _provoked[kOpponentMax];
