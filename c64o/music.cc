@@ -2,6 +2,7 @@
 
 #ifdef __ENABLE_SOUND__
 
+#include "mem.h"
 #include "sound.h"
 
 // Phases 2 to 5 of ../docs/music.md: the player skeleton, the ownership guard,
@@ -27,14 +28,13 @@ static uint8_t _music_bar;       // 0 .. kMusicBars-1
 static_assert(kMusicTotalRows == (uint16_t)kMusicBars * kMusicRowsPerBar,
               "the row clock counts whole bars");
 
-// The pulse width sweep, a triangle over 0x800. The step is 8 because that
-// makes the cycle 256 frames, which divides the 2304-frame loop exactly nine
-// times - a step that did not divide the loop would leave the pulse width
-// somewhere different on every pass. See ../docs/music.md section 6.
-static const uint16_t kMusicPwmStep = 8;
-static const uint16_t kMusicPwmRange = 0x800;
+// The pulse width sweep, a triangle over 0x800 in steps of 8, i.e. 256
+// frames per cycle - one full wrap of a uint8_t counter - which divides the
+// 2304-frame loop exactly nine times. A step that did not divide the loop
+// would leave the pulse width somewhere different on every pass. See
+// ../docs/music.md section 6.
 static const uint16_t kMusicPwmBase = 0x0300;
-static uint16_t _music_pwm_phase;
+static uint8_t _music_pwm_phase;
 
 // --- Voice 3 ----------------------------------------------------------------
 //
@@ -116,17 +116,18 @@ uint16_t music_note_freq(uint8_t midi) {
   if (midi < 12) {
     return 0;
   }
-  uint8_t octave = 0;
+  uint8_t shift = 6;
   while (midi >= 24) {
     midi -= 12;
-    octave++;
+    if (shift) {
+      --shift;
+    }
   }
-  uint8_t pc = midi - 12;
-  uint16_t f = kMusicNoteTable[pc];
-  if (octave >= 6) {
-    return f;
+  uint16_t f = kMusicNoteTable[midi - 12];
+  while (shift--) {
+    f >>= 1;
   }
-  return f >> (6 - octave);
+  return f;
 }
 
 // --- Voice writes ----------------------------------------------------------
@@ -166,16 +167,39 @@ static void _write_ctrl(uint8_t voice, uint8_t ctrl) {
 // cannot happen here - but because the SID latches sustain on the gate edge,
 // so a gate raised before its envelope registers are in place latches whatever
 // was there before.
-static inline void _set_voice(uint8_t voice, uint16_t freq, uint16_t pw, uint8_t ctrl,
-                       uint8_t attdec, uint8_t susrel) {
+static inline void _set_voice(uint8_t voice, uint16_t freq, uint8_t ctrl,
+                              uint8_t attdec, uint8_t susrel) {
   const uint8_t base = voice * kVoiceRegs;
   SID_REGS[base + kSoundVoiceFreqLo] = (uint8_t)freq;
   SID_REGS[base + kSoundVoiceFreqHi] = (uint8_t)(freq >> 8);
-  SID_REGS[base + kSoundVoicePwLo] = (uint8_t)pw;
-  SID_REGS[base + kSoundVoicePwHi] = (uint8_t)((pw >> 8) & 0x0F);
   SID_REGS[base + kSoundVoiceAttDec] = attdec;
   SID_REGS[base + kSoundVoiceSusRel] = susrel;
   _write_ctrl(voice, ctrl);
+}
+
+static __noinline void _clear_voices(void) {
+  for (uint8_t i = 0; i < 3 * kVoiceRegs; ++i) {
+    SID_REGS[i] = 0;
+  }
+  _ctrl[0] = _ctrl[1] = _ctrl[2] = 0;
+}
+
+static __noinline void _gate_arp(void) {
+  SID_REGS[kSoundRegV3 + kSoundVoiceAttDec] = kMusicInsArp.ad;
+  SID_REGS[kSoundRegV3 + kSoundVoiceSusRel] = kMusicInsArp.sr;
+  _write_ctrl(kVoice3, kMusicInsArp.wave | SID_CTRL_GATE);
+}
+
+static __noinline uint8_t _lead_start(uint8_t bar, uint8_t r) {
+  return MUSIC_LEAD_START_IN(bar, r);
+}
+
+static __noinline uint8_t _bass_step(uint8_t bar, uint8_t r) {
+  return MUSIC_BASS_STEP_IN(bar, r);
+}
+
+static __noinline uint8_t _drum_at(uint8_t bar, uint8_t r) {
+  return MUSIC_DRUM_AT_IN(bar, r);
 }
 
 static void _set_freq(uint8_t voice, uint16_t freq) {
@@ -207,7 +231,15 @@ static void _music_hard_restart_restart(uint8_t voice) {
   SID_REGS[base + kSoundVoiceSusRel] = 0;
 }
 
+static __noinline void _v3_enter_restart(uint8_t frames) {
+  _music_hard_restart_restart(kVoice3);
+  _music_v3_owner = kMusicV3Restart;
+  _music_v3_timer = frames;
+}
+
 // --- Public interface ------------------------------------------------------
+
+static_assert((kMusicBassPw & 0xFF) == 0, "bass pw low byte is zero");
 
 void music_start(void) {
   _music_row = 0;
@@ -229,9 +261,8 @@ void music_start(void) {
   // sei - so this is belt and braces. It is kept because the dependency runs
   // through two modules and a screen transition, and the failure it guards
   // against is a voice from the previous flight droning under the menu.
-  for (uint8_t v = 0; v < 3; ++v) {
-    _set_voice(v, 0, 0, 0, 0, 0);
-  }
+  _clear_voices();
+  SID_REGS[kSoundRegV2 + kSoundVoicePwHi] = (uint8_t)(kMusicBassPw >> 8);
 
   // The filter, explicitly. music_tick() never touches $D415-$D417, so
   // whatever is in them when the tune starts stays there for its whole run -
@@ -256,9 +287,7 @@ void music_start(void) {
 
 void music_stop(void) {
   music_playing = false;
-  for (uint8_t v = 0; v < 3; ++v) {
-    _set_voice(v, 0, 0, 0, 0, 0);
-  }
+  _clear_voices();
   SID_REGS[kSoundRegModeVol] = 0;
 }
 
@@ -283,13 +312,13 @@ void music_tick(void) {
   // Two independent conditions, not an if/else chain. They are mutually
   // exclusive only because kMusicSpeed is 6; writing them as alternatives
   // would quietly stop being correct at speed 1.
-  if (last_frame_of_row && MUSIC_LEAD_START_IN(next_bar, next_row) != 0) {
+  if (last_frame_of_row && _lead_start(next_bar, next_row) != 0) {
     _music_hard_restart_restart(kVoice1);
   }
   if (_music_row_frame == 0) {
-    const uint8_t note = MUSIC_LEAD_START_IN(_music_bar, _music_row);
+    const uint8_t note = _lead_start(_music_bar, _music_row);
     if (note != 0) {
-      _set_voice(kVoice1, music_note_freq(note), kMusicPwmBase,
+      _set_voice(kVoice1, music_note_freq(note),
                  kMusicInsLead.wave | SID_CTRL_GATE, kMusicInsLead.ad,
                  kMusicInsLead.sr);
     } else if (!MUSIC_LEAD_ON_IN(_music_bar, _music_row)) {
@@ -300,17 +329,14 @@ void music_tick(void) {
   // The pulse width moves every frame, independently of the note, so a held
   // note keeps changing timbre. It is the only movement the design allows
   // itself - the SID filter is chip-dependent and off limits.
-  _music_pwm_phase += kMusicPwmStep;
-  if (_music_pwm_phase >= kMusicPwmRange) {
-    _music_pwm_phase -= kMusicPwmRange;
-  }
   {
-    const uint16_t tri = (_music_pwm_phase < (kMusicPwmRange / 2))
-                             ? _music_pwm_phase
-                             : (uint16_t)(kMusicPwmRange - _music_pwm_phase);
-    const uint16_t pw = (uint16_t)(kMusicPwmBase + (tri >> 1));
-    SID_REGS[kSoundRegV1 + kSoundVoicePwLo] = (uint8_t)pw;
-    SID_REGS[kSoundRegV1 + kSoundVoicePwHi] = (uint8_t)((pw >> 8) & 0x0F);
+    uint8_t tri = ++_music_pwm_phase;
+    if (tri & 0x80) {
+      tri = (uint8_t)(0 - tri);
+    }
+    SID_REGS[kSoundRegV1 + kSoundVoicePwLo] = (uint8_t)(tri << 2);
+    SID_REGS[kSoundRegV1 + kSoundVoicePwHi] =
+        (uint8_t)((kMusicPwmBase >> 8) + (tri >> 6));
   }
 
   // --- voice 2: bass ---
@@ -325,15 +351,14 @@ void music_tick(void) {
   // drop to single rows in the push bars, and a bass pickup whose envelope
   // starts halfway up is a note with no front edge - on the one voice whose
   // front edge *is* the rhythm.
-  if (last_frame_of_row && MUSIC_BASS_STEP_IN(next_bar, next_row) != 0) {
+  if (last_frame_of_row && _bass_step(next_bar, next_row) != 0) {
     _music_hard_restart_restart(kVoice2);
   }
   if (_music_row_frame == 0) {
-    const uint8_t step = MUSIC_BASS_STEP_IN(_music_bar, _music_row);
+    const uint8_t step = _bass_step(_music_bar, _music_row);
     if (step != 0) {
       _set_voice(kVoice2,
                  music_note_freq(MUSIC_BASS_NOTE(_music_bar, step)),
-                 kMusicBassPw,
                  kMusicInsBass.wave | SID_CTRL_GATE, kMusicInsBass.ad,
                  kMusicInsBass.sr);
     }
@@ -359,28 +384,26 @@ void music_tick(void) {
   // that takes longer than that to start never produces anything at all.
   bool v3_restarted = false;
   if (_music_row_frame >= kMusicSpeed - kMusicV3RestartFrames &&
-      MUSIC_DRUM_AT_IN(next_bar, next_row) != 0) {
+      _drum_at(next_bar, next_row) != 0) {
     _music_hard_restart_restart(kVoice3);
     v3_restarted = true;
   }
 
-  const uint8_t hit = MUSIC_DRUM_AT_IN(_music_bar, _music_row);
+  const uint8_t hit = _drum_at(_music_bar, _music_row);
   if (_music_row_frame == 0 && hit != 0) {
     const music_instrument_t *d = &kMusicDrumIns[hit - 1];
     _music_v3_owner = hit;
     _music_v3_timer = d->frames;
     _music_v3_freq = d->freq_from;
     _music_v3_step = d->freq_step;
-    _set_voice(kVoice3, _music_v3_freq, 0, d->wave | SID_CTRL_GATE, d->ad,
+    _set_voice(kVoice3, _music_v3_freq, d->wave | SID_CTRL_GATE, d->ad,
                d->sr);
   } else if (_music_v3_owner == kMusicV3Restart && _music_v3_timer == 0 &&
              !v3_restarted) {
     // The hard restart has run its course. Now the gate may rise, and the
     // envelope starts from a counter that has actually been forced down.
     _music_v3_owner = kMusicV3Arp;
-    SID_REGS[kSoundRegV3 + kSoundVoiceAttDec] = kMusicInsArp.ad;
-    SID_REGS[kSoundRegV3 + kSoundVoiceSusRel] = kMusicInsArp.sr;
-    _write_ctrl(kVoice3, kMusicInsArp.wave | SID_CTRL_GATE);
+    _gate_arp();
   }
 
   if (_music_v3_owner == kMusicV3Arp) {
@@ -398,9 +421,7 @@ void music_tick(void) {
     // actually arrived. Restricting it to _music_row_frame == 0 is what stops
     // it cancelling the restart on the frame the restart happened.
     if (_music_row_frame == 0 && !_gated(kVoice3)) {
-      SID_REGS[kSoundRegV3 + kSoundVoiceAttDec] = kMusicInsArp.ad;
-      SID_REGS[kSoundRegV3 + kSoundVoiceSusRel] = kMusicInsArp.sr;
-      _write_ctrl(kVoice3, kMusicInsArp.wave | SID_CTRL_GATE);
+      _gate_arp();
     }
   } else if (_music_v3_owner == kMusicV3Restart) {
     // Holding the gate low with the envelope registers at zero. Nothing to
@@ -424,9 +445,7 @@ void music_tick(void) {
       // Not just a gate-off: a full hard restart, which zeroes the envelope
       // registers too. Then kMusicV3RestartFrames frames before the arpeggio is
       // allowed back. See the ADSR delay bug note above.
-      _music_hard_restart_restart(kVoice3);
-      _music_v3_owner = kMusicV3Restart;
-      _music_v3_timer = kMusicV3RestartFrames;
+      _v3_enter_restart(kMusicV3RestartFrames);
     }
   }
 
@@ -453,9 +472,7 @@ void music_tick(void) {
       // The other two voices get this for free from the note-ahead rule; voice
       // 3 does not, because bars 1-4 have no drums to ask for it. See
       // kV3LoopRestartFrames in music.h.
-      _music_hard_restart_restart(kVoice3);
-      _music_v3_owner = kMusicV3Restart;
-      _music_v3_timer = kV3LoopRestartFrames;
+      _v3_enter_restart(kV3LoopRestartFrames);
       // _music_pwm_phase is deliberately not reset: kMusicPwmStep divides the
       // loop, so it is already back where it started. The test asserts that
       // rather than trusting it.

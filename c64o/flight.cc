@@ -197,7 +197,9 @@ __noinline int16_t flight_step_s(int16_t v) {
 // cap on both -- see kMaxNavPoints in flight.h.
 __striped uint16_t flight_nav_point_x[kMaxNavPoints];
 __striped uint16_t flight_nav_point_y[kMaxNavPoints];
+#ifndef __FPILOT__
 static uint8_t flight_waypoint_nav[kMaxNavPoints];
+#endif
 uint8_t flight_num_nav_points = 0;
 
 // Appends the current position to the flight path, unless it is the pixel
@@ -252,12 +254,14 @@ static const mat3_t _m_init = {
 };
 
 static const uint32_t kFlightMinEyeZ = 0x2000;
+#ifndef __FPILOT__
 // Ceiling for the two "stay low" waypoint constraints, on the altitude scale
 // where 1000 ft is 0x020000 and the ground is kFlightMinEyeZ - so 250 ft, of
 // which the lowest 62 ft is the ground itself. It was 125 ft, which left the
 // crop duster a 62 ft band to hold between the limit and the dirt: two ticks
 // of the altimeter's fine needle, which moves one per 31 ft.
 static const uint32_t kFlightWpMaxAlt = 0x008000;
+#endif
 // kMaxSpeed lives in flight.h: sound.cc sizes its wind table by it.
 //
 // Weight. The lift the wing has to make to hold altitude, and the number every
@@ -498,6 +502,7 @@ void flight_init() {
   _flight_path_sample();
 }
 
+#ifndef __FPILOT__
 static uint8_t _flight_add_nav_point(uint8_t wp_idx) {
   uint8_t wx = kMissionWpX[wp_idx];
   uint8_t wy = kMissionWpY[wp_idx];
@@ -512,6 +517,7 @@ static uint8_t _flight_add_nav_point(uint8_t wp_idx) {
   flight_num_nav_points = ++n;
   return n;
 }
+#endif
 
 void flight_init_from_mission(uint8_t mission_idx) {
   flight_paused = false;
@@ -561,6 +567,16 @@ void flight_init_from_mission(uint8_t mission_idx) {
   flight_events = 0;
   model_pending_events = 0;
   model_substep = 0;
+#ifdef __FPILOT__
+  // Every fpilot mission has the same two waypoints (fmission.cc, checked by
+  // test/fpilot_test.cc): the targets first, whose navpoint opponent_reset()
+  // moves onto them, then landing at kMissionWpX/Y[1].
+  flight_nav_point_x[0] = 0;
+  flight_nav_point_y[0] = 0x80;
+  flight_nav_point_x[1] = (uint16_t)kMissionWpX[1] << 8;
+  flight_nav_point_y[1] = ((uint16_t)kMissionWpY[1] << 8) + 0x80;
+  flight_num_nav_points = 2;
+#else
   flight_num_nav_points = 0;
   uint8_t wp_begin = kMissionWpBegin[mission_idx];
   uint8_t wp_end = kMissionWpEnd[mission_idx];
@@ -579,6 +595,7 @@ void flight_init_from_mission(uint8_t mission_idx) {
   if (flight_num_nav_points == 0) {
     _flight_add_nav_point(kWaypointDefault);
   }
+#endif
   flight_nav = 0;
   _flight_update_nav();
   // The trail is per attempt, so R starts a fresh one. Seeding it with the
@@ -724,6 +741,7 @@ static const char *const kFlightFaultText[] = {
     "NOT ON RUNWAY",  // FLIGHT_CRASH_NOT_ON_RUNWAY
 };
 
+#ifndef __FPILOT__
 // Why the current waypoint is not satisfied while the aircraft is in the
 // right place. Indexed by MissionWaypointConstraint; keep in sync with
 // mission.h. WP_NOTHING has nothing to complain about: being there is the
@@ -737,14 +755,19 @@ static const char *const kFlightWaypointFault[] = {
     "FLY LOW INVERTED",   // 5 WP_UPSIDE_DOWN
     "",                   // 6 WP_TARGETS_DOWN
 };
+#endif
 
 // Both prefixes are nine characters and the longest fault text is fourteen,
-// so 24 is the exact fit and this leaves a little room (waypoint faults with
-// " FOR MISSION" are at most 31 bytes including NUL). Built here rather
-// than stored per message because msg_show() keeps only the pointer. Every
-// caller below bails out once flight_status is set, so no warning can rewrite
-// the buffer while a crash message is still on screen.
+// so 24 is the exact fit; ppilot's waypoint faults with " FOR MISSION" are at
+// most 31 bytes including NUL. Built here rather than stored per message
+// because msg_show() keeps only the pointer. Every caller below bails out once
+// flight_status is set, so no warning can rewrite the buffer while a crash
+// message is still on screen.
+#ifdef __FPILOT__
+static char _flight_status_text[24];
+#else
 static char _flight_status_text[32];
+#endif
 
 static const char *_flight_join(const char *prefix, const char *suffix) {
   char *dst = _flight_status_text;
@@ -777,6 +800,44 @@ __forceinline const char *flight_status_text(enum FlightStatus status,
 // and the message row belongs to the warnings again once it expires.
 static const uint16_t kFlightMissionCompleteDuration = 3 * MSG_DEFAULT_DURATION;
 
+#ifdef __FPILOT__
+static void _flight_check_mission_waypoints() {
+  if (flight_active_mission_idx >= kMissionCount || flight_crashed() ||
+      flight_paused) {
+    return;
+  }
+  if (flight_current_wp == 0) {
+    if (opponent_targets_down()) {
+      flight_current_wp = 1;
+      msg_show("GOALS COMPLETED!", kFlightMissionCompleteDuration);
+      if (mission_completed[flight_active_mission_idx] < kMissionGoals) {
+        mission_completed[flight_active_mission_idx] = kMissionGoals;
+      }
+    }
+  } else if (flight_current_wp == 1) {
+    uint8_t adx =
+        (uint8_t)((uint8_t)(flight_eye_x >> 16) - kMissionWpX[1]) & 0x7F;
+    if (adx > 64) {
+      adx = 128 - adx;
+    }
+    uint8_t ady = (uint8_t)((uint8_t)(flight_eye_y >> 16) - kMissionWpY[1]);
+    if (ady > 128) {
+      ady = (uint8_t)(0 - ady);
+    }
+    if (adx <= 0x10 && ady <= 0x04) {
+      if (model_on_ground && flight_speed <= 0x0010) {
+        flight_current_wp = 2;
+        flight_status = FLIGHT_MISSION_COMPLETED;
+        msg_show(flight_status_text(FLIGHT_MISSION_COMPLETED, false),
+                 kFlightMissionCompleteDuration);
+        mission_completed[flight_active_mission_idx] = kMissionCompleted;
+      } else {
+        msg_show("LAND ON RUNWAY FOR MISSION");
+      }
+    }
+  }
+}
+#else
 static void _flight_check_mission_waypoints() {
   if (flight_active_mission_idx >= kMissionCount || flight_crashed() ||
       flight_paused) {
@@ -871,18 +932,7 @@ static void _flight_check_mission_waypoints() {
     uint8_t cur_wp = flight_current_wp++;
     if ((uint8_t)(wp_idx + 1) < wp_end) {
       uint8_t nav_n = flight_waypoint_nav[cur_wp];
-#ifdef __FPILOT__
-      // Every opponent down: the first of fpilot's two levels (mission.h),
-      // as much of a moment as the second, and kept even if the pilot never
-      // gets home.
-      if (constraint == WP_TARGETS_DOWN) {
-        msg_show("GOALS COMPLETED!", kFlightMissionCompleteDuration);
-        if (mission_completed[flight_active_mission_idx] < kMissionGoals) {
-          mission_completed[flight_active_mission_idx] = kMissionGoals;
-        }
-      } else
-#endif
-          if (nav_n != 0) {
+      if (nav_n != 0) {
         static char nav_reached_buf[] = "WAYPOINT 1 REACHED";
         nav_reached_buf[9] = '0' + nav_n;
         msg_show(nav_reached_buf);
@@ -909,6 +959,7 @@ static void _flight_check_mission_waypoints() {
     }
   }
 }
+#endif
 
 void flight_advance() {
   if (flight_crashed()) {

@@ -55,23 +55,30 @@ static const char kViewPanelColorCompressed[] = {
 #pragma data(data)
 
 void view_update_cam() {
-  world_cam.up = flight_cam.up;
-  if (view_state == VIEW_CENTER || view_state == VIEW_BACK) {
-    world_cam.front = flight_cam.front;
-    world_cam.left = flight_cam.left;
-    if (view_state != VIEW_CENTER) {
-      // Looking back: half a turn about `up`, which negates both of the other
-      // two. Negating only one would mirror the world rather than turn round in
-      // it -- the handedness has to survive, or every polygon comes out wound
-      // the wrong way.
-      vec_negate(&world_cam.front);
-      vec_negate(&world_cam.left);
-    }
-  } else {
-    world_cam.front = flight_cam.left;
-    world_cam.left = flight_cam.front;
-    vec_negate(view_state == VIEW_LEFT ? &world_cam.left : &world_cam.front);
+  uint8_t i = sizeof(mat3_t);
+  do {
+    --i;
+    ((uint8_t *)&world_cam)[i] = ((const uint8_t *)&flight_cam)[i];
+  } while (i != 0);
+  if (view_state == VIEW_CENTER) {
+    return;
   }
+  if (view_state == VIEW_BACK) {
+    // Looking back: half a turn about `up`, which negates both of the other
+    // two. Negating only one would mirror the world rather than turn round in
+    // it -- the handedness has to survive, or every polygon comes out wound
+    // the wrong way.
+    vec_negate(&world_cam.front);
+    vec_negate(&world_cam.left);
+    return;
+  }
+  i = sizeof(vec3_t);
+  do {
+    --i;
+    ((uint8_t *)&world_cam.front)[i] = ((const uint8_t *)&flight_cam.left)[i];
+    ((uint8_t *)&world_cam.left)[i] = ((const uint8_t *)&flight_cam.front)[i];
+  } while (i != 0);
+  vec_negate(view_state == VIEW_LEFT ? &world_cam.left : &world_cam.front);
 }
 
 // Panel rebuilding runs only when the view changes (a keypress), never from
@@ -87,21 +94,16 @@ static char *const kViewBitmapPanel = (char *)0xE000 + 320 * kViewportHeight;
 static char *const kViewScreenDst = (char *)0xEE30;
 static char *const kViewColorDst = (char *)0xDA30;
 
+// Each 8-byte row pattern overlaps the next: row 0 is [0..7], row 1 is [2..9],
+// row 2 is [8..15], and rows 3..10 use the solid 0xAA run at [14..21].
 // clang-format off
-static const uint8_t kViewFillPattern[] = {
+static const uint8_t kViewFillPattern[22] = {
     0xFF, 0xFF, 0xBB, 0xEE, 0xBB, 0xEE, 0xBB, 0xEE,
-    0xBB, 0xEE, 0xBB, 0xEE, 0xBB, 0xEE, 0xBB, 0xEE,
     0xBB, 0xEE, 0xAA, 0xEE, 0xAA, 0xEE, 0xAA, 0xAA,
+    0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
 };
+static const uint8_t kViewFillOffset[4] = {0, 2, 8, 14};
 // clang-format on
-
-static void _view_fill_with_pattern(char *dst, const char *src, uint8_t chars) {
-  for (uint8_t n = 0; n < chars; ++n) {
-    for (uint8_t c = 0; c < 8; ++c) {
-      *dst++ = src[c];
-    }
-  }
-}
 
 // The gradient, into `chars` columns of all eleven panel rows starting at
 // `dst` in the first of them. The top three rows are the gradient proper and
@@ -109,11 +111,14 @@ static void _view_fill_with_pattern(char *dst, const char *src, uint8_t chars) {
 // columns the dashboard no longer covers; the back view fills all forty.
 static void _view_fill_bitmap(char *dst, uint8_t chars) {
   for (uint8_t row = 0; row < kScreenHeight - kViewportHeight; ++row) {
-    if (row >= 3) {
-      memset(dst, 0xAA, chars * 8);
-    } else {
-      _view_fill_with_pattern(dst, (const char *)kViewFillPattern + row * 8,
-                              chars);
+    const uint8_t *src =
+        kViewFillPattern + kViewFillOffset[row < 3 ? row : 3];
+    char *p = dst;
+    for (uint8_t n = 0; n < chars; ++n) {
+      for (uint8_t c = 0; c < 8; ++c) {
+        p[c] = (char)src[c];
+      }
+      p += 8;
     }
     dst += kScreenWidth * 8;
   }
@@ -123,7 +128,8 @@ static void _view_fill_bitmap(char *dst, uint8_t chars) {
 static const uint16_t kViewPanelCells =
     kScreenWidth * (kScreenHeight - kViewportHeight);
 
-// Blacks the panel out, whatever the bitmap under it happens to hold.
+// Fills the panel's screen and color RAM planes. Passing (0, 0) blacks the
+// panel out, whatever the bitmap under it happens to hold.
 //
 // In multicolor bitmap mode the panel's four bit pairs come from $d021 (00,
 // which the split's _gfx_panel_top_writes() sets to black on every frame), the
@@ -139,9 +145,10 @@ static const uint16_t kViewPanelCells =
 // It also destroys the colors it covers, which is why view_refresh_panel()
 // re-expands them from the compressed copy rather than shifting what is on
 // screen, the way this file used to.
-static inline void _view_blackout_panel(void) {
-  memset(kViewScreenDst, 0, kViewPanelCells);
-  memset(kViewColorDst, 0, kViewPanelCells);
+static __noinline void _view_fill_colors(uint8_t screen_col,
+                                         uint8_t color_col) {
+  memset(kViewScreenDst, screen_col, kViewPanelCells);
+  memset(kViewColorDst, color_col, kViewPanelCells);
 }
 
 // A side view keeps kCopyWidthChars of the panel's 40 columns and fills the
@@ -153,42 +160,42 @@ static inline void _view_blackout_panel(void) {
 static inline void _view_shift_bitmap(bool is_left_view) {
   char *bmp_src = kViewBitmapPanel;
   char *bmp_dst = bmp_src;
-  char *bmp_fill = bmp_src;
   if (is_left_view) {
     bmp_dst += kFillWidthChars * 8;
   } else {
     bmp_src += kFillWidthChars * 8;
-    bmp_fill += kCopyWidthChars * 8;
   }
   for (uint8_t row = 0; row < kScreenHeight - kViewportHeight; ++row) {
     memcpy(bmp_dst, bmp_src, kCopyWidthChars * 8);
     bmp_dst += kScreenWidth * 8;
     bmp_src += kScreenWidth * 8;
   }
-  _view_fill_bitmap(bmp_fill, kFillWidthChars);
+  _view_fill_bitmap(is_left_view ? kViewBitmapPanel
+                                 : kViewBitmapPanel + kCopyWidthChars * 8,
+                    kFillWidthChars);
 }
 
 static inline void _view_shift_colors(bool is_left_view) {
+  const uint8_t src_off = is_left_view ? 0 : kFillWidthChars;
+  const uint8_t dst_off = is_left_view ? kFillWidthChars : 0;
+  const uint8_t fill_off = is_left_view ? 0 : kCopyWidthChars;
   // Screen and color RAM have the same layout, so it is one pass per plane.
   for (uint8_t plane = 0; plane < 2; ++plane) {
-    char *src = plane ? (char *)kViewColorDst : (char *)kViewScreenDst;
-    const uint8_t fill_color = plane ? kColorLightGray : kColorMedGray;
-    char *dst = src;
-    char *fill = src;
-    if (is_left_view) {
-      dst += kFillWidthChars;
-    } else {
-      src += kFillWidthChars;
-      fill += kCopyWidthChars;
-    }
+    char *p = plane ? kViewColorDst : kViewScreenDst;
+    const char fill_color = plane ? kColorLightGray : kColorMedGray;
     for (uint8_t row = 0; row < kScreenHeight - kViewportHeight; ++row) {
       // The fill leaves color 01 black rather than picking something for it:
       // kViewFillPattern uses only the 10 and 11 pairs, so 01 never appears.
-      memcpy(dst, src, kCopyWidthChars);
-      memset(fill, fill_color, kFillWidthChars);
-      dst += kScreenWidth;
-      src += kScreenWidth;
-      fill += kScreenWidth;
+      uint8_t s = src_off;
+      uint8_t d = dst_off;
+      for (uint8_t c = 0; c < kCopyWidthChars; ++c) {
+        p[d++] = p[s++];
+      }
+      uint8_t f = fill_off;
+      for (uint8_t c = 0; c < kFillWidthChars; ++c) {
+        p[f++] = fill_color;
+      }
+      p += kScreenWidth;
     }
   }
 }
@@ -202,9 +209,10 @@ void view_refresh_panel() {
   if (mem_debug_enabled) {
     return;
   }
-  _view_blackout_panel();
+  _view_fill_colors(0, 0);
 
-  if (view_state == VIEW_BACK) {
+  const view_state_t state = view_state;
+  if (state == VIEW_BACK) {
     // Nothing of the dashboard is kept, so there is nothing to expand and
     // nothing to shift: the gradient covers all forty columns, and the two
     // colour memsets replace the whole of _view_shift_colors(). This is the
@@ -214,8 +222,7 @@ void view_refresh_panel() {
     // Not VIEW_CENTER, which is what makes leaving this view re-expand the
     // art the fill just wrote over -- the heading strip included.
     view_bitmap_state = VIEW_BACK;
-    memset(kViewScreenDst, kColorMedGray, kViewPanelCells);
-    memset(kViewColorDst, kColorLightGray, kViewPanelCells);
+    _view_fill_colors(kColorMedGray, kColorLightGray);
     return;
   }
 
@@ -228,9 +235,10 @@ void view_refresh_panel() {
     // default bitmap.
     gfx_invalidate_panel_bitmap();
   }
-  view_bitmap_state = view_state;
-  if (view_state != VIEW_CENTER) {
-    _view_shift_bitmap(view_state == VIEW_LEFT);
+  view_bitmap_state = state;
+  const bool is_left = (state == VIEW_LEFT);
+  if (state != VIEW_CENTER) {
+    _view_shift_bitmap(is_left);
   }
 
   // Colors last, and always from the compressed copy: the blackout destroyed
@@ -240,8 +248,8 @@ void view_refresh_panel() {
   // rather than being wiped in a column at a time.
   oscar_expand_lzo(kViewScreenDst, kViewPanelScreenCompressed);
   oscar_expand_lzo(kViewColorDst, kViewPanelColorCompressed);
-  if (view_state != VIEW_CENTER) {
-    _view_shift_colors(view_state == VIEW_LEFT);
+  if (state != VIEW_CENTER) {
+    _view_shift_colors(is_left);
   }
 }
 

@@ -163,7 +163,8 @@ static const uint8_t kHeldKeyCount = sizeof(kHeldKeys) / sizeof(kHeldKeys[0]);
 void sim_run(uint8_t selected_mission) {
   _enter_simulation(selected_mission);
 
-  uint8_t prev_toggles = 0;
+  static uint8_t prev_toggles;
+  prev_toggles = 0;
 
   while (1) {
     keys_poll();
@@ -230,7 +231,7 @@ void sim_run(uint8_t selected_mission) {
     }
 
     if (key_pressed(KSCAN_R)) {
-      _start_mission(selected_mission);
+      _start_mission(flight_active_mission_idx);
       view_update_view(VIEW_CENTER);
       mem_switch_debug(false);
     }

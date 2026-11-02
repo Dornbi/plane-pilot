@@ -470,7 +470,7 @@ static const char *const kGfxHeadingBitmaps[] = {
     (const char *const)0xF060,
     (const char *const)0xF000,
 };
-static const char *kGfxHeadingDest = (const char *)0xF5C8;
+static char *const kGfxHeadingDest = (char *)0xF5C8;
 
 // Last heading drawn into the panel bitmap; 0xFF (not a valid heading)
 // forces a redraw after the bitmap has been re-expanded.
@@ -499,21 +499,14 @@ inline void gfx_update_heading_bitmap(uint8_t heading) {
   if (heading_ch >= kHeadingCharMax) {
     heading_ch -= kHeadingCharMax;
   }
-  const char *src_start = kGfxHeadingBitmaps[heading & 0x03];
-  char *dst = (char *)kGfxHeadingDest;
-  const char *src = src_start + (heading_ch * 8);
-  for (uint8_t i = 6;;) {
-    memcpy(dst, src, 8);
-    ++heading_ch;
-    if (heading_ch >= kHeadingCharMax) {
-      heading_ch = 0;
-      src = src_start;
-    } else {
-      src += 8;
+  const char *src = kGfxHeadingBitmaps[heading & 0x03];
+  uint8_t s = heading_ch << 3;
+  for (uint8_t d = 0; d < 6 * 8;) {
+    for (uint8_t y = 0; y < 8; ++y) {
+      kGfxHeadingDest[d++] = src[s++];
     }
-    dst += 8;
-    if (--i == 0) {
-      break;
+    if (s == kHeadingCharMax * 8) {
+      s = 0;
     }
   }
 }
