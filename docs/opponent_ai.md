@@ -1134,3 +1134,29 @@ from ~50 s. mission_test checks a player flying away north is followed, and
 its dogfight pilot still takes 04 unhit, turning to fight from 100 m - one
 that climbs on to 300 m with them on its tail is shot down. fpilot is at
 1,109 B free: the same code, and the data moved by page alignment.
+
+Shot down now means falling, not stopping:
+
+- **Opponents.** The third hit says TARGET DOWN and the aircraft falls
+  (`_opponent_fall()`): drawn 60 degrees nose down (a new kOpponentDive
+  pitch), moving along its heading and down at 1.5 times its speed, ~56
+  degrees, trailing its smoke. Half of them, by the random byte, also spin:
+  the heading turned a quarter each whole step and the wings drawn at 60
+  degrees. It neither flies its path nor fires, and takes no more hits. It
+  is down - towards WP_TARGETS_DOWN, with the longer smoke where it fell -
+  only when it hits the ground; parked, at once. The falling and spinning
+  bits share `_opponent_down`'s byte: two more bytes went to the zero page
+  and pushed objects out of it.
+- **The player.** The fifth hit in the air takes the controls away and
+  says SHOT DOWN!; flight.cc's `_flight_fall()` pushes the nose down to 60
+  degrees whichever way up, and in a spin rolls on as well. The crash is
+  the ground, CRASHED: SHOT DOWN. From 3,000 ft that takes ~23 s. On the
+  ground the fifth hit is the crash at once, as before.
+
+The cost was ~400 B of code, and it showed what fpilot's "free" figure
+hides: analyze_ram counts bss2's ~600 B, which only takes uninitialised
+data, so the main region at $0A60-$CFC0 - code, data and the main bss -
+had only 491 B. It overflowed. planes.cc's cached products, _planes_px,
+_planes_pv and _px_k, moved to bss2 (34 B), and the fall was made cheaper
+(the quarter-turn spin, no acceleration, the parked case in the fall): the
+main region has 123 B left. Watch that number, not the total.

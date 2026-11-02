@@ -271,12 +271,56 @@ int main() {
       all &= n == 4 && flight_status == FLIGHT_ONGOING;
     }
     CHECK(all, "damage: four hits did not always give four failures");
-    damage_hit(5);
-    CHECK(flight_status == FLIGHT_CRASH_SHOT_DOWN && flight_crashed() &&
-              !strcmp(flight_status_text(flight_status, true), "CRASHED: SHOT DOWN"),
-          "damage: the fifth hit left status %d, \"%s\"", flight_status,
-          flight_status_text(flight_status, true));
   }
+
+  // The fifth hit in the air: shot down. The controls are gone and the
+  // aircraft falls - with an even random byte diving, with an odd one
+  // spinning as well, rolling on round - until it hits the ground, and that
+  // is the crash, SHOT DOWN. Mission 05 starts at 3,000 ft.
+  for (int spin = 0; spin < 2; ++spin) {
+    flight_init_from_mission(4);
+    damage_reset();
+    _random = (uint8_t)spin;
+    damage_hit(5);
+    CHECK(damage_down() && !!(damage_bits & kDamageSpin) == !!spin && !flight_crashed() &&
+              !strcmp(_msg, "SHOT DOWN!"),
+          "fall %d: the fifth hit left status %d, bits %02x, \"%s\"", spin, flight_status,
+          damage_bits, _msg);
+    // Nothing the pilot does takes, and no more hits count.
+    mat3_t cam = flight_cam;
+    uint8_t throttle = flight_throttle;
+    flight_input(FLIGHT_INPUT_ROLL_RIGHT);
+    flight_input(FLIGHT_INPUT_THROTTLE_UP);
+    flight_input(FLIGHT_INPUT_TOGGLE_GEAR);
+    CHECK(!memcmp(&cam, &flight_cam, sizeof(mat3_t)) && flight_throttle == throttle,
+          "fall %d: the controls still work", spin);
+    uint8_t bits = damage_bits;
+    damage_hit(6);
+    CHECK(damage_bits == bits, "fall %d: a hit while falling counted", spin);
+    int n = 0, steep = -1;
+    bool rolled_over = false;
+    while (!flight_crashed() && n < 1000) {
+      flight_advance();
+      ++n;
+      if (steep < 0 && flight_cam.front.z <= -200) steep = n;
+      rolled_over |= flight_cam.up.z < 0;
+    }
+    CHECK(flight_status == FLIGHT_CRASH_SHOT_DOWN &&
+              !strcmp(flight_status_text(flight_status, true), "CRASHED: SHOT DOWN"),
+          "fall %d: hit the ground with status %d after %d steps", spin, flight_status, n);
+    CHECK(steep >= 0 && steep < 40 && flight_cam.front.z <= -200 && rolled_over == !!spin,
+          "fall %d: steep after %d steps, nose %d at the ground, rolled over %d", spin, steep,
+          flight_cam.front.z, rolled_over);
+    printf("  shot down, %s: steep after %.1f s, the ground after %.1f s\n",
+           spin ? "spinning" : "diving", steep / 6.25, n / 6.25);
+  }
+
+  // On the ground the fifth hit is the crash at once: 02 starts parked.
+  flight_init_from_mission(1);
+  damage_reset();
+  damage_hit(5);
+  CHECK(flight_status == FLIGHT_CRASH_SHOT_DOWN && !damage_down(),
+        "on the ground: the fifth hit left status %d", flight_status);
 
   if (_fails) {
     printf("fpilot_test: %d checks FAILED\n", _fails);

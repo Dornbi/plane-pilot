@@ -91,7 +91,7 @@ static double along(const vec3_t &a, double dx, double dy, double dz) {
 //
 // With `guns`, it also shoots: inside 400 m it puts its nose on the recon in
 // height as well, and holds Space while the recon is within 500 m and about
-// 3.5 degrees of the nose. When the recon went down, in steps.
+// 3.5 degrees of the nose. When the recon was shot down, in steps.
 static void chase(bool guns, int *caught_at, int *gone_at, int *down_at) {
   flight_init_from_mission(0);
   opponent_reset(0);
@@ -154,7 +154,7 @@ static void chase(bool guns, int *caught_at, int *gone_at, int *down_at) {
     if (flight_crashed()) return;
     if (passed && *caught_at < 0 && sqrt(dx * dx + dy * dy + dz * dz) < 500) *caught_at = n;
     if (!_opponent_on[0]) *gone_at = n;
-    if (_opponent_down & 1) *down_at = n;
+    if (_opponent_down & (1 | 1 << kOpponentFalling)) *down_at = n;
   }
 }
 
@@ -170,7 +170,8 @@ static const int kBelow = 100;
 // Space while it is within ~3.5 degrees - and, at a bomber, 400 m. A hunter
 // on its tail it does not try to out-turn: it extends, wings level, at its
 // greater speed until 1.5 km clear, then turns back for a head-on pass. When
-// the last went down, in steps, or -1; and the fewest metres it came to any.
+// the last was shot down, in steps, or -1; and the fewest metres it came to
+// any.
 static int dogfight(int m, double *closest, int min_m = 300) {
   flight_init_from_mission(m);
   opponent_reset(m);
@@ -182,7 +183,8 @@ static int dogfight(int m, double *closest, int min_m = 300) {
     int t = -1;
     double best = 1e9;
     for (int i = 0; i < kOpponentMax; ++i) {
-      if (!_opponent_live(i)) continue;
+      // Shot down and falling, it is done with.
+      if (!_opponent_live(i) || (_opponent_down & (1 << (i + kOpponentFalling)))) continue;
       double d = distance(i);
       if (d < best) {
         best = d;
@@ -349,7 +351,12 @@ int main() {
   // through gun.cc, opponent_strike() and flight.cc's WP_TARGETS_DOWN.
   mission_completed[0] = 0;
   chase(true, &caught_at, &gone_at, &down_at);
-  // flight.cc meets the waypoint on its next step.
+  // It falls, and flight.cc meets the waypoint on the step after it hits
+  // the ground.
+  for (int n = 0; n < 6.25 * 60 && !(_opponent_down & 1); ++n) {
+    flight_advance();
+    opponent_step();
+  }
   for (int n = 0; n < 4; ++n) flight_advance();
   CHECK(down_at >= 0 && !_opponent_failed && mission_completed[0] == kMissionGoals,
         "guns: recon down at %.1f min, failed %d, level %d", down_at / kStepsPerSecond / 60,

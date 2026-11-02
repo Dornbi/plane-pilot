@@ -966,6 +966,23 @@ static void _flight_check_mission_waypoints() {
 }
 #endif
 
+#ifdef __ENABLE_OPPONENT__
+// Shot down (damage.h): the nose pushed down a step at a time, whichever way
+// up the aircraft is, to a 60 degree dive; and spinning, rolled on as well
+// all the way to the ground.
+static const int16_t kFlightFallZ = -222;
+static void _flight_fall(void) {
+  if (damage_bits & kDamageSpin) {
+    vec_rotate_step(VEC_STEP_ROLL_LEFT, &flight_cam);
+  }
+  if (flight_cam.front.z > kFlightFallZ) {
+    vec_rotate_step(flight_cam.up.z >= 0 ? VEC_STEP_PITCH_DOWN : VEC_STEP_PITCH_UP,
+                    &flight_cam);
+  }
+  model_need_normalize = true;
+}
+#endif
+
 void flight_advance() {
   if (flight_crashed()) {
     return;
@@ -977,6 +994,11 @@ void flight_advance() {
   const bool whole_step = (model_substep == 0);
 
   if (!flight_paused) {
+#ifdef __ENABLE_OPPONENT__
+    if (damage_down()) {
+      _flight_fall();
+    }
+#endif
     // Altitude density decay (above Z = 0x080000)
     uint8_t alt_penalty = 0;
     if (flight_eye_z > 0x080000) {
@@ -1412,6 +1434,10 @@ void flight_advance() {
       // FLIGHT_MISSION_COMPLETED the pilot has already earned.
       enum FlightStatus touchdown_fault =
           _flight_landing_fault(speed_limit, !was_on_ground);
+      // Shot down, the ground is the end whatever the attitude.
+      if (damage_down()) {
+        touchdown_fault = FLIGHT_CRASH_SHOT_DOWN;
+      }
       if (touchdown_fault) {
         flight_status = touchdown_fault;
       }
@@ -1631,7 +1657,8 @@ void flight_input(enum flight_input_t input) {
     return;
   }
 
-  if (flight_crashed()) {
+  // Shot down and falling (damage.h): nothing the pilot does matters now.
+  if (flight_crashed() || damage_down()) {
     return;
   }
 

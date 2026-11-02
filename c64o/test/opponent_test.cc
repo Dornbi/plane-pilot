@@ -796,8 +796,10 @@ static void test_flight_model(void) {
   {
     const mat3_t saved = world_cam;
     double worst_len = 0, worst_dot = 0;
-    for (int pitch = -3; pitch <= 3; ++pitch) {
-      for (int bank = -1; bank <= 1; ++bank) {
+    // kOpponentDive, a falling aircraft's, among them, and the hunter's and
+    // a spin's 60 degree bank.
+    for (int pitch = -3; pitch <= kOpponentDive; ++pitch) {
+      for (int bank = -2; bank <= 2; ++bank) {
         for (int deg = 0; deg < 360; deg += 15) {
           _opponent_head[0] = make_vector((int16_t)lround(256 * cos(deg * M_PI / 180)),
                                           (int16_t)lround(256 * sin(deg * M_PI / 180)), 0);
@@ -1114,8 +1116,9 @@ static void test_missions(void) {
     CHECK(opponent_targets_down(), "scramble: both down, but the targets are not down");
   }
 
-  // The guns' side (gun.cc): three strikes down a slot, which is then
-  // neither a target nor drawn, and both down is the goal.
+  // The guns' side (gun.cc): three strikes shoot a slot down, and it falls
+  // (_opponent_fall()), still drawn; at the ground it is down, neither a
+  // target nor drawn, and both down is the goal.
   {
     _msgs = 0;
     opponent_reset(3);
@@ -1133,19 +1136,48 @@ static void test_missions(void) {
     CHECK(opponent_target(0, p) && _msgs == 0 && (_opponent_cull() & 1),
           "strikes: down, or out of view, before the third hit");
     opponent_strike(0);
-    CHECK(!opponent_target(0, p) && _msgs == 1 && !strcmp(_msg, "TARGET DOWN"),
-          "strikes: the third hit did not down it (%d messages)", _msgs);
+    CHECK((_opponent_down & 1 << kOpponentFalling) && _msgs == 1 && !strcmp(_msg, "TARGET DOWN"),
+          "strikes: the third hit did not shoot it down (%d messages)", _msgs);
     CHECK(!opponent_targets_down(), "strikes: one of two down, and the targets are down");
-    CHECK(!(_opponent_cull() & 1), "strikes: a downed aircraft is still drawn");
+    CHECK(_opponent_cull() & 1, "strikes: a falling aircraft is not drawn");
+    // It falls, slot 0 diving and slot 1 spinning as well: nose down at
+    // kOpponentDive, lower every step, its smoke trailing it, no more
+    // hits counted - and down, neither drawn nor a target, at the ground.
     for (int k = 0; k < kOpponentHitsToDown; ++k) opponent_strike(1);
+    _opponent_down = (uint8_t)((_opponent_down & ~(3 << kOpponentSpin)) | 2 << kOpponentSpin);
+    int16_t hx[2] = {_opponent_head[0].x, _opponent_head[1].x};
+    bool turned[2] = {false, false};
+    int steps = 0;
+    while ((_opponent_down & 3) != 3 && steps < 100) {
+      int32_t z[2] = {_opponent_z[0], _opponent_z[1]};
+      opponent_strike(0);
+      opponent_step();
+      ++steps;
+      for (int i = 0; i < 2; ++i) {
+        if (_opponent_down & (1 << i)) continue;
+        CHECK(_opponent_z[i] < z[i] && _opponent_pitch[i] == kOpponentDive &&
+                  _opponent_hits[i] == kOpponentHitsToDown,
+              "falls: slot %d at step %d: %.1f m from %.1f, pitch %d, %d hits", i, steps,
+              _opponent_z[i] / 512.0, z[i] / 512.0, _opponent_pitch[i], _opponent_hits[i]);
+        turned[i] |= _opponent_head[i].x != hx[i];
+      }
+      int16_t sh[2];
+      CHECK((_opponent_down & 3) == 3 || opponent_smoke(p, sh), "falls: no smoke");
+    }
+    CHECK((_opponent_down & 3) == 3 && !(_opponent_down & 3 << kOpponentFalling) && !turned[0] &&
+              turned[1],
+          "falls: down %d after %d steps, turned %d %d", _opponent_down, steps, turned[0],
+          turned[1]);
+    CHECK(!opponent_target(0, p) && !(_opponent_cull() & 3), "falls: down, but drawn or a target");
     CHECK(opponent_targets_down(), "strikes: both down, but the targets are not down");
     opponent_reset(3);
     CHECK(opponent_target(0, p) && !opponent_targets_down(), "strikes: a reset left them down");
   }
 
   // The smoke: none until a hit, then behind the last slot hit for kSmokeHit
-  // frames, each hit starting them again; a downed slot stops where it is,
-  // and its smoke hangs there kSmokeDown frames.
+  // frames, each hit starting them again; a slot shot down trails it as it
+  // falls, and stops where it hits the ground, its smoke hanging there
+  // kSmokeDown frames.
   {
     opponent_reset(3);
     int32_t p[3];
@@ -1161,9 +1193,13 @@ static void test_missions(void) {
     opponent_step();
     CHECK(!opponent_smoke(p, h), "smoke: still up %d frames after a hit", kSmokeHit);
     for (int k = 1; k < kOpponentHitsToDown; ++k) opponent_strike(0);
-    // An extra strike on an already-downed slot is ignored and keeps the
-    // longer kill smoke.
-    opponent_strike(0);
+    // It falls to the ground, its smoke on it all the way; an extra strike
+    // on it is ignored and keeps that smoke.
+    for (int n = 0; n < 100 && !(_opponent_down & 1); ++n) {
+      opponent_strike(0);
+      opponent_step();
+      CHECK(opponent_smoke(p, h) && p[0] == _opponent_x[0], "smoke: not on the falling slot");
+    }
     for (int n = 0; n < kSmokeDown - 1; ++n) opponent_step();
     CHECK(opponent_smoke(p, h) && p[0] == _opponent_x[0], "smoke: gone before it lingered");
     int32_t fell = _opponent_x[0];
@@ -1189,6 +1225,7 @@ static void test_missions(void) {
           "ground: not down on reaching it (%d messages, \"%s\")", _msgs, _msg);
     CHECK(!opponent_target(1, p) && !(_opponent_cull() & 2), "ground: still a target, or drawn");
     for (int k = 0; k < kOpponentHitsToDown; ++k) opponent_strike(0);
+    for (int n = 0; n < 100 && !(_opponent_down & 1); ++n) opponent_step();
     CHECK(opponent_targets_down(), "ground: one crashed, one shot down, but the targets are up");
 
     // A damaged one-way aircraft that escapes leaves no smoke behind it.

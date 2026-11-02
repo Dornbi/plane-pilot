@@ -45,9 +45,17 @@ static void _damage_new(const char *text) {
 }
 
 void damage_hit(uint8_t hits) {
+  if (damage_down()) {
+    return;
+  }
   _damage_flash = kDamageFlash;
   if (hits >= kDamageHitsToDown) {
-    flight_status = FLIGHT_CRASH_SHOT_DOWN;
+    if (model_on_ground) {
+      flight_status = FLIGHT_CRASH_SHOT_DOWN;
+    } else {
+      damage_bits |= (opponent_random() & 1) ? kDamageDown | kDamageSpin : kDamageDown;
+      msg_show("SHOT DOWN!");
+    }
     return;
   }
   // One of the five, near enough evenly, and if the player has it already

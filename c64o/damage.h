@@ -27,6 +27,11 @@ static const uint8_t kDamageControls = 0x10;   // roll, pitch and yaw at half ra
 static const uint8_t kDamageSeized = 0x20;
 // Hits that shoot the player down.
 static const uint8_t kDamageHitsToDown = 5;
+// Shot down in the air: the controls gone, the aircraft falls - in a steep
+// dive, and with kDamageSpin rolling as well - until it hits the ground,
+// which is the crash, FLIGHT_CRASH_SHOT_DOWN (flight.cc).
+static const uint8_t kDamageDown = 0x40;
+static const uint8_t kDamageSpin = 0x80;
 
 extern uint8_t damage_bits;
 // Flips on every rotation input while the controls are damaged.
@@ -35,8 +40,9 @@ extern uint8_t damage_toggle;
 // No failures. With gun_reset().
 void damage_reset(void);
 
-// The player's `hits`th hit, as gun.cc counts them: a new failure, or the
-// end of the flight, FLIGHT_CRASH_SHOT_DOWN.
+// The player's `hits`th hit, as gun.cc counts them: a new failure, or shot
+// down - falling (kDamageDown), or on the ground the crash at once,
+// FLIGHT_CRASH_SHOT_DOWN. None counts once falling.
 void damage_hit(uint8_t hits);
 
 // A whole model step: the oil leak's countdown.
@@ -57,6 +63,8 @@ inline uint8_t damage_burn(uint8_t t) {
 }
 // ...whether flaps and gear are stuck...
 inline bool damage_hydraulics(void) { return (damage_bits & kDamageHydraulics) != 0; }
+// ...whether the player is shot down and falling...
+inline bool damage_down(void) { return (damage_bits & kDamageDown) != 0; }
 // ...and whether this rotation input is the one in two that is lost.
 inline bool damage_skip_input(void) {
   return (damage_bits & kDamageControls) && (damage_toggle ^= 1) != 0;
@@ -73,6 +81,7 @@ inline void damage_step(void) {}
 inline uint8_t damage_throttle_max(void) { return kMaxThrottle; }
 inline uint8_t damage_burn(uint8_t t) { return t; }
 inline bool damage_hydraulics(void) { return false; }
+inline bool damage_down(void) { return false; }
 inline bool damage_skip_input(void) { return false; }
 
 #endif

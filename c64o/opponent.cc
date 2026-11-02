@@ -311,8 +311,10 @@ static_assert(kOpponentClimbCost % kOpponentLevelAccel == 0,
 // The pitch drawn by climb level + 3: the sine and cosine of the slope's
 // angle, atan(1/8), atan(1/4) and atan(1/2), 8.8. Level's cosine (256) is
 // unused: _opponent_axes() skips _opponent_rot() there.
-static const int8_t kOpponentPitchSin[7] = {-114, -62, -32, 0, 32, 62, 114};
-static const uint8_t kOpponentPitchCos[7] = {229, 248, 254, 0, 254, 248, 229};
+// And after them, kOpponentDive's: 60 degrees nose down, shot down.
+static const int16_t kOpponentPitchSin[8] = {-114, -62, -32, 0, 32, 62, 114, -222};
+static const uint8_t kOpponentPitchCos[8] = {229, 248, 254, 0, 254, 248, 229, 128};
+static const int8_t kOpponentDive = 4;
 
 // The bank while turning, drawn only, by the turn + 2: cos and sin of 30
 // degrees for a path's turn, 60 for a hunter's, 8.8. The sine is the one
@@ -369,7 +371,16 @@ static const opponent_path_t *_opponent_path[kOpponentMax];
 // target.
 static uint8_t _opponent_mission;
 static bool _opponent_failed;
+//
+// And above those, in the same byte rather than two more - oscar64 promotes
+// such bytes to the zero page, and it has no room for them: bit i <<
+// kOpponentFalling, slot i has been shot down and is falling, in a steep
+// dive - and with bit i << kOpponentSpin, spinning - until it hits the
+// ground, and only then down. Neither flying nor firing meanwhile, and no
+// more hits counted.
 static uint8_t _opponent_down;
+static const uint8_t kOpponentFalling = 2;
+static const uint8_t kOpponentSpin = 4;
 // Bit i: slot i is in ATTACK, its mode against the player; clear, it is in
 // PATH (docs/opponent_ai.md §3). A hunting slot starts in it.
 static uint8_t _opponent_attack;
@@ -531,14 +542,21 @@ void opponent_collide(uint8_t i) {
 
 void opponent_strike(uint8_t i) {
   uint8_t bit = _opponent_bit(i);
-  if (_opponent_down & bit) {
+  if (_opponent_down & (uint8_t)(bit | bit << kOpponentFalling)) {
     return;
   }
   opponent_provoke(i);
   _opponent_smoke = bit;
   _opponent_smoke_t = kSmokeHit;
   if (++_opponent_hits[i] == kOpponentHitsToDown) {
-    _opponent_destroy(i, "TARGET DOWN");
+    // Shot down: it falls (_opponent_fall()), and is down when it hits the
+    // ground - parked, at once. Half of them spin.
+    _opponent_down |= (uint8_t)(bit << kOpponentFalling);
+    if (opponent_random() & 1) {
+      _opponent_down |= (uint8_t)(bit << kOpponentSpin);
+    }
+    _opponent_firing &= (uint8_t)~bit;
+    msg_show("TARGET DOWN");
   }
 }
 
@@ -900,6 +918,36 @@ static void _opponent_fail(void) {
   }
 }
 
+// One step of slot i falling, drawn at kOpponentDive, 60 degrees nose down:
+// along its heading at its speed, and down at one and a half times it -
+// ~56 degrees, near enough what is drawn, and from 5,000 ft ~25 s; spinning,
+// its heading turned a quarter each whole step, ~1.5 turns a second, and
+// the wings drawn at 60 degrees. Its smoke trails it all the way, and where
+// it hits the ground it is down.
+static const int16_t kOpponentFallZ = -384;
+static __noinline void _opponent_fall(uint8_t i, bool whole) {
+  uint8_t bit = _opponent_bit(i);
+  vec3_t *h = &_opponent_head[i];
+  _opponent_pitch[i] = kOpponentDive;
+  _opponent_smoke = bit;
+  _opponent_smoke_t = kSmokeHit;
+  if ((_opponent_down & (uint8_t)(bit << kOpponentSpin)) && whole) {
+    int16_t hx = h->x;
+    h->x = -h->y;
+    h->y = hx;
+    _opponent_bank[i] = 2;
+  }
+  _opponent_move(i, (uint8_t)(i + 2 * kOpponentMax), kOpponentFallZ);
+  // Parked, the only aircraft with no speed, it is down where it stands.
+  if (_opponent_z[i] <= 0 || _opponent_speed[i] == 0) {
+    _opponent_down &= (uint8_t)~(bit << kOpponentFalling);
+    _opponent_destroy(i, nullptr);
+    return;
+  }
+  _opponent_move(i, i, h->x);
+  _opponent_move(i, (uint8_t)(i + kOpponentMax), h->y);
+}
+
 void opponent_step(void) {
   if (flight_paused || flight_crashed()) {
     return;
@@ -914,12 +962,16 @@ void opponent_step(void) {
       continue;
     }
     const opponent_path_t *p = _opponent_path[i];
+    uint8_t bit = _opponent_bit(i);
+    if (_opponent_down & (uint8_t)(bit << kOpponentFalling)) {
+      _opponent_fall(i, turns);
+      continue;
+    }
     // Parked: it stays where it is.
     if ((p->kind & kOpponentKindMask) == kOpponentParked) {
       continue;
     }
     vec3_t *h = &_opponent_head[i];
-    uint8_t bit = _opponent_bit(i);
 
     // What it steers for, relative, in half metres: a fighter in ATTACK, the
     // player; anything else its waypoint at its path's height.

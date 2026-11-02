@@ -72,10 +72,17 @@ static int8_t _planes_off[8];
 
 // Magnitudes times k (planes_asm.h), and _px_k the k they hold, 0 for none.
 // They depend on nothing else, so they are kept while the distance holds;
-// so are the pairs' magnitudes times k.
+// so are the pairs' magnitudes times k. fpilot keeps them in bss2, which
+// mem_init() clears (mem.h), and the main region's room for its code.
+#ifdef __FPILOT__
+#pragma bss(bss2)
+#endif
 uint8_t _planes_px[kPlaneMagCount];
 static uint16_t _px_k;
 uint8_t _planes_pv[16];
+#ifdef __FPILOT__
+#pragma bss(bss)
+#endif
 
 // ---------------------------------------------------------------------------
 // Fixed point, as lib/planes.py spells it, on vec.h's byte multiply, exact
