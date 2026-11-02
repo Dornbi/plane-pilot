@@ -827,3 +827,8 @@ Before step 9, decide which of these to do:
 - cut scope (the rear gunner's normalise, the near-miss test, the blinking
   message);
 - write the hottest new logic in assembly, as `planes_asm.cc` does.
+
+Merging argon-loop's RAM passes 51–57 (62aa403) brought fpilot back to 3,052 B
+free, largest run 2,409 B. That covers the low end of the projected 1.5–2.5 KB
+for steps 8–14 but not the high end, so the decision above still stands; it is
+less pressing.
