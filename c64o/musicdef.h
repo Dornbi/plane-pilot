@@ -64,7 +64,9 @@ extern const uint8_t kMusicVolMap[24];
 // should know about.
 extern const music_chord_t kMusicChordPat[];
 extern const uint8_t kMusicChordBar[24];
-extern const uint8_t kMusicLeadStartPat[][8];
+// The lead's patterns overlap in one pool, and its bar index holds
+// where each starts there rather than which one it is.
+extern const uint8_t kMusicLeadStartPool[];
 extern const uint8_t kMusicLeadStartBar[24];
 extern const uint8_t kMusicBassStepPat[][16];
 extern const uint8_t kMusicBassStepBar[24];
@@ -85,7 +87,7 @@ extern const uint8_t kMusicDrumBitsBar[24];
 // the even rows alone and every odd row reads as 0.
 #define MUSIC_LEAD_START_IN(bar, r)  \
     (((r) & 1) ? 0 : \
-     kMusicLeadStartPat[kMusicLeadStartBar[bar]][(r) >> 1])
+     kMusicLeadStartPool[(uint8_t)(kMusicLeadStartBar[bar] + ((r) >> 1))])
 // The bass only plays intervals above its bar's chord root, so its
 // lane holds the interval + 1 (0 = no new note) and comes down to
 // the few rhythm shapes the arrangement has. The player tests the

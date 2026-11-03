@@ -61,6 +61,47 @@ def dedup_bars(values, per_bar):
     return patterns, index
 
 
+def pool_bars(patterns, index):
+    """Overlaps dedup_bars()'s patterns into one byte pool, greedily.
+
+    Where one pattern ends the way another begins, the two share those
+    bytes, and a pattern inside another costs none. Returns (pool, offsets)
+    where offsets[b] is where bar b's pattern starts in the pool, so
+    patterns[index[b]] == pool[offsets[b]:offsets[b] + per_bar].
+    """
+    def _inside(a, b):
+        return any(b[i:i + len(a)] == a for i in range(len(b) - len(a) + 1))
+
+    def _overlap(a, b):
+        for k in range(min(len(a), len(b)) - 1, 0, -1):
+            if a[-k:] == b[:k]:
+                return k
+        return 0
+
+    pieces = [tuple(p) for p in patterns]
+    pieces = [p for i, p in enumerate(pieces)
+              if not any(j != i and q != p and _inside(p, q)
+                         for j, q in enumerate(pieces))]
+    while len(pieces) > 1:
+        best = (-1, 0, 0)
+        for i, a in enumerate(pieces):
+            for j, b in enumerate(pieces):
+                if i != j and _overlap(a, b) > best[0]:
+                    best = (_overlap(a, b), i, j)
+        k, i, j = best
+        joined = pieces[i] + pieces[j][k:]
+        pieces = [p for n, p in enumerate(pieces) if n not in (i, j)]
+        pieces = [p for p in pieces if not _inside(p, joined)] + [joined]
+    pool = list(pieces[0])
+    starts = []
+    for pat in patterns:
+        starts.append(next(i for i in range(len(pool))
+                           if pool[i:i + len(pat)] == list(pat)))
+    offsets = [starts[i] for i in index]
+    assert max(offsets) + len(patterns[0]) <= 256, "a pool offset no longer fits a byte"
+    return pool, offsets
+
+
 def _emit_bar_table(f, name, patterns, index, per_bar, per_line, what,
                     was=None):
     """Emits the pattern array and its bar index, with the saving in a
@@ -164,7 +205,9 @@ def generate_c64_headers():
         f.write("// should know about.\n")
         f.write(f"extern const music_chord_t kMusicChordPat[];\n")
         f.write(f"extern const uint8_t kMusicChordBar[{t1['bars']}];\n")
-        f.write(f"extern const uint8_t kMusicLeadStartPat[][{rpb // 2}];\n")
+        f.write("// The lead's patterns overlap in one pool, and its bar index holds\n")
+        f.write("// where each starts there rather than which one it is.\n")
+        f.write(f"extern const uint8_t kMusicLeadStartPool[];\n")
         f.write(f"extern const uint8_t kMusicLeadStartBar[{t1['bars']}];\n")
         f.write(f"extern const uint8_t kMusicBassStepPat[][{rpb}];\n")
         f.write(f"extern const uint8_t kMusicBassStepBar[{t1['bars']}];\n")
@@ -185,7 +228,7 @@ def generate_c64_headers():
         f.write("// the even rows alone and every odd row reads as 0.\n")
         f.write("#define MUSIC_LEAD_START_IN(bar, r)  \\\n")
         f.write("    (((r) & 1) ? 0 : \\\n")
-        f.write("     kMusicLeadStartPat[kMusicLeadStartBar[bar]][(r) >> 1])\n")
+        f.write("     kMusicLeadStartPool[(uint8_t)(kMusicLeadStartBar[bar] + ((r) >> 1))])\n")
         f.write("// The bass only plays intervals above its bar's chord root, so its\n")
         f.write("// lane holds the interval + 1 (0 = no new note) and comes down to\n")
         f.write("// the few rhythm shapes the arrangement has. The player tests the\n")
@@ -304,9 +347,18 @@ def generate_c64_source():
         _emit_rows(f, t1['vol_map'], 8)
         f.write("};\n\n")
 
-        _emit_bar_table(f, "kMusicLeadStart", *lead_pat, rows_per_bar // 2, 12,
-                        "Lead start midi notes on even rows, 0 = rest",
-                        was=tot_rows)
+        # The lead barely repeats, so its patterns are overlapped instead:
+        # one pool, and each bar's index is where its pattern starts in it.
+        pool, offsets = pool_bars(*lead_pat)
+        f.write(f"// Lead start midi notes on even rows, 0 = rest: {len(lead_pat[0])} "
+                f"distinct bars of {bars}, overlapped in a {len(pool)} byte pool, "
+                f"{len(pool) + bars} bytes instead of {tot_rows}.\n")
+        f.write(f"const uint8_t kMusicLeadStartPool[{len(pool)}] = {{\n")
+        _emit_rows(f, pool, 12)
+        f.write("};\n\n")
+        f.write(f"const uint8_t kMusicLeadStartBar[{bars}] = {{\n")
+        _emit_rows(f, offsets, 12)
+        f.write("};\n\n")
         _emit_bar_table(f, "kMusicBassStep", *bass_pat, rows_per_bar, 12,
                         "Bass interval above the chord root + 1, 0 = no new note")
 

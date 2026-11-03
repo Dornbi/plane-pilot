@@ -163,8 +163,9 @@ class TestMusicData(unittest.TestCase):
         self.assertIn(f"kMusicTotalFrames = {shipped['total_frames']};", h_content)
         # The lanes are bar-indexed, so the header declares a pattern array and
         # a one-byte-per-bar index rather than one flat row array.
-        # The lead lane keeps only the even rows (odd ones read as 0).
-        self.assertIn(f"kMusicLeadStartPat[][{shipped['rows_per_bar'] // 2}]", h_content)
+        # The lead lane keeps only the even rows (odd ones read as 0), its
+        # patterns overlapped in one pool.
+        self.assertIn("kMusicLeadStartPool[]", h_content)
         self.assertIn(f"kMusicLeadStartBar[{shipped['bars']}]", h_content)
 
     def test_volume_map_reaches_the_c64(self):
@@ -218,6 +219,20 @@ class TestMusicData(unittest.TestCase):
             self.assertLess(b, len(pats), f"{name}Bar points past {name}Pat")
         return [v for b in index for v in pats[b]]
 
+    def _pool_table(self, cc, name, per_bar):
+        """Rebuilds one flat per-row lane from its pattern pool and the bar
+        index of where each bar's pattern starts in it."""
+        m = re.search(r'const uint8_t ' + name + r'Pool\[(\d+)\] = \{(.*?)\n\};',
+                      cc, re.S)
+        self.assertIsNotNone(m, f"{name}Pool[] not found in musicdef.cc")
+        pool = [int(x) for x in m.group(2).split(',') if x.strip()]
+        self.assertEqual(len(pool), int(m.group(1)))
+        index = self._c_array(cc, name + "Bar", music.BARS)
+        for b in index:
+            self.assertLessEqual(b + per_bar, len(pool),
+                                 f"{name}Bar points past {name}Pool")
+        return [v for b in index for v in pool[b:b + per_bar]]
+
     def test_packed_tables_round_trip(self):
         """Unpacking the C must reproduce exactly what the browser reference got.
 
@@ -241,7 +256,7 @@ class TestMusicData(unittest.TestCase):
 
         # Lane 1 and 2: one byte a row, bar indexed only. The lead keeps
         # only its even rows; MUSIC_LEAD_START_IN reads every odd row as 0.
-        lead_even = self._bar_table(cc, "kMusicLeadStart", rpb // 2)
+        lead_even = self._pool_table(cc, "kMusicLeadStart", rpb // 2)
         unpacked_lead_start = [0 if r & 1 else lead_even[r >> 1] for r in range(rows)]
         self.assertEqual(unpacked_lead_start, lead_start)
         # The bass lane is the interval above the bar's chord root + 1;

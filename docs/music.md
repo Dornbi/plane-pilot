@@ -657,7 +657,7 @@ estimated:
 
 | Item                                          |    Bytes |
 | --------------------------------------------- | -------: |
-| `kMusicLeadStartPat[20][8]` + `Bar[24]`       |      184 |
+| `kMusicLeadStartPool[133]` + `Bar[24]`        |      157 |
 | `kMusicBassStepPat[3][16]` + `Bar[24]`        |       72 |
 | `kMusicDrumBitsPat[5][4]` + `Bar[24]`         |       44 |
 | `kMusicLeadOnBitsPat[3][2]` + `Bar[24]`       |       30 |
@@ -665,11 +665,11 @@ estimated:
 | Six instruments × 8                           |       48 |
 | `kMusicVolMap[24]`                            |       24 |
 | `kMusicNoteTable[12]`                         |       24 |
-| **Data, as generated**                        |  **503** |
+| **Data, as generated**                        |  **476** |
 | Volume composition table (§3)                 |       48 |
 | Player code                                   |      884 |
 | Player state (bss + zp)                       |       13 |
-| **Total**                                     | **1,528** |
+| **Total**                                     | **1,501** |
 
 Measured from `ppilot.map` by `tools/analyze_ram.py`, not estimated. Against
 6,623 bytes free in `ppilot.prg` — which is to say the tune is a quarter of the
@@ -794,6 +794,15 @@ index) and `MUSIC_LEAD_START_IN` reads every odd row as 0. The generator
 asserts the premise, and `test_packed_tables_round_trip` re-inserts the zeros
 before comparing with the browser's array. That took 160 more bytes off the
 lane, for a test of bit 0 on a read.
+
+**Later: the lead's patterns overlap.** Its 20 patterns hardly repeat, but
+many end the way another begins (`..., 74, 0` and `74, 0, ...`), and the rests
+run long. The generator overlaps them greedily into one 133-byte
+`kMusicLeadStartPool`, and `kMusicLeadStartBar` holds where each bar's pattern
+starts in it rather than which pattern it is, so the read is an add instead of
+a multiply by 8: 184 -> 157 bytes, the code 3 bytes smaller.
+`test_packed_tables_round_trip` slices the pool by the index before comparing
+with the browser's array.
 
 **Later: the bass is rhythm over the chord root.** Every bass note is its
 bar's chord root plus 0, 7, 10 or 12, so the generator stores the interval + 1
