@@ -308,9 +308,17 @@ static void _limit_vec(vec3_t *v) {
   }
 }
 
+// The squares and the divisions loop over the components, counting a byte
+// offset down so that oscar64 reads them (v),y: written out, each was a copy
+// of the call and its loads (281 -> 251 B). The sum is the same mod 2^16.
 void vec_normalize(vec3_t *v) {
-  uint16_t L2 =
-      vec_fastsqr8p8(v->x) + vec_fastsqr8p8(v->y) + vec_fastsqr8p8(v->z);
+  uint8_t *b = (uint8_t *)v;
+  uint16_t L2 = 0;
+  uint8_t o = sizeof(vec3_t);
+  do {
+    o -= 2;
+    L2 += vec_fastsqr8p8(*(int16_t *)(b + o));
+  } while (o != 0);
 
   if (L2 == 0) {
     return;
@@ -338,9 +346,13 @@ void vec_normalize(vec3_t *v) {
     return;
   }
 
-  v->x = vec_div8p8(v->x, res << 1);
-  v->y = vec_div8p8(v->y, res << 1);
-  v->z = vec_div8p8(v->z, res << 1);
+  res <<= 1;
+  o = sizeof(vec3_t);
+  do {
+    o -= 2;
+    int16_t *c = (int16_t *)(b + o);
+    *c = vec_div8p8(*c, res);
+  } while (o != 0);
 
   _limit_vec(v);
 }
