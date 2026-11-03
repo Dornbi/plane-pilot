@@ -269,7 +269,7 @@ void _planes_fill_poly(uint8_t s, uint8_t n) {
       half = slope;
     } else {
       if (dy > 2) {
-        slope = vec_fastmul8p8(dx, (int16_t)kPlaneRecip[dy]);
+        slope = vec_fastmul8p8(dx, (int16_t)kPlaneRecip[dy - kPlaneRecipFirst]);
       }
       half = (int16_t)(slope >> 1);
     }

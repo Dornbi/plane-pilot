@@ -477,9 +477,11 @@ static uint8_t _pb, _t, _base, _jb;
 #endif
 
 // kPlaneRecip is striped, its high bytes kPlaneRecipCount after the low ones,
-// and the inline assembler takes only a literal offset - so the fill spells
-// it 42, and this holds the generator to it.
-static_assert(kPlaneRecipCount == 42, "update kPlaneRecip + 42 in the fill");
+// and starts at dy kPlaneRecipFirst; the inline assembler takes only a
+// literal offset - so the fill spells them 39 - 3 and -3, and this holds the
+// generator to them.
+static_assert(kPlaneRecipCount == 39 && kPlaneRecipFirst == 3,
+              "update kPlaneRecip + 36 and - 3 in the fill");
 
 // _planes_fill_poly() on _fs and _fn.
 static void _fill_poly(void) {
@@ -609,9 +611,9 @@ static void _fill_poly(void) {
     L_dx_pos:
         sta _t;
         ldy _dy;
-        lda kPlaneRecip + 42, y;  // striped: the high bytes, see below
+        lda kPlaneRecip + 36, y;  // striped: the high bytes, see below
         sta vec_mul8_b;
-        lda kPlaneRecip, y;
+        lda kPlaneRecip - 3, y;
         sta _pb;
         lda _t;
         jsr vec_mul8;
