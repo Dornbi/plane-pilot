@@ -42,8 +42,8 @@ int16_t roll_dx_div_dy;
 uint8_t roll_period;
 bool roll_x_is_major;
 bool roll_shift_2chars;
-
-static void *_get_mul_func(int8_t x) { return (void *)roll_mul_funcs[x + 16]; }
+int8_t roll_ex_dy[8];
+int8_t roll_ey_dx[8];
 
 // Note there is a discrepancy between this and the code in roll_angle.py:
 // - For rendering (here), we always cap roll_period at 8
@@ -80,6 +80,12 @@ void roll_update_state() {
     }
   }
   roll_period = p;
-  roll_mul_dx = _get_mul_func(dx);
-  roll_mul_dy = _get_mul_func(dy);
+  // roll_get_dist()'s products: -4 times dx and dy at e = 0, one more each e.
+  int8_t vx = (int8_t)(dx * -4), vy = (int8_t)(dy * -4);
+  for (uint8_t e = 0; e < 8; ++e) {
+    roll_ey_dx[e] = vx;
+    roll_ex_dy[e] = vy;
+    vx += dx;
+    vy += dy;
+  }
 }

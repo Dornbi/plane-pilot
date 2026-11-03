@@ -193,8 +193,9 @@ slope). The period, how many pixel steps along the line before it returns to
 a character-aligned position, is computed from the trailing zero bits of
 `dx | dy`; the renderer caps it at 8. Angle
 a + 30 is angle a with `dx` and `dy` negated, so `roll_update_state()` folds
-the second half-turn onto the first. It also selects hand-written multiply-by-constant routines (`roll_mul_funcs`) for
-the current `dx`/`dy`.
+the second half-turn onto the first. It also fills `roll_ex_dy` and
+`roll_ey_dx`, the eight products of the current `dy`/`dx` with a pixel's
+offset from its nearest char (-4..3), which `roll_get_dist()` looks up.
 
 ### `render.cc` — snapping and background fill
 

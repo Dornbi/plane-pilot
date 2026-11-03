@@ -146,7 +146,7 @@ void render_snap_center_chars() {
     _render_set_alt_shift();
 
     // 1. Main Lattice vs 2. Alt Lattice
-    uint16_t min_dist = roll_get_dist(px, py);
+    uint8_t min_dist = roll_get_dist(px, py);
     int16_t ax = px - render_alt_shift_x;
     int16_t ay = py - render_alt_shift_y;
     if (roll_get_dist(ax, ay) < min_dist) {
@@ -155,9 +155,9 @@ void render_snap_center_chars() {
       render_alt_box = true;
     }
   } else {
-    uint16_t min_dist = 0x7fff;
+    uint8_t min_dist = 0xff;
     for (uint8_t i = 0; i < roll_period; ++i) {
-      uint16_t dist = roll_get_dist(px, py);
+      uint8_t dist = roll_get_dist(px, py);
       if (dist < min_dist) {
         min_dist = dist;
         best_px = px;
