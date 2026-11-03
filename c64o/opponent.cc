@@ -648,11 +648,16 @@ void opponent_reset(uint8_t mission) {
   opponent_invalidate();
 }
 
-static_assert((kOpponentReach & (kOpponentReach - 1)) == 0,
-              "power-of-two reach lets waypoint range OR the axes");
-
 static __noinline uint16_t _opponent_abs(int16_t v) {
   return (uint16_t)(v < 0 ? -v : v);
+}
+
+// |d| < r, as one unsigned 16-bit compare in line: in opponent_step(), whose
+// waypoint reach and cut test it on both axes every step, faster and smaller
+// than two _opponent_abs() calls. d + r - 1 stays inside int16: d is
+// _opponent_toward()'s, within +-16,384.
+static inline bool _opponent_within(int16_t d, uint16_t r) {
+  return (uint16_t)(d + (int16_t)(r - 1)) < (uint16_t)(2 * r - 1);
 }
 
 // a * b + c * d, each in 8.8 with b and d no more than 256: every product
@@ -995,8 +1000,8 @@ void opponent_step(void) {
     }
     int16_t dx = _opponent_toward(tx, _opponent_x[i]);
     int16_t dy = _opponent_toward(ty, _opponent_y[i]);
-    if (!hunt &&
-        (_opponent_abs(dx) | _opponent_abs(dy)) < (uint16_t)kOpponentReach) {
+    if (!hunt && _opponent_within(dx, kOpponentReach) &&
+        _opponent_within(dy, kOpponentReach)) {
       // Reached, and the next one is steered for from the next step on.
       uint8_t w = _opponent_next[i];
       if (w == p->fail) {
@@ -1036,7 +1041,7 @@ void opponent_step(void) {
     // first, so both products fit 16 bits, and taken as 8.8 so that
     // vec_fastmul8p8() forms them exactly, with no multiply linked for them.
     uint8_t cut = 0;
-    while (_opponent_abs(dx) >= 64 || _opponent_abs(dy) >= 64) {
+    while (!_opponent_within(dx, 64) || !_opponent_within(dy, 64)) {
       dx >>= 1;
       dy >>= 1;
       dz >>= 1;
