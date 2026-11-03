@@ -88,19 +88,27 @@ void print_labeled_hex(uint16_t pos, const char *label, uint32_t value,
   print_hex(pos + len, value, num_digits);
 }
 
+// A byte at a time: no strchr() and strlen() over each line first.
 uint8_t print_lines(uint8_t row, uint8_t col, const char *text) {
-  uint8_t c = 0;
+  uint8_t c = 1, x = col;
+  uint8_t *dst = mem_screen_row_ptrs[row];
   for (;;) {
-    const char *p = strchr(text, '\n');
-    if (p == nullptr) {
-      break;
+    char ch = *text++;
+    if (ch == 0) {
+      return c;
     }
-    print_str(row + c, col, text, p - text);
-    ++c;
-    text = p + 1;
+    if (ch == '\n') {
+      dst = mem_screen_row_ptrs[++row];
+      x = col;
+      ++c;
+    } else if (ch == '\t') {
+      while (x < (uint8_t)(col + kPrintTabCol)) {
+        dst[x++] = ' ';
+      }
+    } else {
+      dst[x++] = ch;
+    }
   }
-  print_str(row + c, col, text, strlen(text));
-  return c + 1;
 }
 
 #pragma optimize(pop)

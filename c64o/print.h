@@ -27,7 +27,10 @@ void print_labeled_signed_bcd(uint16_t pos, const char *label, int16_t value,
 void print_labeled_hex(uint16_t pos, const char *label, uint32_t value,
                        uint8_t num_digits = 4);
 
+// Prints `text` from (row, col), a row per '\n'; a '\t' pads with spaces to
+// kPrintTabCol columns from col, the help screen's description column.
 // Returns the number of rows.
+static const uint8_t kPrintTabCol = 9;
 uint8_t print_lines(uint8_t row, uint8_t col, const char *text);
 
 #pragma compile("print.cc")

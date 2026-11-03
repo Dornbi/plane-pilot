@@ -19,35 +19,36 @@
 // with the "Controls" table in README.md.
 //
 // One blob rather than parallel key/description arrays: print_lines() walks
-// it directly, so there is no pointer table and no per-row loop below. The
-// key column is space-padded so the descriptions line up in one column.
+// it directly, so there is no pointer table and no per-row loop below. A
+// '\t' after each key pads it to print_lines()' kPrintTabCol, so the
+// descriptions line up in one column without the padding stored.
 // clang-format off
 static const char kHelpText[] =
-    "I J K L  ROLL AND PITCH\n"
-    "A S      YAW\n"
-    "+ -      THROTTLE UP/DOWN\n"
-    "F        TOGGLE FLAPS\n"
-    "G        TOGGLE GEAR\n"
-    "B        BRAKE ON GROUND\n"
+    "I J K L\tROLL AND PITCH\n"
+    "A S\tYAW\n"
+    "+ -\tTHROTTLE UP/DOWN\n"
+    "F\tTOGGLE FLAPS\n"
+    "G\tTOGGLE GEAR\n"
+    "B\tBRAKE ON GROUND\n"
 #ifdef __ENABLE_OPPONENT__
-    "SPACE    FIRE\n"
+    "SPACE\tFIRE\n"
 #endif
     "\n"
-    "1 2 3 4  LOOK LEFT/FWD/RIGHT/BACK\n"
-    "N        TOGGLE NAV POINT\n"
-    "M        TOGGLE MAP VIEW\n"
-    "P        PAUSE / RESUME\n"
+    "1 2 3 4\tLOOK LEFT/FWD/RIGHT/BACK\n"
+    "N\tTOGGLE NAV POINT\n"
+    "M\tTOGGLE MAP VIEW\n"
+    "P\tPAUSE / RESUME\n"
 #ifdef __ENABLE_SOUND__
-    "V        SOUND FULL / LOW / OFF\n"
+    "V\tSOUND FULL / LOW / OFF\n"
 #endif
-    "R        RESTART MISSION\n"
-    "Q        QUIT TO MENU\n"
+    "R\tRESTART MISSION\n"
+    "Q\tQUIT TO MENU\n"
 #ifdef __ENABLE_DEBUG__
     "\n"
-    "D        TOGGLE DEBUG VIEW\n"
+    "D\tTOGGLE DEBUG VIEW\n"
 #endif
     "\n"
-    "H        SHOW THIS HELP SCREEN";
+    "H\tSHOW THIS HELP SCREEN";
 // clang-format on
 
 static const uint8_t kHelpRowStart = 2;
