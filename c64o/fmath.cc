@@ -61,37 +61,18 @@ uint8_t _get_ratio(int16_t x, int16_t y) {
       d >>= 1;
     }
 
-    // Unrolled 6-bit shift-subtract division to calculate (n * 64) / d
-    n <<= 1;
-    if (n >= d) {
-      n -= d;
-      ratio |= 32;
-    }
-    n <<= 1;
-    if (n >= d) {
-      n -= d;
-      ratio |= 16;
-    }
-    n <<= 1;
-    if (n >= d) {
-      n -= d;
-      ratio |= 8;
-    }
-    n <<= 1;
-    if (n >= d) {
-      n -= d;
-      ratio |= 4;
-    }
-    n <<= 1;
-    if (n >= d) {
-      n -= d;
-      ratio |= 2;
-    }
-    n <<= 1;
-    if (n >= d) {
-      n -= d;
-      ratio |= 1;
-    }
+    // 6-bit shift-subtract division to calculate (n * 64) / d, a bit a
+    // pass, most significant first. Counted down: oscar64 unrolls a for loop
+    // with a constant count, which is what this was written out as.
+    uint8_t b = 6;
+    do {
+      n <<= 1;
+      ratio <<= 1;
+      if (n >= d) {
+        n -= d;
+        ratio |= 1;
+      }
+    } while (--b != 0);
   }
   return ratio;
 }
