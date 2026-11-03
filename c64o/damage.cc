@@ -1,6 +1,7 @@
 #include "damage.h"
 
 #include "color.h"
+#include "fmath.h"
 #include "msg.h"
 #include "vic.h"
 
@@ -19,9 +20,11 @@ static const uint8_t kDamageOilSteps = 200;
 static const uint8_t kDamageFlash = 6;
 static uint8_t _damage_flash;
 
-// By failure, in kDamage* bit order.
-static const uint8_t kDamageBit[5] = {kDamageEngine, kDamageFuel, kDamageOil, kDamageHydraulics,
-                                      kDamageControls};
+// By failure, in kDamage* bit order: failure k is bit k, so its mask is
+// fmath.h's kBit[k] and needs no table of its own.
+static_assert(kDamageEngine == 1 << 0 && kDamageFuel == 1 << 1 && kDamageOil == 1 << 2 &&
+                  kDamageHydraulics == 1 << 3 && kDamageControls == 1 << 4,
+              "failure k is bit k");
 static const char *const kDamageText[5] = {"ENGINE DAMAGED", "FUEL LEAK", "OIL LEAK",
                                            "HYDRAULICS HIT", "CONTROLS DAMAGED"};
 
@@ -64,12 +67,12 @@ void damage_hit(uint8_t hits) {
   while (k >= 5) {
     k -= 5;
   }
-  while (damage_bits & kDamageBit[k]) {
+  while (damage_bits & kBit[k]) {
     if (++k == 5) {
       k = 0;
     }
   }
-  uint8_t bit = kDamageBit[k];
+  uint8_t bit = kBit[k];
   damage_bits |= bit;
   if (bit == kDamageOil) {
     _damage_oil = kDamageOilSteps;

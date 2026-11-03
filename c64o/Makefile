@@ -137,7 +137,9 @@ OPPONENT_SRC = \
 		opponent.h \
 		opponent.cc \
 		gun.h \
-		gun.cc
+		gun.cc \
+		damage.h \
+		damage.cc
 
 POLYDEMO_PROGRAM = polydemo
 POLYDEMO_SRC = \
