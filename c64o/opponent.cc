@@ -648,9 +648,13 @@ void opponent_reset(uint8_t mission) {
   opponent_invalidate();
 }
 
+// Not outlined, so that oscar64 folds it, gun.cc's _gun_abs() and planes.cc's
+// and planes_asm.cc's into one: outlined, its negation was a copy of its own.
+#pragma optimize(push, nooutline)
 static __noinline uint16_t _opponent_abs(int16_t v) {
   return (uint16_t)(v < 0 ? -v : v);
 }
+#pragma optimize(pop)
 
 // |d| < r, as one unsigned 16-bit compare in line: in opponent_step(), whose
 // waypoint reach and cut test it on both axes every step, faster and smaller
