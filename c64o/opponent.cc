@@ -680,6 +680,12 @@ static __noinline void _opponent_move(uint8_t i, uint8_t idx, int16_t h) {
       flight_step_s(vec_fastmul8p8(_opponent_speed[i] << 1, h));
 }
 
+// Both axes across the ground, along slot i's heading.
+static __noinline void _opponent_ahead(uint8_t i) {
+  _opponent_move(i, i, _opponent_head[i].x);
+  _opponent_move(i, (uint8_t)(i + kOpponentMax), _opponent_head[i].y);
+}
+
 // One step of the flight model for slot i, asked to climb at level `want`,
 // descend below 0, or fly level: on a whole step the limits and the speed,
 // then on every step the height, the slope's share of the speed. The move
@@ -947,8 +953,7 @@ static __noinline void _opponent_fall(uint8_t i, bool whole) {
     _opponent_destroy(i, nullptr);
     return;
   }
-  _opponent_move(i, i, h->x);
-  _opponent_move(i, (uint8_t)(i + kOpponentMax), h->y);
+  _opponent_ahead(i);
 }
 
 void opponent_step(void) {
@@ -1083,8 +1088,7 @@ void opponent_step(void) {
       continue;
     }
 
-    _opponent_move(i, i, h->x);
-    _opponent_move(i, (uint8_t)(i + kOpponentMax), h->y);
+    _opponent_ahead(i);
   }
   _opponent_track();
 }
