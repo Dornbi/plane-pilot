@@ -264,11 +264,14 @@ static void _gun_fire_from(uint8_t i) {
   if (r == kRoundNone || !opponent_target(i, _gun_p) || !_gun_rel3_to()) {
     return;
   }
-  uint8_t k = r;
-  for (uint8_t c = 0; c < 3; ++c, k += kRoundMax) {
+  // Counted down: oscar64 unrolls the three axes of a for loop, here 74 B.
+  uint8_t k = (uint8_t)(r + 2 * kRoundMax), c = 3;
+  do {
+    --c;
     _round_p[k] = _gun_t[c];
     _round_v[k] = _gun_v[c];
-  }
+    k -= kRoundMax;
+  } while (c != 0);
   _round_age[r] = 1;
   _round_owner[r] = (uint8_t)(i + 1);
 }
@@ -399,9 +402,12 @@ void gun_step(bool trigger) {
   int16_t ground = _gun_rel(2) ? _gun_t[2] : -32767;
   if (_gun_puff_t != 0) {
     --_gun_puff_t;
-    for (uint8_t c = 0; c < 3; ++c) {
+    // Counted down, as in _gun_fire_from(), and for the same reason.
+    uint8_t c = 3;
+    do {
+      --c;
       _gun_puff[c] -= _gun_moved[c];
-    }
+    } while (c != 0);
   }
   for (uint8_t r = 0; r < kRoundMax; ++r) {
     if (_round_age[r] == 0) {
