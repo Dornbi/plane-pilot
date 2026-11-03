@@ -1003,11 +1003,14 @@ void flight_advance() {
       _flight_fall();
     }
 #endif
-    // Altitude density decay (above Z = 0x080000)
-    uint8_t alt_penalty = 0;
-    if (flight_eye_z > 0x080000) {
-      uint32_t alt_diff = (flight_eye_z - 0x080000) >> 12;
-      alt_penalty = (alt_diff > 128) ? 128 : (uint8_t)alt_diff;
+    // Altitude density decay (above Z = 0x080000): (Z - 0x080000) >> 12,
+    // capped at 128 from Z = 0x101000 up. Z is never below kFlightMinEyeZ, and
+    // 0x080000 is a whole number of 0x1000 steps, so all of it is done on
+    // Z >> 8, a byte move, in 16 bits once the top byte is clear.
+    uint8_t alt_penalty = 128;
+    uint16_t z8 = (uint16_t)(flight_eye_z >> 8);
+    if ((uint8_t)(flight_eye_z >> 24) == 0 && z8 < 0x1010) {
+      alt_penalty = z8 < 0x0800 ? 0 : (uint8_t)((z8 - 0x0800) >> 4);
     }
     uint16_t density = 256 - alt_penalty;
 
