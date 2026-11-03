@@ -1087,7 +1087,9 @@ frame grew from 10 to 12 B.
 
 fpilot then got room for ten missions. `kMissionCount` is 10 in both games,
 and fmission.cc's 06–10 are placeholders titled RESERVED: each starts parked
-on runway 1, sends nothing (no row in `kOpponentPaths` since the RAM loop's
+on runway 1 (from 04's start row, `kMissionParkedStart`: the six
+`kMissionStart*` tables hold only 01–05's since the RAM loop's pass of
+2026-11-02), sends nothing (no row in `kOpponentPaths` since the RAM loop's
 pass of 2026-11-02: `opponent_reset()` switches both slots off; it was one
 empty row each at first, then one shared) and so has its
 goals met at once. fpilot's one-page menu is gone, replaced by ppilot's

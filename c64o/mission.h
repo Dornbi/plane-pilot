@@ -33,6 +33,14 @@ static const uint8_t kMissionWpCount = 2;
 static const uint8_t kMissionWpCount = 16;
 #endif
 static const uint8_t kMissionCount = 10;
+// The missions with a start row of their own. fpilot's placeholders have
+// none: they start from kMissionParkedStart's, 04's, parked on runway 1.
+#ifdef __FPILOT__
+static const uint8_t kMissionStarts = 5;
+static const uint8_t kMissionParkedStart = 3;
+#else
+static const uint8_t kMissionStarts = kMissionCount;
+#endif
 
 // Waypoints across all missions.
 extern const uint8_t kMissionWpX[kMissionWpCount]; // flight_eye_x = x << 16;
@@ -46,21 +54,21 @@ extern const char *const kMissionDesc[kMissionCount];
 
 // Missions.
 // flight_eye_x = start_x << 16
-extern const uint8_t kMissionStartX[kMissionCount];
+extern const uint8_t kMissionStartX[kMissionStarts];
 // flight_eye_y = (start_y << 16) + 0x8000;
-extern const uint8_t kMissionStartY[kMissionCount];
+extern const uint8_t kMissionStartY[kMissionStarts];
 // flight_eye_z = start_z << 16
-extern const uint8_t kMissionStartZ[kMissionCount];
+extern const uint8_t kMissionStartZ[kMissionStarts];
 // flight_speed = start_speed << 4;
-extern const uint8_t kMissionStartSpeed[kMissionCount];
+extern const uint8_t kMissionStartSpeed[kMissionStarts];
 // flight_throttle = start_throttle;
-extern const uint8_t kMissionStartThrottle[kMissionCount];
+extern const uint8_t kMissionStartThrottle[kMissionStarts];
 // flight_fuel = (start_fuel << 12) - 1;
 extern const uint8_t kMissionStartFuel[kMissionCount];
 #ifdef __FPILOT__
 // The heading, in quarter turns left of north: 0 north, 1 west, 2 south,
 // 3 east.
-extern const uint8_t kMissionStartTurns[kMissionCount];
+extern const uint8_t kMissionStartTurns[kMissionStarts];
 #endif
 extern const uint8_t kMissionWindX[kMissionCount];
 extern const uint8_t kMissionWindY[kMissionCount];

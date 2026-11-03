@@ -5,8 +5,8 @@
 //
 // Four interceptions, the fourth the scramble fpilot started with, and a
 // head-on meeting with two hunting fighters. 06-10 are placeholders, so that
-// the menu, the tables and the RAM they cost are there for ten: each starts
-// parked on runway 1, as 02 and 04 do, and sends nothing, so its goals are
+// the menu and the tables are there for ten: each starts parked on runway 1,
+// from 04's start row, and sends nothing, so its goals are
 // met at once and landing completes it. What each sends against the
 // player is opponent.cc's kOpponentPaths, and what fails it, opponent.cc
 // too. The goal is the same for all five, so they share one slice of the
@@ -104,83 +104,54 @@ const char *const kMissionDesc[kMissionCount] = {
 // runway 1 heading north, engine at idle, the bombers coming south towards
 // it in 02, the bandits already about in 04. 05 in the air at cruise at
 // 3,000 ft heading north, the hunters coming south at it from 2.3 km. The
-// placeholders as 02 and 04.
-const uint8_t kMissionStartX[kMissionCount] = {
+// placeholders have no row: flight_init_from_mission() starts them from
+// 04's (kMissionParkedStart).
+const uint8_t kMissionStartX[kMissionStarts] = {
     0x5C, // 01
     0x1C, // 02
     0x5D, // 03
     0x1C, // 04
     0x30, // 05
-    0x1C, // 06
-    0x1C, // 07
-    0x1C, // 08
-    0x1C, // 09
-    0x1C, // 10
 };
 
-const uint8_t kMissionStartY[kMissionCount] = {
+const uint8_t kMissionStartY[kMissionStarts] = {
     0x5F, // 01
     0x3F, // 02
     0xCE, // 03
     0x3F, // 04
     0x90, // 05
-    0x3F, // 06
-    0x3F, // 07
-    0x3F, // 08
-    0x3F, // 09
-    0x3F, // 10
 };
 
-const uint8_t kMissionStartTurns[kMissionCount] = {
+const uint8_t kMissionStartTurns[kMissionStarts] = {
     0, // 01
     0, // 02
     3, // 03
     0, // 04
     0, // 05
-    0, // 06
-    0, // 07
-    0, // 08
-    0, // 09
-    0, // 10
 };
 
-const uint8_t kMissionStartZ[kMissionCount] = {
+const uint8_t kMissionStartZ[kMissionStarts] = {
     0x05, // 01
     0x00, // 02
     0x02, // 03
     0x00, // 04
     0x06, // 05
-    0x00, // 06
-    0x00, // 07
-    0x00, // 08
-    0x00, // 09
-    0x00, // 10
 };
 
-const uint8_t kMissionStartSpeed[kMissionCount] = {
+const uint8_t kMissionStartSpeed[kMissionStarts] = {
     0x88, // 01
     0x00, // 02
     0x88, // 03
     0x00, // 04
     0x88, // 05
-    0x00, // 06
-    0x00, // 07
-    0x00, // 08
-    0x00, // 09
-    0x00, // 10
 };
 
-const uint8_t kMissionStartThrottle[kMissionCount] = {
+const uint8_t kMissionStartThrottle[kMissionStarts] = {
     0x12, // 01
     0x00, // 02
     0x12, // 03
     0x00, // 04
     0x12, // 05
-    0x00, // 06
-    0x00, // 07
-    0x00, // 08
-    0x00, // 09
-    0x00, // 10
 };
 
 // About 15 minutes at full throttle. The longest way home, from runway 2 in

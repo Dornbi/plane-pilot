@@ -527,6 +527,10 @@ void flight_init_from_mission(uint8_t mission_idx) {
   flight_current_wp = 0;
   flight_cam = _m_init;
 #ifdef __FPILOT__
+  // The start row: fpilot's placeholders have none (fmission.cc).
+  if (mission_idx >= kMissionStarts) {
+    mission_idx = kMissionParkedStart;
+  }
   // Quarter turns left from north. Level, the up stays the world's, and
   // front and left have no z: the front turns to the left, and the left to
   // the front's reverse.
