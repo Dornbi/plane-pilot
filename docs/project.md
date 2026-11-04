@@ -712,7 +712,7 @@ are kept last in the enum so that predicate stays a single comparison.
 
 ## 8. Support modules
 
-- **`fmath.cc`** — `_get_msb`, a division-free `_get_ratio` (6-bit
+- **`fmath.cc`** — `kBit`, a division-free `_get_ratio` (6-bit
   shift-subtract), and LUT-based `_get_heading` (48 steps) and
   `_get_roll_angle` (60 steps).
 - **`sound.cc`** — flight audio. Split by rate: `sound_update()` computes a

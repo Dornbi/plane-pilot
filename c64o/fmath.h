@@ -19,8 +19,6 @@ inline uint16_t _max16(uint16_t a, uint16_t b) { return a > b ? a : b; }
 inline uint8_t _min8(uint8_t a, uint8_t b) { return a > b ? b : a; }
 inline uint16_t _min16(uint16_t a, uint16_t b) { return a > b ? b : a; }
 
-uint8_t _get_msb(uint16_t n);
-
 // kBit[n] == 1 << n. A shift by a variable amount makes oscar64 link its 56 B
 // bitshift runtime table; every such shift in the program reads this instead.
 extern const uint8_t kBit[8];

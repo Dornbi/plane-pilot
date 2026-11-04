@@ -5,31 +5,6 @@ const uint8_t kBit[8] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80};
 // Left to the outliner (-Oo): _get_ratio() runs at most three times a frame,
 // so its JSR/RTS pairs cost nothing measurable (codesize.md §3.1).
 
-__forceinline uint8_t _get_msb(uint16_t n) {
-  if (n == 0) {
-    return 0;
-  }
-
-  uint8_t r = 0;
-  if (n & 0xFF00) {
-    n >>= 8;
-    r += 8;
-  }
-  if (n & 0x00F0) {
-    n >>= 4;
-    r += 4;
-  }
-  if (n & 0x000C) {
-    n >>= 2;
-    r += 2;
-  }
-  if (n & 0x0002) {
-    r += 1;
-  }
-
-  return r;
-}
-
 // Calculates the ratio of |y| to |x| + |y|,
 // scaled by a factor of 64 to return a value between 0 and 64.
 uint8_t _get_ratio(int16_t x, int16_t y) {

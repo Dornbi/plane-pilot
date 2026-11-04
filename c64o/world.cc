@@ -162,19 +162,24 @@ static __noinline int16_t _world_init_axis(uint8_t axis, int16_t grid_spacing) {
 
 void _world_init_start_dx_dy() {
   static const uint16_t kGridSpacing = 0x400;
+  // Half the top bit of eye_z >> 9, clamped to 2..4: 4 from 256 up, 3 from
+  // 64, else 2. Two compares rather than finding the bit and clamping it.
   // kMinHeight (  ~16m) = 0x002000  5 --> 2
   // default    (  ~64m) = 0x008000  7 --> 3
   //            ( ~256m) = 0x020000  9 --> 4
-  _world_grid_radius = _get_msb(flight_eye_z >> 9) >> 1;
-  if (_world_grid_radius < 2) {
-    _world_grid_radius = 2;
+  uint16_t n = (uint16_t)(flight_eye_z >> 9);
+  uint8_t radius = 2;
+  const uint8_t *num_points = kNumPoints3;
+  if (n >= 64) {
+    radius = 3;
+    if (n >= 256) {
+      radius = 4;
+      num_points = kNumPoints4;
+    }
   }
-  if (_world_grid_radius > 4) {
-    _world_grid_radius = 4;
-  }
-  _num_points_per_radius =
-      (_world_grid_radius == 4) ? kNumPoints4 : kNumPoints3;
-  int16_t grid_spacing = kGridSpacing * _world_grid_radius;
+  _world_grid_radius = radius;
+  _num_points_per_radius = num_points;
+  int16_t grid_spacing = kGridSpacing * radius;
 
   // Pre-calculate delta vectors for step in X and step in Y, and the start
   // point relative to the eye.
