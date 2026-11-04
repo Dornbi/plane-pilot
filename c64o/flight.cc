@@ -532,13 +532,17 @@ void flight_init_from_mission(uint8_t mission_idx) {
     mission_idx = kMissionParkedStart;
   }
   // Quarter turns left from north. Level, the up stays the world's, and
-  // front and left have no z: the front turns to the left, and the left to
-  // the front's reverse.
-  for (uint8_t t = kMissionStartTurns[mission_idx]; t; --t) {
-    vec3_t f = flight_cam.front;
-    flight_cam.front = flight_cam.left;
-    flight_cam.left.x = -f.x;
-    flight_cam.left.y = -f.y;
+  // front and left have no z: t turns, 0 to 3, put the front at (cos, sin)
+  // of t right angles and the left at (-sin, cos), every component 0 or
+  // +-256. Read off one table of the cosine's high bytes - the sine is the
+  // cosine three entries on, minus the sine the cosine one on - rather than
+  // turned t times in a loop.
+  {
+    static const int8_t kFlightQuarterCos[7] = {1, 0, -1, 0, 1, 0, -1};
+    uint8_t t = kMissionStartTurns[mission_idx];
+    flight_cam.front.x = flight_cam.left.y = kFlightQuarterCos[t] << 8;
+    flight_cam.front.y = kFlightQuarterCos[t + 3] << 8;
+    flight_cam.left.x = kFlightQuarterCos[t + 1] << 8;
   }
 #endif
   flight_eye_x = (int32_t)kMissionStartX[mission_idx] << 16;
