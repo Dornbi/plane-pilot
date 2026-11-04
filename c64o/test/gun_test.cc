@@ -22,6 +22,7 @@
 
 bool flight_paused = false;
 enum FlightStatus flight_status;
+uint8_t flight_events;
 uint8_t flight_step_shift = 0;
 uint8_t kFlightSubstepMask = 0;
 int32_t flight_eye_x, flight_eye_y, flight_eye_z;
@@ -614,6 +615,35 @@ static void test_armed(void) {
   CHECK(_gun_last != kRoundNone, "no round once let go and pressed again");
 }
 
+static bool ammo_left(void) { return (gun_ammo[0] | gun_ammo[1]) != 0; }
+
+// The guns' sound (FLIGHT_EV_GUN): on every step the trigger holds them
+// firing, rounds or not, the last round's included; not before the trigger
+// has been let go once, and not once they are empty.
+static void test_sound(void) {
+  printf("  the gun's sound goes every step while firing, not empty\n");
+  start(1500);
+  gun_reset();
+  flight_events = 0;
+  step(true);
+  CHECK(!(flight_events & FLIGHT_EV_GUN), "sound with the trigger held since the start");
+  step(false);
+  CHECK(!(flight_events & FLIGHT_EV_GUN), "sound with the trigger released");
+  int sounded = 0, steps = 0, last_round = -1;
+  for (int n = 0; n < 200 && ammo_left(); ++n) {
+    flight_events = 0;
+    step(true);
+    ++steps;
+    if (flight_events & FLIGHT_EV_GUN) ++sounded;
+    if (!ammo_left()) last_round = n;
+  }
+  CHECK(last_round >= 0 && sounded == steps, "%d of %d firing steps sounded", sounded, steps);
+  CHECK(flight_events & FLIGHT_EV_GUN, "the last round did not sound");
+  flight_events = 0;
+  step(true);
+  CHECK(!(flight_events & FLIGHT_EV_GUN), "sound with the guns empty");
+}
+
 static void test_eye(void) {
   printf("  the rounds' eye keeps up with flight_eye_* on every axis\n");
   start(2400);
@@ -763,6 +793,7 @@ int main() {
   test_ground();
   test_smoke();
   test_armed();
+  test_sound();
   test_eye();
   test_paused();
   test_ammo();

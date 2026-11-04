@@ -666,8 +666,14 @@ inputs are `flight_stall` and, via the generation handshake in §5, at most one
 event per frame. Priority when more than one wants the voice:
 
 ```
-crash  >  touchdown  >  stall  >  gear  >  flaps
+crash  >  touchdown  >  hit  >  stall  >  gun  >  gear  >  flaps
 ```
+
+Hit and gun are fpilot's (`FLIGHT_EV_HIT`, `FLIGHT_EV_GUN`), which gun.cc and
+damage.cc OR into `flight_events` after `flight_advance()` has published it;
+ppilot never raises them. A hit also outranks a one-shot already running, which
+while firing is the gun's. The gun loses to the stall: firing through one, the
+warble goes on and the rounds are silent.
 
 A one-shot that loses is dropped, not queued (§5). A stall that loses is not
 dropped in any meaningful sense — it is a level, so it simply gets the voice
@@ -756,6 +762,43 @@ crash while stalled does not leave the horn sounding even though
 | Touchdown | `$1800`         | 5773 / sec      | 3 fr (~300 ms)   | bright, an impact        |
 | Gear      | `$0900`         | 2165 / sec      | 5 fr (~500 ms)   | low, mechanical, longest |
 | Flaps     | `$0C00`         | 2886 / sec      | 4 fr (~400 ms)   | between the two, shorter |
+| Hit       | `$2400`         | 8660 / sec      | 2 fr (~400 ms)   | a bright crack (fpilot)  |
+| Gun       | `$0800`         | 1924 / sec      | 1 fr, decays     | a low thump every frame  |
+
+**Gun and hit are the two effects here that decay**, and so the exceptions to
+"nothing on voice 3 decays" above. sound_update() writes voice 3's AttDec from
+a table for them, 0 for every other effect. Their first versions were plateaus
+like the others, and they were a hiss and a long crunch rather than a shot and
+an impact: the fall is what makes them punch.
+
+Both are modelled on recorded examples the user picked (a machine-gun burst
+and a bullet impact), measured in 5 ms RMS windows and 1024-point spectra:
+
+| Example | Envelope from the peak                                  | Energy                       |
+| ------- | ------------------------------------------------------- | ---------------------------- |
+| Gun     | instant; -10 dB at 35 ms, -20 dB at ~85 ms               | 74% under 800 Hz, centre 770 Hz |
+| Hit     | ~25 ms rise; -10 dB at 65 ms, -20 dB at ~75-120 ms, a -20 to -30 dB tail to ~500 ms | mostly 1.6-6.4 kHz, centre 3-4 kHz |
+
+The SID's decay is a falling exponential approximated in six linear pieces
+(steps from levels 93, 54, 26, 14 and 6 take 2, 4, 8, 16 and 30 times as
+long), so a rate's nominal time T puts -10 dB at about T / 4 and -20 dB at
+about T / 2. The gun's decay 5 (168 ms) gives ~40 and ~80 ms, the example's
+35 and 85. Its noise clock at `$0800` puts the energy under ~1 kHz.
+
+The hit is attack 2 (16 ms), decay 6 to sustain 1 (-23.5 dB), reached at
+~110 ms, and that sustain is its tail until the two frames are up. Its noise
+clock at `$2400` is the bright crack.
+
+The gun's one frame is ~180-220 ms on x64sc, and its decay is over inside it,
+so each frame's shot starts from silence. It sounds on **every frame** the
+guns fire, not only on the steps a round leaves: gun.cc raises
+`FLIGHT_EV_GUN` on each `gun_step()` with the trigger held, the guns armed and
+ammo left, so held fire is a steady 5 shots a second, the frame rate, while
+the tracers go at 2.5. The example fires ten a second; one shot per frame is
+the most `sound_update()`'s rate allows. The check comes before the step takes
+a round, so the last round sounds, and nothing does once the guns are empty.
+On the runway, the fifth hit's crash is announced by damage.cc too: it lands
+after the step's publish, and `flight_advance()` publishes nothing once wrecked.
 
 **The crash is the only one that sweeps**, and the only one with the chip to
 itself. The engine and the wind are gated off the moment `flight_crashed()`

@@ -52,9 +52,13 @@ void damage_hit(uint8_t hits) {
     return;
   }
   _damage_flash = kDamageFlash;
+  flight_events |= FLIGHT_EV_HIT;
   if (hits >= kDamageHitsToDown) {
     if (model_on_ground) {
       flight_status = FLIGHT_CRASH_SHOT_DOWN;
+      // The crash is past this step's publish, and flight_advance() returns
+      // early from now on, so it would never announce it: the crash sound.
+      flight_events |= FLIGHT_EV_CRASH;
     } else {
       damage_bits |= (opponent_random() & 1) ? kDamageDown | kDamageSpin : kDamageDown;
       msg_show("SHOT DOWN!");

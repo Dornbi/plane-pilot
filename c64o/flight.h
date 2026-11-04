@@ -144,6 +144,13 @@ extern uint8_t flight_stall;
 // at the top of flight_advance() returns early on every later frame, so
 // reaching the end of a step while crashed means it happened during that step.
 #define FLIGHT_EV_CRASH 0x08
+// fpilot's guns, which are not flight.cc's: gun_step() and damage_hit() OR
+// these into flight_events after flight_advance() has published it, in the
+// same frame, and sound_update() reads it later in that frame. The player's
+// guns firing, every frame the trigger is held on them, and an opponent's
+// round hitting the player.
+#define FLIGHT_EV_GUN 0x10
+#define FLIGHT_EV_HIT 0x20
 
 // What happened during the step that flight_gen counts. Unlike flight_stall
 // this is an edge, not a level: it is true for exactly the one step in which

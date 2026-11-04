@@ -926,6 +926,133 @@ int main() {
     assert(!v3_gated());
   }
 
+  // --- Voice 3: fpilot's gun and hits -------------------------------------
+
+  // Both are noise bursts, and both decay, modelled on the examples in
+  // docs/sound.md section 6. The gun is a shot: a single frame - a round is
+  // one shot, and held fire, a round every two frames, has to come out as
+  // separate shots - with no attack and a decay to nothing short enough to be
+  // over inside that frame (decay 5 is 168 ms, a frame ~200 ms), so its
+  // gate-off is not heard. A hit rises in a few ms, falls, and holds a low
+  // sustain as its tail, for longer than a shot. The hit is the brighter: a
+  // crack against the gun's thump.
+  {
+    static const uint8_t kEvents[] = {FLIGHT_EV_GUN, FLIGHT_EV_HIT};
+    for (int i = 0; i < 2; ++i) {
+      reset_state();
+      idle_frame();
+      mark();
+      publish_events(kEvents[i]);
+      sound_update();
+      assert(retriggered());
+      assert(v3_gated());
+      assert(v3_wave() == SID_CTRL_NOISE);
+      const uint8_t ad = sound_shadow[kSoundRegV3 + kSoundVoiceAttDec];
+      const uint8_t sr = sound_shadow[kSoundRegV3 + kSoundVoiceSusRel];
+      if (kEvents[i] == FLIGHT_EV_GUN) {
+        assert((ad >> 4) == 0);
+        assert((ad & 0x0F) != 0 && (ad & 0x0F) <= 6);
+        assert((sr >> 4) == 0);
+      } else {
+        assert((ad >> 4) <= 3);
+        assert((ad & 0x0F) != 0);
+        assert((sr >> 4) != 0 && (sr >> 4) <= 3);
+      }
+    }
+    // Every other effect leaves AttDec at 0, the plateau they are built on.
+    reset_state();
+    idle_frame();
+    publish_events(FLIGHT_EV_GUN);
+    sound_update();
+    idle_frame();
+    assert(sound_shadow[kSoundRegV3 + kSoundVoiceAttDec] == 0);
+    publish_events(FLIGHT_EV_GEAR);
+    sound_update();
+    assert(sound_shadow[kSoundRegV3 + kSoundVoiceAttDec] == 0);
+
+    assert(one_shot_frames(FLIGHT_EV_GUN) == 1);
+    assert(one_shot_frames(FLIGHT_EV_HIT) > 1);
+
+    reset_state();
+    idle_frame();
+    publish_events(FLIGHT_EV_GUN);
+    sound_update();
+    const uint16_t gun_freq = voice_freq(kSoundRegV3);
+    reset_state();
+    idle_frame();
+    publish_events(FLIGHT_EV_HIT);
+    sound_update();
+    assert(voice_freq(kSoundRegV3) > gun_freq);
+  }
+
+  // Held fire: every round is its own burst, retriggered, with the gate off
+  // in the frame between.
+  {
+    reset_state();
+    idle_frame();
+    for (int round = 0; round < 4; ++round) {
+      mark();
+      publish_events(FLIGHT_EV_GUN);
+      sound_update();
+      assert(retriggered());
+      assert(v3_gated());
+      idle_frame();
+      assert(!v3_gated());
+    }
+  }
+
+  // And gun.cc raises it on every frame the guns fire: each frame is a shot
+  // of its own, retriggered, though the gate never drops between them.
+  {
+    reset_state();
+    idle_frame();
+    for (int frame = 0; frame < 6; ++frame) {
+      mark();
+      publish_events(FLIGHT_EV_GUN);
+      sound_update();
+      assert(retriggered());
+      assert(v3_gated());
+      assert(voice_freq(kSoundRegV3) == (uint16_t)0x0800);
+    }
+  }
+
+  // A hit cuts into a gun burst, and the next round does not cut the hit
+  // short: it is dropped until the hit is over.
+  {
+    reset_state();
+    idle_frame();
+    publish_events(FLIGHT_EV_GUN);
+    sound_update();
+    const uint16_t gun_freq = voice_freq(kSoundRegV3);
+    mark();
+    publish_events(FLIGHT_EV_HIT);
+    sound_update();
+    assert(retriggered());
+    const uint16_t hit_freq = voice_freq(kSoundRegV3);
+    assert(hit_freq != gun_freq);
+    mark();
+    publish_events(FLIGHT_EV_GUN);
+    sound_update();
+    assert(!retriggered());
+    assert(voice_freq(kSoundRegV3) == hit_freq);
+  }
+
+  // The stall warning outranks the gun: firing through a stall, the warble
+  // carries on.
+  {
+    reset_state();
+    flight_stall = 1;
+    for (int i = 0; i < 6; ++i)
+      idle_frame();
+    publish_events(FLIGHT_EV_GUN);
+    sound_update();
+    assert(v3_wave() == SID_CTRL_RECT);
+    // But a hit outranks the stall.
+    publish_events(FLIGHT_EV_HIT);
+    sound_update();
+    assert(v3_wave() == SID_CTRL_NOISE);
+  }
+
   // Silence drops whatever voice 3 was doing rather than letting it run down,
   // so unpausing does not resume a half-finished gear click.
   {

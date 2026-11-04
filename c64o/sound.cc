@@ -247,6 +247,34 @@ static const uint8_t kSoundTouchdownFrames = 3;
 static const uint8_t kSoundGearFrames = 5;
 static const uint8_t kSoundFlapFrames = 4;
 
+// fpilot's two, FLIGHT_EV_GUN and FLIGHT_EV_HIT; ppilot never raises them.
+//
+// Both are modelled on recorded examples the user picked, measured in 5 ms
+// windows (docs/sound.md section 6), and both decay, unlike the one-shots
+// above: they are a shot and an impact, and the fall is what makes them
+// punch. A one-shot held at full level and then cut is a hiss.
+//
+// The gun is a low thump, one a frame while the guns fire (gun.cc raises
+// the event on every frame the trigger holds them, not only on the steps a
+// round leaves): the example has three quarters of its energy under 800 Hz.
+// Attack 0, then down to nothing at decay 5, which puts it 10 dB down at
+// ~40 ms and 20 dB down at ~80 ms, as the example is. That is over inside the
+// one frame its gate is held, so the cut at the frame's end is not heard, and
+// each frame's shot is retriggered from silence.
+//
+// A hit is a bright crack, the example's energy mostly 1.6-6.4 kHz: a 16 ms
+// attack, a fall over ~100 ms to sustain 1 (-23.5 dB), and that held as the
+// tail for the rest of its two frames. It outranks a burst in progress, so a
+// hit while firing is heard.
+static const uint16_t kSoundGunFreq = 0x0800;
+static const uint16_t kSoundHitFreq = 0x2400;
+static const uint8_t kSoundGunAttDec = 0x05; // attack 0, decay 5 (168 ms)
+static const uint8_t kSoundGunSusRel = 0x00; // sustain 0: decays to nothing
+static const uint8_t kSoundHitAttDec = 0x26; // attack 2 (16 ms), decay 6 (204 ms)
+static const uint8_t kSoundHitSusRel = 0x10; // sustain 1, the tail
+static const uint8_t kSoundGunFrames = 1;
+static const uint8_t kSoundHitFrames = 2;
+
 // The crash. The one sound that outlives the aircraft, and the only effect on
 // this voice that plays while _flying() is false.
 //
@@ -290,21 +318,27 @@ enum Voice3Effect {
   V3_TOUCHDOWN,
   V3_GEAR,
   V3_FLAP,
+  V3_GUN,
+  V3_HIT,
 };
 
 // What each effect puts on voice 3, indexed by enum Voice3Effect. V3_NONE is
 // all zeros. The crash's frequency is a sweep computed in sound_update(); its
 // entry here is only a placeholder.
-static const uint8_t kSoundV3FreqHi[V3_FLAP + 1] = {
+static const uint8_t kSoundV3FreqHi[V3_HIT + 1] = {
     0,
     (uint8_t)(kSoundStallFreq >> 8),
     0,
     (uint8_t)(kSoundTouchdownFreq >> 8),
     (uint8_t)(kSoundGearFreq >> 8),
-    (uint8_t)(kSoundFlapFreq >> 8)};
+    (uint8_t)(kSoundFlapFreq >> 8),
+    (uint8_t)(kSoundGunFreq >> 8),
+    (uint8_t)(kSoundHitFreq >> 8)};
 static const uint8_t kSoundV3Ctrl[] = {
     0,
     SID_CTRL_RECT | SID_CTRL_GATE,
+    SID_CTRL_NOISE | SID_CTRL_GATE,
+    SID_CTRL_NOISE | SID_CTRL_GATE,
     SID_CTRL_NOISE | SID_CTRL_GATE,
     SID_CTRL_NOISE | SID_CTRL_GATE,
     SID_CTRL_NOISE | SID_CTRL_GATE,
@@ -315,16 +349,25 @@ static const uint8_t kSoundV3SusRel[] = {0,
                                          kSoundCrashSusRel,
                                          kSoundTouchdownSusRel,
                                          kSoundGearSusRel,
-                                         kSoundFlapSusRel};
-static_assert(sizeof(kSoundV3SusRel) == V3_FLAP + 1,
+                                         kSoundFlapSusRel,
+                                         kSoundGunSusRel,
+                                         kSoundHitSusRel};
+static_assert(sizeof(kSoundV3SusRel) == V3_HIT + 1,
               "one voice 3 table entry per effect");
-static_assert(sizeof(kSoundV3Ctrl) == V3_FLAP + 1,
+static_assert(sizeof(kSoundV3Ctrl) == V3_HIT + 1,
               "one voice 3 ctrl entry per effect");
 static_assert((kSoundStallPw & 0xFF) == 0,
               "voice 3 PwLo is assumed zero from sound_silence()");
-static_assert((kSoundStallAttDec | kSoundCrashAttDec | kSoundOneShotAttDec) ==
-                  0,
-              "voice 3 AttDec is assumed zero from sound_silence()");
+static const uint8_t kSoundV3AttDec[] = {0,
+                                         kSoundStallAttDec,
+                                         kSoundCrashAttDec,
+                                         kSoundOneShotAttDec,
+                                         kSoundOneShotAttDec,
+                                         kSoundOneShotAttDec,
+                                         kSoundGunAttDec,
+                                         kSoundHitAttDec};
+static_assert(sizeof(kSoundV3AttDec) == V3_HIT + 1,
+              "one voice 3 AttDec entry per effect");
 
 static uint8_t _sound_v3_effect;   // enum Voice3Effect
 static uint8_t _sound_v3_frames;   // frames left before a one-shot releases
@@ -715,6 +758,11 @@ void sound_update(void) {
     _sound_v3_effect = V3_TOUCHDOWN;
     _sound_v3_frames = kSoundTouchdownFrames;
     retrigger = true;
+  } else if (events & FLIGHT_EV_HIT) {
+    // Above a one-shot in progress, which while firing is the gun's.
+    _sound_v3_effect = V3_HIT;
+    _sound_v3_frames = kSoundHitFrames;
+    retrigger = true;
   } else if (_sound_v3_frames != 0 && _sound_v3_effect != V3_STALL) {
     // A one-shot still running. Left alone.
   } else if (flight_stall) {
@@ -732,6 +780,12 @@ void sound_update(void) {
     if (++_sound_stall_phase >= kSoundStallPeriodFrames) {
       _sound_stall_phase = 0;
     }
+  } else if (events & FLIGHT_EV_GUN) {
+    // Under the stall, which is the warning: firing through one, the warble
+    // goes on and the rounds are silent.
+    _sound_v3_effect = V3_GUN;
+    _sound_v3_frames = kSoundGunFrames;
+    retrigger = true;
   } else if (events & FLIGHT_EV_GEAR) {
     _sound_v3_effect = V3_GEAR;
     _sound_v3_frames = kSoundGearFrames;
@@ -751,7 +805,7 @@ void sound_update(void) {
     ++sound_gen;
   }
 
-  // Registers that never move off zero (V2 PwLo/PwHi, V3 PwLo/AttDec, and the
+  // Registers that never move off zero (V2 PwLo/PwHi, V3 PwLo, and the
   // three unused filter registers) keep the zero sound_silence() wrote at init
   // and on every screen transition. On each voice, Ctrl still goes last so a
   // torn read by sound_blit() can never see a gate edge over a zeroed sustain.
@@ -770,6 +824,7 @@ void sound_update(void) {
     _sound_poke(kSoundRegV3 + kSoundVoiceFreqHi, (uint8_t)(v3_freq >> 8));
     _sound_poke(kSoundRegV3 + kSoundVoicePwHi,
                 effect == V3_STALL ? (uint8_t)(kSoundStallPw >> 8) : 0);
+    _sound_poke(kSoundRegV3 + kSoundVoiceAttDec, kSoundV3AttDec[effect]);
     _sound_poke(kSoundRegV3 + kSoundVoiceSusRel, kSoundV3SusRel[effect]);
     _sound_poke(kSoundRegV3 + kSoundVoiceCtrl,
                 stall_gap ? SID_CTRL_RECT : kSoundV3Ctrl[effect]);

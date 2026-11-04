@@ -367,6 +367,12 @@ void gun_step(bool trigger) {
   if (flight_paused || flight_crashed()) {
     return;
   }
+  // The guns' sound (sound.cc), on every call that the trigger holds them
+  // firing - each frame, between rounds as well as on them - and not once
+  // they are empty. Ahead of the step below, so the last round still sounds.
+  if (trigger && _gun_armed && (gun_ammo[0] | gun_ammo[1]) != 0) {
+    flight_events |= FLIGHT_EV_GUN;
+  }
   // The eye has moved since the last step: take it off every round.
   _gun_track(0, (uint16_t)flight_eye_x);
   _gun_track(1, (uint16_t)flight_eye_y);
