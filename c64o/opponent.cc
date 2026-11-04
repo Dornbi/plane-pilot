@@ -1080,12 +1080,11 @@ void opponent_step(void) {
         turn = -turn;
       }
       // The small-angle turn of vec_turn3_xy(), anticlockwise for a left
-      // turn: h += s * left. The step lengthens the vector a little, and the
-      // normalisation puts it back.
+      // turn: h += s * left, which is vec_turn_xy()'s clockwise turn by -s,
+      // exactly (vec_fastmul8p8() applies the sign last). The step lengthens
+      // the vector a little, and the normalisation puts it back.
       if (turns) {
-        int16_t s = turn * kOpponentTurn;
-        h->x = hx - vec_fastmul8p8(s, hy);
-        h->y = hy + vec_fastmul8p8(s, hx);
+        vec_turn_xy((int16_t)(-turn * kOpponentTurn), h);
         vec_normalize(h);
       }
     }

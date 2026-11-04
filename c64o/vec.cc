@@ -494,7 +494,7 @@ void vec_transform_inv(const mat3_t *mat, const vec3_t *u, vec3_t *res) {
 // Both components come from the values the vector arrived with, which is what
 // the general routine's copy of the whole matrix was for. Two temporaries
 // cover it here, since each vector is rotated independently of the other two.
-static void _turn_xy(int16_t s, vec3_t *v) {
+void vec_turn_xy(int16_t s, vec3_t *v) {
   const int16_t x = v->x;
   const int16_t y = v->y;
   v->x = x + vec_fastmul8p8(s, y);
@@ -502,9 +502,9 @@ static void _turn_xy(int16_t s, vec3_t *v) {
 }
 
 __forceinline void vec_turn3_xy(int16_t s, mat3_t *m) {
-  _turn_xy(s, &m->front);
-  _turn_xy(s, &m->left);
-  _turn_xy(s, &m->up);
+  vec_turn_xy(s, &m->front);
+  vec_turn_xy(s, &m->left);
+  vec_turn_xy(s, &m->up);
 }
 
 void vec_rotate_step(uint8_t step, mat3_t *m) {

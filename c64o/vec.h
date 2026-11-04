@@ -240,6 +240,11 @@ void vec_transform3_inv(const mat3_t *t, mat3_t *m);
 // one on half of all products.
 void vec_turn3_xy(int16_t s, mat3_t *m);
 
+// One vector of vec_turn3_xy(): v's x and y turned clockwise by s / 256 rad,
+// x += s * y, y -= s * x, both from the old values; z is left alone.
+// opponent.cc turns a heading anticlockwise with it by passing -s.
+void vec_turn_xy(int16_t s, vec3_t *v);
+
 // One control step: exactly vec_transform3() with the matching matrix above,
 // rescaled by vec_set_rotation_shift(), and bit for bit the same answer
 // (test/host_vec.cc). Each of those matrices only turns two of m's vectors
