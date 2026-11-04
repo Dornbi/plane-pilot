@@ -212,8 +212,9 @@ store their tables.
 ```c
 // Transposed: row index outer, tile index inner.
 extern const uint8_t kMapTileRows[8][kMapTileCount];
-extern const uint8_t kMapTileLo[kMapTileCount];   // bit pair 10 -> screen low nibble
-extern const uint8_t kMapTileCol[kMapTileCount];  // bit pair 11 -> colour RAM
+// Bit pair 10 in the high nibble (-> screen low nibble), bit pair 11 in the
+// low (-> colour RAM, which keeps only the low nibble of what is written).
+extern const uint8_t kMapTileColors[kMapTileCount];
 ```
 
 With the transpose, the compositor's inner loop is eight indexed loads sharing
@@ -238,7 +239,8 @@ Tiles needed:
 | `MAP_DOT_BLACK/WHITE/CYAN/BLUE/YELLOW` | 5 | one shared pattern, `col` from `KWorldDotColors` |
 | `MAP_OBJ_*` (runway … city) | 9 | art, `col` seeded from `kWorldObjColors` |
 
-15 tiles: 8 row arrays plus two colour arrays, so 10 bytes per tile, 150 bytes.
+15 tiles: 8 row arrays plus one array of two colour nibbles, so 9 bytes per
+tile, 135 bytes.
 Plus a type→index lookup — types are `1..6` and `7..15` (one nibble each,
 see `world_map_cell()`), so
 `idx = type < kWorldMapObjStart ? type : type - kWorldMapObjStart + 7`.
@@ -282,14 +284,14 @@ memset(0xE000, 0xFF, 8000)           // surround = solid 11
 memset(kColorRam, kColorBlack, 1000)
 for each of the 512 cells:                        // object layer
     copy kMapTileRows[0..7][idx] to the cell's 8 bitmap bytes
-    kColorRam[screen_offset] = kMapTileCol[idx]
+    kColorRam[screen_offset] = kMapTileColors[idx]   // low nibble kept
 plot the flight path ring buffer                  // overlay, bit pair 01
 draw navpoint digit stencils, ascending           // overlay, bit pair 01
 
 // Pass B — $01 = $34, I/O out
 memset(0xD000, (kColorWhite << 4) | kColorBlack, 1000)
 for each of the 512 cells:
-    screen[offset] = (kColorWhite << 4) | kMapTileLo[idx]
+    screen[offset] = (kColorWhite << 4) | (kMapTileColors[idx] >> 4)
 $01 = $35
 vic.ctrl1 = 0x3b                     // screen on
 ```

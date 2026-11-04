@@ -35,8 +35,10 @@ Output
                                      the compositor's inner loop is 8 indexed
                                      loads sharing one index register with no
                                      multiply and no pointer arithmetic
-    kMapTileLo[kMapTileCount]        color for bit pair 10 (screen low nibble)
-    kMapTileCol[kMapTileCount]       color for bit pair 11 (color RAM)
+    kMapTileColors[kMapTileCount]    bit pair 10's color in the high nibble
+                                     (the screen RAM low nibble), bit pair
+                                     11's in the low (color RAM, which keeps
+                                     only the low nibble of what is written)
     kMapDigitMask[kMapDigitCount][8] overlay stencils for '1'..'4'
 """
 
@@ -258,10 +260,10 @@ def _write_header(path, tiles, digits, compass):
             "// Transposed: row index outer, tile index inner, so the\n"
             "// compositor does eight indexed loads off one index register.\n"
             "extern const uint8_t kMapTileRows[8][kMapTileCount];\n"
-            "// Bit pair 10, written to the screen RAM low nibble.\n"
-            "extern const uint8_t kMapTileLo[kMapTileCount];\n"
-            "// Bit pair 11, written to color RAM.\n"
-            "extern const uint8_t kMapTileCol[kMapTileCount];\n"
+            "// Bit pair 10's color in the high nibble, for the screen RAM's\n"
+            "// low nibble, and bit pair 11's in the low, written to color\n"
+            "// RAM as it is: color RAM keeps only the low nibble.\n"
+            "extern const uint8_t kMapTileColors[kMapTileCount];\n"
             "\n"
             "// Overlay stencils for navpoints 1..4. Each byte holds 11 in\n"
             "// every ink pair; the draw is\n"
@@ -307,14 +309,9 @@ def _write_source(path, tiles, digits, compass):
             f.write(f"    {{{_hex_row([p[row] for p in packed])}}}, // row {row}\n")
         f.write("};\n\n")
 
-        f.write("const uint8_t kMapTileLo[kMapTileCount] = {\n")
-        for name, value in zip(TILE_NAMES, los):
-            f.write(f"    {value:2d}, // {name}\n")
-        f.write("};\n\n")
-
-        f.write("const uint8_t kMapTileCol[kMapTileCount] = {\n")
-        for name, value in zip(TILE_NAMES, cols):
-            f.write(f"    {value:2d}, // {name}\n")
+        f.write("const uint8_t kMapTileColors[kMapTileCount] = {\n")
+        for name, lo, col in zip(TILE_NAMES, los, cols):
+            f.write(f"    0x{lo:X}{col:X}, // {name}\n")
         f.write("};\n\n")
 
         f.write("const uint8_t kMapDigitMask[kMapDigitCount][8] = {\n")

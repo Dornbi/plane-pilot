@@ -73,8 +73,9 @@ def _parse_tables(path):
         [int(x, 16) for x in re.findall(r"0x([0-9A-Fa-f]{2})", line)]
         for line in re.findall(r"\{([^{}]*)\}", rows_txt)
     ]
-    lo = [int(x) for x in re.findall(r"^\s*(\d+),", block("kMapTileLo[kMapTileCount] ="), re.M)]
-    col = [int(x) for x in re.findall(r"^\s*(\d+),", block("kMapTileCol[kMapTileCount] ="), re.M)]
+    colors = [int(x, 16) for x in re.findall(r"^\s*0x([0-9A-Fa-f]{2}),", block("kMapTileColors[kMapTileCount] ="), re.M)]
+    lo = [c >> 4 for c in colors]
+    col = [c & 0x0F for c in colors]
     def masks(marker):
         return [
             [int(x, 16) for x in re.findall(r"0x([0-9A-Fa-f]{2})", line)]

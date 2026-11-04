@@ -39,10 +39,10 @@ static const uint8_t kMapTileCity = 17;
 // Transposed: row index outer, tile index inner, so the
 // compositor does eight indexed loads off one index register.
 extern const uint8_t kMapTileRows[8][kMapTileCount];
-// Bit pair 10, written to the screen RAM low nibble.
-extern const uint8_t kMapTileLo[kMapTileCount];
-// Bit pair 11, written to color RAM.
-extern const uint8_t kMapTileCol[kMapTileCount];
+// Bit pair 10's color in the high nibble, for the screen RAM's
+// low nibble, and bit pair 11's in the low, written to color
+// RAM as it is: color RAM keeps only the low nibble.
+extern const uint8_t kMapTileColors[kMapTileCount];
 
 // Overlay stencils for navpoints 1..4. Each byte holds 11 in
 // every ink pair; the draw is

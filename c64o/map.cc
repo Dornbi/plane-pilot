@@ -287,7 +287,8 @@ static inline void _map_draw_object_layer(void) {
         t += kMapTileCount;
       } while (++r < 8);
       bm += 8;
-      *cr++ = kMapTileCol[idx];
+      // Bit pair 11's color is the low nibble; color RAM drops the high one.
+      *cr++ = kMapTileColors[idx];
     }
     bm += kMapCharGap * 8;
     cr += kMapCharGap;
@@ -304,7 +305,7 @@ static void _map_draw_screen_layer(void) {
   for (uint8_t row = kWorldMapHeight; row-- != 0;) {
     for (uint8_t col = kWorldMapWidth; col-- != 0;) {
       const uint8_t idx = _map_tile_at(row, col);
-      *sm++ = (kColorWhite << 4) | kMapTileLo[idx];
+      *sm++ = (kColorWhite << 4) | (kMapTileColors[idx] >> 4);
     }
     sm += kMapCharGap;
   }

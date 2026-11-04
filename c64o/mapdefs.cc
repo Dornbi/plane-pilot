@@ -15,46 +15,25 @@ const uint8_t kMapTileRows[8][kMapTileCount] = {
     {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2A, 0x00, 0x00, 0x00, 0x00, 0x20, 0x08, 0x00, 0x0F}, // row 7
 };
 
-const uint8_t kMapTileLo[kMapTileCount] = {
-     0, // GRID_EVEN_EVEN
-    12, // GRID_EVEN_ODD
-    12, // GRID_ODD_EVEN
-    12, // GRID_ODD_ODD
-     0, // DOT_BLACK
-    15, // DOT_WHITE
-     3, // DOT_CYAN
-    14, // DOT_BLUE
-    13, // DOT_YELLOW
-     0, // RUNWAY
-     8, // FIELD
-    12, // FIELD_SPARSE
-     7, // FIELD_YELLOW
-    15, // FIELD_YELLOW_SPARSE
-    14, // POND
-    14, // LAKE
-     8, // TOWN
-     8, // CITY
-};
-
-const uint8_t kMapTileCol[kMapTileCount] = {
-     0, // GRID_EVEN_EVEN
-     0, // GRID_EVEN_ODD
-     0, // GRID_ODD_EVEN
-     0, // GRID_ODD_ODD
-     0, // DOT_BLACK
-     0, // DOT_WHITE
-     0, // DOT_CYAN
-     6, // DOT_BLUE
-     7, // DOT_YELLOW
-    12, // RUNWAY
-    12, // FIELD
-     8, // FIELD_SPARSE
-    15, // FIELD_YELLOW
-     7, // FIELD_YELLOW_SPARSE
-     6, // POND
-     6, // LAKE
-     0, // TOWN
-     0, // CITY
+const uint8_t kMapTileColors[kMapTileCount] = {
+    0x00, // GRID_EVEN_EVEN
+    0xC0, // GRID_EVEN_ODD
+    0xC0, // GRID_ODD_EVEN
+    0xC0, // GRID_ODD_ODD
+    0x00, // DOT_BLACK
+    0xF0, // DOT_WHITE
+    0x30, // DOT_CYAN
+    0xE6, // DOT_BLUE
+    0xD7, // DOT_YELLOW
+    0x0C, // RUNWAY
+    0x8C, // FIELD
+    0xC8, // FIELD_SPARSE
+    0x7F, // FIELD_YELLOW
+    0xF7, // FIELD_YELLOW_SPARSE
+    0xE6, // POND
+    0xE6, // LAKE
+    0x80, // TOWN
+    0x80, // CITY
 };
 
 const uint8_t kMapDigitMask[kMapDigitCount][8] = {
