@@ -1144,18 +1144,23 @@ static void _opponent_forget(uint8_t i) {
 enum opponent_range_t { kOpponentNear, kOpponentFar, kOpponentOut };
 // Static, out of the zero page's temporaries (mem.h).
 #pragma bss(tscratch)
-static int32_t _opponent_d[3];
+static uint16_t _opponent_d[3];
 static int8_t _opponent_s[3];
 #pragma bss(bss)
+// The eye's three axes, so that the loop below can take each off in turn:
+// written out, the three 32-bit differences were 104 B.
+static int32_t *const kOpponentEye[3] = {&flight_eye_x, &flight_eye_y,
+                                         &flight_eye_z};
 static __noinline uint8_t _opponent_camera(uint8_t i) {
-  _opponent_d[0] = _opponent_x[i] - flight_eye_x;
-  _opponent_d[1] = _opponent_y[i] - flight_eye_y;
-  _opponent_d[2] = _opponent_z[i] - flight_eye_z;
   uint8_t range = kOpponentNear;
-  for (uint8_t c = 0; c < 3; ++c) {
-    // The whole units, wrapped to the world: x repeats every 128 units, so
-    // its seven bits are sign-extended; y every 256, and z never gets there.
-    uint8_t u = (uint8_t)(_opponent_d[c] >> 16);
+  uint8_t k = i;
+  for (uint8_t c = 0; c < 3; ++c, k += kOpponentMax) {
+    // The difference's fraction, for the loop below, and its whole units,
+    // wrapped to the world: x repeats every 128 units, so its seven bits are
+    // sign-extended; y every 256, and z never gets there.
+    int32_t d = _opponent_xyz[k] - *kOpponentEye[c];
+    _opponent_d[c] = (uint16_t)d;
+    uint8_t u = (uint8_t)(d >> 16);
     if (c == 0) {
       u &= 0x7F;
       if (u & 0x40) {
@@ -1176,7 +1181,7 @@ static __noinline uint8_t _opponent_camera(uint8_t i) {
   for (uint8_t c = 0; c < 3; ++c) {
     // The far range's half metres, and the near range's eighths from them:
     // two bits more, the next two from the fraction's byte.
-    uint16_t f = (uint16_t)_opponent_d[c];
+    uint16_t f = _opponent_d[c];
     uint16_t v = ((uint16_t)(uint8_t)_opponent_s[c] << 8) | (f >> 8);
     if (range == kOpponentNear) {
       v = (v << 2) | ((uint8_t)f >> 6);
