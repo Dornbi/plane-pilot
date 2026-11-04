@@ -648,6 +648,13 @@ static int16_t _flight_recip_v(int16_t speed) {
 
 #endif // __FLIGHT_AOA__
 
+// One axis of the eye's move: v divided by the step, added to the 24.8
+// position. Called rather than written out: each of the three 32-bit adds
+// with their sign extension was ~33 B in line.
+static __noinline void _flight_eye_add(int32_t *e, int16_t v) {
+  *e += _flight_step_s(v);
+}
+
 #ifdef __FLIGHT_AOA__
 
 // Returns true if the step ran into the ground plane, which is the only thing
@@ -658,9 +665,9 @@ static int16_t _flight_recip_v(int16_t speed) {
 static inline bool _flight_move_forward(int16_t fspeed, int16_t vspeed) {
   // The shift is after the multiply, not on fspeed: the product carries the
   // bits a quarter-sized step needs and fspeed on its own does not.
-  flight_eye_x += _flight_step_s(vec_fastmul8p8(flight_cam.front.x, fspeed));
-  flight_eye_y += _flight_step_s(vec_fastmul8p8(flight_cam.front.y, fspeed));
-  flight_eye_z += _flight_step_s(vspeed);
+  _flight_eye_add(&flight_eye_x, vec_fastmul8p8(flight_cam.front.x, fspeed));
+  _flight_eye_add(&flight_eye_y, vec_fastmul8p8(flight_cam.front.y, fspeed));
+  _flight_eye_add(&flight_eye_z, vspeed);
   if (flight_eye_z < kFlightMinEyeZ) {
     flight_eye_z = kFlightMinEyeZ;
     return true;
@@ -673,9 +680,9 @@ static inline bool _flight_move_forward(int16_t fspeed, int16_t vspeed) {
 static inline void _flight_move_forward(int16_t fspeed, int16_t vspeed) {
   // The shift is after the multiply, not on fspeed: the product carries the
   // bits a quarter-sized step needs and fspeed on its own does not.
-  flight_eye_x += _flight_step_s(vec_fastmul8p8(flight_cam.front.x, fspeed));
-  flight_eye_y += _flight_step_s(vec_fastmul8p8(flight_cam.front.y, fspeed));
-  flight_eye_z += _flight_step_s(vspeed);
+  _flight_eye_add(&flight_eye_x, vec_fastmul8p8(flight_cam.front.x, fspeed));
+  _flight_eye_add(&flight_eye_y, vec_fastmul8p8(flight_cam.front.y, fspeed));
+  _flight_eye_add(&flight_eye_z, vspeed);
   if (flight_eye_z < kFlightMinEyeZ) {
     flight_eye_z = kFlightMinEyeZ;
   }
