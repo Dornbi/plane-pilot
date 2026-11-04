@@ -387,7 +387,10 @@ Named so the next pass can skip or resume them, not because they are dead:
   `if (n < 3) return 0; src = dst; dst = ...` ping-pong for each of the four
   clip edges. The four-element descriptor loop that is the obvious shape has
   since been built and measured: it costs 13 B and constant propagation in the
-  hot clipper, see §4.6. Anything else here still wants its own session and its
+  hot clipper, see §4.6. It now loops over a mask of the edges crossed instead,
+  with two `_clip_2d()` calls so that the axis stays a literal (`_clip_2d`
+  keeps its specialised 530 B) and only the limit (`kClipLimit`) and side come
+  from the edge number: 112 B less. Anything else here still wants its own session and its
   own before/after frames rather than a byte count — `57ac560` reworked this
   code for precision recently and the clipper is where visual artifacts come
   from.

@@ -623,38 +623,36 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
   static vertex16_t clip2_buf2[kPolyMax2dVertices];
   uint8_t n = num_clip3;
 
+  // The viewport edges the polygon crosses, bit e for edge e in the order
+  // min x, max x, min y, max y: edge e clips axis e >> 1 at kClipLimit[e]
+  // and keeps the greater side when e is even.
+  static const int16_t kClipLimit[4] = {0, kViewportWidth * 2 - 1, 0,
+                                        kViewportHeight * 2 - 1};
+  uint8_t edges = 0;
+  if (min_x < 0)
+    edges |= 1;
+  if (max_x > 79)
+    edges |= 2;
+  if (min_y < 0)
+    edges |= 4;
+  if (max_y > 27)
+    edges |= 8;
+
+  // The first clip writes clip2_buf1 and each one after it the other buffer.
   vertex16_t *src = proj_buf;
   vertex16_t *dst = clip2_buf1;
-
-  if (min_x < 0) {
-    n = _clip_2d(src, n, dst, 0, 0, /*keep_greater=*/true);
-    if (n < 3)
-      return 0;
-    src = dst;
-    dst = (src == clip2_buf1) ? clip2_buf2 : clip2_buf1;
-  }
-  if (max_x > 79) {
-    n = _clip_2d(src, n, dst, 0, kViewportWidth * 2 - 1,
-                 /*keep_greater=*/false);
-    if (n < 3)
-      return 0;
-    src = dst;
-    dst = (src == clip2_buf1) ? clip2_buf2 : clip2_buf1;
-  }
-  if (min_y < 0) {
-    n = _clip_2d(src, n, dst, 1, 0, /*keep_greater=*/true);
-    if (n < 3)
-      return 0;
-    src = dst;
-    dst = (src == clip2_buf1) ? clip2_buf2 : clip2_buf1;
-  }
-  if (max_y > 27) {
-    n = _clip_2d(src, n, dst, 1, kViewportHeight * 2 - 1,
-                 /*keep_greater=*/false);
-    if (n < 3)
-      return 0;
-    src = dst;
-    dst = (src == clip2_buf1) ? clip2_buf2 : clip2_buf1;
+  for (uint8_t e = 0; edges; ++e, edges >>= 1) {
+    if (edges & 1) {
+      // Two calls, so that the axis stays a literal at each.
+      if (e < 2)
+        n = _clip_2d(src, n, dst, 0, kClipLimit[e], !(e & 1));
+      else
+        n = _clip_2d(src, n, dst, 1, kClipLimit[e], !(e & 1));
+      if (n < 3)
+        return 0;
+      src = dst;
+      dst = (src == clip2_buf1) ? clip2_buf2 : clip2_buf1;
+    }
   }
 
   for (uint8_t i = 0; i < n; ++i) {
