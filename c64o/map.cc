@@ -280,11 +280,12 @@ static inline void _map_draw_object_layer(void) {
   for (uint8_t row = kWorldMapHeight; row-- != 0;) {
     for (uint8_t col = kWorldMapWidth; col-- != 0;) {
       const uint8_t idx = _map_tile_at(row, col);
-      uint8_t t = idx;
+      // The tile's 8 rows are consecutive in the overlapped pool.
+      uint8_t t = kMapTileStart[idx];
       uint8_t r = 0;
       do {
-        bm[r] = kMapTileRows[0][t];
-        t += kMapTileCount;
+        bm[r] = kMapTilePool[t];
+        ++t;
       } while (++r < 8);
       bm += 8;
       // Bit pair 11's color is the low nibble; color RAM drops the high one.

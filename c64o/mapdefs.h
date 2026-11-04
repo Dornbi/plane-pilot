@@ -36,9 +36,11 @@ static const uint8_t kMapTileLake = 15;
 static const uint8_t kMapTileTown = 16;
 static const uint8_t kMapTileCity = 17;
 
-// Transposed: row index outer, tile index inner, so the
-// compositor does eight indexed loads off one index register.
-extern const uint8_t kMapTileRows[8][kMapTileCount];
+// Tile t's 8 bitmap rows are kMapTilePool[kMapTileStart[t] + r]:
+// the tiles overlap in the pool, so it is shorter than 8 per tile.
+static const uint8_t kMapTilePoolSize = 104;
+extern const uint8_t kMapTilePool[kMapTilePoolSize];
+extern const uint8_t kMapTileStart[kMapTileCount];
 // Bit pair 10's color in the high nibble, for the screen RAM's
 // low nibble, and bit pair 11's in the low, written to color
 // RAM as it is: color RAM keeps only the low nibble.

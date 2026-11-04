@@ -68,11 +68,12 @@ def _parse_tables(path):
             out += ch
         return out
 
-    rows_txt = block("kMapTileRows[8][kMapTileCount] =")
-    rows = [
-        [int(x, 16) for x in re.findall(r"0x([0-9A-Fa-f]{2})", line)]
-        for line in re.findall(r"\{([^{}]*)\}", rows_txt)
-    ]
+    pool = [int(x, 16) for x in re.findall(
+        r"0x([0-9A-Fa-f]{2})", block("kMapTilePool[kMapTilePoolSize] ="))]
+    starts = [int(x) for x in re.findall(
+        r"^\s*(\d+),", block("kMapTileStart[kMapTileCount] ="), re.M)]
+    # rows[y][tile], the layout the rest of this script indexes.
+    rows = [[pool[s + y] for s in starts] for y in range(8)]
     colors = [int(x, 16) for x in re.findall(r"^\s*0x([0-9A-Fa-f]{2}),", block("kMapTileColors[kMapTileCount] ="), re.M)]
     lo = [c >> 4 for c in colors]
     col = [c & 0x0F for c in colors]

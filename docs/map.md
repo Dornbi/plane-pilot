@@ -210,26 +210,38 @@ This also matches how `pmission.cc`, `boxdefs.cc` and `world_map.cc` already
 store their tables.
 
 ```c
-// Transposed: row index outer, tile index inner.
-extern const uint8_t kMapTileRows[8][kMapTileCount];
+// Tile t's 8 rows are kMapTilePool[kMapTileStart[t] + r].
+extern const uint8_t kMapTilePool[kMapTilePoolSize];
+extern const uint8_t kMapTileStart[kMapTileCount];
 // Bit pair 10 in the high nibble (-> screen low nibble), bit pair 11 in the
 // low (-> colour RAM, which keeps only the low nibble of what is written).
 extern const uint8_t kMapTileColors[kMapTileCount];
 ```
 
-With the transpose, the compositor's inner loop is eight indexed loads sharing
-one index register and a compile-time-constant base per row:
+The pool is a greedy shortest common superstring of the tiles' 8-byte row
+strings, the way `chardef_bytes` stores the characters: one tile's bottom rows
+are often another's top rows, and the mostly empty grid and dot tiles share
+their zero bytes, so the 18 tiles take 104 bytes instead of 144. The
+compositor's inner loop steps one index register through the pool from the
+tile's start:
 
 ```
-lda kMapTileRows[0], x   ; x = tile index
-sta dst + 0
-lda kMapTileRows[1], x
-sta dst + 1
-...
+    ldx kMapTileStart, y     ; y = tile index
+    ldy #0
+row:
+    lda kMapTilePool, x
+    sta (dst), y
+    inx
+    iny
+    cpy #8
+    bne row
 ```
 
-No multiply and no pointer arithmetic anywhere — the `<< 3` that a
-`[kMapTileCount][8]` layout would need disappears too.
+No multiply and no pointer arithmetic anywhere.
+
+The first version stored the rows transposed, `kMapTileRows[8][kMapTileCount]`,
+so that eight indexed loads shared the tile index; the pool reads them in the
+same eight passes for 22 fewer bytes.
 
 Tiles needed:
 
@@ -283,7 +295,7 @@ vic.color_back = kColorGreen; vic.color_border = kColorBlack
 memset(0xE000, 0xFF, 8000)           // surround = solid 11
 memset(kColorRam, kColorBlack, 1000)
 for each of the 512 cells:                        // object layer
-    copy kMapTileRows[0..7][idx] to the cell's 8 bitmap bytes
+    copy kMapTilePool[kMapTileStart[idx] + 0..7] to the cell's 8 bitmap bytes
     kColorRam[screen_offset] = kMapTileColors[idx]   // low nibble kept
 plot the flight path ring buffer                  // overlay, bit pair 01
 draw navpoint digit stencils, ascending           // overlay, bit pair 01
