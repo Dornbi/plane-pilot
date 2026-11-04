@@ -396,6 +396,10 @@ static const int16_t kFlightMaxGroundPitch = 48;
 // kFlightMinThrottle and kMaxSpeed are shared and are declared above.
 static const uint16_t kFlightStallSpeedWithoutFlaps = 0x0400;
 static const uint16_t kFlightStallSpeedWithFlaps = 0x0340;
+// flight_advance() clamps the speed to kMaxSpeed before its stall test, which
+// leaves the test unchanged only while every stall speed is below it: the
+// inverted one with flaps, 0x0480, plus twice the largest altitude penalty.
+static_assert(0x0480 + 2 * 128 < kMaxSpeed, "every stall is below top speed");
 
 // Nose attitude above which the stall pitch down has to be done as a rotation
 // instead of by lowering front.z directly. sin(61 deg) * 256; past this the
@@ -1275,6 +1279,9 @@ void flight_advance() {
     }
 
     int16_t sink_penalty = 0;
+    // Stays 0 on the ground, where nothing stalls: flight_speed is clamped
+    // non-negative below, so the stall test is false there.
+    uint16_t stall_speed = 0;
     if (!model_on_ground) {
       int16_t raw_lift =
           vec_fastmul8p8((int16_t)(speed_sqr >> 2), flight_cam.up.z);
@@ -1301,57 +1308,58 @@ void flight_advance() {
       } else {
         base_stall_speed = kFlightStallSpeedWithoutFlaps;
       }
-      uint16_t stall_speed = base_stall_speed + ((uint16_t)alt_penalty << 1);
+      stall_speed = base_stall_speed + ((uint16_t)alt_penalty << 1);
+    } else if (whole_step && flight_throttle == 0 && flight_speed > 0) {
+      // In ground mode: wheel friction.
+      flight_speed -= 2;
+    }
 
-      if (flight_speed < 0) {
-        flight_speed = 0;
-      }
-      flight_stall = flight_speed < stall_speed;
-      if (flight_stall) {
-        if (flight_cam.front.z > kFlightMaxStallPitchZ) {
-          // Dead spot. front is a unit vector, so with the nose this high its
-          // horizontal part is almost nothing, and vec_orthonormalize scales
-          // the whole vector back to length 256 at the end of the frame -
-          // putting back nearly all of a direct change to front.z. Pointing
-          // straight up it puts back all of it and the nose never drops.
-          // A body axis rotation is well defined at any attitude, and one
-          // step is enough to tip the nose off the vertical; from there the
-          // cheap path below works again.
-          //
-          // Which body rotation drops the nose depends on which way up the
-          // aircraft is. To first order a body pitch step moves the nose by
-          // -/+ up/16, so front.z changes by -/+ up.z/16: pitching "down"
-          // raises the nose whenever up.z is negative. Picking the rotation by
-          // the sign of up.z keeps the stall break pointed at the ground at
-          // any attitude, which is what flight.md 2.2 requires.
-          vec_rotate_step(flight_cam.up.z < 0 ? VEC_STEP_PITCH_UP
-                                              : VEC_STEP_PITCH_DOWN,
-                          &flight_cam);
-        } else {
-          uint8_t s = _flight_step_s(stall_speed - flight_speed) >> 5;
-          if (s == 0)
-            s = whole_step ? 1 : 0;
-          flight_cam.front.z -= s;
-          if (flight_cam.front.z < -256) {
-            flight_cam.front.z = -256;
-          }
+    // One clamp for both modes. Airborne it comes before the stall test and
+    // cannot change it: the highest stall speed, 0x0480 + 2 * 128, is well
+    // below kMaxSpeed, so an aircraft the top clamp catches is not stalled.
+    if (flight_speed < 0) {
+      flight_speed = 0;
+    } else if (flight_speed > kMaxSpeed) {
+      flight_speed = kMaxSpeed;
+    }
+
+    flight_stall = flight_speed < stall_speed;
+    if (flight_stall) {
+      if (flight_cam.front.z > kFlightMaxStallPitchZ) {
+        // Dead spot. front is a unit vector, so with the nose this high its
+        // horizontal part is almost nothing, and vec_orthonormalize scales
+        // the whole vector back to length 256 at the end of the frame -
+        // putting back nearly all of a direct change to front.z. Pointing
+        // straight up it puts back all of it and the nose never drops.
+        // A body axis rotation is well defined at any attitude, and one
+        // step is enough to tip the nose off the vertical; from there the
+        // cheap path below works again.
+        //
+        // Which body rotation drops the nose depends on which way up the
+        // aircraft is. To first order a body pitch step moves the nose by
+        // -/+ up/16, so front.z changes by -/+ up.z/16: pitching "down"
+        // raises the nose whenever up.z is negative. Picking the rotation by
+        // the sign of up.z keeps the stall break pointed at the ground at
+        // any attitude, which is what flight.md 2.2 requires.
+        vec_rotate_step(flight_cam.up.z < 0 ? VEC_STEP_PITCH_UP
+                                            : VEC_STEP_PITCH_DOWN,
+                        &flight_cam);
+      } else {
+        uint8_t s = _flight_step_s(stall_speed - flight_speed) >> 5;
+        if (s == 0)
+          s = whole_step ? 1 : 0;
+        flight_cam.front.z -= s;
+        if (flight_cam.front.z < -256) {
+          flight_cam.front.z = -256;
         }
-        model_need_normalize = true;
-      } else if (flight_speed > kMaxSpeed) {
-        flight_speed = kMaxSpeed;
       }
-    } else {
-      // In ground mode: no stall
-      flight_stall = false;
-      if (whole_step && flight_throttle == 0 && flight_speed > 0) {
-        flight_speed -= 2;
-      }
-      if (flight_speed < 0) {
-        flight_speed = 0;
-      } else if (flight_speed > kMaxSpeed) {
-        flight_speed = kMaxSpeed;
-      }
+      model_need_normalize = true;
+    }
 
+    if (!model_on_ground) {
+      flight_vspeed =
+          vec_fastmul8p8(flight_cam.front.z, flight_speed) - sink_penalty;
+    } else {
       // Ground mode: cannot pitch forward (front.z >= 0)
       if (flight_cam.front.z < 0) {
         flight_cam.front.z = 0;
@@ -1376,9 +1384,7 @@ void flight_advance() {
         vec_cross(&flight_cam.front, &flight_cam.left, &flight_cam.up);
         model_need_normalize = true;
       }
-    }
 
-    if (model_on_ground) {
       // The wheels are on the runway, so altitude is locked to the ground
       // plane whatever the nose is doing. Without this the flare pitch a
       // landing arrives with (front.z is not reset on touchdown, and ground
@@ -1386,9 +1392,6 @@ void flight_advance() {
       // and the aircraft balloons back off the runway while still in ground
       // mode.
       flight_vspeed = 0;
-    } else {
-      flight_vspeed =
-          vec_fastmul8p8(flight_cam.front.z, flight_speed) - sink_penalty;
     }
 
 #endif // __FLIGHT_AOA__
