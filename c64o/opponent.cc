@@ -1066,7 +1066,9 @@ void opponent_step(void) {
       want = straight ? 1 : _opponent_want(i, dx8, dy8, dz, floor);
     } else {
       // A bomber's rear gunner, in ATTACK: its cone is opponent_fires()'s.
-      _opponent_aim = (_opponent_attack & bit) != 0;
+      // Not a fighter's guns: one whose pass ended this step is in ATTACK
+      // already but steered for its waypoint, and the player is behind it.
+      _opponent_aim = (_opponent_attack & bit) && (p->kind & kOpponentBomber);
     }
     if (turns) {
       _opponent_guns(i, want);

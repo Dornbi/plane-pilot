@@ -1075,7 +1075,8 @@ static void test_missions(void) {
   // first, past the player to their waypoints ~600 m beyond it, ~16 s out;
   // there both turn to ATTACK, within a step of each other, and come back
   // for the player still parked on the runway inside a minute, never
-  // failing the mission or leaving.
+  // failing the mission or leaving; firing only on the way back, at the
+  // player ahead, not as the pass ends with it behind.
   {
     _msgs = 0;
     opponent_reset(3);
@@ -1086,7 +1087,7 @@ static void test_missions(void) {
     flight_eye_x = 0x1C00L << 8;
     flight_eye_y = 0x3F80L << 8;
     flight_eye_z = 32 << 8;
-    int at[2] = {-1, -1}, back = -1;
+    int at[2] = {-1, -1}, back = -1, fired = 0;
     for (int n = 0; n < 1500 && back < 0; ++n) {
       opponent_step();
       for (int i = 0; i < 2; ++i) {
@@ -1101,6 +1102,19 @@ static void test_missions(void) {
         CHECK(((_opponent_x[0] - _opponent_x[1]) >> 8 & 0x7FFF) == 0x170,
               "scramble: the second is %.1f units behind", units(_opponent_x[0] - _opponent_x[1]));
       if (at[1] >= 0 && to_eye(0, nullptr) < 600 && to_eye(1, nullptr) < 600) back = n;
+      // Every burst at the player ahead of the nose: none as the pass ends,
+      // with the player ~600 m behind.
+      for (int i = 0; i < 2; ++i) {
+        if (!(_opponent_firing & _opponent_bit((uint8_t)i))) continue;
+        ++fired;
+        double dx;
+        to_eye(i, &dx);
+        double dy = (double)(flight_eye_y - _opponent_y[i]) / 256.0;
+        double ahead = (dx * _opponent_head[i].x + dy * _opponent_head[i].y) / 512.0;
+        CHECK(ahead > 0, "scramble: aircraft %d fires at %.1f s, the player %.0f m behind",
+              i + 1, n / 6.25, -ahead);
+      }
+      _opponent_firing = 0;
     }
     CHECK(fabs(at[0] / 6.25 - 16) < 4 && abs(at[0] - at[1]) <= 1,
           "scramble: ATTACK at %.1f s and %.1f s", at[0] / 6.25, at[1] / 6.25);
@@ -1109,8 +1123,10 @@ static void test_missions(void) {
           (back - at[1]) / 6.25);
     CHECK(_opponent_on[0] && _opponent_on[1] && !_opponent_failed && _msgs == 0,
           "scramble: an aircraft left, or the mission failed");
-    printf("  scramble: ATTACK at %.0f s, both back within 300 m of the player %.0f s later\n",
-           at[0] / 6.25, (back - at[1]) / 6.25);
+    CHECK(fired > 0, "scramble: no strafing run fired");
+    printf("  scramble: ATTACK at %.0f s, both back within 300 m of the player %.0f s later,"
+           " %d rounds, all at it ahead\n",
+           at[0] / 6.25, (back - at[1]) / 6.25, fired);
     model_on_ground = false;
     _opponent_down = 3;
     CHECK(opponent_targets_down(), "scramble: both down, but the targets are not down");
