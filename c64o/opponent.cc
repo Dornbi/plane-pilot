@@ -116,8 +116,9 @@ enum opponent_kind_t {
   kOpponentParked,
 };
 // opponent_path_t::kind holds the above in its low two bits, and above them
-// the aircraft's role and its behaviour (docs/opponent_ai.md §3). kOpponentNone
-// is the whole byte 0: a slot with no aircraft has neither.
+// the aircraft's role, its behaviour (docs/opponent_ai.md §3) and its starting
+// heading. kOpponentNone is the whole byte 0: a slot with no aircraft has none
+// of them.
 static const uint8_t kOpponentKindMask = 0x03;
 // The role: what the aircraft does once it attacks. A fighter goes for the
 // player with its forward guns; a bomber keeps its path, and its rear gunner
@@ -131,6 +132,12 @@ static const uint8_t kOpponentProvoked = 1 << 3;
 static const uint8_t kOpponentHunt = 2 << 3;
 static const uint8_t kOpponentPass = 3 << 3;
 static const uint8_t kOpponentBehaviourMask = 3 << 3;
+// The heading it starts on, level and always along an axis: quarter turns
+// left of north, as fmission.cc's kMissionStartTurns, in the top two bits.
+static const uint8_t kOpponentHeadShift = 6;
+static const uint8_t kOpponentNorth = 0 << kOpponentHeadShift;
+static const uint8_t kOpponentSouth = 2 << kOpponentHeadShift;
+static const uint8_t kOpponentEast = 3 << kOpponentHeadShift;
 // No waypoint fails the mission.
 static const uint8_t kOpponentNoFail = 0xFF;
 // The navpoint of the missions' WP_TARGETS_DOWN waypoint, which follows the
@@ -139,7 +146,7 @@ static const uint8_t kOpponentNoFail = 0xFF;
 // (test/fpilot_test.cc checks the order).
 static const uint8_t kOpponentNav = 0;
 struct opponent_path_t {
-  // opponent_kind_t, role and behaviour.
+  // opponent_kind_t, role, behaviour and starting heading.
   uint8_t kind;
   uint8_t count;
   // The waypoint whose reaching fails the mission, or kOpponentNoFail.
@@ -152,10 +159,17 @@ struct opponent_path_t {
   // 5,000; it climbs at 1,450-1,600 and stalls at 1,024.
   int16_t speed;
   uint16_t start_x, start_y;
-  // The heading it starts on: a level unit vector, 8.8.
-  int16_t head_x, head_y;
   uint16_t z;
 };
+
+// Path p's starting heading, into h: the level unit vector, 8.8, of the
+// quarter turns in its kind's top bits.
+static inline void _opponent_start_head(const opponent_path_t *p, vec3_t *h) {
+  uint8_t t = p->kind >> kOpponentHeadShift;
+  h->x = kMissionQuarterCos[t] << 8;
+  h->y = kMissionQuarterCos[t + 3] << 8;
+  h->z = 0;
+}
 
 // Heights on flight.cc's scale, 1,000 ft to 0x0200; the ground is at 0.
 static const uint16_t kOpponent5000Ft = 0x0A00;
@@ -214,25 +228,25 @@ static const uint16_t kOpponent3500Ft = 0x0700;
 static const uint8_t kOpponentMissions = 5;
 static_assert(kOpponentMissions <= kMissionCount, "a row for every mission at most");
 static const opponent_path_t kOpponentPaths[kOpponentMissions][kOpponentMax] = {
-    {{kOpponentOneWay | kOpponentFighter | kOpponentPath, 4, 3, 0, 1750, 0x7E00, 0x6000, -256,
-      0, kOpponent5000Ft},
+    {{kOpponentOneWay | kOpponentFighter | kOpponentPath | kOpponentSouth, 4, 3, 0, 1750, 0x7E00,
+      0x6000, kOpponent5000Ft},
      {kOpponentNone}},
-    {{kOpponentOneWay | kOpponentBomber | kOpponentHunt, 3, 1, 4, 1500, 0x4800, 0x4000, -256,
-      0, kOpponent3000Ft},
-     {kOpponentOneWay | kOpponentBomber | kOpponentHunt, 3, 1, 7, 1500, 0x48C8, 0x3F6A, -256,
-      0, kOpponent3500Ft}},
-    {{kOpponentParked | kOpponentFighter | kOpponentPath, 0, kOpponentNoFail, 0, 0, 0x5C9C,
-      0xC096, 0, -256, 0x000A},
-     {kOpponentParked | kOpponentFighter | kOpponentPath, 0, kOpponentNoFail, 0, 0, 0x5D64,
-      0xC096, 0, -256, 0x000A}},
-    {{kOpponentOneWay | kOpponentFighter | kOpponentPass, 1, kOpponentNoFail, 10, 2000, 0x1A70,
-      0x3FE0, 256, 0, 0x0060},
-     {kOpponentOneWay | kOpponentFighter | kOpponentPass, 1, kOpponentNoFail, 11, 2000, 0x1900,
-      0x3F20, 256, 0, 0x0060}},
-    {{kOpponentLoop | kOpponentFighter | kOpponentHunt, 0, kOpponentNoFail, 0, 2000, 0x4200,
-      0x9000, -256, 0, 0x0660},
-     {kOpponentLoop | kOpponentFighter | kOpponentHunt, 0, kOpponentNoFail, 0, 2000, 0x4200,
-      0x9100, -256, 0, 0x0660}},
+    {{kOpponentOneWay | kOpponentBomber | kOpponentHunt | kOpponentSouth, 3, 1, 4, 1500, 0x4800,
+      0x4000, kOpponent3000Ft},
+     {kOpponentOneWay | kOpponentBomber | kOpponentHunt | kOpponentSouth, 3, 1, 7, 1500, 0x48C8,
+      0x3F6A, kOpponent3500Ft}},
+    {{kOpponentParked | kOpponentFighter | kOpponentPath | kOpponentEast, 0, kOpponentNoFail, 0,
+      0, 0x5C9C, 0xC096, 0x000A},
+     {kOpponentParked | kOpponentFighter | kOpponentPath | kOpponentEast, 0, kOpponentNoFail, 0,
+      0, 0x5D64, 0xC096, 0x000A}},
+    {{kOpponentOneWay | kOpponentFighter | kOpponentPass | kOpponentNorth, 1, kOpponentNoFail, 10,
+      2000, 0x1A70, 0x3FE0, 0x0060},
+     {kOpponentOneWay | kOpponentFighter | kOpponentPass | kOpponentNorth, 1, kOpponentNoFail, 11,
+      2000, 0x1900, 0x3F20, 0x0060}},
+    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentSouth, 0, kOpponentNoFail, 0,
+      2000, 0x4200, 0x9000, 0x0660},
+     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentSouth, 0, kOpponentNoFail, 0,
+      2000, 0x4200, 0x9100, 0x0660}},
 };
 
 // Every path's waypoints, at its opponent_path_t::wp: 01's recon, 02's two
@@ -632,9 +646,7 @@ void opponent_reset(uint8_t mission) {
     _opponent_set_pos(i, p->start_x);
     _opponent_set_pos((uint8_t)(i + kOpponentMax), p->start_y);
     _opponent_set_pos((uint8_t)(i + 2 * kOpponentMax), p->z);
-    _opponent_head[i].x = p->head_x;
-    _opponent_head[i].y = p->head_y;
-    _opponent_head[i].z = 0;
+    _opponent_start_head(p, &_opponent_head[i]);
     _opponent_turn[i] = 0;
     _opponent_bank[i] = 0;
     _opponent_speed[i] = p->speed;

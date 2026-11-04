@@ -69,6 +69,11 @@ extern const uint8_t kMissionStartFuel[kMissionCount];
 // The heading, in quarter turns left of north: 0 north, 1 west, 2 south,
 // 3 east.
 extern const uint8_t kMissionStartTurns[kMissionStarts];
+// The cosine of t quarter turns, in its high byte, for t 0 to 6: t turns left
+// of north is the unit vector (Cos[t], Cos[t + 3]) << 8, and its left
+// (Cos[t + 1], Cos[t]) << 8. The player's start (flight.cc) and the
+// opponents' (opponent.cc).
+extern const int8_t kMissionQuarterCos[7];
 #endif
 extern const uint8_t kMissionWindX[kMissionCount];
 extern const uint8_t kMissionWindY[kMissionCount];

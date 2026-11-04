@@ -130,6 +130,8 @@ const uint8_t kMissionStartTurns[kMissionStarts] = {
     0, // 05
 };
 
+const int8_t kMissionQuarterCos[7] = {1, 0, -1, 0, 1, 0, -1};
+
 const uint8_t kMissionStartZ[kMissionStarts] = {
     0x05, // 01
     0x00, // 02

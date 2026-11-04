@@ -538,11 +538,10 @@ void flight_init_from_mission(uint8_t mission_idx) {
   // cosine three entries on, minus the sine the cosine one on - rather than
   // turned t times in a loop.
   {
-    static const int8_t kFlightQuarterCos[7] = {1, 0, -1, 0, 1, 0, -1};
     uint8_t t = kMissionStartTurns[mission_idx];
-    flight_cam.front.x = flight_cam.left.y = kFlightQuarterCos[t] << 8;
-    flight_cam.front.y = kFlightQuarterCos[t + 3] << 8;
-    flight_cam.left.x = kFlightQuarterCos[t + 1] << 8;
+    flight_cam.front.x = flight_cam.left.y = kMissionQuarterCos[t] << 8;
+    flight_cam.front.y = kMissionQuarterCos[t + 3] << 8;
+    flight_cam.left.x = kMissionQuarterCos[t + 1] << 8;
   }
 #endif
   flight_eye_x = (int32_t)kMissionStartX[mission_idx] << 16;

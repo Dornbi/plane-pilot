@@ -587,9 +587,9 @@ static double metres(uint16_t w, int32_t pos, bool wrap) {
 // start.
 static const opponent_path_t kStraight = {kOpponentLoop, 4, kOpponentNoFail,
                                           kOpponentWpCount + 4, 1500,
-                                          0x1A70, 0x3FE0, 256, 0, 0x0060};
+                                          0x1A70, 0x3FE0, 0x0060};
 static const opponent_path_t kSquare = {kOpponentLoop, 4, kOpponentNoFail, kOpponentWpCount,
-                                        1500, 0x0A00, 0x6200, 256, 0, 0x0700};
+                                        1500, 0x0A00, 0x6200, 0x0700};
 static uint16_t wp_x(const opponent_path_t &p, int w) { return kOpponentWpX[p.wp + w]; }
 static uint16_t wp_y(const opponent_path_t &p, int w) { return kOpponentWpY[p.wp + w]; }
 
@@ -600,7 +600,7 @@ static void fly(int slot, const opponent_path_t *p) {
   _opponent_x[slot] = (int32_t)p->start_x << 8;
   _opponent_y[slot] = (int32_t)p->start_y << 8;
   _opponent_z[slot] = (int32_t)p->z << 8;
-  _opponent_head[slot] = make_vector(p->head_x, p->head_y, 0);
+  _opponent_start_head(p, &_opponent_head[slot]);
   _opponent_turn[slot] = _opponent_bank[slot] = 0;
   _opponent_speed[slot] = p->speed;
   _opponent_climb[slot] = 0;
@@ -724,7 +724,7 @@ static void test_paths(void) {
 // too fast, it does not descend until the speed has come down.
 
 static const opponent_path_t kHigh = {kOpponentLoop, 4, kOpponentNoFail, kOpponentWpCount + 4, 1500,
-                                      0x1A70, 0x3FE0, 256, 0, 0x0400};
+                                      0x1A70, 0x3FE0, 0x0400};
 
 // Half metres from slot 0 to kHigh's height.
 static int below(void) { return (int)kHigh.z - (int)(_opponent_z[0] >> 8); }
@@ -905,14 +905,16 @@ static void test_missions(void) {
   // Each mission's roles and behaviours (docs/opponent_ai.md §3), and the
   // mode each slot starts in: ATTACK for a hunter, PATH for the rest.
   {
+    // And the heading each starts on, as the unit vector it used to be given.
     static const struct {
       uint8_t role, behaviour;
+      int16_t hx, hy;
     } kSent[kOpponentMissions][kOpponentMax] = {
-        {{kOpponentFighter, kOpponentPath}, {0, 0}},
-        {{kOpponentBomber, kOpponentHunt}, {kOpponentBomber, kOpponentHunt}},
-        {{kOpponentFighter, kOpponentPath}, {kOpponentFighter, kOpponentPath}},
-        {{kOpponentFighter, kOpponentPass}, {kOpponentFighter, kOpponentPass}},
-        {{kOpponentFighter, kOpponentHunt}, {kOpponentFighter, kOpponentHunt}},
+        {{kOpponentFighter, kOpponentPath, -256, 0}, {0, 0, 0, 0}},
+        {{kOpponentBomber, kOpponentHunt, -256, 0}, {kOpponentBomber, kOpponentHunt, -256, 0}},
+        {{kOpponentFighter, kOpponentPath, 0, -256}, {kOpponentFighter, kOpponentPath, 0, -256}},
+        {{kOpponentFighter, kOpponentPass, 256, 0}, {kOpponentFighter, kOpponentPass, 256, 0}},
+        {{kOpponentFighter, kOpponentHunt, -256, 0}, {kOpponentFighter, kOpponentHunt, -256, 0}},
     };
     for (int m = 0; m < kOpponentMissions; ++m) {
       opponent_reset((uint8_t)m);
@@ -920,10 +922,15 @@ static void test_missions(void) {
         const opponent_path_t &p = kOpponentPaths[m][k];
         if (p.kind == kOpponentNone) continue;
         uint8_t behaviour = p.kind & kOpponentBehaviourMask;
-        CHECK((p.kind & ~(kOpponentKindMask | kOpponentBehaviourMask)) == kSent[m][k].role &&
+        CHECK((p.kind & ~(kOpponentKindMask | kOpponentBehaviourMask |
+                          (3 << kOpponentHeadShift))) == kSent[m][k].role &&
                   behaviour == kSent[m][k].behaviour,
               "mission %d slot %d: role %d, behaviour %d", m + 1, k, p.kind & kOpponentBomber,
               behaviour >> 3);
+        CHECK(_opponent_head[k].x == kSent[m][k].hx && _opponent_head[k].y == kSent[m][k].hy &&
+                  _opponent_head[k].z == 0,
+              "mission %d slot %d: starts heading %d, %d", m + 1, k, _opponent_head[k].x,
+              _opponent_head[k].y);
         CHECK(!!(_opponent_attack & _opponent_bit(k)) == (behaviour == kOpponentHunt),
               "mission %d slot %d: starts in the wrong mode", m + 1, k);
       }
@@ -1321,12 +1328,11 @@ static void test_missions(void) {
 // trim, 1,476.
 
 static const opponent_path_t kHunter = {kOpponentLoop | kOpponentFighter | kOpponentHunt, 0,
-                                        kOpponentNoFail, 0, 2000, 0x2000, 0x8080, 256, 0,
-                                        0x0600};
+                                        kOpponentNoFail, 0, 2000, 0x2000, 0x8080, 0x0600};
 // kSquare's lap, once, then the player.
 static const opponent_path_t kSquarePass = {kOpponentLoop | kOpponentFighter | kOpponentPass, 4,
                                             kOpponentNoFail, kOpponentWpCount, 1500, 0x0A00,
-                                            0x6200, 256, 0, 0x0700};
+                                            0x6200, 0x0700};
 
 static void hunt(int slot, const opponent_path_t *p) {
   fly(slot, p);
@@ -1381,8 +1387,7 @@ static void test_hunting(void) {
   // overtakes, breaking off over it (below), and turns back.
   {
     static const opponent_path_t kSlow = {kOpponentLoop | kOpponentFighter | kOpponentHunt, 0,
-                                          kOpponentNoFail, 0, 1400, 0x2000, 0x8080, 256, 0,
-                                          0x0600};
+                                          kOpponentNoFail, 0, 1400, 0x2000, 0x8080, 0x0600};
     opponent_reset(0);
     _opponent_on[0] = false;
     hunt(1, &kSlow);
@@ -1537,7 +1542,7 @@ static void test_provoked(void) {
   model_on_ground = false;
   static const opponent_path_t kCalm = {kOpponentLoop | kOpponentFighter | kOpponentProvoked, 4,
                                         kOpponentNoFail, kOpponentWpCount, 1500, 0x0A00, 0x6200,
-                                        256, 0, 0x0700};
+                                        0x0700};
   for (int how = 0; how < 3; ++how) {
     opponent_reset(0);
     _opponent_on[0] = false;
