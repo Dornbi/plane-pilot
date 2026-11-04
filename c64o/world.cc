@@ -51,10 +51,21 @@ __striped static int16_t _world_mitch_z[16];
 // Mitchell's Best-Candidate algorithm to maximize distance between points
 // while maintaining an organic, non-linear distribution.
 // https://gemini.google.com/share/c1bafe545f1f
-static const uint8_t kMitchellPointsX[16] = {0, 6, 0, 2, 6, 2, 4, 0,
-                                             6, 4, 0, 2, 4, 4, 2, 4};
-static const uint8_t kMitchellPointsY[16] = {0, 0, 6, 2, 4, 6, 0, 2,
-                                             6, 4, 4, 0, 2, 2, 4, 6};
+// Each entry is the byte offset (n * sizeof(vec3_t)) of _world_dx4[n] or
+// _world_dy4[n], n in {0, 2, 4, 6}, as kWorldObjX/Y hold theirs, so the
+// precompute below indexes the tables directly instead of multiplying by 6.
+#define WORLD_MITCH(n) ((n) * sizeof(vec3_t))
+static const uint8_t kMitchellPointsX[16] = {
+    WORLD_MITCH(0), WORLD_MITCH(6), WORLD_MITCH(0), WORLD_MITCH(2),
+    WORLD_MITCH(6), WORLD_MITCH(2), WORLD_MITCH(4), WORLD_MITCH(0),
+    WORLD_MITCH(6), WORLD_MITCH(4), WORLD_MITCH(0), WORLD_MITCH(2),
+    WORLD_MITCH(4), WORLD_MITCH(4), WORLD_MITCH(2), WORLD_MITCH(4)};
+static const uint8_t kMitchellPointsY[16] = {
+    WORLD_MITCH(0), WORLD_MITCH(0), WORLD_MITCH(6), WORLD_MITCH(2),
+    WORLD_MITCH(4), WORLD_MITCH(6), WORLD_MITCH(0), WORLD_MITCH(2),
+    WORLD_MITCH(6), WORLD_MITCH(4), WORLD_MITCH(4), WORLD_MITCH(0),
+    WORLD_MITCH(2), WORLD_MITCH(2), WORLD_MITCH(4), WORLD_MITCH(6)};
+#undef WORLD_MITCH
 
 static inline int16_t _down_shift(uint32_t val) { return (int16_t)(val >> 9); }
 
@@ -173,11 +184,13 @@ void _world_init_start_dx_dy() {
 
   // Precompute Mitchell combinations
   for (uint8_t i = 0; i < 16; ++i) {
-    uint8_t mx = kMitchellPointsX[i];
-    uint8_t my = kMitchellPointsY[i];
-    _world_mitch_x[i] = _world_dx4[mx].x + _world_dy4[my].x;
-    _world_mitch_y[i] = _world_dx4[mx].y + _world_dy4[my].y;
-    _world_mitch_z[i] = _world_dx4[mx].z + _world_dy4[my].z;
+    const vec3_t *dx =
+        (const vec3_t *)((const uint8_t *)_world_dx4 + kMitchellPointsX[i]);
+    const vec3_t *dy =
+        (const vec3_t *)((const uint8_t *)_world_dy4 + kMitchellPointsY[i]);
+    _world_mitch_x[i] = dx->x + dy->x;
+    _world_mitch_y[i] = dx->y + dy->y;
+    _world_mitch_z[i] = dx->z + dy->z;
   }
 
   // The radius-4 start coords reach ~4600, which used to need a halving
