@@ -24,6 +24,18 @@ __noinline bool keys_pressed(enum KeyScanCode key) {
 }
 #endif
 
+__noinline uint8_t keys_scan(const uint8_t *keys, uint8_t count) {
+  uint8_t down = 0;
+  uint8_t bit = 1;
+  for (uint8_t i = 0; i < count; ++i) {
+    if (keys_pressed((enum KeyScanCode)keys[i])) {
+      down |= bit;
+    }
+    bit <<= 1;
+  }
+  return down;
+}
+
 inline uint8_t keys_edges(uint8_t current, uint8_t *prev) {
   uint8_t edges = current & ~*prev;
   *prev = current;

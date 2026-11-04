@@ -171,17 +171,8 @@ void sim_run(uint8_t selected_mission) {
     keys_poll();
 
     // Simulation loop
-    uint8_t toggles = 0;
-    {
-      uint8_t bit = 1;
-      for (uint8_t i = 0; i < kToggleKeyCount; ++i) {
-        if (keys_pressed(kToggleKeys[i])) {
-          toggles |= bit;
-        }
-        bit <<= 1;
-      }
-    }
-    const uint8_t toggle_edges = keys_edges(toggles, &prev_toggles);
+    const uint8_t toggle_edges =
+        keys_edges(keys_scan(kToggleKeys, kToggleKeyCount), &prev_toggles);
 
     // The map is a modal page, like the help screen: the simulation is
     // frozen and nothing but the exit keys responds. That is partly because

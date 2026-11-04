@@ -96,7 +96,9 @@ more `if (key_pressed(K)) toggles |= mask;`. Each pair is a constant load, a
 `JSR`, a branch and a second constant load. They became two tables - `kHeldKeys`
 and `kToggleKeys` - and two loops. Later the four view keys (1-4) joined
 `kHeldKeys` too, flagged with `kHeldKeyView` so the loop calls
-`view_update_view()` for them (−39 B in fpilot).
+`view_update_view()` for them (−39 B in fpilot). The toggle loop then moved
+into `keys.cc` as `keys_scan(keys, count)`, entry i to bit i, which the menu's
+key table and the help screen's exit keys and V share (−40 B in fpilot).
 
 The `kToggleKey*` bit masks moved out of the function body to sit beside the
 table they now index into, with the `__ENABLE_DEBUG__` and `__ENABLE_SOUND__`

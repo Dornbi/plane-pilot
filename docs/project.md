@@ -602,9 +602,9 @@ the parts that were tried and rejected, is [clouds.md](clouds.md).
 | `screen.cc` | shared mode transitions: enter static MCCM, begin text page, restore simulation    |
 | `sim.cc`    | the flight screen and its input dispatch                                           |
 
-`keys.cc` provides the two primitives every screen needs: `keys_edges()` for
-rising-edge detection on toggle keys, and `keys_wait_release()` for momentary
-ones.
+`keys.cc` provides the primitives every screen needs: `keys_scan()`, which
+reads a table of scan codes into one bit each, `keys_edges()` for rising-edge
+detection on toggle keys, and `keys_wait_release()` for momentary ones.
 
 ### `title.cc` — the menu flyby
 

@@ -51,6 +51,21 @@ static const char kHelpText[] =
     "H\tSHOW THIS HELP SCREEN";
 // clang-format on
 
+// The keys that leave, then V: entry i is bit i of keys_scan()'s answer.
+static const uint8_t kHelpKeys[] = {
+    KSCAN_RETURN, KSCAN_SPACE, KSCAN_Q, KSCAN_H,
+#ifdef __ENABLE_SOUND__
+    KSCAN_V,
+#endif
+};
+static const uint8_t kHelpKeyCount = sizeof(kHelpKeys);
+static const uint8_t kHelpKeysExitCount = 4;
+static const uint8_t kHelpKeysExit = (1 << kHelpKeysExitCount) - 1;
+#ifdef __ENABLE_SOUND__
+static const uint8_t kHelpKeyV = 1 << kHelpKeysExitCount;
+static_assert(kHelpKeyCount == kHelpKeysExitCount + 1, "V follows the exits");
+#endif
+
 static const uint8_t kHelpRowStart = 2;
 static const uint8_t kHelpKeyCol = 2;
 
@@ -65,21 +80,16 @@ void help_run(void) {
 
   // V is a toggle here as it is everywhere else, so it needs edge detection -
   // the other four keys in this loop are momentary and do not.
-  static const uint8_t kHelpKeyV = 0x01;
   uint8_t prev_help_toggles = 0;
 
   while (1) {
     keys_poll();
-    if (key_pressed(KSCAN_RETURN) || key_pressed(KSCAN_SPACE) ||
-        key_pressed(KSCAN_Q) || key_pressed(KSCAN_H)) {
+    const uint8_t down = keys_scan(kHelpKeys, kHelpKeyCount);
+    if (down & kHelpKeysExit) {
       break;
     }
 #ifdef __ENABLE_SOUND__
-    uint8_t help_toggles = 0;
-    if (key_pressed(KSCAN_V)) {
-      help_toggles |= kHelpKeyV;
-    }
-    if (keys_edges(help_toggles, &prev_help_toggles) & kHelpKeyV) {
+    if (keys_edges(down, &prev_help_toggles) & kHelpKeyV) {
       // Reached from the menu, where the tune is playing, and from flight,
       // where it is not and the flight driver is silenced. Both want the key
       // to work: the setting is what survives, and the next screen with sound
@@ -100,8 +110,7 @@ void help_run(void) {
     screen_notice_tick();
     gfx_wait_vsync();
   }
-  while (key_pressed(KSCAN_RETURN) || key_pressed(KSCAN_SPACE) ||
-         key_pressed(KSCAN_Q) || key_pressed(KSCAN_H)) {
+  while (keys_scan(kHelpKeys, kHelpKeysExitCount)) {
     keys_poll();
   }
 }

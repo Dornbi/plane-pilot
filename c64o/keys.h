@@ -60,6 +60,11 @@ void keys_poll(void);
 bool keys_pressed(enum KeyScanCode key);
 #endif
 
+// Which of the `count` scan codes in `keys` are down, entry i as bit i (so
+// `count` is at most 8). The menu's keys, the flight loop's toggles and the
+// help screen's keys all go through it, rather than each writing it out.
+uint8_t keys_scan(const uint8_t *keys, uint8_t count);
+
 // Returns which bits of `current` were not set in `*prev` (i.e. the keys
 // that transitioned from released to pressed since the last call), and
 // updates `*prev` to `current`. Shared by every screen that has toggle keys

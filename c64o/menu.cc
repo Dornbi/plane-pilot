@@ -133,17 +133,8 @@ uint8_t menu_run() {
 
     keys_poll();
 
-    uint8_t menu_toggles = 0;
-    {
-      uint8_t bit = 1;
-      for (uint8_t i = 0; i < kMenuKeyCount; ++i) {
-        if (keys_pressed((enum KeyScanCode)kMenuKeys[i])) {
-          menu_toggles |= bit;
-        }
-        bit <<= 1;
-      }
-    }
-    const uint8_t menu_edges = keys_edges(menu_toggles, &prev_menu_toggles);
+    const uint8_t menu_edges =
+        keys_edges(keys_scan(kMenuKeys, kMenuKeyCount), &prev_menu_toggles);
 
     if (menu_edges & (kMenuKeyI | kMenuKeyK)) {
       _menu_draw_mission_cursor(selected_mission, scroll_offset, false);
