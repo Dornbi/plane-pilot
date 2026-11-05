@@ -326,22 +326,28 @@ int main() {
   // --- The stall warning (flight.h flight_stall_warning()) -----------------
   //
   // fpilot flies the angle-of-attack model, where a turn held on the pull
-  // key sits at the stall's angle without losing height: it must not warn.
-  // A stall that sinks must, and as one warning, not one an onset. Mission
-  // 05 starts at 3,000 ft; a minute of each, `bank` degrees, the pull key
-  // held whenever the wings are within 4 degrees of it.
+  // key, or a dive's pull-out, sits at the stall's angle at speed: the
+  // buffet, which must not warn. A slow stall - wings level at idle, the top
+  // of a zoom - must, and as one warning, not one an onset. Mission 05
+  // starts at 3,000 ft; a minute of each. `bank` degrees, with the pull key
+  // held whenever the wings are within 4 degrees of it, or only while
+  // sinking; or a dive to front.z -180 for 8 s and the key held through the
+  // pull-out; or the nose held at front.z 200 until the speed is gone.
+  enum { kHeld, kSinking, kPullOut, kZoom };
   {
     struct {
-      int bank;
+      int pilot, bank;
       uint8_t throttle;
       bool warns;
       const char *what;
     } const kCases[] = {
-        {60, kMaxThrottle, false, "a 60 degree turn at full power"},
-        {30, kMaxThrottle, false, "a 30 degree turn at full power"},
-        {45, 18, false, "a 45 degree turn at cruise"},
-        {75, kMaxThrottle, true, "a 75 degree turn, sinking"},
-        {0, 0, true, "wings level at idle"},
+        {kHeld, 30, kMaxThrottle, false, "a 30 degree turn at full power"},
+        {kHeld, 60, kMaxThrottle, false, "a 60 degree turn at full power"},
+        {kHeld, 75, kMaxThrottle, false, "a 75 degree turn at full power"},
+        {kSinking, 60, 18, false, "a 60 degree turn at cruise"},
+        {kPullOut, 0, kMaxThrottle, false, "a dive's pull-out"},
+        {kHeld, 0, 0, true, "wings level at idle"},
+        {kZoom, 0, kMaxThrottle, true, "a zoom climb's top"},
     };
     for (const auto &c : kCases) {
       flight_init_from_mission(4);
@@ -355,8 +361,13 @@ int main() {
           flight_input(FLIGHT_INPUT_ROLL_LEFT);
         } else if (roll > c.bank + 4) {
           flight_input(FLIGHT_INPUT_ROLL_RIGHT);
-        } else {
-          flight_input(FLIGHT_INPUT_PITCH_UP);
+        } else if (c.pilot == kPullOut && n < 50) {
+          flight_input(flight_cam.front.z > -180 ? FLIGHT_INPUT_PITCH_DOWN : FLIGHT_INPUT_PITCH_UP);
+        } else if (c.pilot == kZoom) {
+          if (flight_cam.front.z < 194) flight_input(FLIGHT_INPUT_PITCH_UP);
+          else if (flight_cam.front.z > 206) flight_input(FLIGHT_INPUT_PITCH_DOWN);
+        } else if (c.pilot != kSinking || flight_vspeed < 0) {
+          if (c.pilot != kPullOut || flight_cam.front.z < 20) flight_input(FLIGHT_INPUT_PITCH_UP);
         }
         flight_advance();
         stalled += flight_stall != 0;
@@ -365,7 +376,7 @@ int main() {
         onsets += warning && !was;
         was = warning;
       }
-      CHECK(stalled > 150 && (c.warns ? warned > 50 && onsets <= 2 : warned == 0),
+      CHECK(stalled > 0 && (c.warns ? warned > 50 && onsets <= 2 : warned == 0),
             "stall warning, %s: stalled %d of 375 steps, warned %d, %d onsets", c.what, stalled,
             warned, onsets);
       printf("  stall warning, %s: stalled %d of 375 steps, warned %d in %d\n", c.what, stalled,

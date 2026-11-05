@@ -234,25 +234,33 @@ produced the alternative and the measurements either side.
   key carries it over again. At 3,000 ft that is stalled on four steps in five
   and in and out of it ~40 times a minute, at every bank from 30 to 60
   degrees on full power and at 45 on cruise - and without losing height. A
-  warning on `flight_stall` itself chattered through every such turn. So it
-  warns only of a stall that **sinks**, with $\gamma$ below
-  `kFlightStallWarnSink` = -256 (~3.6 degrees down), and **holds on for three
-  steps** after one (`kFlightStallWarnSteps` = 4), which turns a sinking
-  stall's own flicker into one steady warning. Measured over a minute each
-  (`test/fpilot_test.cc`):
+  warning on `flight_stall` itself chattered through every such turn, and so
+  does a dive's pull-out. Those are the buffet, over as soon as the key is let
+  go. So it warns only of a **slow** stall: airspeed under
+  `kFlightStallWarnSpeed` = 1,150, 12% over the 1 g stall speed at sea level,
+  and **holds on for three steps** after one
+  (`kFlightStallWarnSteps` = 4), which turns a stall's own flicker into one
+  steady warning. Measured over a minute each (`test/fpilot_test.cc`):
 
-| Case | Stalled | Warned before | Warned now |
-| :--- | ---: | ---: | ---: |
-| 60° turn, full power, pull held | 301 of 375 steps | ~45 times | never |
-| 30° turn, full power, pull held | 322 | ~29 times | never |
-| 45° turn, throttle 18, pull held | 309 | ~42 times | never |
-| 75° turn, full power, sinking | 308 | ~36 times | once, 353 steps |
-| Wings level at idle, pull held | 318 | ~29 times | once, 320 steps |
+| Case | Stalled | On every stall | Sinking (until 2026-11-04) | Slow (now) |
+| :--- | ---: | ---: | ---: | ---: |
+| 30° turn, full power, pull held | 322 of 375 steps | ~29 times | never | never |
+| 60° turn, full power, pull held | 301 | ~45 times | never | never |
+| 75° turn, full power, pull held | 308 | ~36 times | once | never |
+| 60° turn, throttle 18, pulling when sinking | 212 | often | once | never |
+| A dive's pull-out, pull held | 5 | once | once | never |
+| Wings level at idle, pull held | 318 | ~29 times | once | once, 281 steps |
+| A zoom climb's top, full power | 292 | often | never | once, 69 steps |
 
-  What it no longer warns of is a full-power stall that hangs at the break
-  without sinking, wings level or in a turn; it does as soon as the flight
-  path falls away. It costs fpilot 19 B. The arcade model is unchanged: its
-  warning is still `flight_stall`, the stall speed itself.
+  The sinking rule it replaced (`flight_gamma` below -256) still warned in
+  combat flying: a 60 degree turn at cruise, every 75 degree turn, every
+  pull-out. The slow rule warns in a held turn only once it has bled the speed
+  to within ~10% of the stall - a 45 degree turn on throttle 18 does, at
+  ~1,110. The 1 g stall rises with height (~1,095 at 5,000 ft, ~1,182 at
+  6,000), but a stalled wing keeps slowing, so an idle stall still warns:
+  3.5 s after it starts low down, 4.6 s at 7,000 ft. A threshold raised with
+  the density penalty to keep pace cost fpilot ~45 B. The arcade model is
+  unchanged: its warning is still `flight_stall`, the stall speed itself.
 
 ### 2.3. Climbing & Altitude Mechanics
 

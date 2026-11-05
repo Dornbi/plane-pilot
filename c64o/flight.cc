@@ -300,15 +300,22 @@ static const int16_t kFlightAlphaStall = 56;
 // constants could not hold.
 static const int16_t kFlightClPeak = kFlightAlphaStall << 4;
 
-// The stall warning (flight.h flight_stall_warning()): a stall whose flight
-// path is below this, at flight_gamma's 4096 to 1.0 - ~3.6 degrees down -
-// and the steps it then stays on for. Measured over a minute at 3,000 ft
-// (docs/flight.md 2.2): every turn held on the pull key at full power, at any
-// bank up to 60 degrees, stalls on four steps in five and keeps flight_gamma
-// at or above 0, so it is silent; an idle or half-throttle stall wings level,
-// and a 75 degree turn, sink past it. Four steps on is the stall's step and
-// three more, which is what turns their ~40 onsets a minute into one.
-static const int16_t kFlightStallWarnSink = -256;
+// The stall warning (flight.h flight_stall_warning()): a stall below this
+// airspeed, and the steps it then stays on for. The 1 g stall is 1,024 at sea
+// level, ~12% under it. A stall at speed - the wing at the break in a held
+// turn, a dive's pull-out - is the buffet, over as soon as the key is let go,
+// and is silent; one this slow is the aeroplane running out of speed.
+// Measured (docs/flight.md 2.2): no turn up to 75 degrees, spiral or
+// pull-out warns until it has bled to within ~10% of the stall, and every
+// slow stall - a zoom's top, idle or half throttle wings level, slow flight
+// at low power - does. The 1 g stall rises with height, ~1,095 at 5,000 ft
+// and ~1,182 at 6,000, but a stalled wing keeps slowing: an idle stall warns
+// 3.5 s after it starts low down and 4.6 s at 7,000 ft. Raising the speed
+// with the density penalty instead cost fpilot ~45 B. The sinking flight
+// path it replaced warned in a 60 degree turn at cruise and in every
+// pull-out. Four steps on is the stall's step and three more, which makes a
+// stall's flicker at the break one warning.
+static const uint16_t kFlightStallWarnSpeed = 1150;
 static const uint8_t kFlightStallWarnSteps = 4;
 
 // Camber: C_L at zero alpha. A wing is not symmetric, and this is what makes
@@ -1203,7 +1210,7 @@ void flight_advance() {
                     kFlightClPeak);
       if (excess > 0) {
         flight_stall = 1;
-        if (flight_gamma < kFlightStallWarnSink) {
+        if ((uint16_t)flight_speed < kFlightStallWarnSpeed) {
           flight_stall_warn = kFlightStallWarnSteps;
         }
         uint8_t brk = (uint8_t)(_flight_step_s(excess) >> 5);
