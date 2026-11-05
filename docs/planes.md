@@ -217,7 +217,10 @@ Per plane, per frame:
 3. **To camera space.** `vec_transform_inv(&world_cam, &P, &C)` — 9 multiplies,
    already exists.
 4. **Cull.** `C.x <= 64` (8 m — behind or on top of the camera) → skip.
-   Range cull at `C.x > 16000` (2 km) → skip, and at `|C.y|` or `|C.z| >= C.x`
+   No range cull here: the caller's ranges are the range. *The first one,
+   `C.x > 16000` (2 km), sat under fpilot's near range, a box of 16 units
+   on each world axis, and hid an aircraft coming in on a diagonal from
+   ~2.9 km to 2 km.* Cull at `|C.y|` or `|C.z| >= C.x`
    — more than 45° off the axis, far outside any viewport, as `vec_project`
    culls; it is also where the centre's exact division stops being a
    fraction (step 5). Cull if the sprite would land

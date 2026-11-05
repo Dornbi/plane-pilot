@@ -459,7 +459,12 @@ bool planes_centre(const planes_view_t *view, const vec3_t *c, planes_frame_t *f
     frame->hidden = kPlaneBehindCamera;
     return false;
   }
-  if (c->x > 16000 || _abs16(c->y) >= c->x || _abs16(c->z) >= c->x) {
+  // No range cull of its own: the caller's ranges are the range. A fixed
+  // 2 km here, under fpilot's near range - within 16 units on each world
+  // axis, so up to ~2.9 km away on a diagonal - hid an aircraft coming in
+  // between them. Any int16 x projects: k is a fraction of kn, and the
+  // centre's division needs only the two tests below.
+  if (_abs16(c->y) >= c->x || _abs16(c->z) >= c->x) {
     frame->hidden = kPlaneOutOfRange;
     return false;
   }

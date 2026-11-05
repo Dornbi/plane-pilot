@@ -49,7 +49,10 @@ RENDER_UNIT_M = 0.25
 EIGHTHS_PER_M = 8          # model dimensions are stored in 1/8 m
 
 MIN_CAM_X = 64             # 16 m, in quarter-metre units
-MAX_CAM_X = 16000          # 4 km range cull
+# No range cull but an int16's reach, as planes.cc: the caller's ranges are
+# the range. A fixed one under fpilot's near range hid aircraft coming in on a
+# diagonal.
+MAX_CAM_X = 32767
 
 # The last viewport line a hardware sprite may START on (mem.h). Sprite DMA is
 # switched off kSpritesOffLead = 22 lines above the panel split, and a sprite

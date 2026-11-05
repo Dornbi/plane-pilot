@@ -420,6 +420,33 @@ static void test_through_the_dot(void) {
   for (int r = 9000; r > 200; r = r * 20 / 21) frame(sc, {r, 0, 15, false}, what);
 }
 
+// --- 2b. In on a diagonal ---------------------------------------------------------
+//
+// Dead ahead from 4 km to 150 m, on bearings between the world's axes and
+// climbing: on screen in every frame, the dot or a silhouette. The near range
+// is a box, 16 units on each world axis, so its corners are ~2.9 km out on a
+// diagonal; planes.cc's old 2 km range cull sat inside it, and an aircraft
+// coming in on a diagonal vanished from ~2.9 km to 2 km.
+
+static void test_diagonal(void) {
+  static const int kCams[][2] = {{0, 0}, {30, 0}, {45, 0}, {45, 30}, {135, -20}, {225, 10}};
+  for (const auto &cam : kCams) {
+    scene_t sc;
+    start(sc, camera(cam[0], cam[1], 0));
+    char what[64];
+    snprintf(what, sizeof(what), "diagonal, camera %d up %d", cam[0], cam[1]);
+    int missing = 0, first = -1;
+    for (int r = 32000; r > 1200; r -= 100) {
+      frame(sc, {r, 0, 0, false}, what);
+      if (!_offer[0].on) {
+        ++missing;
+        if (first < 0) first = r / 8;
+      }
+    }
+    CHECK(missing == 0, "%s: not drawn in %d frames, the first %d m out", what, missing, first);
+  }
+}
+
 // --- 3. Everything at once ------------------------------------------------------
 //
 // A random walk: mostly smooth, a few percent of the range and a pixel or two
@@ -1694,6 +1721,7 @@ static void test_guns(void) {
 int main() {
   test_look_back();
   test_through_the_dot();
+  test_diagonal();
   test_random();
   test_two();
   test_both_close();
