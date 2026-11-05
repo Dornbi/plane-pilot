@@ -1192,3 +1192,20 @@ aim from inside any gunner's cone with 5 degrees to spare: putting the
 nose on a bomber from below climbs into it. Over fifteen random seeds the
 recon falls in 2.8-3.0 min unhit every time, and 02's pair in 3.3-3.5 min
 with no hit in thirteen and one in two.
+
+### Breaking off turns away (2026-11-04)
+
+With less induced drag (flight.cc `kFlightInducedShift` 6) the player climbs
+out of 04's scramble at the fighters' own speed. One of them sat 5-9 m behind
+it for 15 s and flew into it: breaking off asks for the steepest level away
+from the player's height, which there was a dive, and under its 60 m floor
+the floor turned that into a climb - while pure pursuit kept it on the
+player's tail. A hunter breaking off now also turns away from the player,
+never straight on (`opponent_step()`, 6 B). The break-off cases in
+opponent_test still keep it 26 m clear on every axis, and the scramble's
+flying-away pilot is followed at ~100 m instead of hit. mission_test's
+dogfight pilot, which only turned to fight at its 100 m floor, now does from
+30 m up while it climbs on: holding its fire until 100 m it reached the floor
+with both fighters on its tail, losing all fifteen random seeds; reacting from
+30 m it wins all fifteen in ~2.5 min with under one hit on average.
+

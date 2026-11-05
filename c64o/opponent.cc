@@ -1110,6 +1110,14 @@ void opponent_step(void) {
       uint8_t floor = _opponent_strafe(i, dot, across, cut);
       straight = (_opponent_pullup & bit) != 0;
       want = straight ? 1 : _opponent_want(i, dx8, dy8, dz, floor);
+      // Breaking off, it also turns away from the player, whichever way it
+      // is - the other side, and never straight on: on its tail near the
+      // ground the floor stops it diving clear, and pure pursuit at the
+      // player's own speed held it there until they touched.
+      if (_opponent_break) {
+        cross = -cross;
+        dot = -1;
+      }
     } else {
       // A bomber's rear gunner, whatever its behaviour: its cone is
       // opponent_fires()'s. Not a fighter's guns: one whose pass ended this

@@ -15,7 +15,7 @@ shipped before it is still there, built with `make prg FLIGHT_AOA=0`:
 | Lift | $f(V^2, \text{bank})$; `front.z` never enters it | $f(C_L(\alpha), V^2, \text{up.z})$ |
 | Airspeed points | along the nose, by definition | along its own flight path |
 | Stall | a speed the code is told | an angle; the speeds are derived |
-| ppilot's free RAM | 12,535 B | 11,688 B (**847 B** less) |
+| ppilot's free RAM | 12,535 B | 11,677 B (**858 B** less) |
 
 The angle-of-attack model is the better aeroplane and the arcade one is the
 cheaper, which is the whole of the trade. Both are covered by the host suite -
@@ -155,16 +155,21 @@ produced the alternative and the measurements either side.
   the model that came before, where above a trim speed the level attitude was
   $\text{front.z} = 0$ exactly and no faster level trim existed.
 - **Trim vs. Airspeed & Throttle** (measured, upright, clean, sea level, run to
-  a bit-stable steady state):
+  a bit-stable steady state; `kFlightInducedShift` 6, and in brackets 5, what
+  shipped until 2026-11-04):
 
 | Throttle | Level pitch | Angle of attack | Settled airspeed |
 | :--- | ---: | ---: | ---: |
-| 12 (50%) | 24 (~5.4°) | 22 | 1476 |
-| 14 (58%) | 16 (~3.6°) | 14 | 1719 |
-| 16 (67%) | 12 (~2.7°) | 10 | 1906 |
-| 18 (75%) | 10 (~2.2°) | 8 | 2054 |
-| 20 (83%) | 8 (~1.8°) | 6 | 2188 |
-| 24 (100%) | 6 (~1.3°) | 3 | 2429 |
+| 12 (50%) | 16 (23) | 16 (22) | 1673 (1476) |
+| 14 (58%) | 12 (15) | 12 (14) | 1837 (1719) |
+| 16 (67%) | 9 (11) | 9 (10) | 1991 (1906) |
+| 18 (75%) | 7 (8) | 7 (8) | 2126 (2055) |
+| 20 (83%) | 6 (6) | 5 (6) | 2247 (2194) |
+| 24 (100%) | 3 (4) | 3 (3) | 2482 (2436) |
+
+  *Most other figures in §2-§7 - the inverted table, the summary matrix, the
+  accelerated stall's 2290 - were measured at shift 5 and are a little low on
+  speed and high on drag for what ships now.*
 
 - **Below about 50% throttle the only level trims are on the back side of the
   power curve**, at angles within a few units of the break and airspeeds around
@@ -237,7 +242,7 @@ produced the alternative and the measurements either side.
   warning on `flight_stall` itself chattered through every such turn, and so
   does a dive's pull-out. Those are the buffet, over as soon as the key is let
   go. So it warns only of a **slow** stall: airspeed under
-  `kFlightStallWarnSpeed` = 1,150, 12% over the 1 g stall speed at sea level,
+  `kFlightStallWarnSpeed` = 1,200, 15% over the 1 g stall speed at sea level,
   and **holds on for three steps** after one
   (`kFlightStallWarnSteps` = 4), which turns a stall's own flicker into one
   steady warning. Measured over a minute each (`test/fpilot_test.cc`):
@@ -249,14 +254,15 @@ produced the alternative and the measurements either side.
 | 75° turn, full power, pull held | 308 | ~36 times | once | never |
 | 60° turn, throttle 18, pulling when sinking | 212 | often | once | never |
 | A dive's pull-out, pull held | 5 | once | once | never |
-| Wings level at idle, pull held | 318 | ~29 times | once | once, 281 steps |
-| A zoom climb's top, full power | 292 | often | never | once, 69 steps |
+| Wings level at idle, pull held | 318 | ~29 times | once | twice, 290 steps |
+| A zoom climb's top, full power | 263 | often | never | once, 55 steps |
 
   The sinking rule it replaced (`flight_gamma` below -256) still warned in
   combat flying: a 60 degree turn at cruise, every 75 degree turn, every
   pull-out. The slow rule warns in a held turn only once it has bled the speed
-  to within ~10% of the stall - a 45 degree turn on throttle 18 does, at
-  ~1,110. The 1 g stall rises with height (~1,095 at 5,000 ft, ~1,182 at
+  to within ~15% of the stall - a 30 degree turn on throttle 18 does, at
+  ~1,110. 1,150 was enough at shift 5; at shift 6 a zoom on full power
+  bottoms out at ~1,180, and it missed that. The 1 g stall rises with height (~1,095 at 5,000 ft, ~1,182 at
   6,000), but a stalled wing keeps slowing, so an idle stall still warns:
   3.5 s after it starts low down, 4.6 s at 7,000 ft. A threshold raised with
   the density penalty to keep pace cost fpilot ~45 B. The arcade model is
@@ -268,9 +274,10 @@ produced the alternative and the measurements either side.
   where $\gamma$ is the **flight path**, not the nose. The difference is
   exactly the aeroplane that is pointing up while sinking, which is the
   attitude every approach and every stall entry is flown at.
-- **Best rate of climb** at full throttle is **+526**, at a held pitch of 118
-  (~27°). The old model's was +663 at a shallower attitude, so the aircraft now
-  climbs more slowly - which is the direction `TODO.md` asks for.
+- **Best rate of climb** at full throttle is **~+620**, at a held pitch of
+  ~130 (~30°); the arcade model's is ~+640. At shift 5 it was +526 at 118,
+  slower than `TODO.md` asked for, and in a dogfight too slow to get back the
+  speed a turn cost.
 - **Service Ceiling & Altitude Density Decay**: unchanged in mechanism -
   $\text{alt\_penalty} = (Z - \text{0x080000}) \gg 12$ clamped to 128, and
   $\text{density} = 256 - \text{alt\_penalty}$ scales thrust and lift. What is
@@ -289,8 +296,20 @@ produced the alternative and the measurements either side.
   implicit inverted penalty. All three were the same thing: the wing being
   asked for lift it has to work for.
 - The shift sets where the drag curve bottoms out and therefore the throttle
-  needed for level flight, the glide ratio and the climb rate together. 5 is
-  what ships; `flight.cc` carries the measurements either side of it.
+  needed for level flight, the glide ratio and the climb rate together. 6 is
+  what ships, since 2026-11-04; `flight.cc` carries the measurements either
+  side of it.
+- **What a turn costs** is mostly this term: a level 60° turn asks the wing
+  for 2 g, four times the induced drag. At shift 5 a 60° turn held level on
+  full power settled at ~1,970 and a 75° turn could not be held, losing
+  ~580 m a minute; played, a dogfight bled the speed to the stall. At shift 6
+  the 60° turn settles at ~2,300 (the arcade model's ~2,020), the 75° turn
+  loses ~230 m a minute, and the glide is ~9:1 (`test_optimal_glide_angle`),
+  longer than the arcade model's ~6:1. A turn on the pull key at the break
+  still bleeds to near the stall speed for its load: that is the wing at its
+  limit, and converting speed into climb, whatever the drag. Capping the C_L
+  the drag term sees instead kept level flight as it was but glided ~12:1
+  and held level on a quarter throttle.
 - **Lift is two-sided.** The old model applied a deficit only when positive, so
   lift in excess of the weight produced no upward force at all. The net
   vertical force integrates into the flight path in both directions now, which

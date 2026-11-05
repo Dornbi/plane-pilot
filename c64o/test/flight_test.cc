@@ -2845,11 +2845,12 @@ static void test_banked_turn_loses_altitude() {
            flight_speed, flight_alpha());
   }
 
-  // Wings level at its own trim: holds altitude. To within a tenth of what
+  // Wings level at its own trim: holds altitude. To within a fifth of what
   // the 45 degree bank loses rather than to the unit, because the trim is
   // found over a settled 600 frames and flown here from a standing start at
-  // another speed, so it lands a little either side of level.
-  assert(dz[0] > dz[1] / 10);
+  // another speed, so it lands a little either side of level. A fifth since
+  // kFlightInducedShift 6, which halved what the bank loses.
+  assert(dz[0] > dz[1] / 5);
   assert(dz[1] < 0);     // 45 deg bank: descends
   assert(dz[2] < dz[1]); // 70 deg bank: descends faster
 

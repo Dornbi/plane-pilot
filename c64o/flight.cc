@@ -302,7 +302,7 @@ static const int16_t kFlightClPeak = kFlightAlphaStall << 4;
 
 // The stall warning (flight.h flight_stall_warning()): a stall below this
 // airspeed, and the steps it then stays on for. The 1 g stall is 1,024 at sea
-// level, ~12% under it. A stall at speed - the wing at the break in a held
+// level, ~15% under it. A stall at speed - the wing at the break in a held
 // turn, a dive's pull-out - is the buffet, over as soon as the key is let go,
 // and is silent; one this slow is the aeroplane running out of speed.
 // Measured (docs/flight.md 2.2): no turn up to 75 degrees, spiral or
@@ -310,12 +310,13 @@ static const int16_t kFlightClPeak = kFlightAlphaStall << 4;
 // slow stall - a zoom's top, idle or half throttle wings level, slow flight
 // at low power - does. The 1 g stall rises with height, ~1,095 at 5,000 ft
 // and ~1,182 at 6,000, but a stalled wing keeps slowing: an idle stall warns
-// 3.5 s after it starts low down and 4.6 s at 7,000 ft. Raising the speed
+// seconds after it starts at any height. 1,150 missed a zoom climb's top at
+// full power, which bottoms out at ~1,180. Raising the speed
 // with the density penalty instead cost fpilot ~45 B. The sinking flight
 // path it replaced warned in a 60 degree turn at cruise and in every
 // pull-out. Four steps on is the stall's step and three more, which makes a
 // stall's flicker at the break one warning.
-static const uint16_t kFlightStallWarnSpeed = 1150;
+static const uint16_t kFlightStallWarnSpeed = 1200;
 static const uint8_t kFlightStallWarnSteps = 4;
 
 // Camber: C_L at zero alpha. A wing is not symmetric, and this is what makes
@@ -360,16 +361,20 @@ static const int16_t kFlightLiftSat = 4096;
 //
 //   shift 4:  floor 58%,  cruise 2340,  glide 3.84:1,  best climb +354
 //   shift 5:  floor 33%,  cruise 2429,  glide 7.33:1,  best climb +526
+//   shift 6:              cruise 2482,  glide ~9:1,    best climb ~+620
 //   (old model: floor 45%, cruise 2509, glide 6.13:1, best climb +663)
 //
-// 5 is the one that flies like the aeroplane the missions were built around,
-// and it is a better aeroplane on the two counts that were open: the glide is
-// longer and the climb is slower, which is what TODO.md asks for.
+// 6 since 2026-11-04. 5 flew like the aeroplane the missions were built
+// around, but a turn is this term - a 60 degree one asks for 2 g, four times
+// the drag - and in a dogfight 5 bled the speed to the stall: a 60 degree
+// turn held level on full power settled at ~1,970, and a 75 degree one lost
+// ~580 m a minute. At 6 those are ~2,300 and ~230 m, near the arcade model's
+// turns, for a longer glide (docs/flight.md 2.4).
 //
 // 4 was chosen first, on prototype numbers that turned out to be measuring the
 // harness - a glide read off a run that had never settled, in half density air
 // a long way above the ceiling knee. See docs/flight_aoa.md 4.
-static const uint8_t kFlightInducedShift = 5;
+static const uint8_t kFlightInducedShift = 6;
 
 // 65536 / V, indexed by V >> 8. The 1/V in "flight path curvature is force
 // over momentum", and the same 1/V in "turn rate is horizontal lift over

@@ -140,7 +140,7 @@ extern uint8_t flight_stall;
 // angle, and a turn held on the pull key, or a dive's pull-out, sits at it -
 // the wing nibbling at the break and the nose bobbing off it, stalled four
 // steps in five at full speed. So there it warns only of a slow stall, under
-// kFlightStallWarnSpeed, ~12% over the 1 g stall speed at sea level, and
+// kFlightStallWarnSpeed, ~15% over the 1 g stall speed at sea level, and
 // holds on for kFlightStallWarnSteps after one, so that a stall's own
 // flicker is one steady warning (docs/flight.md 2.2).
 #ifdef __FLIGHT_AOA__

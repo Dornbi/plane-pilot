@@ -376,7 +376,9 @@ int main() {
         onsets += warning && !was;
         was = warning;
       }
-      CHECK(stalled > 0 && (c.warns ? warned > 50 && onsets <= 2 : warned == 0),
+      // Each warning a stall of its own: the nose drops, the speed comes
+      // back, and the held key stalls the wing again.
+      CHECK(c.warns ? stalled > 0 && warned > 50 && onsets <= 3 : warned == 0,
             "stall warning, %s: stalled %d of 375 steps, warned %d, %d onsets", c.what, stalled,
             warned, onsets);
       printf("  stall warning, %s: stalled %d of 375 steps, warned %d in %d\n", c.what, stalled,

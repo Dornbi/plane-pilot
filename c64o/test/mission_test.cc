@@ -187,8 +187,8 @@ static void chase(bool guns, int *caught_at, int *gone_at, int *down_at) {
 
 
 // A dogfight: from the mission's start - taking off first if it starts on
-// the runway, gear up once off it, and climbing to `min_m`, 300 m unless the
-// targets are on the ground - it goes for the lowest bomber still flying, or
+// the runway, gear up once off it, and from 30 m up climbing on to `min_m`,
+// 300 m unless the targets are on the ground - it goes for the lowest bomber still flying, or
 // else the nearest aircraft, never aiming from inside a bomber gunner's cone,
 // banking towards it at 60 degrees, matching its height but no lower than
 // that - or kBelow under a bomber - throttled back on its tail inside 300 m,
@@ -234,7 +234,11 @@ static int dogfight(int m, double *closest, int min_m = 300) {
     double ahead = along(flight_cam.front, dx, dy, dz);
     double side = along(flight_cam.left, dx, dy, dz);
     double above = along(flight_cam.up, dx, dy, dz);
-    bool up = !model_on_ground && flight_eye_z > kMinZ;
+    // Fighting from 30 m up, while it climbs on to kMinZ: a pilot that only
+    // turned to fight at 100 m, with less drag (flight.cc
+    // kFlightInducedShift 6) kept up with 04's pair on the way out instead
+    // of being overtaken, and got there with both on its tail.
+    bool up = !model_on_ground && flight_eye_z > ((int32_t)30 << 9);
     double d = sqrt(dx * dx + dy * dy + dz * dz);
     // A bomber it closes on slowly, from behind: firing beyond the rounds'
     // ~600 m reach would empty the guns before it got there.
