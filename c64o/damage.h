@@ -7,11 +7,12 @@
 #include "flight.h"
 #include "opponent.h"
 
-// The player's damage (docs/opponent_ai.md §8): each hit from an opponent's
-// round causes a new failure, picked at random from those the player does
-// not have yet, and a message says which, while the border flashes red. The fifth hit shoots the
-// player down. Nothing repairs a failure, and nothing on the panel shows
-// one.
+// The player's damage (docs/opponent_ai.md §8): the airframe takes the
+// first damage_armour hits from opponents' rounds - three, or four - with
+// nothing broken. Each hit after those causes a new failure, picked at
+// random from those the player does not have yet, and a message says which.
+// The fifth past the armour shoots the player down. Every hit flashes the
+// border red. Nothing repairs a failure, and nothing on the panel shows one.
 //
 // fpilot only, with the opponents that do the shooting. Elsewhere the hooks
 // below are the undamaged values and flight.cc compiles to what it was.
@@ -25,7 +26,10 @@ static const uint8_t kDamageHydraulics = 0x08; // flaps and gear stay as they ar
 static const uint8_t kDamageControls = 0x10;   // roll, pitch and yaw at half rate
 // Not a hit's: the oil leak's end. The throttle's top is 0.
 static const uint8_t kDamageSeized = 0x20;
-// Hits that shoot the player down.
+// Hits the airframe takes before anything fails: this many, and one more
+// in half the flights (damage_armour).
+static const uint8_t kDamageArmour = 3;
+// Hits past the armour that shoot the player down: four failures, then down.
 static const uint8_t kDamageHitsToDown = 5;
 // Shot down in the air: the controls gone, the aircraft falls - in a steep
 // dive, and with kDamageSpin rolling as well - until it hits the ground,
@@ -34,15 +38,19 @@ static const uint8_t kDamageDown = 0x40;
 static const uint8_t kDamageSpin = 0x80;
 
 extern uint8_t damage_bits;
+// This flight's armour: kDamageArmour, or one more, picked by damage_reset().
+extern uint8_t damage_armour;
 // Flips on every rotation input while the controls are damaged.
 extern uint8_t damage_toggle;
 
-// No failures. With gun_reset().
+// No failures, and this flight's armour. With gun_reset(), after
+// opponent_reset() has seeded the random byte.
 void damage_reset(void);
 
-// The player's `hits`th hit, as gun.cc counts them: a new failure, or shot
-// down - falling (kDamageDown), or on the ground the crash at once,
-// FLIGHT_CRASH_SHOT_DOWN. None counts once falling.
+// The player's `hits`th hit, as gun.cc counts them: within the armour only
+// AIRFRAME HIT; past it a new failure, or shot down - falling
+// (kDamageDown), or on the ground the crash at once, FLIGHT_CRASH_SHOT_DOWN.
+// None counts once falling.
 void damage_hit(uint8_t hits);
 
 // A whole model step: the oil leak's countdown.

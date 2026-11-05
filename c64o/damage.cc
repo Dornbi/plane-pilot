@@ -9,6 +9,7 @@
 
 uint8_t damage_bits;
 uint8_t damage_toggle;
+uint8_t damage_armour;
 // Whole steps until the leaking engine seizes, 0 if it is not leaking.
 static uint8_t _damage_oil;
 
@@ -31,6 +32,7 @@ static const char *const kDamageText[5] = {"ENGINE DAMAGED", "FUEL LEAK", "OIL L
 void damage_reset(void) {
   damage_bits = 0;
   damage_toggle = 0;
+  damage_armour = kDamageArmour + (opponent_random() & 1);
   _damage_oil = 0;
   // A restart mid-flash would leave the border red.
   _damage_flash = 0;
@@ -53,6 +55,12 @@ void damage_hit(uint8_t hits) {
   }
   _damage_flash = kDamageFlash;
   flight_events |= FLIGHT_EV_HIT;
+  // The airframe's: holed, nothing broken.
+  if (hits <= damage_armour) {
+    msg_show("AIRFRAME HIT");
+    return;
+  }
+  hits -= damage_armour;
   if (hits >= kDamageHitsToDown) {
     if (model_on_ground) {
       flight_status = FLIGHT_CRASH_SHOT_DOWN;
@@ -66,7 +74,8 @@ void damage_hit(uint8_t hits) {
     return;
   }
   // One of the five, near enough evenly, and if the player has it already
-  // the next one round that they do not: hits 1-4 always find one.
+  // the next one round that they do not: hits 1-4 past the armour always
+  // find one.
   uint8_t k = opponent_random() & 15;
   while (k >= 5) {
     k -= 5;

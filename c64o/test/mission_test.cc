@@ -127,6 +127,11 @@ static double fly_to(uint16_t x, uint16_t y, int32_t z) {
   return sqrt(dx * dx + dy * dy) / 2;
 }
 
+// Whether the player has taken the hit that shoots it down.
+static bool shot_down(void) {
+  return gun_player_hits >= damage_armour + kDamageHitsToDown;
+}
+
 // How far under a bomber chase() and dogfight() hold, in metres: out of its
 // rear gunner's cone, which reaches ~10 degrees below its wings.
 static const int kBelow = 100;
@@ -487,7 +492,8 @@ int main() {
   }
 
   // 04, parked and hands off: the pair come back from their pass and
-  // strafe, their rounds land, and the fifth shoots the player down.
+  // strafe, their rounds land, and the fifth past the armour shoots the player
+  // down.
   {
     flight_init_from_mission(3);
     opponent_reset(3);
@@ -500,7 +506,7 @@ int main() {
       if (first < 0 && gun_player_hits > 0) first = n;
       if (flight_status == FLIGHT_CRASH_SHOT_DOWN) down = n;
     }
-    CHECK(first >= 0 && down >= 0 && gun_player_hits == kDamageHitsToDown,
+    CHECK(first >= 0 && down >= 0 && gun_player_hits == damage_armour + kDamageHitsToDown,
           "scramble, parked: first hit at %d, shot down at %d, %d hits", first, down,
           gun_player_hits);
     printf("  scramble, parked: the first hit at %.0f s, shot down at %.0f s\n",
@@ -573,7 +579,7 @@ int main() {
     double closest;
     int down = dogfight(4, &closest);
     CHECK(down >= 0 && down <= 8 * 60 * kStepsPerSecond && _opponent_kills == 4 &&
-              gun_player_hits < kDamageHitsToDown,
+              !shot_down(),
           "head on: %d down at %.1f min, %d hits taken", _opponent_kills,
           down / kStepsPerSecond / 60, gun_player_hits);
     printf("  head on, dogfight: both pairs down at %.1f min, the nearest %.0f m, %d hits taken\n",
@@ -629,7 +635,7 @@ int main() {
   {
     double closest;
     int down = dogfight(9, &closest);
-    CHECK(down >= 0 && gun_player_hits < kDamageHitsToDown,
+    CHECK(down >= 0 && !shot_down(),
           "combat patrol: both down at %.1f min, %d hits taken", down / kStepsPerSecond / 60,
           gun_player_hits);
     printf("  combat patrol, dogfight: both down at %.1f min, the nearest %.0f m, %d hits taken\n",
@@ -684,7 +690,7 @@ int main() {
       if (home < 1000) home_at = n;
     }
     CHECK(!flight_crashed() && seen_at >= 0 && second_at >= 0 && seen2_at >= 0 && home_at >= 0 &&
-              gun_player_hits < kDamageHitsToDown,
+              !shot_down(),
           "way home: seen at %.1f min, the second patrol at %.1f, home at %.1f, %s",
           seen_at / kStepsPerSecond / 60, second_at / kStepsPerSecond / 60,
           home_at / kStepsPerSecond / 60, flight_status_text(flight_status, true));

@@ -377,6 +377,11 @@ A Provoked slot switches to `ATTACK` on either of these:
 - **Which failure.** The LFSR picks one of the five. If the player already
   has it, the next one in the list that they don't have is taken instead.
   A failure never repeats, never gets worse, and is never repaired.
+- **Armour.** *Since 2026-11-05:* the airframe takes the first three hits,
+  and a fourth in half the flights (`damage_armour`, picked by
+  `damage_reset()`), with nothing broken: the border flashes and the
+  message says AIRFRAME HIT. The failures and the fall below count from the
+  hit after those.
 - **Shot down.** Hits 1–4 each cause a failure. The fifth ends the flight
   with a new last crash status, `FLIGHT_CRASH_SHOT_DOWN` ("SHOT DOWN"), so
   there is always a new failure to pick.
@@ -1265,3 +1270,17 @@ after (fpilot 829 B allocatable in all, 672 of it bss2). About half is data
 - the eight new rows (192 B), the mission text and the start rows - and
 `_opponent_send()` is 313 B, most of it the slot set-up `opponent_reset()`
 had. ppilot is unchanged.
+
+### Armour before the failures (2026-11-05)
+
+Every hit used to break something, and the fifth shot the player down. Now
+the airframe takes the first three hits, or four in half the flights, by the
+random byte at `damage_reset()`: the border flashes, AIRFRAME HIT, and
+nothing else. The four failures and the fall follow as before, from the hit
+after those, so it takes 8-9 hits to go down. `damage_armour` holds this
+flight's count; `kDamageArmour` is the three, and `kDamageHitsToDown` is now
+counted past the armour. 42 B: fpilot's main region 125 -> 83 B free.
+
+fpilot_test holds the armour's hits to breaking nothing for both counts, and
+the hit after them to one failure. mission_test's parked player in 04 is shot
+down at ~6 min instead of ~1.8, and no pilot that won before loses now.

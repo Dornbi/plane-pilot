@@ -173,16 +173,18 @@ int main() {
     damage_reset();
     flight_throttle = kMaxThrottle;
     _random = (uint8_t)k;
-    damage_hit(1);
+    damage_hit((uint8_t)(damage_armour + 1));
     CHECK(damage_bits == kFailures[k].bit && !strcmp(_msg, kFailures[k].text),
           "damage %d: bits %02x, \"%s\"", k, damage_bits, _msg);
   }
 
   // A hit flashes the border red three times, a frame each, and leaves it
-  // black; the fifth, which shoots the player down, as well.
-  for (int hits = 1; hits <= kDamageHitsToDown; hits += kDamageHitsToDown - 1) {
+  // black: the airframe's, a failure's, and the one that shoots the player
+  // down, as well.
+  for (int past = 0; past <= kDamageHitsToDown; past += past ? kDamageHitsToDown - 1 : 1) {
     flight_init_from_mission(4);
     damage_reset();
+    int hits = past ? damage_armour + past : 1;
     damage_hit((uint8_t)hits);
     char seen[16] = "";
     for (int n = 0; n < 8; ++n) {
@@ -203,7 +205,7 @@ int main() {
   damage_reset();
   flight_throttle = kMaxThrottle;
   _random = 0;
-  damage_hit(1);
+  damage_hit((uint8_t)(damage_armour + 1));
   for (int n = 0; n < 30; ++n) flight_input(FLIGHT_INPUT_THROTTLE_UP);
   CHECK(flight_throttle == kMaxThrottle / 2, "engine: throttle %d", flight_throttle);
 
@@ -229,7 +231,7 @@ int main() {
   damage_reset();
   flight_throttle = 0x10;
   _random = 2;
-  damage_hit(1);
+  damage_hit((uint8_t)(damage_armour + 1));
   int seized = -1;
   for (int n = 0; n < 300 && seized < 0; ++n) {
     damage_step();
@@ -267,8 +269,29 @@ int main() {
           "controls: ten rolls damaged are not five undamaged");
   }
 
-  // Four hits, four different failures, whatever the random byte; the
-  // fifth shoots the player down.
+  // The armour: three hits, or four, by the random byte at the reset, that
+  // break nothing - AIRFRAME HIT, the border's flash - and the next breaks
+  // something.
+  for (int r = 0; r < 2; ++r) {
+    flight_init_from_mission(4);
+    _random = (uint8_t)r;
+    damage_reset();
+    CHECK(damage_armour == kDamageArmour + r, "armour %d: %d hits", r, damage_armour);
+    flight_throttle = kMaxThrottle;
+    for (int h = 1; h <= damage_armour; ++h) {
+      _msgs = 0;
+      damage_hit((uint8_t)h);
+      CHECK(damage_bits == 0 && _msgs == 1 && !strcmp(_msg, "AIRFRAME HIT") &&
+                flight_throttle == kMaxThrottle && flight_status == FLIGHT_ONGOING,
+            "armour %d: hit %d broke %02x, \"%s\"", r, h, damage_bits, _msg);
+    }
+    damage_hit((uint8_t)(damage_armour + 1));
+    CHECK(__builtin_popcount(damage_bits) == 1, "armour %d: the hit past it broke %02x", r,
+          damage_bits);
+  }
+
+  // Four hits past the armour, four different failures, whatever the random
+  // byte; the fifth shoots the player down.
   {
     bool all = true;
     for (int r = 1; r < 256; ++r) {
@@ -278,7 +301,7 @@ int main() {
       int n = 0;
       for (int h = 1; h <= 4; ++h) {
         uint8_t before = damage_bits;
-        damage_hit((uint8_t)h);
+        damage_hit((uint8_t)(damage_armour + h));
         if (__builtin_popcount(damage_bits) == __builtin_popcount(before) + 1) ++n;
         _random = (uint8_t)(_random * 5 + 3);
       }
@@ -287,7 +310,7 @@ int main() {
     CHECK(all, "damage: four hits did not always give four failures");
   }
 
-  // The fifth hit in the air: shot down. The controls are gone and the
+  // The fifth hit past the armour, in the air: shot down. The controls are gone and the
   // aircraft falls - with an even random byte diving, with an odd one
   // spinning as well, rolling on round - until it hits the ground, and that
   // is the crash, SHOT DOWN. Mission 05 starts at 3,000 ft.
@@ -295,10 +318,11 @@ int main() {
     flight_init_from_mission(4);
     damage_reset();
     _random = (uint8_t)spin;
-    damage_hit(5);
+    damage_hit((uint8_t)(damage_armour + kDamageHitsToDown));
     CHECK(damage_down() && !!(damage_bits & kDamageSpin) == !!spin && !flight_crashed() &&
               !strcmp(_msg, "SHOT DOWN!"),
-          "fall %d: the fifth hit left status %d, bits %02x, \"%s\"", spin, flight_status,
+          "fall %d: the fifth hit past the armour left status %d, bits %02x, \"%s\"", spin,
+          flight_status,
           damage_bits, _msg);
     // Nothing the pilot does takes, and no more hits count.
     mat3_t cam = flight_cam;
@@ -309,7 +333,7 @@ int main() {
     CHECK(!memcmp(&cam, &flight_cam, sizeof(mat3_t)) && flight_throttle == throttle,
           "fall %d: the controls still work", spin);
     uint8_t bits = damage_bits;
-    damage_hit(6);
+    damage_hit((uint8_t)(damage_armour + kDamageHitsToDown + 1));
     CHECK(damage_bits == bits, "fall %d: a hit while falling counted", spin);
     int n = 0, steep = -1;
     bool rolled_over = false;
@@ -329,10 +353,11 @@ int main() {
            spin ? "spinning" : "diving", steep / 6.25, n / 6.25);
   }
 
-  // On the ground the fifth hit is the crash at once: 02 starts parked.
+  // On the ground the fifth past the armour is the crash at once: 02 starts
+  // parked.
   flight_init_from_mission(1);
   damage_reset();
-  damage_hit(5);
+  damage_hit((uint8_t)(damage_armour + kDamageHitsToDown));
   CHECK(flight_status == FLIGHT_CRASH_SHOT_DOWN && !damage_down(),
         "on the ground: the fifth hit left status %d", flight_status);
 
