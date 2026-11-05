@@ -471,17 +471,20 @@ static __noinline void _clip_near_edge(const vec3_t *prev, const vec3_t *curr,
   // scaling was added to prevent. test_near_clip_scaling_never_overflows
   // covers it. The OR is a cheap "all six fit": any magnitude with high byte
   // >= 15 fails the test.
-  bool fits = (_mag_hi(prev->y) | _mag_hi(prev->z) | _mag_hi(curr->y) |
-               _mag_hi(curr->z) | _mag_hi(dy) | _mag_hi(dz)) < 15;
-  if (fits) {
-    dest->x = 8 << 3;
-    dest->y = (prev->y << 3) + vec_mulfrac(t, (int16_t)(dy << 3));
-    dest->z = (prev->z << 3) + vec_mulfrac(t, (int16_t)(dz << 3));
-  } else {
-    dest->x = 8;
-    dest->y = prev->y + vec_mulfrac(t, dy);
-    dest->z = prev->z + vec_mulfrac(t, dz);
+  // Lifted or not, the intersection is the same expression, so the operands
+  // are scaled first and the multiplies written once.
+  int16_t x = 8, py = prev->y, pz = prev->z;
+  if ((_mag_hi(py) | _mag_hi(pz) | _mag_hi(curr->y) | _mag_hi(curr->z) |
+       _mag_hi(dy) | _mag_hi(dz)) < 15) {
+    x = 8 << 3;
+    py <<= 3;
+    pz <<= 3;
+    dy <<= 3;
+    dz <<= 3;
   }
+  dest->x = x;
+  dest->y = py + vec_mulfrac(t, dy);
+  dest->z = pz + vec_mulfrac(t, dz);
 }
 
 static inline uint8_t _clip_near(const vec3_t *in, uint8_t num_in,
