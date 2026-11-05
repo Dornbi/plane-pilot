@@ -234,6 +234,13 @@ reason in §5.)
 [clouds.cc](../c64o/clouds.cc) is `[4][3][3]`, so its rows are 9 bytes too and
 `clouds_add_candidates()` indexes them the same way.
 
+What did work is keeping the 9 bytes and dropping the index: sprites.cc now
+holds the list's end as a byte offset (`_sprites_cand_end`) and reaches every
+entry by its offset, so each access is `abs,x` with no table, and the insertion
+sort moves an entry up with one index register, the source 9 bytes below the
+target. `sprites_stack_add()` −27 B, `sprites_stack_commit()` −8 B, and
+`__multab9L` shrinks to the 4 entries the clouds' rows need.
+
 ### 4.2. Eliminating `@proxy` trampolines — **0 B**
 
 oscar64 emits a `@proxy` to stage constant arguments, and the obvious reading of

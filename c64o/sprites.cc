@@ -122,7 +122,15 @@ struct sprite_frame_t {
 #pragma bss(bss2)
 
 static sprite_cand_t _sprites_cand[kSpriteStackSize];
-static uint8_t _sprites_cand_count;
+// The end of the list as a byte offset, not a count, and every entry reached
+// by its byte offset: an entry is 9 bytes, and indexing by count went through
+// oscar64's __multab9L at every access.
+static uint8_t _sprites_cand_end;
+static const uint8_t kSpriteCandSize = sizeof(sprite_cand_t);
+static const uint8_t kSpriteCandBytes = kSpriteStackSize * kSpriteCandSize;
+static_assert(kSpriteStackSize * sizeof(sprite_cand_t) < 256,
+              "the candidates' byte offsets fit in uint8_t");
+#define SPRITE_CAND(o) ((sprite_cand_t *)((uint8_t *)_sprites_cand + (o)))
 
 // Whether this frame carries the orientation indicator. One flag and no
 // position: the marker does not move - see sprites_set_orientation().
@@ -323,7 +331,7 @@ static bool _sprites_hidden_by_msg(int16_t x, uint8_t vy, uint8_t width) {
 }
 
 void sprites_stack_reset(void) {
-  _sprites_cand_count = 0;
+  _sprites_cand_end = 0;
   _sprites_orient_on = false;
   _sprites_fin_on = false;
 }
@@ -398,33 +406,43 @@ bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
     return false;
   }
 
-  uint8_t i = _sprites_cand_count;
-  if (i == kSpriteStackSize) {
+  // o is the new entry's byte offset as it moves down the list.
+  uint8_t o = _sprites_cand_end;
+  if (o == kSpriteCandBytes) {
     // Full. Only a nearer object earns a place, and it takes the farthest
     // one's.
     if ((uint16_t)depth >=
         (uint16_t)_sprites_cand[kSpriteStackSize - 1].depth) {
       return false;
     }
-    i = kSpriteStackSize - 1;
+    o -= kSpriteCandSize;
   } else {
-    _sprites_cand_count = i + 1;
+    _sprites_cand_end = o + kSpriteCandSize;
   }
-  while (i > 0) {
-    uint8_t prev = i - 1;
-    if ((uint16_t)_sprites_cand[prev].depth <= (uint16_t)depth) {
+  while (o != 0) {
+    uint8_t prev = o - kSpriteCandSize;
+    const sprite_cand_t *p = SPRITE_CAND(prev);
+    if ((uint16_t)p->depth <= (uint16_t)depth) {
       break;
     }
-    _sprites_cand[i] = _sprites_cand[prev];
-    i = prev;
+    // The entry before moves up one, a byte at a time from its end: one
+    // index for both, the source kSpriteCandSize bytes below the target.
+    uint8_t *b = (uint8_t *)_sprites_cand;
+    uint8_t k = o + kSpriteCandSize;
+    do {
+      --k;
+      b[k] = b[k - kSpriteCandSize];
+    } while (k != o);
+    o = prev;
   }
-  _sprites_cand[i].depth = depth;
-  _sprites_cand[i].x = vx;
-  _sprites_cand[i].y = vy;
-  _sprites_cand[i].bitmap = bitmap;
-  _sprites_cand[i].bitmap2 = bitmap2;
-  _sprites_cand[i].color = color;
-  _sprites_cand[i].flags = flags;
+  sprite_cand_t *c = SPRITE_CAND(o);
+  c->depth = depth;
+  c->x = vx;
+  c->y = vy;
+  c->bitmap = bitmap;
+  c->bitmap2 = bitmap2;
+  c->color = color;
+  c->flags = flags;
   return true;
 }
 
@@ -692,8 +710,8 @@ void sprites_stack_commit(void) {
   uint8_t expand_y = 0;
   uint8_t enable = 0;
 
-  for (uint8_t i = 0; i < _sprites_cand_count; ++i) {
-    const sprite_cand_t *c = &_sprites_cand[i];
+  for (uint8_t o = 0; o != _sprites_cand_end; o += kSpriteCandSize) {
+    const sprite_cand_t *c = SPRITE_CAND(o);
     uint8_t flags = c->flags;
     uint8_t cols = (flags & kSpriteFlagWide) ? 2 : 1;
     uint8_t slots =
