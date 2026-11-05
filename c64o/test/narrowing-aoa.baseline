@@ -34,7 +34,7 @@ host_vec.cc 1
 mul_test.cc 1
 music_test.cc 5
 poly.cc 11
-sound.cc 2
+sound.cc 1
 sprites.cc 3
 sprites_test.cc 4
-vec.cc 11
+vec.cc 8

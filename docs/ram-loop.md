@@ -2,7 +2,7 @@
 
 `tools/ram_loop.sh` runs an unattended loop that frees RAM in fpilot and saves
 cycles. RAM and cycles matter equally, and fpilot is the only target: ppilot
-and ppilota only have to keep building and passing their tests. Each pass starts a fresh Claude agent,
+only has to keep building and passing its tests. Each pass starts a fresh Claude agent,
 which looks for **one** new saving and implements it. The script then rebuilds
 everything, runs every test, measures free RAM, times the render with
 `tools/bench.sh`, takes the `make_shots` screenshots, and has a second agent review the diff
@@ -48,8 +48,8 @@ A change is kept only when all of these hold:
 - It gains something: more free RAM, or at least 0.5% fewer total cycles than
   the last kept state.
 
-ppilot and ppilota must still build and pass their tests. Their free RAM is
-logged in the table but is not a goal or a gate.
+ppilot must still build and pass its tests. Its free RAM is logged in the
+table but is not a goal or a gate.
 
 The script reads this line, so keep its format exactly:
 

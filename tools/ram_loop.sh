@@ -28,8 +28,8 @@
 # created from the current HEAD if it does not exist and fast-forwarded to it
 # if it is behind. Nothing is pushed.
 #
-# fpilot is the target: its RAM, its frame cost, its pictures. ppilot and
-# ppilota only have to keep building and passing their tests.
+# fpilot is the target: its RAM, its frame cost, its pictures. ppilot only
+# has to keep building and passing its tests.
 #
 # x64sc runs minimized through a wrapper on PATH, for the agents' runs too,
 # and ~/.config/vice/vicerc is put back on exit: VICE rewrites it after
@@ -210,8 +210,8 @@ worker_prompt() {
   cat <<EOF
 You are one pass of an unattended loop that frees RAM and saves cycles in fpilot
 (C64, oscar64). RAM and cycles matter equally. Focus on fpilot only: the code it runs,
-including its combat (opponent.cc, gun.cc, planes*.cc). ppilot and ppilota only have to
-keep building and passing their tests; their RAM and speed are not goals.
+including its combat (opponent.cc, gun.cc, planes*.cc). ppilot only has to keep
+building and passing its tests; its RAM and speed are not goals.
 
 Read $LEDGER first. Its rules are binding. Its dead ends and log list ideas that were
 already tried: never retry one, or a trivial variant of one. Your auto-memory notes about

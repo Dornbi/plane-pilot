@@ -78,7 +78,7 @@
 //
 // The end is the one number here that has to be moved by hand. It sits at
 // exactly the 512 bytes kBootScratch's tenants need (box.cc's static_assert),
-// which is the floor; the boot code is smaller (at most $0A3E, in ppilota). If
+// which is the floor; the boot code is smaller (it ends at $0A32). If
 // the boot code outgrows it, the link fails with "Could not place object",
 // and the fix is to raise it.
 //

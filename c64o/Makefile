@@ -1,13 +1,14 @@
 OSCAR64_INCLUDE=../../../oscar64-main/include
 
-# Which flight model to build (docs/flight.md 1). The angle-of-attack model is
-# the better aeroplane and costs bytes; the arcade model is what has always
-# shipped. Both are in flight.cc behind __FLIGHT_AOA__ and both are covered by
-# the host suite - `make -C c64o/test test-both`.
+# Which flight model ppilot is built with (docs/flight.md 1). The
+# angle-of-attack model ships, in ppilot and fpilot alike; the arcade model
+# that shipped before it is still in flight.cc, behind __FLIGHT_AOA__, and
+# still covered by the host suite - `make -C c64o/test test-both`. fpilot
+# does not follow this: it is always the angle-of-attack model.
 #
-#   make prg               the arcade model
-#   make prg FLIGHT_AOA=1  the angle-of-attack model
-FLIGHT_AOA ?= 0
+#   make prg               the angle-of-attack model
+#   make prg FLIGHT_AOA=0  ppilot with the arcade model
+FLIGHT_AOA ?= 1
 ifeq ($(FLIGHT_AOA),1)
 FLIGHT_MODEL = -D__FLIGHT_AOA__
 endif
@@ -21,10 +22,6 @@ $(shell [ "$$(cat $(FLIGHT_STAMP) 2>/dev/null)" = "$(FLIGHT_AOA)" ] || \
 	echo "$(FLIGHT_AOA)" > $(FLIGHT_STAMP))
 
 PPILOT_PROGRAM = ppilot
-# The same game with the angle-of-attack flight model (docs/flight.md 1). Same
-# sources, one define, and its own name so both can exist at once and be flown
-# against each other.
-PPILOTA_PROGRAM = ppilota
 # Fighter Pilot: a different game on the same engine, with air-to-air combat
 # and missions of its own. Also built from ppilot.cc, with -D__FPILOT__, which
 # swaps pmission.cc for fmission.cc (mission.h), puts its own name on the menu,
@@ -294,17 +291,15 @@ define prg_size
 		"$(1)" "$$bytes" "$$image" "$$start" "$$end"
 endef
 
-all: $(PPILOT_PROGRAM).prg $(PPILOTA_PROGRAM).prg $(FPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg $(PLANEDEMO_PROGRAM).prg test
+all: $(PPILOT_PROGRAM).prg $(FPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg $(PLANEDEMO_PROGRAM).prg test
 	@echo ""
 	$(call prg_size,$(PPILOT_PROGRAM).prg)
-	$(call prg_size,$(PPILOTA_PROGRAM).prg)
 	$(call prg_size,$(FPILOT_PROGRAM).prg)
 
 # Standalone, so the size can be checked without provoking a build. Reports
 # whatever is on disk now; run `make` first if that might be stale.
 size:
 	$(call prg_size,$(PPILOT_PROGRAM).prg)
-	$(call prg_size,$(PPILOTA_PROGRAM).prg)
 	$(call prg_size,$(FPILOT_PROGRAM).prg)
 
 pram:
@@ -321,20 +316,9 @@ $(PPILOT_PROGRAM).prg: $(PPILOT_SRC) $(PPANEL_LZO) $(FLIGHT_STAMP)
 	@$(ROMCHECK) $(PPILOT_PROGRAM).asm
 	@$(BOOTCHECK) $(PPILOT_PROGRAM).asm
 
-# Built from the same ppilot.cc, so it stays in step with the game by
-# construction. It does not depend on FLIGHT_STAMP: its model is fixed by its
-# own name, and the stamp exists for the case where FLIGHT_AOA moves ppilot.prg
-# from one model to the other under a name that does not change.
-$(PPILOTA_PROGRAM).prg: $(PPILOT_SRC) $(PPANEL_LZO)
-	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(DEBUG) $(CLOUDS) -D__FLIGHT_AOA__ -D__MAX_RAM__ -o=$(PPILOTA_PROGRAM).prg ppilot.cc
-	@$(ZPCHECK) $(PPILOTA_PROGRAM).asm
-	@$(IRQCHECK) $(PPILOTA_PROGRAM).asm
-	@$(MATHCHECK) $(PPILOTA_PROGRAM).asm
-	@$(ROMCHECK) $(PPILOTA_PROGRAM).asm
-	@$(BOOTCHECK) $(PPILOTA_PROGRAM).asm
-
-# Not on FLIGHT_STAMP either, for the same reason: its model does not follow
-# FLIGHT_AOA.
+# Not on FLIGHT_STAMP: its model is fixed, whatever FLIGHT_AOA is; the stamp
+# exists for ppilot, which moves from one model to the other under a name
+# that does not change.
 $(FPILOT_PROGRAM).prg: $(PPILOT_SRC) $(OPPONENT_SRC) fpanel.koa $(FPANEL_LZO)
 	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(CLOUDS) -D__FPILOT__ -D__FLIGHT_AOA__ -D__MAX_RAM__ -o=$(FPILOT_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(FPILOT_PROGRAM).asm
@@ -375,28 +359,28 @@ planedemo_prof.prg: $(PLANEDEMO_SRC)
 
 # Re-run the checks on whatever is already built, without provoking a build.
 zpcheck:
-	$(ZPCHECK) $(PPILOT_PROGRAM).asm $(PPILOTA_PROGRAM).asm $(FPILOT_PROGRAM).asm \
+	$(ZPCHECK) $(PPILOT_PROGRAM).asm $(FPILOT_PROGRAM).asm \
 		$(POLYDEMO_PROGRAM).asm $(VECDEMO_PROGRAM).asm $(VECTEST_PROGRAM).asm
-	$(IRQCHECK) $(PPILOT_PROGRAM).asm $(PPILOTA_PROGRAM).asm $(FPILOT_PROGRAM).asm \
+	$(IRQCHECK) $(PPILOT_PROGRAM).asm $(FPILOT_PROGRAM).asm \
 		$(POLYDEMO_PROGRAM).asm
 
 mathcheck:
-	$(MATHCHECK) $(PPILOT_PROGRAM).asm $(PPILOTA_PROGRAM).asm $(FPILOT_PROGRAM).asm \
+	$(MATHCHECK) $(PPILOT_PROGRAM).asm $(FPILOT_PROGRAM).asm \
 		$(POLYDEMO_PROGRAM).asm $(VECDEMO_PROGRAM).asm $(PLANEDEMO_PROGRAM).asm
 
 romcheck:
-	$(ROMCHECK) $(PPILOT_PROGRAM).asm $(PPILOTA_PROGRAM).asm $(FPILOT_PROGRAM).asm \
+	$(ROMCHECK) $(PPILOT_PROGRAM).asm $(FPILOT_PROGRAM).asm \
 		$(POLYDEMO_PROGRAM).asm
 
 bootcheck:
-	$(BOOTCHECK) $(PPILOT_PROGRAM).asm $(PPILOTA_PROGRAM).asm $(FPILOT_PROGRAM).asm \
+	$(BOOTCHECK) $(PPILOT_PROGRAM).asm $(FPILOT_PROGRAM).asm \
 		$(POLYDEMO_PROGRAM).asm
 
 test flight_test msg_test:
 	$(MAKE) -C test $@
 
 clean:
-	rm -rf $(PPILOT_PROGRAM).prg $(PPILOTA_PROGRAM).prg $(FPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg $(PLANEDEMO_PROGRAM).prg planedemo_prof.prg *.asm *.dbj *.int *.lbl *.map $(FLIGHT_STAMP)
+	rm -rf $(PPILOT_PROGRAM).prg $(FPILOT_PROGRAM).prg $(POLYDEMO_PROGRAM).prg $(VECDEMO_PROGRAM).prg $(VECTEST_PROGRAM).prg $(PLANEDEMO_PROGRAM).prg planedemo_prof.prg *.asm *.dbj *.int *.lbl *.map $(FLIGHT_STAMP)
 	$(MAKE) -C test clean
 
 .PHONY: all size pram fram zpcheck mathcheck romcheck bootcheck test flight_test msg_test clean

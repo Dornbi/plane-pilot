@@ -23,7 +23,7 @@ FPANEL_FLAGS = $(PANEL_FLAGS) --pin-slots 1,12,15@18,6-8
 
 # The programs c64o/Makefile builds. `make release` publishes these from
 # c64o/ (build output, gitignored) to bin/ (checked in, what README links to).
-PROGRAMS = ppilot ppilota fpilot polydemo vecdemo vectest
+PROGRAMS = ppilot fpilot polydemo vecdemo vectest
 
 .PHONY: help data chardefs gfx-chars sprites clouds planes map-tiles map-tiles-draft panel ppanel fpanel music map-preview cloud-preview render demo prg pram fram release test clean
 
@@ -48,7 +48,7 @@ help:
 	@echo "  make render      - render all roll angles to out/rendered_frames"
 	@echo "  make demo        - interactive roll/pitch demo (needs pygame)"
 	@echo "  make prg         - build the C64 binaries via c64o/Makefile (needs oscar64),"
-	@echo "                     then report the ppilot.prg, ppilota.prg and fpilot.prg sizes"
+	@echo "                     then report the ppilot.prg and fpilot.prg sizes"
 	@echo "  make pram        - report RAM usage breakdown by feature from c64o/ppilot.map"
 	@echo "  make fram        - the same for c64o/fpilot.map"
 	@echo "  make release     - build, then publish the .prg files to bin/"
@@ -93,7 +93,7 @@ planes:
 map-tiles-draft:
 	$(PYTHON) tools/make_map_tiles_draft.py
 
-# The instrument panels: ppanel for ppilot and ppilota, fpanel for fpilot
+# The instrument panels: ppanel for ppilot, fpanel for fpilot
 # (view.cc picks one by __FPILOT__). Both share one layout and one set of
 # flags, so the lamps below sit in the same cells of either. --embed names the
 # three byte ranges view.cc actually embeds, so the optimizer works on what

@@ -6,26 +6,37 @@ This document specifies the flight dynamics model requirements for the C64 fligh
 
 ### Two models, one build flag
 
-There are two flight models in `flight.cc`, selected by `__FLIGHT_AOA__`, and
-`make` builds **both binaries** from the same sources:
+There are two flight models in `flight.cc`, selected by `__FLIGHT_AOA__`. **Both
+games ship the angle-of-attack model** (since 2026-11-04); the arcade model that
+shipped before it is still there, built with `make prg FLIGHT_AOA=0`:
 
-| | `ppilot.prg` | `flighta.prg` |
+| | arcade (`FLIGHT_AOA=0`) | angle of attack (the default) |
 | :--- | :--- | :--- |
-| Model | **arcade** - what has always shipped | angle of attack |
 | Lift | $f(V^2, \text{bank})$; `front.z` never enters it | $f(C_L(\alpha), V^2, \text{up.z})$ |
 | Airspeed points | along the nose, by definition | along its own flight path |
 | Stall | a speed the code is told | an angle; the speeds are derived |
-| Size | 47,607 bytes | 48,375 bytes (**+768**) |
+| ppilot's free RAM | 12,535 B | 11,688 B (**847 B** less) |
 
 The angle-of-attack model is the better aeroplane and the arcade one is the
-cheaper, which is the whole of the trade and why both exist.
+cheaper, which is the whole of the trade. Both are covered by the host suite -
+`make -C c64o/test test` runs the angle-of-attack model, `test-both` both -
+which carries two sets of expectations because for several cases they are
+opposites, and by a narrowing baseline each.
 
-**fpilot flies the angle-of-attack model** (since 2026-11-04), always: its
-rule in `c64o/Makefile` passes `-D__FLIGHT_AOA__` whatever `FLIGHT_AOA` is,
-and its host tests (`opponent_test`, `gun_test`, `fpilot_test`,
-`mission_test`) are built with it the same way. It cost 804 B: fpilot went
-from 2,262 to 1,458 B free, its largest run from 1,532 to 734 B. The
-switch took retuning `mission_test`'s scripted pilots, not the missions:
+**ppilot** follows `FLIGHT_AOA`, 1 unless it is set. That path keeps a
+`.flight_model` stamp the binary depends on, because make otherwise sees the
+same sources under the same name and hands back the binary it already had - a
+silent wrong answer, and the worst kind for a flag whose purpose is comparing
+two things. `ppilota.prg`, ppilot with the angle-of-attack model under its own
+name, was built alongside the arcade ppilot until then; with ppilot on the same
+model it went.
+
+**fpilot** is always the angle-of-attack model: its rule in `c64o/Makefile`
+passes `-D__FLIGHT_AOA__` whatever `FLIGHT_AOA` is, and its host tests
+(`opponent_test`, `gun_test`, `fpilot_test`, `mission_test`) are built with it
+the same way. It cost 804 B: fpilot went from 2,262 to 1,458 B free, its
+largest run from 1,532 to 734 B. The switch took retuning `mission_test`'s
+scripted pilots, not the missions:
 
 - **Height by climb rate.** Holding height by flicking the nose at it bled
   ~400 of airspeed through induced drag - level at 5,000 ft the aircraft
@@ -41,21 +52,7 @@ switch took retuning `mission_test`'s scripted pilots, not the missions:
 
 With those, every mission is won as before: the recon caught with 3.3 min
 in hand and shot down at 2.6 min, the bombers down at 3.2 min, the scramble
-at 2.6 min unhit, the head-on pair at 2.0 min with one hit taken. Both are covered by
-the host suite - `make -C c64o/test test-both` - which carries two sets of
-expectations because for several cases they are opposites, and by a narrowing
-baseline each.
-
-`flighta.prg` is built from `ppilot.cc` like the game is, with one extra define,
-so it stays in step by construction rather than by anyone remembering to keep it
-there.
-
-**`ppilot.prg` can be switched too**, with `make prg FLIGHT_AOA=1`, which is
-what the test suite's flag does for the host build. That path keeps a
-`.flight_model` stamp the binary depends on, because make otherwise sees the
-same sources under the same name and hands back the binary it already had - a
-silent wrong answer, and the worst kind for a flag whose purpose is comparing
-two things. `flighta.prg` needs no stamp: its model is fixed by its name.
+at 2.6 min unhit, the head-on pair at 2.0 min with one hit taken.
 
 **Everything from §2 on describes the angle-of-attack model** unless it says
 otherwise, because that is the model these sections were written against and

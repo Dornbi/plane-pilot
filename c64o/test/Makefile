@@ -8,10 +8,10 @@ HOST_CC = g++
 # suite has to pass either way - flight_test.cc carries both sets of
 # expectations because for several cases they are opposites.
 #
-#   make test               the arcade model, which is what ships
-#   make test FLIGHT_AOA=1  the angle-of-attack model
+#   make test               the angle-of-attack model, which is what ships
+#   make test FLIGHT_AOA=0  the arcade model
 #   make test-both          one after the other
-FLIGHT_AOA ?= 0
+FLIGHT_AOA ?= 1
 ifeq ($(FLIGHT_AOA),1)
 FLIGHT_MODEL = -D__FLIGHT_AOA__
 endif

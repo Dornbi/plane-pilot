@@ -23,8 +23,9 @@ make prg
 
 If everything goes well it builds these executables into `c64o/`:
 
-- `ppilot.prg`: The game. Sound, music and the debug view behind `D`.
-- `ppilota.prg`: The same game with the angle-of-attack flight model.
+- `ppilot.prg`: The game. Sound, music, the angle-of-attack flight model and
+  the debug view behind `D`. `make prg FLIGHT_AOA=0` builds it with the arcade
+  model instead ([flight.md](flight.md) §1).
 - `fpilot.prg`: Fighter Pilot, the combat variant. Built from the same
   `ppilot.cc` with `-D__FPILOT__`, which swaps the mission table for the one
   in `fmission.cc` (three missions), renames the menu, and adds the other
