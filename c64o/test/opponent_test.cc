@@ -910,7 +910,7 @@ static void test_missions(void) {
       uint8_t role, behaviour;
       int16_t hx, hy;
     } kSent[kOpponentMissions][kOpponentMax] = {
-        {{kOpponentFighter, kOpponentPath, -256, 0}, {0, 0, 0, 0}},
+        {{kOpponentBomber, kOpponentPath, -256, 0}, {0, 0, 0, 0}},
         {{kOpponentBomber, kOpponentHunt, -256, 0}, {kOpponentBomber, kOpponentHunt, -256, 0}},
         {{kOpponentFighter, kOpponentPath, 0, -256}, {kOpponentFighter, kOpponentPath, 0, -256}},
         {{kOpponentFighter, kOpponentPass, 256, 0}, {kOpponentFighter, kOpponentPass, 256, 0}},

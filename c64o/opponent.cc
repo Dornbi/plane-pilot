@@ -181,7 +181,8 @@ static const uint16_t kOpponent3500Ft = 0x0700;
 // within 10 s of the start - 20 s of the lift-off in 02 - and the player
 // within 1 km of them inside ~90 s (test/mission_test.cc).
 //
-// 01, Recon: at 5,000 ft and 1,750, faster than the player climbs and slower
+// 01, Recon: a bomber, so brown when near, on a path - its gunner never
+// fires. At 5,000 ft and 1,750, faster than the player climbs and slower
 // than it flies level up there. It comes in from the north edge head-on to
 // the player, 2,500 ft below, passing 64 m to one side after ~45 s; then on
 // south over the city at ~5.4 min and out over the south edge at ~6.2 min,
@@ -228,7 +229,7 @@ static const uint16_t kOpponent3500Ft = 0x0700;
 static const uint8_t kOpponentMissions = 5;
 static_assert(kOpponentMissions <= kMissionCount, "a row for every mission at most");
 static const opponent_path_t kOpponentPaths[kOpponentMissions][kOpponentMax] = {
-    {{kOpponentOneWay | kOpponentFighter | kOpponentPath | kOpponentSouth, 4, 3, 0, 1750, 0x7E00,
+    {{kOpponentOneWay | kOpponentBomber | kOpponentPath | kOpponentSouth, 4, 3, 0, 1750, 0x7E00,
       0x6000, kOpponent5000Ft},
      {kOpponentNone}},
     {{kOpponentOneWay | kOpponentBomber | kOpponentHunt | kOpponentSouth, 3, 1, 4, 1500, 0x4800,

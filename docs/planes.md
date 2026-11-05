@@ -1350,7 +1350,7 @@ parked pair side by side off the runway's edge, facing it.*
 
 | Mission | Start | Opponents | Fails when |
 | :--- | :--- | :--- | :--- |
-| 01 Recon intercept | In the air at 2,500 ft and cruise, heading north, 4.5 km south of the north edge | One at 5,000 ft and 1,750 (2,000 at first): in from the north edge head-on, past the player 2,500 ft above after ~45 s, over the city at ~5.4 min, off the south edge at ~6.2 | it leaves the map |
+| 01 Recon intercept | In the air at 2,500 ft and cruise, heading north, 4.5 km south of the north edge | One bomber at 5,000 ft and 1,750 (2,000 at first): in from the north edge head-on, past the player 2,500 ft above after ~45 s, over the city at ~5.4 min, off the south edge at ~6.2 | it leaves the map |
 | 02 Bomber raid | On runway 1, engine at idle, heading north | Two at 3,000 ft and 1,500, the second 75 m left of and 100 m behind the first: south towards runway 1 from 5.5 km, 500 m past its north end, then the city at ~4.4 min, then off the south edge | the first reaches the city |
 | 03 Ambush | In the air at 1,000 ft and cruise, heading east, 1.8 km west of the targets and midway between them | Two parked beside runway 2's south end, side by side 100 m apart, both 75 m off its west edge and facing it | never |
 | 04 Scramble | On runway 1, engine at idle, heading north | The first mission's pass, flown by two at 1,500, low: from 200 m behind on the runway's left and 384 m behind on its right, overtaking alongside it and flying north for ever | never |

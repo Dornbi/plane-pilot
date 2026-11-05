@@ -42,7 +42,8 @@ in. §10 is the step-by-step implementation order. Everything is fpilot only
   is behind it.
 
 No aircraft is unarmed. An aircraft with the Path behaviour never attacks,
-so today's recon is a fighter or a bomber on a path.
+so today's recon is a bomber on a path: brown when near, and with its
+gunner never on.
 
 **Also:**
 
