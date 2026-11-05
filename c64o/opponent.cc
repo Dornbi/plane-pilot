@@ -569,7 +569,7 @@ void opponent_strike(uint8_t i) {
       _opponent_down |= (uint8_t)(bit << kOpponentSpin);
     }
     _opponent_firing &= (uint8_t)~bit;
-    msg_show("TARGET DOWN");
+    msg_show("TARGET DESTROYED");
   }
 }
 

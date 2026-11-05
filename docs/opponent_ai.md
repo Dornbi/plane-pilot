@@ -740,7 +740,7 @@ from step 8 on. Steps 9–13 are independent of each other once step 9's
 
 - **Code.** `_opponent_destroy(i, text)` downs a slot: its down bit, the
   kill smoke and the message. `opponent_strike()`'s third hit uses it with
-  "TARGET DOWN". `opponent_step()` uses it with "ENEMY CRASHED" when a
+  "TARGET DESTROYED". `opponent_step()` uses it with "ENEMY CRASHED" when a
   slot's height reaches 0 after its move.
 - **Test.** A slot 8 m below the ground (put there by hand, since a path
   holds its height) goes down:
@@ -1146,7 +1146,7 @@ that climbs on to 300 m with them on its tail is shot down. fpilot is at
 
 Shot down now means falling, not stopping:
 
-- **Opponents.** The third hit says TARGET DOWN and the aircraft falls
+- **Opponents.** The third hit says TARGET DESTROYED and the aircraft falls
   (`_opponent_fall()`): drawn 60 degrees nose down (a new kOpponentDive
   pitch), moving along its heading and down at 1.5 times its speed, ~56
   degrees, trailing its smoke. Half of them, by the random byte, also spin:
