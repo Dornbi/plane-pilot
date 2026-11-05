@@ -323,8 +323,22 @@ static void _gfx_rirq_init(void) {
 
 #pragma optimize(pop)
 
+// Each handler is one write or one call: rirq_build(ic, 1) writes code[0..12],
+// its RTS at 12, and rirq_write()/rirq_call() for write 0 touch only 1 and
+// 9-11 (c64/rasterirq.c). So 14 bytes each, not the library's RIRQCode,
+// whose 32 are sized for five writes; cast to it at the calls.
+static const uint8_t kGfxRirqCode1 = 13;
+typedef struct {
+  uint8_t size;
+  uint8_t code[kGfxRirqCode1];
+} gfx_rirq1_t;
+#ifdef __OSCAR64__
+static_assert(RIRQ_ADDR_0 + 2 <= kGfxRirqCode1 && RIRQ_DATA_0 < kGfxRirqCode1,
+              "write 0 fits a one-write handler");
+#endif
+
 #pragma bss(bss2)
-RIRQCode _rirq_panel_top, _rirq_panel_bottom, _rirq_terrain, _rirq_sprites_off;
+static gfx_rirq1_t _rirq_buf[4];
 
 // Raster-IRQ setup and charset loading; one-off, not per frame. The IRQ
 // handlers themselves are above and are deliberately left alone.
@@ -349,26 +363,29 @@ void gfx_init_raster_irqs(void) {
   // writes at the end of it miss the blanking by up to nineteen cycles. The
   // symptom is a band of terrain colour across the top of the panel that
   // flickers as you fly. See mem.h and docs/clouds.md §1.8.
-  rirq_build(&_rirq_sprites_off, 1);
-  rirq_write(&_rirq_sprites_off, 0, (void *)0xD015, 0);
+  RIRQCode *sprites_off = (RIRQCode *)&_rirq_buf[0];
+  RIRQCode *panel_top = (RIRQCode *)&_rirq_buf[1];
+  RIRQCode *panel_bottom = (RIRQCode *)&_rirq_buf[2];
+  RIRQCode *terrain = (RIRQCode *)&_rirq_buf[3];
+  rirq_build(sprites_off, 1);
+  rirq_write(sprites_off, 0, (void *)0xD015, 0);
   rirq_set(0, kRasterScreenYStart + kViewportEndYPixels - 1 - kSpritesOffLead,
-           &_rirq_sprites_off);
+           sprites_off);
 
-  rirq_build(&_rirq_panel_top, 1);
+  rirq_build(panel_top, 1);
   // Which of the two padding counts this machine needs, from the boot probe.
   // cpu_step_shift is 0 on a stock C64 and 2 on a SuperCPU (docs/supercpu.md),
   // and it is the only thing in the program that already knows the difference.
-  rirq_call(&_rirq_panel_top, 0,
+  rirq_call(panel_top, 0,
             cpu_step_shift ? (void *)_gfx_switch_to_panel_top_fast
                            : (void *)_gfx_switch_to_panel_top);
-  rirq_set(1, kRasterScreenYStart + kViewportEndYPixels - 1, &_rirq_panel_top);
-  rirq_build(&_rirq_panel_bottom, 1);
-  rirq_call(&_rirq_panel_bottom, 0, (void *)_switch_to_panel_bottom);
-  rirq_set(2, kRasterScreenYStart + kViewportEndYPixels + 24,
-           &_rirq_panel_bottom);
-  rirq_build(&_rirq_terrain, 1);
-  rirq_call(&_rirq_terrain, 0, (void *)_gfx_switch_to_terrain);
-  rirq_set(3, kRasterScreenYStart + kScreenHeightPixels, &_rirq_terrain);
+  rirq_set(1, kRasterScreenYStart + kViewportEndYPixels - 1, panel_top);
+  rirq_build(panel_bottom, 1);
+  rirq_call(panel_bottom, 0, (void *)_switch_to_panel_bottom);
+  rirq_set(2, kRasterScreenYStart + kViewportEndYPixels + 24, panel_bottom);
+  rirq_build(terrain, 1);
+  rirq_call(terrain, 0, (void *)_gfx_switch_to_terrain);
+  rirq_set(3, kRasterScreenYStart + kScreenHeightPixels, terrain);
   rirq_sort();
   rirq_start();
 }

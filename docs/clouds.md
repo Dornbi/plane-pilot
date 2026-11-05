@@ -461,7 +461,9 @@ start-line test and is what made clouds vanish near the horizon. The cost of
 the fix is the pop, not any clipping: an object whose top would land in the
 last 23 lines of the viewport is not drawn at all, and one that is drawn is
 drawn whole, down to raster 160 — two lines above the panel.
-`_rirq_sprites_off` lives in `bss2` with the other three.
+The sprites-off handler is `_rirq_buf[0]` in `gfx.cc`, in `bss2` with the
+other three: each is 14 bytes, the one write or call that `rirq_build(ic, 1)`
+lays out, not oscar64's 32-byte `RIRQCode`.
 
 ### 1.9. Sprite 7 belongs to the vertical-speed needle
 
