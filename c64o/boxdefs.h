@@ -37,18 +37,20 @@ struct boxdef_t {
   // up, so the run is grad1_color_start - low .. grad1_color_start +
   // high - 1, and zero means none.
   uint8_t flip_around;
-  // chardefs index of each character, char_count of them, followed by
-  // the box's w * h cells: each cell's index into the local characters
-  // (0..2 the solid ones, 3.. char_idx[0..]).
-  const uint8_t *char_idx;
+  // Directly after it in boxdefs.cc, in the same object: the chardefs
+  // index of each character, char_count of them, followed by the box's
+  // w * h cells, each cell's index into the local characters (0..2 the
+  // solid ones, 3.. the indices' [0..]). No pointer to them: 2 B a box.
 };
 
 extern boxdef_t boxdef;
+// Where boxdef's indices and cells are: just past its definition.
+extern const uint8_t *boxdef_char_idx;
 
-// Updates boxdef based on roll_angle.
+// Updates boxdef and boxdef_char_idx based on roll_angle.
 // Returns the definition that was copied into boxdef, which box_prepare
 // uses as a cache identity. Returns NULL if roll_angle is out of range
-// (boxdef is left unchanged).
+// (both are left unchanged).
 // @param roll_angle
 // @result boxdef
 const boxdef_t *boxdef_set_main();

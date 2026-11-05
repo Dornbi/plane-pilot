@@ -29,20 +29,20 @@ C64O = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
 def _parse_boxdefs_c():
     with open(os.path.join(C64O, "boxdefs.cc")) as f:
         content = f.read()
-    arrays = {m.group(1): [int(x) for x in m.group(2).split(",") if x.strip()]
-              for m in re.finditer(
-                  r"static const uint8_t (box_\w+)\[\] = \{([^}]*)\};", content)}
     boxes = {}
-    for m in re.finditer(r"static const boxdef_t (box_\w+)_def = \{(.*?)\};",
+    for m in re.finditer(r"static const struct \{\s*boxdef_t def;\s*"
+                         r"uint8_t map\[(\d+)\];\s*\} (box_\w+) = "
+                         r"\{\{(.*?)\}, \{([^}]*)\}\};",
                          content, re.DOTALL):
-        fields = [f.strip() for f in re.sub(r"//.*", "", m.group(2)).split(",")
+        fields = [f.strip() for f in re.sub(r"//.*", "", m.group(3)).split(",")
                   if f.strip()]
-        name = m.group(1)
+        name = m.group(2)
         grad1_start, flip_around = int(fields[6]), int(fields[8], 0)
         char_count = int(fields[7])
-        # One array: the character indices, then the cells box_prepare()
-        # reads at char_idx + char_count.
-        box_map = arrays[fields[9]]
+        # The definition's object goes on with the character indices, then
+        # the cells box_prepare() reads after them.
+        box_map = [int(x) for x in m.group(4).split(",") if x.strip()]
+        assert len(box_map) == int(m.group(1)), name
         boxes[name] = {
             "w": int(fields[0]), "h": int(fields[1]),
             "step_x": int(fields[2]), "step_y": int(fields[3]),

@@ -95,22 +95,22 @@ def verify_boxdefs_c(box_defs: Dict[str, Dict[str, Any]],
         cname = name.lower()
         layout = find_boxes.compute_box_layout(name, expected, char_map)
 
-        struct_match = re.search(rf"static const boxdef_t {cname}_def = \{{(.*?)\}};", content, re.DOTALL)
+        # One object a box: the boxdef_t, then the map right after it.
+        struct_match = re.search(
+            rf"static const struct \{{\s*boxdef_t def;\s*uint8_t map\[(\d+)\];\s*\}}"
+            rf" {cname} = \{{\{{(.*?)\}}, \{{([^}}]*)\}}\}};", content, re.DOTALL)
         if not struct_match:
              raise ValueError(f"Verification failed: Could not find boxdef_t struct for {name}")
-        body = re.sub(r"//.*", "", struct_match.group(1))
+        body = re.sub(r"//.*", "", struct_match.group(2))
         clean_fields = [f.strip() for f in body.split(",") if f.strip()]
 
-        # w, h, sx, sy, rx, ry, g1_start, cnt, flip_around, map
-        if len(clean_fields) != 10:
-            raise ValueError(f"Verification failed: {name} struct has {len(clean_fields)} fields, expected 10")
-        if clean_fields[9] != f"{cname}_map":
-            raise ValueError(f"Verification failed: {name} does not point at {cname}_map")
+        # w, h, sx, sy, rx, ry, g1_start, cnt, flip_around
+        if len(clean_fields) != 9:
+            raise ValueError(f"Verification failed: {name} struct has {len(clean_fields)} fields, expected 9")
 
-        map_match = re.search(rf"(?:static\s+)?(?:const\s+)?uint8_t\s+{cname}_map\s*\[\s*\]\s*=\s*\{{(.*?)\}};", content)
-        if not map_match:
-            raise ValueError(f"Verification failed: Could not find map array for {name} in boxdefs.cc")
-        box_map = [int(x.strip()) for x in map_match.group(1).split(",") if x.strip()]
+        box_map = [int(x.strip()) for x in struct_match.group(3).split(",") if x.strip()]
+        if len(box_map) != int(struct_match.group(1)):
+            raise ValueError(f"Verification failed: {name} map length does not match its declaration")
 
         grad1_start = int(clean_fields[6])
         char_count = int(clean_fields[7])

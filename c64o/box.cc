@@ -112,7 +112,7 @@ void box_prepare(void) {
   // grad1_color_start, which flip_around holds as two nibbles: how far it
   // reaches below, and how far from there up.
   uint8_t *dst_ram = kCharRam + ((uint16_t)mem_box_char_start << 3);
-  const uint8_t *src_idx = boxdef.char_idx;
+  const uint8_t *src_idx = boxdef_char_idx;
   const uint8_t flip_start =
       boxdef.grad1_color_start - (boxdef.flip_around & 0x0F);
   const uint8_t flip_end = boxdef.grad1_color_start + (boxdef.flip_around >> 4);
@@ -170,7 +170,7 @@ void box_prepare(void) {
   // follow the character indices in the same array; the count is summed
   // rather than stored, since no multiply is linked and h is at most 11.
   {
-    const uint8_t *src = boxdef.char_idx + boxdef.char_count;
+    const uint8_t *src = boxdef_char_idx + boxdef.char_count;
     uint8_t total_size = 0;
     for (uint8_t r = boxdef.h; r != 0; --r) {
       total_size += boxdef.w;

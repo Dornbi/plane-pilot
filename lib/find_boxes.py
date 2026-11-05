@@ -561,17 +561,18 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
         # Write static arrays
         cname = clean_name(name)
 
-        # One array per box: the char_count chardefs indices, then the w * h
-        # cells, so box_prepare() finds the cells at char_idx + char_count and
-        # the struct needs no second pointer. box_prepare() copies at least
-        # one character.
+        # One object per box: the boxdef_t, then the char_count chardefs
+        # indices and the w * h cells, so the definition needs no pointer to
+        # them - they start where it ends (boxdef_set_main()) - and
+        # box_prepare() finds the cells after the indices. box_prepare()
+        # copies at least one character.
         if layout['char_count'] == 0:
             raise ValueError(f"Box {name} has no characters of its own.")
         box_map = layout['char_idx'] + layout['grid']
-        content += f"static const uint8_t {cname}_map[] = {{ {', '.join(map(str, box_map))} }};\n"
-
-        # Write boxdef_t struct
-        content += f"static const boxdef_t {cname}_def = {{\n"
+        content += "static const struct {\n"
+        content += "  boxdef_t def;\n"
+        content += f"  uint8_t map[{len(box_map)}];\n"
+        content += f"}} {cname} = {{{{\n"
         content += f"    {data['w']}, // w\n"
         content += f"    {data['h']}, // h\n"
         content += f"    {data['step_x']}, // step_x\n"
@@ -585,10 +586,9 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
         else:
             flipped = (f"chars {layout['flip_start']}..{layout['flip_end'] - 1} "
                        f"flipped")
-        content += (f"    0x{layout['flip_around']:02x}, // flip_around: "
+        content += (f"    0x{layout['flip_around']:02x} // flip_around: "
                     f"{flipped}\n")
-        content += f"    {cname}_map // char_idx, then the cells\n"
-        content += "};\n\n"
+        content += f"}}, {{ {', '.join(map(str, box_map))} }}}};\n\n"
 
     # Generate Lookup Tables
     # Need to map RollAngle index to boxdef_t*
@@ -609,7 +609,7 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
         roll = roll_angle.RollAngle(r_idx)
         name = f"BOX_{roll.name.upper()}"
         if name in box_defs:
-            content += f"    &{clean_name(name)}_def, // {r_idx}: {name}\n"
+            content += f"    &{clean_name(name)}.def, // {r_idx}: {name}\n"
         else:
             content += "    NULL,\n"
     content += "};\n\n"
@@ -630,19 +630,26 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
     content += "};\n\n"
     content += "static const boxdef_t* const alt_boxes[kAltBoxCount] = {\n"
     for r_idx, name in alt_angles:
-        content += f"    &{clean_name(name)}_def, // {r_idx}: {name}\n"
+        content += f"    &{clean_name(name)}.def, // {r_idx}: {name}\n"
     content += "};\n\n"
     content += '#pragma data(data)\n\n'
 
-    content += "boxdef_t boxdef;\n\n"
+    content += "boxdef_t boxdef;\n"
+    content += "const uint8_t *boxdef_char_idx;\n\n"
+
+    # Copies the definition, and points boxdef_char_idx just past it, where
+    # its box's object goes on with the indices and the cells.
+    content += "static const boxdef_t *_boxdef_set(const boxdef_t *src) {\n"
+    content += "  memcpy(&boxdef, src, sizeof(boxdef_t));\n"
+    content += "  boxdef_char_idx = (const uint8_t *)(src + 1);\n"
+    content += "  return src;\n"
+    content += "}\n\n"
 
     content += "const boxdef_t *boxdef_set_main() {\n"
     content += "  if (roll_angle >= kRollMax) {\n"
     content += "    return NULL;\n"
     content += "  }\n"
-    content += "  const boxdef_t *src = main_boxes[roll_angle];\n"
-    content += "  memcpy(&boxdef, src, sizeof(boxdef_t));\n"
-    content += "  return src;\n"
+    content += "  return _boxdef_set(main_boxes[roll_angle]);\n"
     content += "}\n\n"
 
     # No kRollMax check of its own: an angle out of range matches no entry
@@ -650,9 +657,7 @@ def generate_boxdefs_c_content(box_defs: Dict[str, Dict[str, Any]],
     content += "const boxdef_t *boxdef_set_alt() {\n"
     content += "  for (uint8_t i = 0; i < kAltBoxCount; ++i) {\n"
     content += "    if (alt_box_angles[i] == roll_angle) {\n"
-    content += "      const boxdef_t *src = alt_boxes[i];\n"
-    content += "      memcpy(&boxdef, src, sizeof(boxdef_t));\n"
-    content += "      return src;\n"
+    content += "      return _boxdef_set(alt_boxes[i]);\n"
     content += "    }\n"
     content += "  }\n"
     content += "  return boxdef_set_main();\n"
@@ -696,16 +701,18 @@ def generate_boxdefs_h_content(max_total_size: int,
     content += "  // up, so the run is grad1_color_start - low .. grad1_color_start +\n"
     content += "  // high - 1, and zero means none.\n"
     content += "  uint8_t flip_around;\n"
-    content += "  // chardefs index of each character, char_count of them, followed by\n"
-    content += "  // the box's w * h cells: each cell's index into the local characters\n"
-    content += "  // (0..2 the solid ones, 3.. char_idx[0..]).\n"
-    content += "  const uint8_t *char_idx;\n"
+    content += "  // Directly after it in boxdefs.cc, in the same object: the chardefs\n"
+    content += "  // index of each character, char_count of them, followed by the box's\n"
+    content += "  // w * h cells, each cell's index into the local characters (0..2 the\n"
+    content += "  // solid ones, 3.. the indices' [0..]). No pointer to them: 2 B a box.\n"
     content += "};\n\n"
-    content += "extern boxdef_t boxdef;\n\n"
-    content += "// Updates boxdef based on roll_angle.\n"
+    content += "extern boxdef_t boxdef;\n"
+    content += "// Where boxdef's indices and cells are: just past its definition.\n"
+    content += "extern const uint8_t *boxdef_char_idx;\n\n"
+    content += "// Updates boxdef and boxdef_char_idx based on roll_angle.\n"
     content += "// Returns the definition that was copied into boxdef, which box_prepare\n"
     content += "// uses as a cache identity. Returns NULL if roll_angle is out of range\n"
-    content += "// (boxdef is left unchanged).\n"
+    content += "// (both are left unchanged).\n"
     content += "// @param roll_angle\n"
     content += "// @result boxdef\n"
     content += "const boxdef_t *boxdef_set_main();\n\n"
