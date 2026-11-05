@@ -953,24 +953,28 @@ bool opponent_fires(uint8_t i, int16_t *v) {
   }
   _opponent_firing &= (uint8_t)~bit;
   uint8_t r = opponent_random();
-  int16_t x = kOpponentScatter[r & 7], y = kOpponentScatter[(r >> 3) & 7];
-  int16_t z = kOpponentScatter[(r >> 6) + 2];
+  v[0] = kOpponentScatter[r & 7];
+  v[1] = kOpponentScatter[(r >> 3) & 7];
+  v[2] = kOpponentScatter[(r >> 6) + 2];
+  // The direction the scatter is added to, then the sum tripled an axis at a
+  // time, counted down: written out, the three took 31 B more. A fighter's
+  // heading has no z (it is level), so the climb's sine goes on its own.
+  const int16_t *d = &_opponent_head[i].x;
   if (_opponent_path[i]->kind & kOpponentBomber) {
     if (!_opponent_gunner(i)) {
       return false;
     }
     vec_normalize(&_opponent_aim_d);
-    x += _opponent_aim_d.x;
-    y += _opponent_aim_d.y;
-    z += _opponent_aim_d.z;
+    d = &_opponent_aim_d.x;
   } else {
-    x += _opponent_head[i].x;
-    y += _opponent_head[i].y;
-    z += kOpponentPitchSin[(uint8_t)(_opponent_climb[i] + 3)];
+    v[2] += kOpponentPitchSin[(uint8_t)(_opponent_climb[i] + 3)];
   }
-  v[0] = (x << 1) + x;
-  v[1] = (y << 1) + y;
-  v[2] = (z << 1) + z;
+  uint8_t c = 3;
+  do {
+    --c;
+    int16_t a = v[c] + d[c];
+    v[c] = (a << 1) + a;
+  } while (c != 0);
   return true;
 }
 
