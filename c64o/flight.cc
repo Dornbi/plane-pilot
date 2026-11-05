@@ -74,6 +74,9 @@ uint32_t flight_fuel;
 uint8_t flight_flap;
 uint8_t flight_gear;
 uint8_t flight_stall;
+#ifdef __FLIGHT_AOA__
+uint8_t flight_stall_warn;
+#endif
 
 uint8_t flight_events;
 uint8_t flight_gen;
@@ -297,6 +300,17 @@ static const int16_t kFlightAlphaStall = 56;
 // constants could not hold.
 static const int16_t kFlightClPeak = kFlightAlphaStall << 4;
 
+// The stall warning (flight.h flight_stall_warning()): a stall whose flight
+// path is below this, at flight_gamma's 4096 to 1.0 - ~3.6 degrees down -
+// and the steps it then stays on for. Measured over a minute at 3,000 ft
+// (docs/flight.md 2.2): every turn held on the pull key at full power, at any
+// bank up to 60 degrees, stalls on four steps in five and keeps flight_gamma
+// at or above 0, so it is silent; an idle or half-throttle stall wings level,
+// and a 75 degree turn, sink past it. Four steps on is the stall's step and
+// three more, which is what turns their ~40 onsets a minute into one.
+static const int16_t kFlightStallWarnSink = -256;
+static const uint8_t kFlightStallWarnSteps = 4;
+
 // Camber: C_L at zero alpha. A wing is not symmetric, and this is what makes
 // inverted flight expensive - the whole of flight.md 3.2, in one addition and
 // with no `up.z < 0` case anywhere. Upright it adds to the C_L the attitude
@@ -485,6 +499,9 @@ void flight_init() {
   flight_flap = false;
   flight_gear = false;
   flight_stall = false;
+#ifdef __FLIGHT_AOA__
+  flight_stall_warn = 0;
+#endif
   // flight_gen is deliberately NOT reset. It is a free-running counter whose
   // only job is to differ from the last value a consumer saw, and restarting
   // it at zero could land on exactly the value already recorded - dropping one
@@ -572,6 +589,9 @@ void flight_init_from_mission(uint8_t mission_idx) {
   flight_flap = false;
   flight_gear = model_on_ground;
   flight_stall = false;
+#ifdef __FLIGHT_AOA__
+  flight_stall_warn = 0;
+#endif
   // flight_gen is deliberately NOT reset. It is a free-running counter whose
   // only job is to differ from the last value a consumer saw, and restarting
   // it at zero could land on exactly the value already recorded - dropping one
@@ -1168,6 +1188,14 @@ void flight_advance() {
     // An angle, not a speed. It therefore also fires in the two cases a speed
     // gate cannot see at all: the accelerated stall - pulling hard well above
     // the 1 g stall speed - and the inverted stall.
+    //
+    // The warning runs down first, so that a sinking stall below puts it back
+    // to kFlightStallWarnSteps on the step it happens.
+    if (model_on_ground) {
+      flight_stall_warn = 0;
+    } else if (whole_step && flight_stall_warn) {
+      --flight_stall_warn;
+    }
     flight_stall = 0;
     if (!model_on_ground) {
       int16_t excess =
@@ -1175,6 +1203,9 @@ void flight_advance() {
                     kFlightClPeak);
       if (excess > 0) {
         flight_stall = 1;
+        if (flight_gamma < kFlightStallWarnSink) {
+          flight_stall_warn = kFlightStallWarnSteps;
+        }
         uint8_t brk = (uint8_t)(_flight_step_s(excess) >> 5);
         if (brk == 0) {
           brk = whole_step ? 1 : 0;

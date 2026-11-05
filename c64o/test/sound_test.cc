@@ -33,6 +33,9 @@ uint8_t flight_throttle = 0;
 uint32_t flight_fuel = 0x21FFF;
 int16_t flight_speed = 0;
 uint8_t flight_stall = 0;
+#ifdef __FLIGHT_AOA__
+uint8_t flight_stall_warn = 0;
+#endif
 uint8_t flight_events = 0;
 uint8_t flight_gen = 0;
 
@@ -49,6 +52,15 @@ struct SID *sid_host = (struct SID *)sid_regs;
 
 // --- Helpers ---------------------------------------------------------------
 
+// The stall warning sound.cc reads, flight_stall_warning(): the stall itself
+// in the arcade model, its own counter in the angle-of-attack one. Set both.
+static void set_stall(uint8_t on) {
+  flight_stall = on;
+#ifdef __FLIGHT_AOA__
+  flight_stall_warn = on;
+#endif
+}
+
 static void reset_state(void) {
   flight_paused = false;
   flight_status = FLIGHT_ONGOING;
@@ -58,7 +70,7 @@ static void reset_state(void) {
   // voices running and a test that forgets to set a speed still exercises
   // voice 2 rather than silently skipping it.
   flight_speed = kMaxSpeed / 2;
-  flight_stall = 0;
+  set_stall(0);
   flight_events = 0;
   flight_gen = 0;
   memset(sid_regs, 0xAA, sizeof(sid_regs));
@@ -682,7 +694,7 @@ int main() {
   // rather than an envelope running out, so the warble is visible directly on
   // the gate bit.
   reset_state();
-  flight_stall = 1;
+  set_stall(1);
   idle_frame();
   assert(v3_gated());
   assert(v3_wave() == SID_CTRL_RECT); // a tone, not noise - it competes with
@@ -703,7 +715,7 @@ int main() {
   // period shows it always clear.
   {
     reset_state();
-    flight_stall = 1;
+    set_stall(1);
     int on = 0, off = 0, bursts = 0;
     for (int i = 0; i < 40; ++i) {
       mark();
@@ -729,10 +741,10 @@ int main() {
   // decays on its own envelope.
   {
     reset_state();
-    flight_stall = 1;
+    set_stall(1);
     for (int i = 0; i < 6; ++i)
       idle_frame();
-    flight_stall = 0;
+    set_stall(0);
     for (int i = 0; i < 30; ++i) {
       mark();
       idle_frame();
@@ -747,7 +759,7 @@ int main() {
   // and that ordering is what is being tested.
   {
     reset_state();
-    flight_stall = 1;
+    set_stall(1);
     for (int i = 0; i < 4; ++i)
       idle_frame();
     flight_status = FLIGHT_CRASH_VSPEED;
@@ -843,7 +855,7 @@ int main() {
   // Touchdown outranks a stall in progress.
   {
     reset_state();
-    flight_stall = 1;
+    set_stall(1);
     for (int i = 0; i < 6; ++i)
       idle_frame();
     publish_events(FLIGHT_EV_TOUCHDOWN);
@@ -858,7 +870,7 @@ int main() {
   // vanished during gear-down on approach, exactly when it is most wanted.
   {
     reset_state();
-    flight_stall = 1;
+    set_stall(1);
     for (int i = 0; i < 6; ++i)
       idle_frame();
     publish_events(FLIGHT_EV_GEAR);
@@ -880,7 +892,7 @@ int main() {
     publish_events(FLIGHT_EV_GEAR);
     sound_update();
     assert(v3_wave() == SID_CTRL_NOISE);
-    flight_stall = 1;
+    set_stall(1);
     idle_frame();
     assert(v3_wave() == SID_CTRL_NOISE); // the gear burst still owns it
     // But the stall does get the voice back shortly afterwards.
@@ -1041,7 +1053,7 @@ int main() {
   // carries on.
   {
     reset_state();
-    flight_stall = 1;
+    set_stall(1);
     for (int i = 0; i < 6; ++i)
       idle_frame();
     publish_events(FLIGHT_EV_GUN);
@@ -1155,7 +1167,7 @@ int main() {
   // warning is sounding is the common case, not a corner one.
   {
     reset_state();
-    flight_stall = 1;
+    set_stall(1);
     for (int i = 0; i < 4; ++i)
       idle_frame();
     flight_status = FLIGHT_CRASH_VSPEED;

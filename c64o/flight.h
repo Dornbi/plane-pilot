@@ -129,11 +129,35 @@ extern uint8_t flight_gear;
 
 // True while the aircraft is below its stall speed - the same condition that
 // drives the nose-down break in flight_advance(), published rather than
-// recomputed so the panel lamp and the stall warning in sound.cc cannot drift
-// from the physics. Always false in ground mode (there is no stall on the
-// runway), and false on reset. It holds its last value while paused or
-// crashed, since flight_advance() does no physics in either case.
+// recomputed so the physics and what reads it cannot drift. Always false in
+// ground mode (there is no stall on the runway), and false on reset. It holds
+// its last value while paused or crashed, since flight_advance() does no
+// physics in either case.
 extern uint8_t flight_stall;
+
+// The stall warning: the panel lamp and the warble in sound.cc. In the arcade
+// model it is the stall itself. In the angle-of-attack model the stall is an
+// angle, and a turn held on the pull key sits at it - the wing nibbling at the
+// break and the nose bobbing off it, stalled four steps in five and in and out
+// of it ~40 times a minute without losing height. So there it warns only of a
+// stall that is sinking, flight_gamma under kFlightStallWarnSink, and holds on
+// for kFlightStallWarnSteps after one, so that a sinking stall's own flicker
+// is one steady warning (docs/flight.md 2.2).
+#ifdef __FLIGHT_AOA__
+// Steps the warning has left: kFlightStallWarnSteps on a sinking stall's step,
+// down by one a whole step after it.
+extern uint8_t flight_stall_warn;
+#endif
+// Nonzero while warning. The byte itself, not a bool made of it: a `!= 0`
+// here cost ppilot's panel_update_instruments 23 B, and both readers only
+// test it.
+inline uint8_t flight_stall_warning(void) {
+#ifdef __FLIGHT_AOA__
+  return flight_stall_warn;
+#else
+  return flight_stall;
+#endif
+}
 
 // One-shot events, for the audio driver. Set during a step of
 // flight_advance(), published as a complete set at the end of it.

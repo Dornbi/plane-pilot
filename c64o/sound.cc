@@ -753,8 +753,8 @@ void sound_update(void) {
   } else if (events & FLIGHT_EV_TOUCHDOWN) {
     // Outranks everything, including a stall in progress. It is a single
     // unmissable event, it is over in a fraction of a second, and by
-    // definition the aircraft is on the ground - where flight_stall is already
-    // false on the very next step.
+    // definition the aircraft is on the ground - where the stall warning is
+    // already off on the very next step.
     _sound_v3_effect = V3_TOUCHDOWN;
     _sound_v3_frames = kSoundTouchdownFrames;
     retrigger = true;
@@ -765,7 +765,7 @@ void sound_update(void) {
     retrigger = true;
   } else if (_sound_v3_frames != 0 && _sound_v3_effect != V3_STALL) {
     // A one-shot still running. Left alone.
-  } else if (flight_stall) {
+  } else if (flight_stall_warning()) {
     // The warble: gated on for the first kSoundStallOnFrames of each period,
     // off for the rest. Both halves are stated here rather than one being left
     // to an envelope running out.

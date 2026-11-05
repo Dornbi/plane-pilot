@@ -231,6 +231,31 @@ produced the alternative and the measurements either side.
   or a pull-up. The pilot cannot bury it; the aeroplane can.
 - **Recovery** is hands-off and takes about 100 steps (16 s) from a power-off
   stall, ending in a steep dive with the airspeed back.
+- **The warning is not the stall** (`flight_stall_warning()`, the panel lamp
+  and the warble). A turn held on the pull key sits at the break: the gate
+  above lets the wing over it, the break pushes the nose back off it, and the
+  key carries it over again. At 3,000 ft that is stalled on four steps in five
+  and in and out of it ~40 times a minute, at every bank from 30 to 60
+  degrees on full power and at 45 on cruise - and without losing height. A
+  warning on `flight_stall` itself chattered through every such turn. So it
+  warns only of a stall that **sinks**, with $\gamma$ below
+  `kFlightStallWarnSink` = -256 (~3.6 degrees down), and **holds on for three
+  steps** after one (`kFlightStallWarnSteps` = 4), which turns a sinking
+  stall's own flicker into one steady warning. Measured over a minute each
+  (`test/fpilot_test.cc`):
+
+| Case | Stalled | Warned before | Warned now |
+| :--- | ---: | ---: | ---: |
+| 60° turn, full power, pull held | 301 of 375 steps | ~45 times | never |
+| 30° turn, full power, pull held | 322 | ~29 times | never |
+| 45° turn, throttle 18, pull held | 309 | ~42 times | never |
+| 75° turn, full power, sinking | 308 | ~36 times | once, 353 steps |
+| Wings level at idle, pull held | 318 | ~29 times | once, 320 steps |
+
+  What it no longer warns of is a full-power stall that hangs at the break
+  without sinking, wings level or in a turn; it does as soon as the flight
+  path falls away. It costs fpilot 19 B. The arcade model is unchanged: its
+  warning is still `flight_stall`, the stall speed itself.
 
 ### 2.3. Climbing & Altitude Mechanics
 

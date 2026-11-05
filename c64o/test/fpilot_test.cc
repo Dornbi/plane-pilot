@@ -11,6 +11,7 @@
 // What it asks opponent.cc - whether the targets are down - what it tells
 // the message row, and the guns it rearms are stubbed here.
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -321,6 +322,61 @@ int main() {
   damage_hit(5);
   CHECK(flight_status == FLIGHT_CRASH_SHOT_DOWN && !damage_down(),
         "on the ground: the fifth hit left status %d", flight_status);
+
+  // --- The stall warning (flight.h flight_stall_warning()) -----------------
+  //
+  // fpilot flies the angle-of-attack model, where a turn held on the pull
+  // key sits at the stall's angle without losing height: it must not warn.
+  // A stall that sinks must, and as one warning, not one an onset. Mission
+  // 05 starts at 3,000 ft; a minute of each, `bank` degrees, the pull key
+  // held whenever the wings are within 4 degrees of it.
+  {
+    struct {
+      int bank;
+      uint8_t throttle;
+      bool warns;
+      const char *what;
+    } const kCases[] = {
+        {60, kMaxThrottle, false, "a 60 degree turn at full power"},
+        {30, kMaxThrottle, false, "a 30 degree turn at full power"},
+        {45, 18, false, "a 45 degree turn at cruise"},
+        {75, kMaxThrottle, true, "a 75 degree turn, sinking"},
+        {0, 0, true, "wings level at idle"},
+    };
+    for (const auto &c : kCases) {
+      flight_init_from_mission(4);
+      damage_reset();
+      flight_throttle = c.throttle;
+      int stalled = 0, warned = 0, onsets = 0;
+      bool was = false;
+      for (int n = 0; n < 375; ++n) {
+        double roll = atan2(-flight_cam.left.z, flight_cam.up.z) * 180 / M_PI;
+        if (roll < c.bank - 4) {
+          flight_input(FLIGHT_INPUT_ROLL_LEFT);
+        } else if (roll > c.bank + 4) {
+          flight_input(FLIGHT_INPUT_ROLL_RIGHT);
+        } else {
+          flight_input(FLIGHT_INPUT_PITCH_UP);
+        }
+        flight_advance();
+        stalled += flight_stall != 0;
+        bool warning = flight_stall_warning() != 0;
+        warned += warning;
+        onsets += warning && !was;
+        was = warning;
+      }
+      CHECK(stalled > 150 && (c.warns ? warned > 50 && onsets <= 2 : warned == 0),
+            "stall warning, %s: stalled %d of 375 steps, warned %d, %d onsets", c.what, stalled,
+            warned, onsets);
+      printf("  stall warning, %s: stalled %d of 375 steps, warned %d in %d\n", c.what, stalled,
+             warned, onsets);
+    }
+    // Back on the ground it is off at once.
+    flight_init_from_mission(1);
+    flight_stall_warn = 4;
+    flight_advance();
+    CHECK(!flight_stall_warning(), "stall warning: on the runway");
+  }
 
   if (_fails) {
     printf("fpilot_test: %d checks FAILED\n", _fails);
