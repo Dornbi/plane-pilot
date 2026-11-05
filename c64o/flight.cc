@@ -677,6 +677,17 @@ static int16_t _flight_cl16(int16_t alpha16) {
   return alpha16 < 0 ? -cl : cl;
 }
 
+// v held to -lim..lim, for the model's five symmetric limits. Called rather
+// than written out: each was two signed 16-bit compares in line. Every lim is
+// positive, so each half is an unsigned compare, v and lim sharing a sign.
+static __noinline int16_t _flight_clamp(int16_t v, int16_t lim) {
+  if (v < 0) {
+    lim = -lim;
+    return (uint16_t)v < (uint16_t)lim ? lim : v;
+  }
+  return (uint16_t)v > (uint16_t)lim ? lim : v;
+}
+
 static int16_t _flight_recip_v(int16_t speed) {
   uint8_t i = (uint8_t)((uint16_t)speed >> 8);
   if (i > 15) {
@@ -1092,12 +1103,8 @@ void flight_advance() {
       cl += kFlightFlapDeltaCl;
     }
 
-    int16_t lift_t = vec_fastmul8p8((int16_t)(speed_sqr >> 4), cl);
-    if (lift_t > kFlightLiftSat) {
-      lift_t = kFlightLiftSat;
-    } else if (lift_t < -kFlightLiftSat) {
-      lift_t = -kFlightLiftSat;
-    }
+    int16_t lift_t = _flight_clamp(
+        vec_fastmul8p8((int16_t)(speed_sqr >> 4), cl), kFlightLiftSat);
     int16_t lift = vec_fastmul8p8((int16_t)(lift_t << 2), density);
     int16_t lift_z = vec_fastmul8p8(lift, flight_cam.up.z);
 
@@ -1137,12 +1144,7 @@ void flight_advance() {
       // this stands in for rather than pretends to model. It also keeps the
       // product inside sixteen bits, which the honest one does not at the top
       // of the speed range.
-      int16_t cl_d = cl;
-      if (cl_d > kFlightClPeak) {
-        cl_d = kFlightClPeak;
-      } else if (cl_d < -kFlightClPeak) {
-        cl_d = -kFlightClPeak;
-      }
+      int16_t cl_d = _flight_clamp(cl, kFlightClPeak);
       int16_t cl_sqr = vec_fastmul8p8(cl_d, cl_d);
       dv8 -= vec_fastmul8p8((int16_t)(speed_sqr >> 5), cl_sqr) >>
              kFlightInducedShift;
@@ -1185,14 +1187,10 @@ void flight_advance() {
       // Unlike the lift deficit it replaced, it is two-sided. Lift above the
       // weight pushes the flight path up, where the old model discarded it.
       int16_t net = lift_z - kFlightTrimLift;
-      flight_gamma +=
+      int16_t dg =
           _flight_step_s(vec_fastmul8p8(net, _flight_recip_v(flight_speed))) >>
           3;
-      if (flight_gamma > 4096) {
-        flight_gamma = 4096;
-      } else if (flight_gamma < -4096) {
-        flight_gamma = -4096;
-      }
+      flight_gamma = _flight_clamp(flight_gamma + dg, 4096);
     }
 
     // --- The stall -------------------------------------------------------
@@ -1249,11 +1247,7 @@ void flight_advance() {
         } else {
           flight_cam.front.z += brk;
         }
-        if (flight_cam.front.z > 256) {
-          flight_cam.front.z = 256;
-        } else if (flight_cam.front.z < -256) {
-          flight_cam.front.z = -256;
-        }
+        flight_cam.front.z = _flight_clamp(flight_cam.front.z, 256);
         model_need_normalize = true;
       }
     } else {
@@ -1581,17 +1575,12 @@ void flight_advance() {
       int16_t h = vec_fastmul8p8(lift, flight_cam.left.z);
       model_turn_rem +=
           _flight_step_s(vec_fastmul8p8(h, _flight_recip_v(flight_speed)));
-      int16_t rot = model_turn_rem >> 7;
-      // A guard on the small angle step, not a flight limit. The old turn
-      // could not exceed 8 by construction; this one is a real rate and a slow
-      // steep turn genuinely exceeds it, so clamping there would cap exactly
-      // the case worth getting right. 24 is 5.4 degrees a step, where
-      // vec_turn3_xy's linearization is still worth 0.4%.
-      if (rot > 24) {
-        rot = 24;
-      } else if (rot < -24) {
-        rot = -24;
-      }
+      // The clamp is a guard on the small angle step, not a flight limit. The
+      // old turn could not exceed 8 by construction; this one is a real rate
+      // and a slow steep turn genuinely exceeds it, so clamping there would
+      // cap exactly the case worth getting right. 24 is 5.4 degrees a step,
+      // where vec_turn3_xy's linearization is still worth 0.4%.
+      int16_t rot = _flight_clamp(model_turn_rem >> 7, 24);
       model_turn_rem -= (int16_t)(rot << 7);
       if (rot != 0) {
         // Was a general 3x3 against an identity carrying only front.y = rot
