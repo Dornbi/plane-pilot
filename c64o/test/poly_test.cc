@@ -404,7 +404,7 @@ static void test_near_clip_scaling_never_overflows() {
                         {-1000, (int16_t)(py + dy), (int16_t)(pz + dy / 2)},
                         {1200, (int16_t)py, (int16_t)(pz + 900)}};
         vec3_t out[8];
-        uint8_t n = _clip_near(in, 3, out);
+        uint8_t n = _clip_near(in, 3, out) / sizeof(vec3_t);
 
         // The same two crossings in double precision.
         dvec3 ex[3];

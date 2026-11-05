@@ -487,10 +487,20 @@ static __noinline void _clip_near_edge(const vec3_t *prev, const vec3_t *curr,
   dest->z = pz + vec_mulfrac(t, dz);
 }
 
+// Returns the end of what it wrote to out as a byte offset, the number of
+// vertices times sizeof(vec3_t): out[] indexed by a count went through
+// oscar64's __multab6L at every store, and nothing else links that table.
+// _project_vertices()'s clip3_buf holds kPolyMaxVertices + 4.
+static_assert((kPolyMaxVertices + 4) * sizeof(vec3_t) < 256,
+              "clip3_buf byte offsets fit a byte");
 static inline uint8_t _clip_near(const vec3_t *in, uint8_t num_in,
                                  vec3_t *out) {
-  uint8_t num_out = 0;
-  const vec3_t *prev = &in[num_in - 1];
+  uint8_t end = 0;
+  // &in[num_in - 1], with the * 6 as two adds for the same reason.
+  uint8_t last = (uint8_t)(num_in + num_in + num_in);
+  const vec3_t *prev =
+      (const vec3_t *)((const uint8_t *)in + (uint8_t)(last + last) -
+                       sizeof(vec3_t));
   bool prev_inside = prev->x >= 8;
 
   for (uint8_t i = 0; i < num_in; ++i) {
@@ -498,15 +508,17 @@ static inline uint8_t _clip_near(const vec3_t *in, uint8_t num_in,
     bool curr_inside = curr->x >= 8;
 
     if (curr_inside != prev_inside) {
-      _clip_near_edge(prev, curr, &out[num_out++]);
+      _clip_near_edge(prev, curr, (vec3_t *)((uint8_t *)out + end));
+      end += sizeof(vec3_t);
     }
     if (curr_inside) {
-      out[num_out++] = *curr;
+      *(vec3_t *)((uint8_t *)out + end) = *curr;
+      end += sizeof(vec3_t);
     }
     prev = curr;
     prev_inside = curr_inside;
   }
-  return num_out;
+  return end;
 }
 
 // 2D screen clip
@@ -571,8 +583,8 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
                                  uint8_t num_vertices, vertex_t *vertices_2d) {
   static vec3_t clip3_buf[kPolyMaxVertices +
                           4]; // max 7 vertices after 1 plane clip, 10 is safe
-  uint8_t num_clip3 = _clip_near(vertices_3d, num_vertices, clip3_buf);
-  if (num_clip3 < 3) {
+  uint8_t end3 = _clip_near(vertices_3d, num_vertices, clip3_buf);
+  if (end3 < 3 * sizeof(vec3_t)) {
     return 0;
   }
   static vertex16_t proj_buf[kPolyMaxVertices + 4];
@@ -581,8 +593,10 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
   int16_t min_y = 32767;
   int16_t max_y = -32768;
 
-  for (uint8_t i = 0; i < num_clip3; ++i) {
-    vec_v = clip3_buf[i];
+  // n counts the vertices for proj_buf and the 2D clips below.
+  uint8_t n = 0;
+  for (uint8_t o = 0; o != end3; o += sizeof(vec3_t), ++n) {
+    vec_v = *(const vec3_t *)((const uint8_t *)clip3_buf + o);
     int16_t px = 40;
     int16_t py = 14;
     if (vec_project_nocull()) {
@@ -603,8 +617,8 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
       px -= (vec_sx >> 2) + ((vec_sx >> 1) & 1);
       py -= (vec_sy >> 2) + ((vec_sy >> 1) & 1);
     }
-    proj_buf[i].x = px;
-    proj_buf[i].y = py;
+    proj_buf[n].x = px;
+    proj_buf[n].y = py;
     if (px < min_x)
       min_x = px;
     if (px > max_x)
@@ -624,7 +638,6 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
   // together.
   static vertex16_t clip2_buf1[kPolyMax2dVertices];
   static vertex16_t clip2_buf2[kPolyMax2dVertices];
-  uint8_t n = num_clip3;
 
   // The viewport edges the polygon crosses, bit e for edge e in the order
   // min x, max x, min y, max y: edge e clips axis e >> 1 at kClipLimit[e]
