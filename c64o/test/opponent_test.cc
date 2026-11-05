@@ -1682,40 +1682,72 @@ static void test_guns(void) {
   CHECK(_fired[1] == 0, "guns: fired on a path");
   printf("  guns: a burst at steps %d, %d and %d, the next at %d\n", at[0], at[1], at[2], at[3]);
 
-  // The rear gunner: 02's first bomber, in ATTACK from the start, heading
-  // south. Straight back at a player 300 m behind it, on the gun's cycle,
-  // scattered by at most kOpponentScatter; never at one ahead, 30 degrees
-  // off the tail, 100 m above it, 700 m back, or below the wings at all.
+  // The rear gunner: 02's first bomber, heading south, and 01's recon, a
+  // bomber on a path - every bomber's gunner fires, whatever its
+  // behaviour. At a player behind it within 45 degrees to either side, from
+  // 45 degrees above its wings to ~10 below and inside 600 m, on the gun's
+  // cycle, along the line to the player, scattered by at most
+  // kOpponentScatter; never at one ahead, wider, higher, lower or farther.
   static const struct {
+    int mission;
     double back, side, up;
     bool fires;
-  } kTail[] = {{300, 0, 0, true}, {-300, 0, 0, false}, {300, 175, 0, false},
-               {300, 0, 100, false}, {700, 0, 0, false}, {150, 20, 20, true},
-               {150, 20, -20, false}, {300, 0, -1, false}};
+  } kTail[] = {{1, 300, 0, 0, true},     {0, 300, 0, 0, true},     {1, -300, 0, 0, false},
+               {1, 300, 175, 0, true},   {1, 300, -250, 0, true},  {1, 300, 330, 0, false},
+               {1, 300, 0, 100, true},   {1, 300, 0, 250, true},   {1, 300, 0, 330, false},
+               {1, 300, 0, -1, true},    {1, 300, 0, -40, true},   {1, 300, 0, -75, false},
+               {1, 150, 20, 20, true},   {1, 150, 20, -20, true},  {1, 550, 0, 0, true},
+               {1, 700, 0, 0, false},    {1, 100, 90, 90, true}};
   for (const auto &k : kTail) {
-    opponent_reset(1);
+    opponent_reset((uint8_t)k.mission);
     _opponent_on[1] = false;
     _fired[0] = 0;
-    int16_t sx = 0, sy = 0, sz = 0;
-    bool spread = true;
+    int16_t worst = 0;
     for (int n = 0; n < kOpponentGunCycle; ++n) {
       // Behind is north, the bomber heading south; left of its tail is west, +y.
       flight_eye_x = _opponent_x[0] + (int32_t)(k.back * 512);
       flight_eye_y = _opponent_y[0] + (int32_t)(k.side * 512);
       flight_eye_z = _opponent_z[0] + (int32_t)(k.up * 512);
+      int before = _fired[0];
       fire_step();
-      if (_fired[0] && n < 6) {
-        sx = std::max(sx, (int16_t)abs(_fired_v[0] - 768));
-        sy = std::max(sy, (int16_t)abs(_fired_v[1]));
-        sz = std::max(sz, (int16_t)abs(_fired_v[2]));
-        spread &= abs(_fired_v[0] - 768) <= 3 * 28 && abs(_fired_v[1]) <= 3 * 28 &&
-                  abs(_fired_v[2]) <= 3 * 12;
+      if (_fired[0] != before) {
+        // The line to the player from where the bomber fired, after its
+        // step, 768 long, and how far the round's velocity is off it beyond
+        // the scatter: x and y by up to 3 x 28, z by 3 x 12, and
+        // vec_normalize()'s square root, good to ~2%: the round's speed, not
+        // its line.
+        double d[3] = {(double)(flight_eye_x - _opponent_x[0]),
+                       (double)(flight_eye_y - _opponent_y[0]),
+                       (double)(flight_eye_z - _opponent_z[0])};
+        double l = sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        double e[3] = {768 * d[0] / l, 768 * d[1] / l, 768 * d[2] / l};
+        int16_t off[3] = {(int16_t)(abs(_fired_v[0] - lround(e[0])) - 3 * 28),
+                          (int16_t)(abs(_fired_v[1] - lround(e[1])) - 3 * 28),
+                          (int16_t)(abs(_fired_v[2] - lround(e[2])) - 3 * 12)};
+        for (int16_t o : off) worst = std::max(worst, o);
       }
     }
-    CHECK(k.fires ? _fired[0] == 3 && spread : _fired[0] == 0,
-          "gunner: %.0f m back, %.0f across, %.0f up: %d rounds, spread %d %d %d", k.back, k.side,
-          k.up, _fired[0], sx, sy, sz);
+    CHECK(k.fires ? _fired[0] == 3 && worst <= 18 : _fired[0] == 0,
+          "gunner: mission %d, %.0f m back, %.0f across, %.0f up: %d rounds, %d off the line",
+          k.mission + 1, k.back, k.side, k.up, _fired[0], worst);
   }
+
+  // Parked, a bomber never fires: on the ground it is not flying, whatever
+  // sits behind it. 03's pair are fighters, so one of them as a bomber.
+  static const opponent_path_t kParkedBomber = {kOpponentParked | kOpponentBomber | kOpponentHunt,
+                                                0, kOpponentNoFail, 0, 0, 0x5C9C, 0xC096, 0x000A};
+  opponent_reset(2);
+  _opponent_on[1] = false;
+  fly(0, &kParkedBomber);
+  _opponent_attack = 1;
+  _fired[0] = 0;
+  for (int n = 0; n < 3 * kOpponentGunCycle; ++n) {
+    flight_eye_x = _opponent_x[0] - (int32_t)(200 * 512);
+    flight_eye_y = _opponent_y[0];
+    flight_eye_z = _opponent_z[0] + (int32_t)(30 * 512);
+    fire_step();
+  }
+  CHECK(_fired[0] == 0, "gunner: parked, fired %d rounds", _fired[0]);
 }
 
 int main() {

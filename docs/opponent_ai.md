@@ -39,11 +39,11 @@ in. §10 is the step-by-step implementation order. Everything is fpilot only
   strafing runs: it dives to a temporary low limit, then pulls back up to a
   slightly higher permanent one.
 - **Bomber.** Never leaves its path. A rear gunner fires at a player who
-  is behind it.
+  is behind it, whatever the bomber's behaviour.
 
 No aircraft is unarmed. An aircraft with the Path behaviour never attacks,
-so today's recon is a bomber on a path: brown when near, and with its
-gunner never on.
+but a bomber's gunner does not wait for that: today's recon is a bomber on
+a path, brown when near, and shoots at a player on its tail.
 
 **Also:**
 
@@ -122,7 +122,7 @@ At run time a slot is in one of two **modes**:
 
 | Mode | Fighter | Bomber |
 | :--- | :--- | :--- |
-| `PATH` | steers for its next waypoint, guns off | steers for its next waypoint, gunner off |
+| `PATH` | steers for its next waypoint, guns off | steers for its next waypoint, rear gunner on |
 | `ATTACK` | steers for the player, forward guns on; strafes if the player is on the ground (§5) | steers for its next waypoint, rear gunner on |
 
 How each behaviour enters `ATTACK`:
@@ -311,17 +311,21 @@ on a parked player, so the run is where the danger is.
 
 The gunner fires when all of these hold:
 
-- the bomber is in `ATTACK`;
-- the player is within ~45° of its tail: `dot < 0`, `|cross| < −dot`, and
-  `|dz|` is no more than `−dot`;
-- the player is within ~600 m.
+- the bomber is flying - in any mode, but not parked;
+- the player is behind it, within 45° of its tail to either side:
+  `back = −dot > 0`, `|cross| < back`;
+- the player is from 45° above the plane of its wings to ~10° below it:
+  `−back × 3/16 ≤ dz < back`;
+- `back` is under ~600 m.
 
 The gunner aims at the player:
 
-- The direction is the 6-bit vector to the eye, scattered by ±1–2 units
-  from the LFSR on each axis, then normalised with `vec_normalize()`.
+- The direction is the line to the eye, each component divided by twice
+  `back` (inside the cone that is under 0.71, so the vector is well inside
+  what `vec_normalize()` takes), normalised, then scattered by
+  `kOpponentScatter` like the fighters' rounds.
 - The bomber keeps its heading.
-- It fires one round every ~4 whole steps, with no bursts.
+- It fires a burst of three on the fighters' gun cycle.
 - The scatter sets the difficulty. Without it, almost every round would
   land in a steady tail chase.
 
@@ -1164,3 +1168,27 @@ had only 491 B. It overflowed. planes.cc's cached products, _planes_px,
 _planes_pv and _px_k, moved to bss2 (34 B), and the fall was made cheaper
 (the quarter-turn spin, no acceleration, the parked case in the fall): the
 main region has 123 B left. Watch that number, not the total.
+
+### Aimed rear gunners (2026-11-04)
+
+The gunner got the cone and the aim §6 first planned, which step 10 had
+cut for its 550 B. It fires at a player behind any flying bomber, whatever
+its behaviour - so 01's recon, a bomber on a path, shoots back now - within
+45 degrees of its tail to either side, from 45 degrees above its wings to
+~10 below, and inside ~600 m; never from the ground. Its rounds go along
+the line to the player: the line divided by twice the distance behind and
+`vec_normalize()`d, whose fast square root is good to ~2% - the round's
+speed, not its line. 129 B: fpilot 1,439 -> 1,310 B free, the main region's
+largest run 587 B. The cone test loops over the axes, counted down, and
+reuses `_opponent_toward()` for the height; written out it was 61 B more.
+
+opponent_test holds each case of the cone to firing or not, every round to
+the line within the scatter, the recon to firing, and a parked bomber to
+never firing. mission_test's pilots had to learn the cone: chasing the
+recon at its height, the pilot was shot down. They now hold 100 m under a
+bomber, attack the lowest of a formation first - under the higher one of
+02's pair the pilot was level with the lower one, behind it - and do not
+aim from inside any gunner's cone with 5 degrees to spare: putting the
+nose on a bomber from below climbs into it. Over fifteen random seeds the
+recon falls in 2.8-3.0 min unhit every time, and 02's pair in 3.3-3.5 min
+with no hit in thirteen and one in two.

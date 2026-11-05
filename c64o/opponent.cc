@@ -122,7 +122,7 @@ enum opponent_kind_t {
 static const uint8_t kOpponentKindMask = 0x03;
 // The role: what the aircraft does once it attacks. A fighter goes for the
 // player with its forward guns; a bomber keeps its path, and its rear gunner
-// fires.
+// fires - whether it attacks or not.
 static const uint8_t kOpponentFighter = 0 << 2;
 static const uint8_t kOpponentBomber = 1 << 2;
 // The behaviour: when it attacks. Never on a path; once fired upon,
@@ -181,8 +181,8 @@ static const uint16_t kOpponent3500Ft = 0x0700;
 // within 10 s of the start - 20 s of the lift-off in 02 - and the player
 // within 1 km of them inside ~90 s (test/mission_test.cc).
 //
-// 01, Recon: a bomber, so brown when near, on a path - its gunner never
-// fires. At 5,000 ft and 1,750, faster than the player climbs and slower
+// 01, Recon: a bomber, so brown when near, on a path, whose rear gunner
+// fires at a player on its tail. At 5,000 ft and 1,750, faster than the player climbs and slower
 // than it flies level up there. It comes in from the north edge head-on to
 // the player, 2,500 ft below, passing 64 m to one side after ~45 s; then on
 // south over the city at ~5.4 min and out over the south edge at ~6.2 min,
@@ -199,7 +199,8 @@ static const uint16_t kOpponent3500Ft = 0x0700;
 // runway 1 from 5.5 km as the player scrambles from it, pass 500 m north of
 // it, turn for the city and reach it after ~4.4 min, which fails the
 // mission. Then they leave over the south edge. Their rear gunners fire
-// at a player behind and above them from the start; from below they cannot.
+// at a player behind them from the start; from more than ~10 degrees below
+// they cannot.
 //
 // 03, Ambush: two on the ground beside the south end of runway 2, side by
 // side 100 m apart, both 75 m off its west edge at y 0xC0 and facing it, and
@@ -886,28 +887,58 @@ __noinline uint8_t opponent_random(void) {
 }
 
 // Bomber i's rear gunner (docs/opponent_ai.md §6): whether the player is
-// behind it, within ~14 degrees of the tail across, and above the plane of
-// its wings by as much, and less than kOpponentGunnerReach back: the gun
-// cannot bear on a player attacking from below. The gunner fires straight back, scattered
-// (opponent_fires()): aiming it at the player, normalised, was 550 B. Asked
-// from opponent_fires(), under gun_step(): under opponent_step() its
-// multiplies cost that a software stack frame.
+// behind it and less than kOpponentGunnerReach back, within 45 degrees of
+// the tail to either side, and from 45 degrees above the plane of its wings
+// to ~10 below: the gun cannot bear on a player well under it. If so, the
+// line to the player, in half metres, in _opponent_aim_d, which
+// opponent_fires() aims along. Asked from opponent_fires(), under
+// gun_step(): under opponent_step() its multiplies cost that a software
+// stack frame.
+// The eye's three axes, so that a loop can take each off in turn: written
+// out, _opponent_camera()'s three 32-bit differences were 104 B.
+static int32_t *const kOpponentEye[3] = {&flight_eye_x, &flight_eye_y,
+                                         &flight_eye_z};
+static vec3_t _opponent_aim_d;
 static __noinline bool _opponent_gunner(uint8_t i) {
-  int16_t dx = _opponent_toward((uint16_t)(flight_eye_x >> 8), _opponent_x[i]);
-  int16_t dy = _opponent_toward((uint16_t)(flight_eye_y >> 8), _opponent_y[i]);
+  // The line to the player, an axis at a time, counted down: oscar64
+  // unrolls a for loop over three axes.
+  int16_t *d = &_opponent_aim_d.x;
+  uint8_t c = 3, k = (uint8_t)(i + 2 * kOpponentMax);
+  do {
+    --c;
+    d[c] = _opponent_toward((uint16_t)(*kOpponentEye[c] >> 8), _opponent_xyz[k]);
+    k -= kOpponentMax;
+  } while (c != 0);
+  int16_t dx = d[0], dy = d[1];
   int16_t hx = _opponent_head[i].x, hy = _opponent_head[i].y;
-  int16_t back = -_opponent_dot(dx, hx, dy, hy);
-  uint16_t q = (uint16_t)back >> 2;
-  return back > 0 && back < kOpponentGunnerReach &&
-         _opponent_abs(_opponent_dot(dy, hx, -dx, hy)) < q &&
-         (uint16_t)(int16_t)((flight_eye_z - _opponent_z[i]) >> 8) < q;
+  // Behind, 1 to kOpponentGunnerReach - 1 back, as one unsigned compare.
+  uint16_t back = (uint16_t)(-_opponent_dot(dx, hx, dy, hy));
+  if ((uint16_t)(back - 1) >= (uint16_t)(kOpponentGunnerReach - 1)) {
+    return false;
+  }
+  // tan 10 degrees, 0.18, as 3/16; then -under <= dz < back as one compare.
+  uint16_t under = (back >> 3) + (back >> 4);
+  if (_opponent_abs(_opponent_dot(dy, hx, -dx, hy)) >= back ||
+      (uint16_t)(d[2] + under) >= back + under) {
+    return false;
+  }
+  // Inside the cone no component is more than 1.42 times `back`, so over
+  // twice it each is a fraction under 0.71, 181 in 8.8: the line well under
+  // the 512 long vec_normalize() takes, and exact to the eight bits.
+  back <<= 1;
+  c = 3;
+  do {
+    --c;
+    d[c] = vec_div8p8(d[c], (int16_t)back);
+  } while (c != 0);
+  return true;
 }
 
 // The round leaves at the muzzle velocity, 3 x 256 in gun.cc's sixteenths
 // of a metre a step: three times a unit vector, scattered by
 // kOpponentScatter on each axis. A fighter's along its nose, the heading
-// with the climb's sine for its z; a bomber's gunner's straight back,
-// level. Unscattered, a fighter's pure pursuit put every round on a player
+// with the climb's sine for its z; a bomber's gunner's at the player, along
+// the line _opponent_gunner() found, vec_normalize()d. Unscattered, a fighter's pure pursuit put every round on a player
 // it was chasing, who moves along the line of fire. No multiply: the
 // aircraft's own speed, 3-11 m a step against the round's 48, and the
 // climb's cosine, 0.89 at the steepest, are left out, which the guns not
@@ -926,8 +957,10 @@ bool opponent_fires(uint8_t i, int16_t *v) {
     if (!_opponent_gunner(i)) {
       return false;
     }
-    x -= _opponent_head[i].x;
-    y -= _opponent_head[i].y;
+    vec_normalize(&_opponent_aim_d);
+    x += _opponent_aim_d.x;
+    y += _opponent_aim_d.y;
+    z += _opponent_aim_d.z;
   } else {
     x += _opponent_head[i].x;
     y += _opponent_head[i].y;
@@ -1078,10 +1111,11 @@ void opponent_step(void) {
       straight = (_opponent_pullup & bit) != 0;
       want = straight ? 1 : _opponent_want(i, dx8, dy8, dz, floor);
     } else {
-      // A bomber's rear gunner, in ATTACK: its cone is opponent_fires()'s.
-      // Not a fighter's guns: one whose pass ended this step is in ATTACK
-      // already but steered for its waypoint, and the player is behind it.
-      _opponent_aim = (_opponent_attack & bit) && (p->kind & kOpponentBomber);
+      // A bomber's rear gunner, whatever its behaviour: its cone is
+      // opponent_fires()'s. Not a fighter's guns: one whose pass ended this
+      // step is in ATTACK already but steered for its waypoint, and the
+      // player is behind it.
+      _opponent_aim = (p->kind & kOpponentBomber) != 0;
     }
     if (turns) {
       _opponent_guns(i, want);
@@ -1148,10 +1182,6 @@ enum opponent_range_t { kOpponentNear, kOpponentFar, kOpponentOut };
 static uint16_t _opponent_d[3];
 static int8_t _opponent_s[3];
 #pragma bss(bss)
-// The eye's three axes, so that the loop below can take each off in turn:
-// written out, the three 32-bit differences were 104 B.
-static int32_t *const kOpponentEye[3] = {&flight_eye_x, &flight_eye_y,
-                                         &flight_eye_z};
 static __noinline uint8_t _opponent_camera(uint8_t i) {
   uint8_t range = kOpponentNear;
   uint8_t k = i;
