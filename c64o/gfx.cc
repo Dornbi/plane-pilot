@@ -16,6 +16,11 @@
 
 #ifdef __OSCAR64__
 #include <c64/rasterirq.h>
+// The split uses four raster interrupts, slots 0-3 in gfx_init_raster_irqs(),
+// and the Makefile's -DNUM_IRQS=4 sizes the library's five tables for just
+// those rather than its default sixteen. On the command line, not here:
+// oscar64 compiles rasterirq.c without this file's defines.
+static_assert(NUM_IRQS == 4, "gfx_init_raster_irqs() sets slots 0-3");
 #include <oscar.h>
 #else
 #define RIRQ_SIZE 2

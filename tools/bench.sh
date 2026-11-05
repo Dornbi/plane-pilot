@@ -120,7 +120,7 @@ for p in 'bench_begin();' 'bench_end();' '#include "bench.h"'; do
 done
 perl -0ne 'exit !/^void help_run\(void\) \{\n  return;$/m' help.cc || { echo "bench: could not stub help_run() in c64o/help.cc" >&2; exit 1; }
 
-CFLAGS="-ii=../include -D__OSCAR64__ -g -xz -O2 -Op -Oa -Oi -Oz -Oo"
+CFLAGS="-ii=../include -D__OSCAR64__ -DNUM_IRQS=4 -g -xz -O2 -Op -Oa -Oi -Oz -Oo"
 CFLAGS="$CFLAGS -D__ENABLE_SOUND__ -D__ENABLE_CLOUDS__ -D__FPILOT__ -D__MAX_RAM__"
 
 wanted="${*:-}"

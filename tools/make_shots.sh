@@ -103,7 +103,7 @@ done
 
 # Same flags as the ppilot.prg rule in c64o/Makefile: a scene has to be a
 # picture of the binary people actually run.
-CFLAGS="-ii=../include -D__OSCAR64__ -g -xz -O2 -Op -Oa -Oi -Oz -Oo"
+CFLAGS="-ii=../include -D__OSCAR64__ -DNUM_IRQS=4 -g -xz -O2 -Op -Oa -Oi -Oz -Oo"
 CFLAGS="$CFLAGS -D__ENABLE_SOUND__ -D__ENABLE_DEBUG__ -D__ENABLE_CLOUDS__ -D__MAX_RAM__"
 
 wanted="${*:-}"
