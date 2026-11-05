@@ -24,7 +24,9 @@ static const uint8_t kOpponentMax = 2;
 // Hits that down an aircraft (opponent_strike()).
 static const uint8_t kOpponentHitsToDown = 3;
 
-// Puts the mission's aircraft at their start. Also invalidates, as below.
+// Puts the mission's first pair at their start, and forgets what the last
+// attempt shot down. Also invalidates, as below. The rest of its pairs follow
+// from opponent_step(), each once the last is gone.
 void opponent_reset(uint8_t mission);
 
 // Forgets every bitmap drawn so far and rewrites the dot block. For after
@@ -40,8 +42,9 @@ void opponent_step(void);
 // each aircraft in view and offer it to the stack.
 void opponent_add_sprites(void);
 
-// The mission's WP_TARGETS_DOWN: every aircraft it sent is down, and the
-// mission has not failed.
+// The mission's WP_TARGETS_DOWN: the mission has not failed, and as many of
+// its aircraft are down as it asks - or, where it does not say, every pair it
+// sends is down or gone (09's give up).
 bool opponent_targets_down(void);
 
 // For gun.cc: slot i's position, x, y and z in flight_eye_*'s 24.8 half
@@ -69,7 +72,8 @@ void opponent_collide(uint8_t i);
 bool opponent_calm(uint8_t i);
 
 // Slot i is fired upon: a hit, or a round past it within ~40 m. A Provoked
-// slot attacks from now on; any other carries on as it was.
+// slot attacks from now on - as it does once it sees the player; any other
+// carries on as it was.
 void opponent_provoke(uint8_t i);
 
 // A random byte, never 0: the next of 255 in a fixed order.

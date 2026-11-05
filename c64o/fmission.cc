@@ -3,14 +3,13 @@
 // fpilot's missions. The tables are pmission.cc's, with the same names and the
 // same encoding - see mission.h - so everything that reads them is shared.
 //
-// Four interceptions, the fourth the scramble fpilot started with, and a
-// head-on meeting with two hunting fighters. 06-10 are placeholders, so that
-// the menu and the tables are there for ten: each starts parked on runway 1,
-// from 04's start row, and sends nothing, so its goals are
-// met at once and landing completes it. What each sends against the
-// player is opponent.cc's kOpponentPaths, and what fails it, opponent.cc
-// too. The goal is the same for all five, so they share one slice of the
-// waypoints: every aircraft down (WP_TARGETS_DOWN), then home.
+// Interceptions, a scramble, dogfights, waves of bombers, a way home past
+// patrols, a turkey shoot, an unarmed escape and a high patrol. What each
+// sends against the player is opponent.cc's kOpponentPaths and
+// kOpponentWaves, and what fails it, opponent.cc too. Every mission shares
+// one slice of the waypoints: its targets down (WP_TARGETS_DOWN) - every
+// aircraft it sends, or as many as opponent.cc asks - then home. 07's goal is
+// only to land, so it starts at home's.
 // Navpoint 1 is on the targets, wherever they are - the one, or midway
 // between two - and navpoint 2 is runway 1. flight.cc names them by number
 // when they are selected, TARGET and HOME BASE, so every mission keeps that
@@ -42,7 +41,7 @@ const uint8_t kMissionWpBegin[kMissionCount] = {
     kWaypointTargets, // 04
     kWaypointTargets, // 05
     kWaypointTargets, // 06
-    kWaypointTargets, // 07
+    kWaypointLanded1, // 07
     kWaypointTargets, // 08
     kWaypointTargets, // 09
     kWaypointTargets, // 10
@@ -66,15 +65,12 @@ const char *const kMissionTitles[kMissionCount] = {
     "03 AMBUSH",          // 03
     "04 SCRAMBLE",        // 04
     "05 HEAD ON",         // 05
-    "06 RESERVED",        // 06
-    "07 RESERVED",        // 07
-    "08 RESERVED",        // 08
-    "09 RESERVED",        // 09
-    "10 RESERVED",        // 10
+    "06 BIG WEEK",        // 06
+    "07 WAY HOME",        // 07
+    "08 TURKEY SHOOT",    // 08
+    "09 UNARMED ESCAPE",  // 09
+    "10 COMBAT PATROL",   // 10
 };
-
-// One copy for every placeholder: oscar64 keeps each literal apart.
-static const char kMissionReserved[] = "NOT WRITTEN YET.";
 
 const char *const kMissionDesc[kMissionCount] = {
     "A RECON PLANE IS COMING IN HIGH.\n"  // 01
@@ -87,31 +83,44 @@ const char *const kMissionDesc[kMissionCount] = {
     "DEFEND IT AS QUICKLY AS YOU CAN!",   //
     "TWO FIGHTERS ARE COMING STRAIGHT\n"  // 05
     "AT YOU. SHOOT THEM DOWN!",           //
-    kMissionReserved,                     // 06
-    kMissionReserved,                     // 07
-    kMissionReserved,                     // 08
-    kMissionReserved,                     // 09
-    kMissionReserved,                     // 10
+    "BOMBERS KEEP COMING AT THE CITY.\n"  // 06
+    "SHOOT DOWN AT LEAST HALF OF THEM!",  //
+    "FLY HOME AND LAND, AVOIDING\n"       // 07
+    "THE ENEMY PATROLS.",                 //
+    "FIGHTERS ARE CIRCLING A FIELD.\n"    // 08
+    "SHOOT DOWN AT LEAST FIVE!",          //
+    "NO AMMO, AND TWO ON YOUR TAIL.\n"    // 09
+    "OUTRUN THEM, THEN LAND.",            //
+    "HIGH PATROL. CHECK YOUR SIX!",       // 10
 };
 
 // Where each starts: close enough to its targets that they are on screen,
 // if only as the dot, within 10 s of flying straight on - 20 s of the
-// lift-off in 02 - and within 1 km inside ~90 s (test/mission_test.cc). 01
-// and 03 in the air at cruise - throttle 18, whose level trim is ~2,170
-// (0x88 << 4). 01 at 2,500 ft heading north, 4.5 km south of the north edge,
-// under the recon's way in; 03 at 1,000 ft heading east, 1.8 km west of the
-// parked aircraft at runway 2, midway between them. 02 and 04 scramble: on
-// runway 1 heading north, engine at idle, the bombers coming south towards
-// it in 02, the bandits already about in 04. 05 in the air at cruise at
-// 3,000 ft heading north, the hunters coming south at it from 2.3 km. The
-// placeholders have no row: flight_init_from_mission() starts them from
-// 04's (kMissionParkedStart).
+// lift-off in 02 - and within 1 km inside ~90 s (test/mission_test.cc), but
+// for the missions whose targets come from behind or are to be avoided. Those
+// in the air at cruise - throttle 18, whose level trim is ~2,170 (0x88 << 4).
+// 01 at 2,500 ft heading north, 4.5 km south of the north edge, under the
+// recon's way in; 03 at 1,000 ft heading east, 1.8 km west of the parked
+// aircraft at runway 2, midway between them. 02 and 04 scramble: on runway 1
+// heading north, engine at idle, the bombers coming south towards it in 02,
+// the bandits already about in 04. 05 at 3,000 ft heading north, the hunters
+// coming south at it from 2.3 km. 06 at 2,000 ft heading north, 1.3 km south
+// of the city, the bombers coming at it. 07 at 2,000 ft heading south from
+// near runway 2, 14 km from home, the first patrol's line across the way.
+// 08 at 1,500 ft heading north, 1 km south of the circuit the fighters fly
+// over runway 2. 09 at 2,000 ft heading east, 12.4 km west of runway 1, the
+// hunters behind. 10 at 6,000 ft heading north, the hunters behind.
 const uint8_t kMissionStartX[kMissionStarts] = {
     0x5C, // 01
     0x1C, // 02
     0x5D, // 03
     0x1C, // 04
     0x30, // 05
+    0x06, // 06
+    0x5C, // 07
+    0x48, // 08
+    0x20, // 09
+    0x40, // 10
 };
 
 const uint8_t kMissionStartY[kMissionStarts] = {
@@ -120,6 +129,11 @@ const uint8_t kMissionStartY[kMissionStarts] = {
     0xCE, // 03
     0x3F, // 04
     0x90, // 05
+    0x6A, // 06
+    0xA8, // 07
+    0xBF, // 08
+    0xA0, // 09
+    0xA0, // 10
 };
 
 const uint8_t kMissionStartTurns[kMissionStarts] = {
@@ -128,6 +142,11 @@ const uint8_t kMissionStartTurns[kMissionStarts] = {
     3, // 03
     0, // 04
     0, // 05
+    0, // 06
+    2, // 07
+    0, // 08
+    3, // 09
+    0, // 10
 };
 
 const int8_t kMissionQuarterCos[7] = {1, 0, -1, 0, 1, 0, -1};
@@ -138,6 +157,11 @@ const uint8_t kMissionStartZ[kMissionStarts] = {
     0x02, // 03
     0x00, // 04
     0x06, // 05
+    0x04, // 06
+    0x04, // 07
+    0x03, // 08
+    0x04, // 09
+    0x0C, // 10
 };
 
 const uint8_t kMissionStartSpeed[kMissionStarts] = {
@@ -146,6 +170,11 @@ const uint8_t kMissionStartSpeed[kMissionStarts] = {
     0x88, // 03
     0x00, // 04
     0x88, // 05
+    0x88, // 06
+    0x88, // 07
+    0x88, // 08
+    0x88, // 09
+    0x88, // 10
 };
 
 const uint8_t kMissionStartThrottle[kMissionStarts] = {
@@ -154,6 +183,11 @@ const uint8_t kMissionStartThrottle[kMissionStarts] = {
     0x12, // 03
     0x00, // 04
     0x12, // 05
+    0x12, // 06
+    0x12, // 07
+    0x12, // 08
+    0x12, // 09
+    0x12, // 10
 };
 
 // About 15 minutes at full throttle. The longest way home, from runway 2 in

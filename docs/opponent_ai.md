@@ -1209,3 +1209,59 @@ dogfight pilot, which only turned to fight at its 100 m floor, now does from
 with both fighters on its tail, losing all fifteen random seeds; reacting from
 30 m it wins all fifteen in ~2.5 min with under one hit on average.
 
+
+### Missions 04-10: waves of pairs (2026-11-05)
+
+The five placeholders are written, and two of the old missions got a second
+pair. A mission no longer sends one pair: opponent.cc's `kOpponentPaths` is
+13 rows of a pair each, and `kOpponentWaves` lists the rows each mission
+sends, in order, one byte a pair, with the last marked. `opponent_reset()`
+sends the first; `opponent_step()` sends the next once neither slot is
+flying, parked or falling and the smoke has cleared, ~5 s after the last
+went down. Every pair starts afresh (`_opponent_send()`), and a row can be
+sent more than once: 06 and 08 send theirs three times.
+
+- **Goals.** `_opponent_destroy()` counts what goes down. A mission can ask
+  for a share of what it sends, in the high bits of its first wave byte:
+  then its goals are met once that many are down, even with more to come.
+  Otherwise they are met once its last pair is down or gone. After the last
+  pair, too few down fails it, CITY BOMBED.
+- **Seeing and giving up.** A Provoked aircraft also attacks once the player
+  is within 2 km on both axes across the ground (`kOpponentSpot`); before,
+  only being fired upon set it off. Bit 5 of the kind, `kOpponentStray`,
+  makes one that is attacking give up, gone, once the player is more than
+  2.5 km off on either axis (`kOpponentGiveUp`).
+- **Landing only.** `flight_init_from_mission()` starts fpilot's missions at
+  `kMissionWpBegin`, with that navpoint selected: 07 starts at home's.
+- **Unarmed.** `gun_rearm()` gives 09 no rounds, on the ground too.
+- **Start rows.** Every mission has its own again (`kMissionStarts` is 10,
+  `kMissionParkedStart` is gone).
+
+The missions:
+
+| | Pairs | Goal |
+| :--- | :--- | :--- |
+| 04 Scramble | the pass, then hunters from the west | all four down |
+| 05 Head on | the head-on hunters, then hunters from the south | all four down |
+| 06 Big week | bombers over the city, three times, each gone over the south edge after ~80 s | three of six down |
+| 07 Way home | two patrols in turn, Provoked and straying | land |
+| 08 Turkey shoot | fighters flying runway 2's circuit, three times, never firing | five of six down |
+| 09 Unarmed escape | hunters from 450 m behind, straying, no rounds | outrun them, then land |
+| 10 Combat patrol | hunters from 1.2 km behind at 6,000 ft | both down |
+
+mission_test's pilots fly all of them. The dogfight pilot waits between
+pairs and stops once the goals are met; it downs 04's and 05's four, three
+of 06's six from below, unhit, and 10's pair in ~0.6 min. At 08 it gets ~2
+of the circuit's fighters per 50 rounds even holding its fire to 400 m, so
+the test refills its guns in place of a landing: five down with two
+refills. A pilot flying straight home with throttle wide open is seen by
+07's first patrol at ~1 min, outruns it at ~3.7 min, and is seen by the
+second on the approach; in 09 it is free of the hunters at ~2.2 min, a
+minute before home, unhit. opponent_test holds every mission's waves, its
+share, the spotting, giving up, and 06's failure.
+
+The cost was ~830 B of the main region: 951 B free there before, 125 B
+after (fpilot 829 B allocatable in all, 672 of it bss2). About half is data
+- the eight new rows (192 B), the mission text and the start rows - and
+`_opponent_send()` is 313 B, most of it the slot set-up `opponent_reset()`
+had. ppilot is unchanged.

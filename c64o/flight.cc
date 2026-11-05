@@ -560,10 +560,6 @@ void flight_init_from_mission(uint8_t mission_idx) {
   flight_current_wp = 0;
   flight_cam = _m_init;
 #ifdef __FPILOT__
-  // The start row: fpilot's placeholders have none (fmission.cc).
-  if (mission_idx >= kMissionStarts) {
-    mission_idx = kMissionParkedStart;
-  }
   // Quarter turns left from north. Level, the up stays the world's, and
   // front and left have no z: t turns, 0 to 3, put the front at (cos, sin)
   // of t right angles and the left at (-sin, cos), every component 0 or
@@ -620,6 +616,9 @@ void flight_init_from_mission(uint8_t mission_idx) {
   flight_nav_point_x[1] = (uint16_t)kMissionWpX[1] << 8;
   flight_nav_point_y[1] = ((uint16_t)kMissionWpY[1] << 8) + 0x80;
   flight_num_nav_points = 2;
+  // From the targets, or for a mission whose goal is only to land (07), from
+  // home, with that navpoint up.
+  flight_current_wp = kMissionWpBegin[mission_idx];
 #else
   flight_num_nav_points = 0;
   uint8_t wp_begin = kMissionWpBegin[mission_idx];
@@ -640,7 +639,7 @@ void flight_init_from_mission(uint8_t mission_idx) {
     _flight_add_nav_point(kWaypointDefault);
   }
 #endif
-  flight_nav = 0;
+  flight_nav = flight_current_wp;
   _flight_update_nav();
   // The trail is per attempt, so R starts a fresh one. Seeding it with the
   // start position means the path is already anchored on the runway before

@@ -102,6 +102,31 @@ static void hold_height(int32_t z) {
   }
 }
 
+// One step flying at (x, y), 8.8 world units, at full throttle and height z:
+// banked towards its bearing at up to 60 degrees, as chase() turns.
+// The horizontal distance to it, in metres.
+static double fly_to(uint16_t x, uint16_t y, int32_t z) {
+  double dx = ((double)((int32_t)x << 8) - flight_eye_x) / 256.0;
+  double dy = ((double)(((int32_t)y << 8) + 0x8000) - flight_eye_y) / 256.0;
+  dx = fmod(dx + 16384.0 + 4 * 32768.0, 32768.0) - 16384.0;
+  flight_throttle = 24;
+  double err = degrees(dy, dx) - degrees(flight_cam.front.y, flight_cam.front.x);
+  while (err > 180) err -= 360;
+  while (err < -180) err += 360;
+  double want_roll = err > 10 ? 60 : err < -10 ? -60 : err * 2;
+  double roll = degrees(-flight_cam.left.z, flight_cam.up.z);
+  if (roll < want_roll - 4) {
+    flight_input(FLIGHT_INPUT_ROLL_LEFT);
+  } else if (roll > want_roll + 4) {
+    flight_input(FLIGHT_INPUT_ROLL_RIGHT);
+  }
+  hold_height(z);
+  flight_advance();
+  opponent_step();
+  gun_step(false);
+  return sqrt(dx * dx + dy * dy) / 2;
+}
+
 // How far under a bomber chase() and dogfight() hold, in metres: out of its
 // rear gunner's cone, which reaches ~10 degrees below its wings.
 static const int kBelow = 100;
@@ -202,10 +227,13 @@ static void chase(bool guns, int *caught_at, int *gone_at, int *down_at) {
 // clear. When
 // the last was shot down, in steps, or -1; and the fewest metres it came to
 // any.
+static bool _refill = false;
+static int _refills = 0;
 static int dogfight(int m, double *closest, int min_m = 300) {
   flight_init_from_mission(m);
   opponent_reset(m);
   gun_reset();
+  _refills = 0;
   *closest = 1e9;
   const int32_t kMinZ = (int32_t)min_m << 9;
   bool extend = false;
@@ -225,7 +253,30 @@ static int dogfight(int m, double *closest, int min_m = 300) {
         t = i;
       }
     }
-    if (t < 0) return n;
+    // With `_refill`, out of rounds it rearms, as landing would.
+    if (_refill && (gun_ammo[0] | gun_ammo[1]) == 0) {
+      gun_rearm();
+      ++_refills;
+    }
+    // Between pairs it flies on, wings level, until the next comes; done
+    // once the goals are met, or failed.
+    if (opponent_targets_down()) return n;
+    if (_opponent_failed) return -1;
+    if (t < 0) {
+      flight_throttle = 24;
+      double roll = degrees(-flight_cam.left.z, flight_cam.up.z);
+      if (roll < -4) {
+        flight_input(FLIGHT_INPUT_ROLL_LEFT);
+      } else if (roll > 4) {
+        flight_input(FLIGHT_INPUT_ROLL_RIGHT);
+      }
+      if (!model_on_ground) hold_height(std::max(flight_eye_z, kMinZ));
+      flight_advance();
+      opponent_step();
+      gun_step(false);
+      if (flight_crashed()) return -1;
+      continue;
+    }
     double dx = (double)(_opponent_x[t] - flight_eye_x) / 256.0;
     double dy = (double)(_opponent_y[t] - flight_eye_y) / 256.0;
     double dz = (double)(_opponent_z[t] - flight_eye_z) / 256.0;
@@ -243,7 +294,11 @@ static int dogfight(int m, double *closest, int min_m = 300) {
     // A bomber it closes on slowly, from behind: firing beyond the rounds'
     // ~600 m reach would empty the guns before it got there.
     const bool bomber = _opponent_path[t]->kind & kOpponentBomber;
-    const double range = bomber ? 800 : 2000;
+    // So does one that never turns on it (08's, on their square), at 400 m:
+    // firing from farther, where a turning target slips out of the cone
+    // between the round and its arrival, emptied the guns for nothing.
+    const bool calm = !(_opponent_attack & _opponent_bit((uint8_t)t));
+    const double range = bomber || calm ? 800 : 2000;
     // Throttled back on a target's tail inside 300 m: flying into it is a
     // crash. Not on the way up: 04's pair are that close from the start.
     flight_throttle = up && ahead > 0 && d < 600 ? 10 : 24;
@@ -316,16 +371,16 @@ static int dogfight(int m, double *closest, int min_m = 300) {
 }
 
 int main() {
-  // The missions written so far; fmission.cc's 06-10 are placeholders that
-  // send nothing, so there is nothing to fly to.
-  static const char *const kNames[] = {"recon", "bombers", "ambush", "scramble", "head on"};
+  static const char *const kNames[] = {"recon",        "bombers",  "ambush",  "scramble",
+                                       "head on",      "big week", "way home", "turkey shoot",
+                                       "unarmed escape", "combat patrol"};
   static const int kWritten = sizeof(kNames) / sizeof(kNames[0]);
-  static_assert(kWritten <= kMissionCount, "a name a mission");
+  static_assert(kWritten == kMissionCount, "a name a mission");
   // Seconds to the targets on screen, from the start in the air or the
   // lift-off; 0 for none. 04's come from behind: the pair from 200 m and
   // 384 m back down the runway, overtaking only a pilot slower off it than
-  // this one.
-  static const int kInView[] = {10, 20, 10, 0, 10};
+  // this one. So do 09's and 10's; and 07's are to be avoided.
+  static const int kInView[] = {10, 20, 10, 0, 10, 10, 0, 10, 0, 0};
   for (int m = 0; m < kWritten; ++m) {
     flight_init_from_mission(m);
     opponent_reset(m);
@@ -372,7 +427,7 @@ int main() {
     CHECK(!in_view || (up_at >= 0 && seen_at >= 0 && seen_at - up_at <= in_view * kStepsPerSecond),
           "%s: on screen %.1f s after %s, not %d", kNames[m], (seen_at - up_at) / kStepsPerSecond,
           on_ground ? "the lift-off" : "the start", in_view);
-    CHECK(close_at >= 0 && close_at <= 90 * kStepsPerSecond,
+    CHECK(m == 6 || (close_at >= 0 && close_at <= 90 * kStepsPerSecond),
           "%s: within 1 km after %.0f s, not 90", kNames[m], close_at / kStepsPerSecond);
     printf("  %s: ", kNames[m]);
     if (on_ground) printf("off at %.0f s, ", up_at / kStepsPerSecond);
@@ -487,10 +542,10 @@ int main() {
   {
     double closest;
     int down = dogfight(3, &closest, 100);
-    CHECK(down >= 0 && down <= 6 * 60 * kStepsPerSecond,
-          "scramble: both down at %.1f min, the nearest %.0f m", down / kStepsPerSecond / 60,
-          closest);
-    printf("  scramble, dogfight: both down at %.1f min, the nearest %.0f m, %d hits taken\n",
+    CHECK(down >= 0 && down <= 8 * 60 * kStepsPerSecond && _opponent_kills == 4,
+          "scramble: %d down at %.1f min, the nearest %.0f m", _opponent_kills,
+          down / kStepsPerSecond / 60, closest);
+    printf("  scramble, dogfight: both pairs down at %.1f min, the nearest %.0f m, %d hits taken\n",
            down / kStepsPerSecond / 60, closest, gun_player_hits);
   }
 
@@ -517,10 +572,11 @@ int main() {
           "head on: %.0f m out, %.0f m apart", distance(0) / 2, sep);
     double closest;
     int down = dogfight(4, &closest);
-    CHECK(down >= 0 && down <= 4 * 60 * kStepsPerSecond && gun_player_hits < kDamageHitsToDown,
-          "head on: both down at %.1f min, %d hits taken", down / kStepsPerSecond / 60,
-          gun_player_hits);
-    printf("  head on, dogfight: both down at %.1f min, the nearest %.0f m, %d hits taken\n",
+    CHECK(down >= 0 && down <= 8 * 60 * kStepsPerSecond && _opponent_kills == 4 &&
+              gun_player_hits < kDamageHitsToDown,
+          "head on: %d down at %.1f min, %d hits taken", _opponent_kills,
+          down / kStepsPerSecond / 60, gun_player_hits);
+    printf("  head on, dogfight: both pairs down at %.1f min, the nearest %.0f m, %d hits taken\n",
            down / kStepsPerSecond / 60, closest, gun_player_hits);
   }
 
@@ -542,6 +598,102 @@ int main() {
     printf("  bombers, from below: both down at %.1f min, the nearest %.0f m\n",
            down / kStepsPerSecond / 60, closest);
   }
+  // 06: the same pilot downs at least three of the six bombers, from below,
+  // before the third pair is gone.
+  {
+    double closest;
+    int down = dogfight(5, &closest);
+    CHECK(down >= 0 && !_opponent_failed && _opponent_kills >= 3,
+          "big week: %d down at %.1f min, failed %d, %d hits taken", _opponent_kills,
+          down / kStepsPerSecond / 60, _opponent_failed, gun_player_hits);
+    printf("  big week, from below: %d down at %.1f min, wave %d, %d hits taken\n",
+           _opponent_kills, down / kStepsPerSecond / 60, _opponent_wave, gun_player_hits);
+  }
+
+  // 08: the same pilot downs five of the six fighters flying runway 2's
+  // circuit, which never fire back - landing there to rearm once it runs out,
+  // which here is a refill on the spot, at most twice.
+  {
+    double closest;
+    _refill = true;
+    int down = dogfight(7, &closest);
+    _refill = false;
+    CHECK(down >= 0 && _opponent_kills >= 5 && gun_player_hits == 0 && _refills <= 2,
+          "turkey shoot: %d down at %.1f min, %d hits taken, %d rearms", _opponent_kills,
+          down / kStepsPerSecond / 60, gun_player_hits, _refills);
+    printf("  turkey shoot: %d down at %.1f min, rearmed %d times\n", _opponent_kills,
+           down / kStepsPerSecond / 60, _refills);
+  }
+
+  // 10: the same pilot turns on the pair coming up behind it and downs both.
+  {
+    double closest;
+    int down = dogfight(9, &closest);
+    CHECK(down >= 0 && gun_player_hits < kDamageHitsToDown,
+          "combat patrol: both down at %.1f min, %d hits taken", down / kStepsPerSecond / 60,
+          gun_player_hits);
+    printf("  combat patrol, dogfight: both down at %.1f min, the nearest %.0f m, %d hits taken\n",
+           down / kStepsPerSecond / 60, closest, gun_player_hits);
+  }
+
+  // 09: flying straight on for runway 1 at full throttle, the player
+  // outruns the hunters - they give up - before it is home, and not shot
+  // down on the way.
+  {
+    flight_init_from_mission(8);
+    opponent_reset(8);
+    gun_reset();
+    const int32_t z = flight_eye_z;
+    int free_at = -1, home_at = -1;
+    double nearest = 1e9;
+    for (int n = 0; n < (int)(kStepsPerSecond * 600) && home_at < 0; ++n) {
+      double home = fly_to(0x2000, 0x3F00, z);
+      for (int i = 0; i < kOpponentMax; ++i) {
+        if (_opponent_live(i)) nearest = std::min(nearest, distance(i) / 2);
+      }
+      if (flight_crashed()) break;
+      if (free_at < 0 && opponent_targets_down()) free_at = n;
+      if (home < 1000) home_at = n;
+    }
+    CHECK(!flight_crashed() && free_at >= 0 && free_at < home_at,
+          "escape: free at %.1f min, home at %.1f, %d hits, %s", free_at / kStepsPerSecond / 60,
+          home_at / kStepsPerSecond / 60, gun_player_hits,
+          flight_status_text(flight_status, true));
+    printf("  unarmed escape, straight home: free at %.1f min, home at %.1f, the nearest %.0f m, "
+           "%d hits taken\n",
+           free_at / kStepsPerSecond / 60, home_at / kStepsPerSecond / 60, nearest,
+           gun_player_hits);
+  }
+
+  // 07: flying straight for runway 1, the first patrol sees the player and
+  // attacks; outrun, it gives up and the second comes, which sees it on the
+  // approach. Where it was seen, how many hits it took, and when it was home.
+  {
+    flight_init_from_mission(6);
+    opponent_reset(6);
+    gun_reset();
+    const int32_t z = flight_eye_z;
+    int seen_at = -1, second_at = -1, seen2_at = -1, home_at = -1;
+    for (int n = 0; n < (int)(kStepsPerSecond * 600) && home_at < 0; ++n) {
+      double home = fly_to(0x2000, 0x3F00, z);
+      if (flight_crashed()) break;
+      bool second = _opponent_path[0] != &kOpponentPaths[8][0];
+      if (!second && seen_at < 0 && _opponent_attack) seen_at = n;
+      if (second && second_at < 0) second_at = n;
+      if (second && seen2_at < 0 && _opponent_attack) seen2_at = n;
+      if (home < 1000) home_at = n;
+    }
+    CHECK(!flight_crashed() && seen_at >= 0 && second_at >= 0 && seen2_at >= 0 && home_at >= 0 &&
+              gun_player_hits < kDamageHitsToDown,
+          "way home: seen at %.1f min, the second patrol at %.1f, home at %.1f, %s",
+          seen_at / kStepsPerSecond / 60, second_at / kStepsPerSecond / 60,
+          home_at / kStepsPerSecond / 60, flight_status_text(flight_status, true));
+    printf("  way home, straight: seen at %.1f min, the second patrol at %.1f, seen at %.1f, "
+           "home at %.1f, %d hits taken\n",
+           seen_at / kStepsPerSecond / 60, second_at / kStepsPerSecond / 60,
+           seen2_at / kStepsPerSecond / 60, home_at / kStepsPerSecond / 60, gun_player_hits);
+  }
+
   if (_fails) {
     printf("mission_test: %d checks FAILED\n", _fails);
     return 1;

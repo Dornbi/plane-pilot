@@ -125,17 +125,23 @@ static const uint8_t kOpponentKindMask = 0x03;
 // fires - whether it attacks or not.
 static const uint8_t kOpponentFighter = 0 << 2;
 static const uint8_t kOpponentBomber = 1 << 2;
-// The behaviour: when it attacks. Never on a path; once fired upon,
-// provoked; from the start, hunting; or after its last waypoint, a pass.
+// The behaviour: when it attacks. Never on a path; once fired upon or once
+// the player is within kOpponentSpot, provoked; from the start, hunting; or
+// after its last waypoint, a pass.
 static const uint8_t kOpponentPath = 0 << 3;
 static const uint8_t kOpponentProvoked = 1 << 3;
 static const uint8_t kOpponentHunt = 2 << 3;
 static const uint8_t kOpponentPass = 3 << 3;
 static const uint8_t kOpponentBehaviourMask = 3 << 3;
+// Bit 5: it gives up, and is gone, once it is attacking and the player is
+// more than kOpponentGiveUp off on either axis across the ground - 09's
+// hunters, outrun, and 07's patrols, evaded.
+static const uint8_t kOpponentStray = 1 << 5;
 // The heading it starts on, level and always along an axis: quarter turns
 // left of north, as fmission.cc's kMissionStartTurns, in the top two bits.
 static const uint8_t kOpponentHeadShift = 6;
 static const uint8_t kOpponentNorth = 0 << kOpponentHeadShift;
+static const uint8_t kOpponentWest = 1 << kOpponentHeadShift;
 static const uint8_t kOpponentSouth = 2 << kOpponentHeadShift;
 static const uint8_t kOpponentEast = 3 << kOpponentHeadShift;
 // No waypoint fails the mission.
@@ -175,11 +181,13 @@ static inline void _opponent_start_head(const opponent_path_t *p, vec3_t *h) {
 static const uint16_t kOpponent5000Ft = 0x0A00;
 static const uint16_t kOpponent3000Ft = 0x0600;
 static const uint16_t kOpponent3500Ft = 0x0700;
+static const uint16_t kOpponent2000Ft = 0x0400;
 
 // The missions (fmission.cc). Runway 1, home, is at (0x20, 0x3F), runway 2 at
 // (0x60, 0xBF) and the city at (0x10, 0x68). Each puts its targets on screen
 // within 10 s of the start - 20 s of the lift-off in 02 - and the player
-// within 1 km of them inside ~90 s (test/mission_test.cc).
+// within 1 km of them inside ~90 s (test/mission_test.cc), but for those
+// that come from behind (04, 09, 10) or are to be avoided (07).
 //
 // 01, Recon: a bomber, so brown when near, on a path, whose rear gunner
 // fires at a player on its tail. At 5,000 ft and 1,750, faster than the player climbs and slower
@@ -225,36 +233,134 @@ static const uint16_t kOpponent3500Ft = 0x0700;
 // 128 m apart, 2.3 km north of the player and 50 m above its 3,000 ft,
 // heading south at it. No waypoints: hunters steer for the player.
 //
-// 06-10: placeholders (fmission.cc), sending nothing. They have no row:
-// opponent_reset() switches both slots off for every mission past the last.
-static const uint8_t kOpponentMissions = 5;
-static_assert(kOpponentMissions <= kMissionCount, "a row for every mission at most");
-static const opponent_path_t kOpponentPaths[kOpponentMissions][kOpponentMax] = {
+// 04 and 05 send a second pair once the first is down: 04's from the west,
+// 4 km off the field at 2,000 ft heading east, and 05's from the south, at
+// 3,000 ft heading north; both hunt from the start.
+//
+// 06, Big week: a bomber pair three times over (kOpponentWaves), on 02's
+// last two waypoints. They come south at 1,750 from 3.3 km north of the city,
+// 02's formation, cross it after ~30 s and leave over the south edge after
+// ~80 s. The player starts 2.6 km south of them, 320 m to the side and
+// 1,000 ft under them, heading north. Half of them, three, must go down.
+//
+// 07, Way home: two patrols in turn, each a pair in trail at 1,700 on a line
+// it flies back and forth, Provoked: attacking once fired upon or once the
+// player is within kOpponentSpot, and giving up out of kOpponentGiveUp
+// (kOpponentStray). The first across the way home from runway 2's side, 6 km
+// of x 0x48, the second 1.2 km west of runway 1, on 4 km of y 0x48 - where
+// the approach passes it. Flown straight home, the first sees the player at
+// ~1 min and gives up at ~3.7, and the second sees it on the approach. The
+// goal is to land: fmission.cc starts it at that.
+//
+// 08, Turkey shoot: a fighter pair in trail, 400 m apart, flying runway 2's
+// circuit, 4 km by 1.8 km, at 1,000 ft and 1,600, on a path they never
+// leave: three pairs in turn, five of the six to go down. 50 rounds are not
+// enough for fifteen hits; landing on runway 2 rearms.
+//
+// 09, Unarmed escape: a pair hunting from 450 m behind the player, at 1,800
+// against its 2,176 and full throttle's ~2,500, giving up once outrun by
+// kOpponentGiveUp: ~2.2 min at full throttle, a minute short of home. The
+// player has no rounds (gun.cc).
+//
+// 10, Combat patrol: at 6,000 ft, a pair at 2,700 hunting from 1.2 km behind.
+//
+// The pairs are rows, and kOpponentWaves says which each mission sends.
+static const uint8_t kOpponentRows = 13;
+static const opponent_path_t kOpponentPaths[kOpponentRows][kOpponentMax] = {
+    // 0: 01's recon.
     {{kOpponentOneWay | kOpponentBomber | kOpponentPath | kOpponentSouth, 4, 3, 0, 1750, 0x7E00,
       0x6000, kOpponent5000Ft},
      {kOpponentNone}},
+    // 1: 02's bombers.
     {{kOpponentOneWay | kOpponentBomber | kOpponentHunt | kOpponentSouth, 3, 1, 4, 1500, 0x4800,
       0x4000, kOpponent3000Ft},
      {kOpponentOneWay | kOpponentBomber | kOpponentHunt | kOpponentSouth, 3, 1, 7, 1500, 0x48C8,
       0x3F6A, kOpponent3500Ft}},
+    // 2: 03's parked pair.
     {{kOpponentParked | kOpponentFighter | kOpponentPath | kOpponentEast, 0, kOpponentNoFail, 0,
       0, 0x5C9C, 0xC096, 0x000A},
      {kOpponentParked | kOpponentFighter | kOpponentPath | kOpponentEast, 0, kOpponentNoFail, 0,
       0, 0x5D64, 0xC096, 0x000A}},
+    // 3: 04's pass.
     {{kOpponentOneWay | kOpponentFighter | kOpponentPass | kOpponentNorth, 1, kOpponentNoFail, 10,
       2000, 0x1A70, 0x3FE0, 0x0060},
      {kOpponentOneWay | kOpponentFighter | kOpponentPass | kOpponentNorth, 1, kOpponentNoFail, 11,
       2000, 0x1900, 0x3F20, 0x0060}},
+    // 4: 04's second pair, from the west.
+    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentEast, 0, kOpponentNoFail, 0,
+      2000, 0x2400, 0x6000, kOpponent2000Ft},
+     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentEast, 0, kOpponentNoFail, 0,
+      2000, 0x2400, 0x6100, kOpponent2000Ft}},
+    // 5: 05's head-on pair.
     {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentSouth, 0, kOpponentNoFail, 0,
       2000, 0x4200, 0x9000, 0x0660},
      {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentSouth, 0, kOpponentNoFail, 0,
       2000, 0x4200, 0x9100, 0x0660}},
+    // 6: 05's second pair, from the south.
+    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0, kOpponentNoFail, 0,
+      2000, 0x1C00, 0x9000, 0x0660},
+     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0, kOpponentNoFail, 0,
+      2000, 0x1C00, 0x9100, 0x0660}},
+    // 7: 06's bombers, on 02's last two waypoints.
+    {{kOpponentOneWay | kOpponentBomber | kOpponentPath | kOpponentSouth, 2, kOpponentNoFail, 5,
+      1750, 0x1A00, 0x6800, kOpponent3000Ft},
+     {kOpponentOneWay | kOpponentBomber | kOpponentPath | kOpponentSouth, 2, kOpponentNoFail, 8,
+      1750, 0x1AC8, 0x676A, kOpponent3500Ft}},
+    // 8: 07's first patrol.
+    {{kOpponentLoop | kOpponentFighter | kOpponentProvoked | kOpponentStray | kOpponentWest, 2,
+      kOpponentNoFail, 12, 1700, 0x4800, 0x7400, kOpponent3000Ft},
+     {kOpponentLoop | kOpponentFighter | kOpponentProvoked | kOpponentStray | kOpponentWest, 2,
+      kOpponentNoFail, 12, 1700, 0x4800, 0x7200, kOpponent3000Ft}},
+    // 9: 07's second patrol.
+    {{kOpponentLoop | kOpponentFighter | kOpponentProvoked | kOpponentStray | kOpponentSouth, 2,
+      kOpponentNoFail, 14, 1700, 0x3800, 0x4800, kOpponent2000Ft},
+     {kOpponentLoop | kOpponentFighter | kOpponentProvoked | kOpponentStray | kOpponentSouth, 2,
+      kOpponentNoFail, 14, 1700, 0x3A00, 0x4800, kOpponent2000Ft}},
+    // 10: 08's square.
+    {{kOpponentLoop | kOpponentFighter | kOpponentPath | kOpponentNorth, 4, kOpponentNoFail, 16,
+      1600, 0x6000, 0xB800, 0x0200},
+     {kOpponentLoop | kOpponentFighter | kOpponentPath | kOpponentNorth, 4, kOpponentNoFail, 16,
+      1600, 0x5D00, 0xB800, 0x0200}},
+    // 11: 09's hunters.
+    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentStray | kOpponentEast, 0,
+      kOpponentNoFail, 0, 1800, 0x1F80, 0xA400, kOpponent2000Ft + 0x20},
+     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentStray | kOpponentEast, 0,
+      kOpponentNoFail, 0, 1800, 0x2080, 0xA400, kOpponent2000Ft + 0x20}},
+    // 12: 10's hunters.
+    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0, kOpponentNoFail, 0,
+      2700, 0x3700, 0xA000, 0x0C40},
+     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0, kOpponentNoFail, 0,
+      2700, 0x3700, 0xA100, 0x0C40}},
 };
 
+// The waves: each mission's rows in the order sent, one byte a pair - its
+// row - with kOpponentLastWave on the mission's last, and on its first the
+// aircraft that must go down, kOpponentNeedShift up, where it is not all of
+// them (opponent_targets_down()). The next pair comes once none of the last
+// is flying or falling and its smoke is gone (opponent_step()).
+static const uint8_t kOpponentLastWave = 0x80;
+static const uint8_t kOpponentNeedShift = 4;
+static const uint8_t kOpponentRowMask = 0x0F;
+static const uint8_t kOpponentWaves[] = {
+    0 | kOpponentLastWave,                                  // 01
+    1 | kOpponentLastWave,                                  // 02
+    2 | kOpponentLastWave,                                  // 03
+    3, 4 | kOpponentLastWave,                               // 04
+    5, 6 | kOpponentLastWave,                               // 05
+    7 | 3 << kOpponentNeedShift, 7, 7 | kOpponentLastWave,  // 06
+    8, 9 | kOpponentLastWave,                               // 07
+    10 | 5 << kOpponentNeedShift, 10, 10 | kOpponentLastWave, // 08
+    11 | kOpponentLastWave,                                 // 09
+    12 | kOpponentLastWave,                                 // 10
+};
+static_assert(kOpponentRows <= kOpponentRowMask + 1, "a row fits its bits");
+
 // Every path's waypoints, at its opponent_path_t::wp: 01's recon, 02's two
-// bombers, then 04's one each. test/opponent_test.cc appends its own paths' after
-// the missions', through OPPONENT_TEST_WP_N/X/Y; nothing else does.
-static const uint8_t kOpponentWpCount = 12;
+// bombers - whose last two each 06's take - 04's one each, 07's patrols' two
+// each and 08's square. A pair in trail shares its leader's.
+// test/opponent_test.cc appends its own paths' after the missions', through
+// OPPONENT_TEST_WP_N/X/Y; nothing else does.
+static const uint8_t kOpponentWpCount = 20;
 #ifndef OPPONENT_TEST_WP_N
 #define OPPONENT_TEST_WP_N 0
 #define OPPONENT_TEST_WP_X
@@ -264,18 +370,31 @@ __striped static const uint16_t kOpponentWpX[kOpponentWpCount + OPPONENT_TEST_WP
     0x5C00, 0x3000, 0x1000, 0x0000,
     0x2800, 0x1000, 0x0000,
     0x28C8, 0x10C8, 0x00C8,
-    0x2270, 0x2100 OPPONENT_TEST_WP_X};
+    0x2270, 0x2100,
+    0x4800, 0x4800,
+    0x1800, 0x3800,
+    0x7000, 0x7000, 0x5000, 0x5000 OPPONENT_TEST_WP_X};
 __striped static const uint16_t kOpponentWpY[kOpponentWpCount + OPPONENT_TEST_WP_N] = {
     0x6000, 0x6400, 0x6800, 0x6800,
     0x4000, 0x6800, 0x6800,
     0x3F6A, 0x676A, 0x676A,
-    0x3FE0, 0x3F20 OPPONENT_TEST_WP_Y};
+    0x3FE0, 0x3F20,
+    0x9000, 0x6000,
+    0x4800, 0x4800,
+    0xB800, 0xC600, 0xC600, 0xB800 OPPONENT_TEST_WP_Y};
 
-// What the message says when the mission fails, for the missions that can.
+// What the message says when the mission fails: 01's recon gets away, or
+// the city is bombed - 02's reach it, or too few of 06's go down.
 static const char *const kOpponentFailText[2] = {
     "MISSION FAILED - RECON ESCAPED",
     "MISSION FAILED - CITY BOMBED",
 };
+
+// Within this of the player on both axes across the ground, in half metres,
+// a Provoked aircraft sees it and attacks: 2 km. Farther than this on
+// either, one that strays gives up: 2.5 km.
+static const uint16_t kOpponentSpot = 4000;
+static const uint16_t kOpponentGiveUp = 5000;
 
 // The turn: vec_turn3_xy()'s small angle, 8 / 256 rad, 1.8 degrees a model
 // step at flight_step_shift 0. At 5.9 m a step that is a turn of ~190 m
@@ -385,6 +504,13 @@ static const opponent_path_t *_opponent_path[kOpponentMax];
 // target.
 static uint8_t _opponent_mission;
 static bool _opponent_failed;
+// The mission's next pair, its index in kOpponentWaves; whether the pair up
+// is its last; the aircraft that must go down, or 0 for every one it sends;
+// and how many have.
+static uint8_t _opponent_wave;
+static bool _opponent_last;
+static uint8_t _opponent_need;
+static uint8_t _opponent_kills;
 //
 // And above those, in the same byte rather than two more: bit i <<
 // kOpponentFalling, slot i has been shot down and is falling, in a steep
@@ -529,6 +655,7 @@ bool opponent_target(uint8_t i, int32_t *p) {
 static __noinline void _opponent_destroy(uint8_t i, const char *text) {
   uint8_t bit = _opponent_bit(i);
   _opponent_down |= bit;
+  ++_opponent_kills;
   _opponent_smoke = bit;
   _opponent_smoke_t = kSmokeDown;
   msg_show(text);
@@ -584,16 +711,19 @@ bool opponent_smoke(int32_t *p, int16_t *h) {
   return true;
 }
 
+// Neither slot flying, parked or falling.
+static __noinline bool _opponent_none(void) {
+  return !_opponent_live(0) && !_opponent_live(1);
+}
+
 bool opponent_targets_down(void) {
   if (_opponent_failed) {
     return false;
   }
-  for (uint8_t i = 0; i < kOpponentMax; ++i) {
-    if (_opponent_live(i)) {
-      return false;
-    }
+  if (_opponent_need != 0) {
+    return _opponent_kills >= _opponent_need;
   }
-  return true;
+  return _opponent_last && _opponent_none();
 }
 
 static __noinline uint16_t _opponent_mid(uint8_t a, uint8_t b) {
@@ -621,25 +751,23 @@ static __noinline void _opponent_set_pos(uint8_t idx, uint16_t w) {
   _opponent_xyz[idx] = (int32_t)w << 8;
 }
 
-void opponent_reset(uint8_t mission) {
-  _opponent_mission = mission;
-  _opponent_failed = false;
+// The mission's next pair, from kOpponentWaves[_opponent_wave], into both
+// slots at their start: everything about the last pair is forgotten.
+static __noinline void _opponent_send(void) {
+  uint8_t w = kOpponentWaves[_opponent_wave++];
+  _opponent_last = (w & kOpponentLastWave) != 0;
   _opponent_down = 0;
   _opponent_attack = 0;
   _opponent_pullup = 0;
   _opponent_firing = 0;
-  _opponent_lfsr |= 1;
-  _opponent_smoke = kOpponentNoSmoke;
-  _opponent_substep = 0;
-  // 06-10 have no row: the slots are set up from the last one's, and neither
-  // is switched on, so nothing reads the rest.
-  bool sent = mission < kOpponentMissions;
-  if (!sent) {
-    mission = kOpponentMissions - 1;
+  // Counted up a row at a time: indexed, the 24 B rows took oscar64's 21 B
+  // multiply tables.
+  const opponent_path_t *p = &kOpponentPaths[0][0];
+  for (w &= kOpponentRowMask; w != 0; --w) {
+    p += kOpponentMax;
   }
-  const opponent_path_t *p = &kOpponentPaths[0][0] + (mission << 1);
   for (uint8_t i = 0; i < kOpponentMax; ++i, ++p) {
-    _opponent_on[i] = sent && p->kind != kOpponentNone;
+    _opponent_on[i] = p->kind != kOpponentNone;
     if ((p->kind & kOpponentBehaviourMask) == kOpponentHunt) {
       _opponent_attack |= _opponent_bit(i);
     }
@@ -660,6 +788,25 @@ void opponent_reset(uint8_t mission) {
   }
   _opponent_track();
   opponent_invalidate();
+}
+
+void opponent_reset(uint8_t mission) {
+  _opponent_mission = mission;
+  _opponent_failed = false;
+  _opponent_lfsr |= 1;
+  _opponent_smoke = kOpponentNoSmoke;
+  _opponent_substep = 0;
+  _opponent_kills = 0;
+  // Past every earlier mission's waves to its own first.
+  uint8_t w = 0;
+  while (mission != 0) {
+    if (kOpponentWaves[w++] & kOpponentLastWave) {
+      --mission;
+    }
+  }
+  _opponent_wave = w;
+  _opponent_need = (uint8_t)((kOpponentWaves[w] & ~kOpponentLastWave) >> kOpponentNeedShift);
+  _opponent_send();
 }
 
 // Not outlined, so that oscar64 folds it, gun.cc's _gun_abs() and planes.cc's
@@ -980,11 +1127,35 @@ bool opponent_fires(uint8_t i, int16_t *v) {
 
 static void _opponent_forget(uint8_t i);
 
+// Slot i is gone: off the map at the end of a one-way path, or given up
+// (kOpponentStray). Not down, and nothing of it on screen.
+static __noinline void _opponent_gone(uint8_t i) {
+  _opponent_on[i] = false;
+  if (_opponent_smoke == _opponent_bit(i)) {
+    _opponent_smoke = kOpponentNoSmoke;
+  }
+  _opponent_forget(i);
+}
+
+// Whether the player is within r of slot i on both axes across the ground,
+// in half metres. An axis at a time, through kOpponentEye: written out, the
+// two were 99 B.
+static __noinline bool _opponent_close(uint8_t i, uint16_t r) {
+  uint8_t c = 0;
+  do {
+    if (_opponent_abs(_opponent_toward((uint16_t)(*kOpponentEye[c] >> 8), i)) >= r) {
+      return false;
+    }
+    i += kOpponentMax;
+  } while (++c < 2);
+  return true;
+}
+
 // The mission has failed: said once, and WP_TARGETS_DOWN never comes.
 static void _opponent_fail(void) {
   if (!_opponent_failed) {
     _opponent_failed = true;
-    msg_show(kOpponentFailText[_opponent_mission], 3 * MSG_DEFAULT_DURATION);
+    msg_show(kOpponentFailText[_opponent_mission != 0], 3 * MSG_DEFAULT_DURATION);
   }
 }
 
@@ -1026,6 +1197,17 @@ void opponent_step(void) {
   if (_opponent_smoke != kOpponentNoSmoke && --_opponent_smoke_t == 0) {
     _opponent_smoke = kOpponentNoSmoke;
   }
+  // The pair up is gone: the next, once its smoke has cleared; or, after the
+  // last, too few of them down fails the mission.
+  if (_opponent_none()) {
+    if (!_opponent_last) {
+      if (_opponent_smoke == kOpponentNoSmoke) {
+        _opponent_send();
+      }
+    } else if (_opponent_kills < _opponent_need) {
+      _opponent_fail();
+    }
+  }
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
     if (!_opponent_live(i)) {
       continue;
@@ -1041,6 +1223,16 @@ void opponent_step(void) {
       continue;
     }
     vec3_t *h = &_opponent_head[i];
+    // A Provoked aircraft that sees the player attacks; one that strays and
+    // has lost it gives up.
+    if (!(_opponent_attack & bit)) {
+      if (_opponent_provoked(i) && _opponent_close(i, kOpponentSpot)) {
+        _opponent_attack |= bit;
+      }
+    } else if ((p->kind & kOpponentStray) && !_opponent_close(i, kOpponentGiveUp)) {
+      _opponent_gone(i);
+      continue;
+    }
 
     // What it steers for, relative, in half metres: a fighter in ATTACK, the
     // player; anything else its waypoint at its path's height.
@@ -1068,12 +1260,8 @@ void opponent_step(void) {
           // The pass is over: the player, from the next step on.
           _opponent_attack |= bit;
         } else if ((p->kind & kOpponentKindMask) == kOpponentOneWay) {
-          // Off the map: gone, and nothing of it on screen.
-          _opponent_on[i] = false;
-          if (_opponent_smoke == bit) {
-            _opponent_smoke = kOpponentNoSmoke;
-          }
-          _opponent_forget(i);
+          // Off the map.
+          _opponent_gone(i);
           continue;
         }
         w = 0;

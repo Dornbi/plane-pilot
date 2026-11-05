@@ -69,33 +69,46 @@ int main() {
           "mission %d: %d navpoints, 2 at %04x %04x", m + 1, flight_num_nav_points,
           flight_nav_point_x[1], flight_nav_point_y[1]);
 
+    // 07's goal is only to land: it starts at home's waypoint, with that
+    // navpoint up.
+    const bool land_only = kMissionWpBegin[m] == 1;
+    CHECK(flight_current_wp == kMissionWpBegin[m] && flight_nav == flight_current_wp &&
+              land_only == (m == 6),
+          "mission %d: starts at waypoint %d, navpoint %d", m + 1, flight_current_wp,
+          flight_nav + 1);
+
     // Selecting them: the runway is a navpoint, the targets an enemy.
     flight_input(FLIGHT_INPUT_TOGGLE_NAV);
-    CHECK(!strcmp(_msg, "HOME BASE SELECTED"), "mission %d: selecting 2 says \"%s\"", m + 1,
-          _msg);
+    CHECK(!strcmp(_msg, land_only ? "TARGET SELECTED" : "HOME BASE SELECTED"),
+          "mission %d: selecting the next says \"%s\"", m + 1, _msg);
     flight_input(FLIGHT_INPUT_TOGGLE_NAV);
-    CHECK(!strcmp(_msg, "TARGET SELECTED"), "mission %d: selecting 1 says \"%s\"", m + 1,
-          _msg);
+    CHECK(!strcmp(_msg, land_only ? "HOME BASE SELECTED" : "TARGET SELECTED"),
+          "mission %d: selecting the one after says \"%s\"", m + 1, _msg);
     // flight.cc names them by number, so the mission has to have them in
     // that order: the targets' waypoint first, then landing on runway 1.
-    int w = kMissionWpBegin[m];
-    CHECK(kMissionWpEnd[m] - w == 2 && kMissionWpConstraint[w] == WP_TARGETS_DOWN &&
-              kMissionWpConstraint[w + 1] == WP_LANDED,
+    CHECK(kMissionWpEnd[m] == 2 && kMissionWpBegin[m] <= 1 &&
+              kMissionWpConstraint[0] == WP_TARGETS_DOWN && kMissionWpConstraint[1] == WP_LANDED,
           "mission %d: navpoints not the targets', then home", m + 1);
 
     // Nothing until the targets are down - even parked on runway 1, where
     // 02 starts and every mission ends.
     for (int n = 0; n < 20; ++n) flight_advance();
-    CHECK(mission_completed[m] == 0 && flight_current_wp == 0,
+    CHECK(mission_completed[m] == 0 && flight_current_wp == kMissionWpBegin[m],
           "mission %d: completed with the targets up", m + 1);
 
     _down = true;
     _msgs = 0;
     flight_advance();
-    CHECK(mission_completed[m] == kMissionGoals && !strcmp(_msg, "GOALS COMPLETED!") &&
-              flight_status == FLIGHT_ONGOING,
-          "mission %d: targets down: level %d, \"%s\", status %d", m + 1, mission_completed[m],
-          _msg, flight_status);
+    if (land_only) {
+      CHECK(mission_completed[m] == 0 && _msgs == 0 && flight_status == FLIGHT_ONGOING,
+            "mission %d: goals met with nothing but landing to do: level %d, \"%s\"", m + 1,
+            mission_completed[m], _msg);
+    } else {
+      CHECK(mission_completed[m] == kMissionGoals && !strcmp(_msg, "GOALS COMPLETED!") &&
+                flight_status == FLIGHT_ONGOING,
+            "mission %d: targets down: level %d, \"%s\", status %d", m + 1, mission_completed[m],
+            _msg, flight_status);
+    }
 
     // Then parked on runway 1 - where 02 starts, so as it starts, but still
     // flying this mission with its goals met: landed, so the mission.
@@ -108,7 +121,7 @@ int main() {
               !strcmp(_msg, "MISSION COMPLETED!") && flight_status == FLIGHT_MISSION_COMPLETED,
           "mission %d: home: level %d, \"%s\", status %d", m + 1, mission_completed[m], _msg,
           flight_status);
-    CHECK(_msgs == 2, "mission %d: %d messages", m + 1, _msgs);
+    CHECK(_msgs == (land_only ? 1 : 2), "mission %d: %d messages", m + 1, _msgs);
 
     // Again, only as far as the goals: the two marks stay.
     flight_init_from_mission(m);

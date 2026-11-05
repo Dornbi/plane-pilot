@@ -90,7 +90,8 @@ uint8_t gun_player_hits;
 // decimal step between the two. Ten a round, so the units digit stays 0 and
 // only the digits above it count. 50 rounds is about 20 s of fire: one every
 // kGunInterval model steps comes to 2.5-2.7 a second on the emulator.
-static const uint8_t kGunAmmoStart[kGunAmmoDigits] = {5, 0, 0};
+// And after it, 09's: none (gun_rearm()).
+static const uint8_t kGunAmmoStart[2 * kGunAmmoDigits] = {5, 0, 0, 0, 0, 0};
 static const uint8_t kGunAmmoTens = kGunAmmoDigits - 2;
 uint8_t gun_ammo[kGunAmmoDigits];
 bool gun_ammo_shown;
@@ -137,9 +138,14 @@ void gun_reset(void) {
 }
 
 void gun_rearm(void) {
+  // 09 is flown unarmed, on the ground too: no rounds at all.
+  const uint8_t *a = kGunAmmoStart;
+  if (flight_active_mission_idx == kMissionUnarmed) {
+    a += kGunAmmoDigits;
+  }
   for (uint8_t i = 0; i < kGunAmmoDigits; ++i) {
-    if (gun_ammo[i] != kGunAmmoStart[i]) {
-      gun_ammo[i] = kGunAmmoStart[i];
+    if (gun_ammo[i] != a[i]) {
+      gun_ammo[i] = a[i];
       gun_ammo_shown = false;
     }
   }

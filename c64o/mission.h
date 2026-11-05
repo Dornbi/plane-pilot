@@ -26,20 +26,18 @@ enum MissionWaypointConstraint {
 // ppilot.cc built with -D__FPILOT__ (c64o/Makefile), and its missions live in
 // fmission.cc, whose tables have the same names and layout as the ones
 // in pmission.cc, ppilot's. Only the waypoint count differs: both have ten
-// missions, though fpilot's 06-10 are still placeholders (fmission.cc).
+// missions.
 #ifdef __FPILOT__
 static const uint8_t kMissionWpCount = 2;
 #else
 static const uint8_t kMissionWpCount = 16;
 #endif
 static const uint8_t kMissionCount = 10;
-// The missions with a start row of their own. fpilot's placeholders have
-// none: they start from kMissionParkedStart's, 04's, parked on runway 1.
-#ifdef __FPILOT__
-static const uint8_t kMissionStarts = 5;
-static const uint8_t kMissionParkedStart = 3;
-#else
+// The missions with a start row of their own: all of them.
 static const uint8_t kMissionStarts = kMissionCount;
+#ifdef __FPILOT__
+// The mission flown with no rounds (gun.cc): 09.
+static const uint8_t kMissionUnarmed = 8;
 #endif
 
 // Waypoints across all missions.

@@ -16,6 +16,7 @@
 
 #include "../flight.h"
 #include "../gun.h"
+#include "../mission.h"
 #include "../sprites.h"
 #include "../vec.h"
 #include "../world.h"
@@ -23,6 +24,7 @@
 bool flight_paused = false;
 enum FlightStatus flight_status;
 uint8_t flight_events;
+uint8_t flight_active_mission_idx;
 uint8_t flight_step_shift = 0;
 uint8_t kFlightSubstepMask = 0;
 int32_t flight_eye_x, flight_eye_y, flight_eye_z;
@@ -717,6 +719,21 @@ static void test_ammo(void) {
   gun_rearm();
   CHECK(ammo() == full && !gun_ammo_shown, "spent: rearm left ammo %d, redraw %d", ammo(),
         !gun_ammo_shown);
+
+  // 09 is flown unarmed: none at the start, none fired, and none on the
+  // ground either.
+  flight_active_mission_idx = kMissionUnarmed;
+  gun_reset();
+  CHECK(ammo() == 0, "unarmed: ammo %d after gun_reset()", ammo());
+  step(false);
+  uint8_t side = _gun_side;
+  for (int n = 0; n < 3 * kGunInterval; ++n) step(true);
+  CHECK(_gun_side == side, "unarmed: a round fired");
+  gun_rearm();
+  CHECK(ammo() == 0, "unarmed: ammo %d after a rearm", ammo());
+  flight_active_mission_idx = 0;
+  gun_rearm();
+  CHECK(ammo() == full, "armed again: ammo %d", ammo());
 }
 
 // An opponent's round (opponent_fires()): fired by the next step, from the

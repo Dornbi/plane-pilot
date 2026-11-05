@@ -900,28 +900,36 @@ void msg_show(const char *text, uint8_t duration, bool permanent) {
 static double units(int32_t d) { return d / 65536.0; }
 static double to_eye(int i, double *ahead);
 
+// Row r's pair, sent as a wave that has it would send it.
+static void send_row(uint8_t r) {
+  uint8_t w = 0;
+  while ((kOpponentWaves[w] & kOpponentRowMask) != r) ++w;
+  _opponent_wave = w;
+  _opponent_send();
+}
+
 static void test_missions(void) {
   flight_step_shift = 0;
   kFlightSubstepMask = 0;
   flight_paused = false;
   flight_status = FLIGHT_ONGOING;
 
-  // Every leg in reach: the rows, 01-05; 06-10 have none.
-  for (int m = 0; m < kOpponentMissions; ++m) {
+  // Every leg in reach, in every row.
+  for (int m = 0; m < kOpponentRows; ++m) {
     for (int k = 0; k < kOpponentMax; ++k) {
       const opponent_path_t &p = kOpponentPaths[m][k];
       if (p.kind == kOpponentNone) continue;
-      CHECK(p.fail == kOpponentNoFail || p.fail < p.count, "mission %d slot %d: fail at %d of %d",
-            m + 1, k, p.fail, p.count);
-      CHECK(p.wp + p.count <= kOpponentWpCount, "mission %d slot %d: waypoints %d-%d past the pool",
-            m + 1, k, p.wp, p.wp + p.count - 1);
+      CHECK(p.fail == kOpponentNoFail || p.fail < p.count, "row %d slot %d: fail at %d of %d",
+            m, k, p.fail, p.count);
+      CHECK(p.wp + p.count <= kOpponentWpCount, "row %d slot %d: waypoints %d-%d past the pool",
+            m, k, p.wp, p.wp + p.count - 1);
       uint16_t px = p.start_x, py = p.start_y;
       for (int w = 0; w < p.count; ++w) {
         int dx = (int16_t)(wp_x(p, w) - px), dy = (int16_t)(wp_y(p, w) - py);
         // x repeats every 128 units, 0x8000 in 8.8.
         dx = ((dx + 0x4000) & 0x7FFF) - 0x4000;
         CHECK(abs(dx) < 0x4000 - 0x400 && abs(dy) < 0x4000 - 0x400,
-              "mission %d slot %d: leg %d is %.1f, %.1f units", m + 1, k, w, dx / 256.0,
+              "row %d slot %d: leg %d is %.1f, %.1f units", m, k, w, dx / 256.0,
               dy / 256.0);
         px = wp_x(p, w);
         py = wp_y(p, w);
@@ -929,47 +937,48 @@ static void test_missions(void) {
     }
   }
 
-  // Each mission's roles and behaviours (docs/opponent_ai.md §3), and the
-  // mode each slot starts in: ATTACK for a hunter, PATH for the rest.
+  // Each row's roles and behaviours (docs/opponent_ai.md §3), which strays,
+  // and the mode each slot starts in: ATTACK for a hunter, PATH for the rest.
   {
     // And the heading each starts on, as the unit vector it used to be given.
+    static const uint8_t F = kOpponentFighter, B = kOpponentBomber, S = kOpponentStray;
     static const struct {
       uint8_t role, behaviour;
       int16_t hx, hy;
-    } kSent[kOpponentMissions][kOpponentMax] = {
-        {{kOpponentBomber, kOpponentPath, -256, 0}, {0, 0, 0, 0}},
-        {{kOpponentBomber, kOpponentHunt, -256, 0}, {kOpponentBomber, kOpponentHunt, -256, 0}},
-        {{kOpponentFighter, kOpponentPath, 0, -256}, {kOpponentFighter, kOpponentPath, 0, -256}},
-        {{kOpponentFighter, kOpponentPass, 256, 0}, {kOpponentFighter, kOpponentPass, 256, 0}},
-        {{kOpponentFighter, kOpponentHunt, -256, 0}, {kOpponentFighter, kOpponentHunt, -256, 0}},
+    } kSent[kOpponentRows] = {
+        {B, kOpponentPath, -256, 0},     {B, kOpponentHunt, -256, 0},
+        {F, kOpponentPath, 0, -256},     {F, kOpponentPass, 256, 0},
+        {F, kOpponentHunt, 0, -256},     {F, kOpponentHunt, -256, 0},
+        {F, kOpponentHunt, 256, 0},      {B, kOpponentPath, -256, 0},
+        {F | S, kOpponentProvoked, 0, 256}, {F | S, kOpponentProvoked, -256, 0},
+        {F, kOpponentPath, 256, 0},      {F | S, kOpponentHunt, 0, -256},
+        {F, kOpponentHunt, 256, 0},
     };
-    for (int m = 0; m < kOpponentMissions; ++m) {
-      opponent_reset((uint8_t)m);
+    for (int m = 0; m < kOpponentRows; ++m) {
+      send_row((uint8_t)m);
       for (int k = 0; k < kOpponentMax; ++k) {
         const opponent_path_t &p = kOpponentPaths[m][k];
-        if (p.kind == kOpponentNone) continue;
+        CHECK(_opponent_on[k] == (p.kind != kOpponentNone), "row %d slot %d: on %d", m, k,
+              _opponent_on[k]);
+        // 01's recon flies alone.
+        if (p.kind == kOpponentNone) {
+          CHECK(m == 0 && k == 1, "row %d slot %d: empty", m, k);
+          continue;
+        }
         uint8_t behaviour = p.kind & kOpponentBehaviourMask;
         CHECK((p.kind & ~(kOpponentKindMask | kOpponentBehaviourMask |
-                          (3 << kOpponentHeadShift))) == kSent[m][k].role &&
-                  behaviour == kSent[m][k].behaviour,
-              "mission %d slot %d: role %d, behaviour %d", m + 1, k, p.kind & kOpponentBomber,
+                          (3 << kOpponentHeadShift))) == kSent[m].role &&
+                  behaviour == kSent[m].behaviour,
+              "row %d slot %d: role %d, behaviour %d", m, k, p.kind & kOpponentBomber,
               behaviour >> 3);
-        CHECK(_opponent_head[k].x == kSent[m][k].hx && _opponent_head[k].y == kSent[m][k].hy &&
+        CHECK(_opponent_head[k].x == kSent[m].hx && _opponent_head[k].y == kSent[m].hy &&
                   _opponent_head[k].z == 0,
-              "mission %d slot %d: starts heading %d, %d", m + 1, k, _opponent_head[k].x,
+              "row %d slot %d: starts heading %d, %d", m, k, _opponent_head[k].x,
               _opponent_head[k].y);
         CHECK(!!(_opponent_attack & _opponent_bit(k)) == (behaviour == kOpponentHunt),
-              "mission %d slot %d: starts in the wrong mode", m + 1, k);
+              "row %d slot %d: starts in the wrong mode", m, k);
       }
     }
-  }
-
-  // 06-10, the placeholders (fmission.cc): nothing sent, so the goals are
-  // met from the start.
-  for (int m = 5; m < kMissionCount; ++m) {
-    opponent_reset((uint8_t)m);
-    CHECK(!_opponent_on[0] && !_opponent_on[1] && opponent_targets_down(),
-          "mission %d: a placeholder sends aircraft", m + 1);
   }
 
   // 01: the recon.
@@ -1163,7 +1172,9 @@ static void test_missions(void) {
            at[0] / 6.25, (back - at[1]) / 6.25, fired);
     model_on_ground = false;
     _opponent_down = 3;
-    CHECK(opponent_targets_down(), "scramble: both down, but the targets are not down");
+    // 04 has a second pair still to come.
+    CHECK(_opponent_none() && !_opponent_last && !opponent_targets_down(),
+          "scramble: both down, and the second pair not to come");
   }
 
   // The guns' side (gun.cc): three strikes shoot a slot down, and it falls
@@ -1219,7 +1230,10 @@ static void test_missions(void) {
           "falls: down %d after %d steps, turned %d %d", _opponent_down, steps, turned[0],
           turned[1]);
     CHECK(!opponent_target(0, p) && !(_opponent_cull() & 3), "falls: down, but drawn or a target");
-    CHECK(opponent_targets_down(), "strikes: both down, but the targets are not down");
+    CHECK(_opponent_none() && !opponent_targets_down(),
+          "strikes: both down, and 04's second pair not to come");
+    _opponent_last = true;
+    CHECK(opponent_targets_down(), "strikes: both of the last pair down, but the targets are not down");
     opponent_reset(3);
     CHECK(opponent_target(0, p) && !opponent_targets_down(), "strikes: a reset left them down");
   }
@@ -1276,6 +1290,7 @@ static void test_missions(void) {
     CHECK(!opponent_target(1, p) && !(_opponent_cull() & 2), "ground: still a target, or drawn");
     for (int k = 0; k < kOpponentHitsToDown; ++k) opponent_strike(0);
     for (int n = 0; n < 100 && !(_opponent_down & 1); ++n) opponent_step();
+    _opponent_last = true;
     CHECK(opponent_targets_down(), "ground: one crashed, one shot down, but the targets are up");
 
     // A damaged one-way aircraft that escapes leaves no smoke behind it.
@@ -1570,19 +1585,25 @@ static void test_provoked(void) {
   static const opponent_path_t kCalm = {kOpponentLoop | kOpponentFighter | kOpponentProvoked, 4,
                                         kOpponentNoFail, kOpponentWpCount, 1500, 0x0A00, 0x6200,
                                         0x0700};
-  for (int how = 0; how < 3; ++how) {
+  // Fired upon (0), a near miss (1), a Path slot (2), and the player seen
+  // within kOpponentSpot (3). Until then the player is out of sight, 4 km
+  // north of the square.
+  for (int how = 0; how < 4; ++how) {
     opponent_reset(0);
     _opponent_on[0] = false;
     fly(1, how == 2 ? &kSquare : &kCalm);
-    flight_eye_x = (int32_t)0x1000 << 8;
+    flight_eye_x = (int32_t)0x4000 << 8;
     flight_eye_y = (int32_t)0x6800 << 8;
     flight_eye_z = (int32_t)kCalm.z << 8;
     CHECK(opponent_calm(1) == (how != 2), "provoked %d: calm %d at the start", how,
           opponent_calm(1));
     for (int n = 0; n < 200; ++n) opponent_step();
     CHECK(!(_opponent_attack & 2), "provoked %d: attacked unprovoked", how);
+    flight_eye_x = (int32_t)0x1000 << 8;
     if (how == 0) {
       opponent_strike(1);
+    } else if (how == 3) {
+      opponent_step();
     } else {
       opponent_provoke(1);
     }
@@ -1750,6 +1771,137 @@ static void test_guns(void) {
   CHECK(_fired[0] == 0, "gunner: parked, fired %d rounds", _fired[0]);
 }
 
+// --- 8c. Waves -----------------------------------------------------------------------
+//
+// Each mission's pairs in turn (kOpponentWaves): the next once the last is
+// down and its smoke gone, and the goals met once every one is down - or
+// the mission's share of them. 09's hunters give up once the player is
+// 3 km off; 07's patrols attack once it is within 1.5 km, and give up too;
+// and 06 fails when too few of its bombers go down.
+
+// The row the pair up is from.
+static int row_up(void) {
+  return (int)((_opponent_path[0] - &kOpponentPaths[0][0]) / kOpponentMax);
+}
+
+static void eye_at(uint8_t x, uint8_t y, uint8_t z) {
+  flight_eye_x = (int32_t)x << 16;
+  flight_eye_y = ((int32_t)y << 16) + 0x8000;
+  flight_eye_z = (int32_t)z << 16;
+}
+
+static void test_waves(void) {
+  flight_step_shift = 0;
+  kFlightSubstepMask = 0;
+  flight_paused = false;
+  flight_status = FLIGHT_ONGOING;
+  model_on_ground = false;
+  static const struct {
+    int rows[3];
+    int need;
+  } kWaves[kMissionCount] = {
+      {{0, -1, -1}, 0},  {{1, -1, -1}, 0}, {{2, -1, -1}, 0}, {{3, 4, -1}, 0},
+      {{5, 6, -1}, 0},   {{7, 7, 7}, 3},   {{8, 9, -1}, 0},  {{10, 10, 10}, 5},
+      {{11, -1, -1}, 0}, {{12, -1, -1}, 0},
+  };
+  for (int m = 0; m < kMissionCount; ++m) {
+    // Out of everyone's way: 6 km from anything any mission sends.
+    eye_at(0x70, 0xF0, 0x10);
+    opponent_reset((uint8_t)m);
+    CHECK(_opponent_need == kWaves[m].need, "waves %d: %d to go down, not %d", m + 1,
+          _opponent_need, kWaves[m].need);
+    int kills = 0;
+    for (int w = 0; w < 3 && kWaves[m].rows[w] >= 0; ++w) {
+      CHECK(row_up() == kWaves[m].rows[w] && _opponent_on[0], "waves %d: wave %d is row %d, not %d",
+            m + 1, w + 1, row_up(), kWaves[m].rows[w]);
+      bool last = w == 2 || kWaves[m].rows[w + 1] < 0;
+      CHECK(_opponent_last == last, "waves %d: wave %d last %d", m + 1, w + 1, _opponent_last);
+      for (uint8_t i = 0; i < kOpponentMax; ++i) {
+        if (!_opponent_live(i)) continue;
+        bool met = opponent_targets_down();
+        CHECK(met == (kWaves[m].need && kills >= kWaves[m].need),
+              "waves %d: goals met %d with %d down", m + 1, met, kills);
+        _opponent_destroy(i, nullptr);
+        ++kills;
+      }
+      // The smoke hangs kSmokeDown steps, and then the next pair comes.
+      int n = 0;
+      for (; n < 100 && _opponent_none(); ++n) opponent_step();
+      CHECK(last ? n == 100 : n == kSmokeDown,
+            "waves %d: after wave %d, %d steps to the next", m + 1, w + 1, n);
+      CHECK(_opponent_kills == kills, "waves %d: %d down, not %d", m + 1, _opponent_kills, kills);
+    }
+    CHECK(opponent_targets_down() && !_opponent_failed, "waves %d: goals not met, all down",
+          m + 1);
+  }
+
+  // 08: five of the six, and the sixth still flying.
+  {
+    eye_at(0x70, 0xF0, 0x10);
+    opponent_reset(7);
+    for (int k = 0; k < 5; ++k) {
+      CHECK(!opponent_targets_down(), "turkey shoot: goals met with %d down", k);
+      uint8_t i = _opponent_live(0) ? 0 : 1;
+      _opponent_destroy(i, nullptr);
+      while (_opponent_none()) opponent_step();
+    }
+    CHECK(opponent_targets_down() && _opponent_live(1), "turkey shoot: goals not met with 5 down");
+  }
+
+  // 09: the hunters stay with a player 2 km ahead, east, and give up on
+  // one 3 km ahead: gone, not down, and the goals met.
+  {
+    eye_at(0x20, 0xA0, 0x04);
+    opponent_reset(8);
+    flight_eye_y = _opponent_y[0] - (int32_t)2000 * 512;
+    for (int n = 0; n < 10; ++n) opponent_step();
+    CHECK(_opponent_live(0) && _opponent_live(1) && !opponent_targets_down(),
+          "escape: the hunters gave up on a player 2 km ahead");
+    flight_eye_y = _opponent_y[0] - (int32_t)3000 * 512;
+    _msgs = 0;
+    opponent_step();
+    CHECK(_opponent_none() && _opponent_kills == 0 && opponent_targets_down() && _msgs == 0,
+          "escape: on %d %d, %d down, goals %d, %d messages", _opponent_on[0], _opponent_on[1],
+          _opponent_kills, opponent_targets_down(), _msgs);
+  }
+
+  // 07: the first patrol does not see a player 3 km off, but sees one 1 km
+  // off and attacks, then gives up when it is 3 km off again; the second
+  // patrol follows, calm.
+  {
+    eye_at(0x60, 0x74, 0x04);
+    opponent_reset(6);
+    for (int n = 0; n < 50; ++n) opponent_step();
+    CHECK(_opponent_attack == 0, "patrol: attacked a player 4 km off");
+    flight_eye_x = _opponent_x[0] + (int32_t)1000 * 512;
+    flight_eye_y = _opponent_y[0];
+    opponent_step();
+    CHECK(_opponent_attack == 3, "patrol: attack %d, a player 1 km off", _opponent_attack);
+    for (int n = 0; n < 20; ++n) opponent_step();
+    flight_eye_x = _opponent_x[0] + (int32_t)3000 * 512;
+    opponent_step();
+    CHECK(_opponent_none() && !_opponent_last, "patrol: the first did not give up");
+    opponent_step();
+    CHECK(row_up() == 9 && _opponent_live(0) && _opponent_attack == 0 && _opponent_last,
+          "patrol: the second is row %d, attack %d", row_up(), _opponent_attack);
+  }
+
+  // 06: every bomber leaves unhit, and the mission fails once the third pair
+  // has gone, with the city bombed.
+  {
+    eye_at(0x60, 0xE0, 0x10);
+    opponent_reset(5);
+    _msgs = 0;
+    int n = 0;
+    for (; n < 6000 && !_opponent_failed; ++n) opponent_step();
+    CHECK(_opponent_failed && _opponent_last && _opponent_kills == 0 && _msgs == 1 &&
+              strcmp(_msg, kOpponentFailText[1]) == 0,
+          "big week: failed %d after %d steps, \"%s\"", _opponent_failed, n, _msg);
+    // ~80 s a pair at 6.25 steps a second, and ~5 s of smoke between.
+    CHECK(n > 3 * 450 && n < 3 * 600, "big week: three pairs gone after %d steps", n);
+  }
+}
+
 int main() {
   test_look_back();
   test_through_the_dot();
@@ -1762,6 +1914,7 @@ int main() {
   test_missions();
   test_hunting();
   test_provoked();
+  test_waves();
   test_guns();
   if (_fails) {
     printf("opponent_test: %d checks FAILED\n", _fails);
