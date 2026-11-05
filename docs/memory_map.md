@@ -134,7 +134,8 @@ are not equally reachable:
 | `$EFF8-$EFFF` | 8 | used | alt screen sprite pointers |
 | `$F000-$FF3F` | 3,904 | used | panel bitmap, incl. the four heading strips at $F000 (view.cc, gfx.cc) |
 | `$FF40-$FFBF` | 128 | used | back view's tail fin, 2 sprite blocks (mem.h kFinSpriteData) |
-| `$FFC0-$FFF9` | 58 | free (orphan) | free, but outside every linker region |
+| `$FFC0-$FFF7` | 56 | used | the four raster IRQ handlers (mem.h `irqcode` region, gfx.cc `_rirq_buf`) |
+| `$FFF8-$FFF9` | 2 | free (orphan) | free, but outside every linker region |
 | `$FFFA-$FFFF` | 6 | used | NMI / RESET / IRQ vectors |
 
 ```

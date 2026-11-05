@@ -337,8 +337,11 @@ static_assert(RIRQ_ADDR_0 + 2 <= kGfxRirqCode1 && RIRQ_DATA_0 < kGfxRirqCode1,
               "write 0 fits a one-write handler");
 #endif
 
-#pragma bss(bss2)
+// In mem.h's irqcode region at $FFC0, which it fills: built in full by
+// gfx_init_raster_irqs() before the interrupts start, so it needs no clear.
+#pragma bss(irqcode)
 static gfx_rirq1_t _rirq_buf[4];
+#pragma bss(bss)
 
 // Raster-IRQ setup and charset loading; one-off, not per frame. The IRQ
 // handlers themselves are above and are deliberately left alone.

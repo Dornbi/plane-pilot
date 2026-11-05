@@ -59,6 +59,16 @@
 #pragma section(tscratch, 0, , , bss)
 #pragma region( tscratch, 0xEA30, 0xEBE8, , , {tscratch} )
 #endif
+// The 58 bytes between the tail fin's sprite blocks ($FF40-$FFBF) and the
+// hardware vectors at $FFFA, which nothing else writes: the map's bitmap
+// stops at $FF3F. Like bss2, nothing in the .prg lands here and the startup
+// code does not clear it, so tenants must write every byte before reading it.
+// Tenant: gfx.cc's four raster IRQ handlers (_rirq_buf, 56 bytes), which
+// gfx_init_raster_irqs() builds in full before it starts the interrupts. The
+// KERNAL ROM is never banked in once mem_init() has run, so the CPU reads
+// them from RAM. All four in page $FF, so no handler's branch crosses a page.
+#pragma section(irqcode, 0, , , bss)
+#pragma region( irqcode, 0xFFC0, 0xFFF8, , , {irqcode} )
 #pragma section(data_box, 0, , , data)
 #pragma section(data_compr, 0, , , data)
 // Startup code is 0x0801 .. 0x0853, use everything before the VIC
@@ -195,7 +205,8 @@ static uint8_t *const kTitleSpriteData = (uint8_t *)0xD000;
 // and a straight shaft.
 //
 // Nothing else in the program writes here: the map view borrows $E000-$FF3F
-// and stops short of it, and the linker's own regions end at $CFFF.
+// and stops short of it, and the linker regions above $CFFF (fpilot's scratch
+// in the main screen's rows, irqcode from $FFC0) stay clear of it.
 static const uint8_t kFinSpriteBlock = (0xFF40 - 0xC000) / 64;
 #ifdef __OSCAR64__
 static uint8_t *const kFinSpriteData = (uint8_t *)0xFF40;
