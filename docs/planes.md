@@ -1382,8 +1382,9 @@ For 01 a second pilot checks the climb is one that can be won: turning
 after the recon at the pass and only then climbing to its height, banking
 towards it, it is within 250 m at 2.8 min, 3.4 min before the recon leaves.
 It and
-`test/fpilot_test.cc` build with the arcade flight model whatever the rest
-use, as fpilot does.
+`test/fpilot_test.cc` build with fpilot's flight model whatever the rest
+use: the arcade one then, the angle-of-attack one since 2026-11-04 (see
+docs/flight.md §1).
 
 The player's figures, from host runs of `flight.cc`: airborne from the
 runway in ~11 s, then at full throttle ~1,300 ft a minute up to 4,000 ft,

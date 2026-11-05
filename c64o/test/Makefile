@@ -146,10 +146,10 @@ GUN_TEST_SRC = gun_test.cc ../vec.cc ../vec_lut.cc ../fmath.cc ../spritedef.cc
 GUN_TEST_HDRS = ../gun.cc ../gun.h ../damage.h ../opponent.h ../vec.h ../flight.h ../sprites.h \
 		../spritedef.h ../world.h ../mem.h ../color.h
 
-# fpilot's flight model is always the arcade one - its rule in ../Makefile
-# passes no FLIGHT_MODEL - so its tests leave __FLIGHT_AOA__ out whatever the
-# rest are built with.
-FPILOT_CFLAGS = $(filter-out -D__FLIGHT_AOA__,$(HOST_CFLAGS)) -D__FPILOT__
+# fpilot's flight model is always the angle-of-attack one - its rule in
+# ../Makefile passes -D__FLIGHT_AOA__ whatever FLIGHT_AOA is - so its tests
+# put __FLIGHT_AOA__ in whatever the rest are built with.
+FPILOT_CFLAGS = $(filter-out -D__FLIGHT_AOA__,$(HOST_CFLAGS)) -D__FLIGHT_AOA__ -D__FPILOT__
 
 # fpilot_test links flight.cc as fpilot builds it, with fmission.cc and
 # __FPILOT__, for the two levels of completing a mission; what it would ask
@@ -209,13 +209,13 @@ planes_edge_test: $(PLANES_EDGE_TEST_SRC) $(PLANES_EDGE_TEST_HDRS)
 	$(HOST_CC) $(HOST_CFLAGS) -o planes_edge_test $(PLANES_EDGE_TEST_SRC)
 
 opponent_test: $(OPPONENT_TEST_SRC) $(OPPONENT_TEST_HDRS)
-	$(HOST_CC) $(HOST_CFLAGS) -D__FPILOT__ -o opponent_test $(OPPONENT_TEST_SRC)
+	$(HOST_CC) $(FPILOT_CFLAGS) -o opponent_test $(OPPONENT_TEST_SRC)
 
 fpilot_test: $(FPILOT_TEST_SRC) $(FPILOT_TEST_HDRS)
 	$(HOST_CC) $(FPILOT_CFLAGS) -o fpilot_test $(FPILOT_TEST_SRC)
 
 gun_test: $(GUN_TEST_SRC) $(GUN_TEST_HDRS)
-	$(HOST_CC) $(HOST_CFLAGS) -D__FPILOT__ -o gun_test $(GUN_TEST_SRC)
+	$(HOST_CC) $(FPILOT_CFLAGS) -o gun_test $(GUN_TEST_SRC)
 
 mission_test: $(MISSION_TEST_SRC) $(MISSION_TEST_HDRS)
 	$(HOST_CC) $(FPILOT_CFLAGS) -o mission_test $(MISSION_TEST_SRC)

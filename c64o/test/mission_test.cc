@@ -13,7 +13,9 @@
 // And 01's recon, met head-on and 2,500 ft above, has to be catchable after
 // the climb: a pilot who turns after it at the pass and only then climbs to
 // its height has to reach it with a minute in hand before it leaves the map.
-// That one does have to steer - banked turns towards it - and hold the
+// That one does have to steer - 60 degree turns towards it, since the
+// angle-of-attack model turns at g tan(bank) / V and 45 is wide at its
+// speed - and hold the
 // recon's height once there.
 //
 // What opponent.cc draws with and tells the message row is stubbed; nothing
@@ -84,9 +86,25 @@ static double along(const vec3_t &a, double dx, double dy, double dz) {
   return (a.x * dx + a.y * dy + a.z * dz) / 256.0;
 }
 
+// Holds height z by the climb rate: it asks for one in proportion to how far
+// off z it is, 1 for every 64 of flight_eye_z and at most 300 either way, and
+// nudges the nose towards that - which also makes it the climb and the
+// descent, at ~300. fpilot flies the angle-of-attack model, where the nose
+// sets the wing's angle: banging it up and down at the height itself, as
+// these pilots did for the arcade model, held the aircraft ~400 under its
+// level speed, and the recon at 5,000 ft was never caught.
+static void hold_height(int32_t z) {
+  int32_t want = std::clamp((z - flight_eye_z) / 0x40, (int32_t)-300, (int32_t)300);
+  if (flight_vspeed < want - 20) {
+    flight_input(FLIGHT_INPUT_PITCH_UP);
+  } else if (flight_vspeed > want + 20) {
+    flight_input(FLIGHT_INPUT_PITCH_DOWN);
+  }
+}
+
 // 01: holds the start's height until the recon is past overhead, then turns
-// after it in a 45 degree bank and climbs to its height, and chases it there,
-// throttling back inside 150 m.
+// after it in a 60 degree bank, climbing to its height by hold_height(), and
+// chases it there, throttling back inside 150 m.
 // When it first gets within 250 m of it, in steps, and when the recon left.
 //
 // With `guns`, it also shoots: inside 400 m it puts its nose on the recon in
@@ -117,7 +135,7 @@ static void chase(bool guns, int *caught_at, int *gone_at, int *down_at) {
     double err = degrees(dy, dx) - degrees(flight_cam.front.y, flight_cam.front.x);
     while (err > 180) err -= 360;
     while (err < -180) err += 360;
-    double want_roll = !passed ? 0 : err > 10 ? 45 : err < -10 ? -45 : err * 2;
+    double want_roll = !passed ? 0 : err > 10 ? 60 : err < -10 ? -60 : err * 2;
     double roll = degrees(-flight_cam.left.z, flight_cam.up.z);
     if (roll < want_roll - 4) {
       flight_input(FLIGHT_INPUT_ROLL_LEFT);
@@ -132,19 +150,8 @@ static void chase(bool guns, int *caught_at, int *gone_at, int *down_at) {
       } else if (above < -ahead / 64) {
         flight_input(FLIGHT_INPUT_PITCH_DOWN);
       }
-    } else if (passed && dz > 0) {
-      if (flight_cam.front.z < 80) {
-        flight_input(FLIGHT_INPUT_PITCH_UP);
-      } else if (flight_cam.front.z > 88) {
-        flight_input(FLIGHT_INPUT_PITCH_DOWN);
-      }
     } else {
-      int32_t z = passed ? _opponent_z[0] : hold_z;
-      if (flight_eye_z < z && flight_vspeed <= 0) {
-        flight_input(FLIGHT_INPUT_PITCH_UP);
-      } else if (flight_eye_z > z && flight_vspeed >= 0) {
-        flight_input(FLIGHT_INPUT_PITCH_DOWN);
-      }
+      hold_height(passed ? _opponent_z[0] : hold_z);
     }
     flight_advance();
     opponent_step();
@@ -162,14 +169,18 @@ static void chase(bool guns, int *caught_at, int *gone_at, int *down_at) {
 static const int kBelow = 100;
 
 // A dogfight: from the mission's start - taking off first if it starts on
-// the runway, and climbing to `min_m`, 300 m unless the targets are on the
-// ground - it goes for the nearest aircraft still flying, banking towards
-// it, matching its height but no lower than that - or kBelow under a
-// bomber - throttled back on its tail inside 300 m, and inside 800 m putting
-// the nose on it, with the rudder for the last few degrees, and holding
-// Space while it is within ~3.5 degrees - and, at a bomber, 400 m. A hunter
-// on its tail it does not try to out-turn: it extends, wings level, at its
-// greater speed until 1.5 km clear, then turns back for a head-on pass. When
+// the runway, gear up once off it, and climbing to `min_m`, 300 m unless the
+// targets are on the ground - it goes for the nearest aircraft still flying,
+// banking towards it at 60 degrees, matching its height but no lower than
+// that - or kBelow under a bomber - throttled back on its tail inside 300 m,
+// and inside 800 m putting the nose on it, with the rudder for the last few
+// degrees, and holding Space while it is within ~3.5 degrees - and, at a
+// bomber, 400 m. A hunter on its tail it does not try to out-turn: it
+// extends, wings level and descending to `min_m`, at its greater speed until
+// 1.2 km clear, then turns back for a head-on pass. Level at full throttle
+// the angle-of-attack model is only ~10 m/s faster than a fighter, which
+// took it minutes to get clear under fire; the descent is what gets it
+// clear. When
 // the last was shot down, in steps, or -1; and the fewest metres it came to
 // any.
 static int dogfight(int m, double *closest, int min_m = 300) {
@@ -211,10 +222,16 @@ static int dogfight(int m, double *closest, int min_m = 300) {
     flight_throttle = up && ahead > 0 && d < 600 ? 10 : 24;
     if (ahead < 0 && d < 1000) {
       extend = true;
-    } else if (d > 3000) {
+    } else if (d > 2400) {
       extend = false;
     }
     bool aiming = up && ahead > 0 && ahead < 1600;
+    // Gear up once off the ground: down, it costs the angle-of-attack
+    // model's wing ~140 of its top speed, and the extension below is won or
+    // lost on that.
+    if (!model_on_ground && flight_gear) {
+      flight_input(FLIGHT_INPUT_TOGGLE_GEAR);
+    }
     if (!up) {
       // Off the runway and up to 300 m, wings level.
       if (flight_speed > 1300 || !model_on_ground) {
@@ -228,7 +245,7 @@ static int dogfight(int m, double *closest, int min_m = 300) {
     double err = degrees(dy, dx) - degrees(flight_cam.front.y, flight_cam.front.x);
     while (err > 180) err -= 360;
     while (err < -180) err += 360;
-    double want_roll = !up || extend ? 0 : err > 10 ? 45 : err < -10 ? -45 : err * 2;
+    double want_roll = !up || extend ? 0 : err > 10 ? 60 : err < -10 ? -60 : err * 2;
     double roll = degrees(-flight_cam.left.z, flight_cam.up.z);
     if (roll < want_roll - 4) {
       flight_input(FLIGHT_INPUT_ROLL_LEFT);
@@ -250,12 +267,7 @@ static int dogfight(int m, double *closest, int min_m = 300) {
     } else if (up) {
       // Under a bomber, where its rear gunner cannot bear.
       int32_t below = bomber ? (int32_t)kBelow << 9 : 0;
-      int32_t z = std::max(_opponent_z[t] - below, kMinZ);
-      if (flight_eye_z < z && flight_vspeed <= 0) {
-        flight_input(FLIGHT_INPUT_PITCH_UP);
-      } else if (flight_eye_z > z && flight_vspeed >= 0) {
-        flight_input(FLIGHT_INPUT_PITCH_DOWN);
-      }
+      hold_height(extend ? kMinZ : std::max(_opponent_z[t] - below, kMinZ));
     }
     flight_advance();
     opponent_step();

@@ -29,7 +29,8 @@ PPILOTA_PROGRAM = ppilota
 # and missions of its own. Also built from ppilot.cc, with -D__FPILOT__, which
 # swaps pmission.cc for fmission.cc (mission.h), puts its own name on the menu,
 # embeds fpanel's art for ppanel's (view.cc) and adds the other aircraft
-# (opponent.h, docs/planes.md). Arcade flight model, as ppilot.
+# (opponent.h, docs/planes.md). The angle-of-attack flight model, always -
+# it does not follow FLIGHT_AOA (docs/flight.md 1).
 #
 # No debug view: it is built without $(DEBUG) whatever that is set to, so the
 # D key, the stage counters behind it and the code that prints them are not
@@ -335,7 +336,7 @@ $(PPILOTA_PROGRAM).prg: $(PPILOT_SRC) $(PPANEL_LZO)
 # Not on FLIGHT_STAMP either, for the same reason: its model does not follow
 # FLIGHT_AOA.
 $(FPILOT_PROGRAM).prg: $(PPILOT_SRC) $(OPPONENT_SRC) fpanel.koa $(FPANEL_LZO)
-	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(CLOUDS) -D__FPILOT__ -D__MAX_RAM__ -o=$(FPILOT_PROGRAM).prg ppilot.cc
+	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(CLOUDS) -D__FPILOT__ -D__FLIGHT_AOA__ -D__MAX_RAM__ -o=$(FPILOT_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(FPILOT_PROGRAM).asm
 	@$(IRQCHECK) $(FPILOT_PROGRAM).asm
 	@$(MATHCHECK) $(FPILOT_PROGRAM).asm

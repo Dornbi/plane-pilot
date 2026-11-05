@@ -18,7 +18,30 @@ There are two flight models in `flight.cc`, selected by `__FLIGHT_AOA__`, and
 | Size | 47,607 bytes | 48,375 bytes (**+768**) |
 
 The angle-of-attack model is the better aeroplane and the arcade one is the
-cheaper, which is the whole of the trade and why both exist. Both are covered by
+cheaper, which is the whole of the trade and why both exist.
+
+**fpilot flies the angle-of-attack model** (since 2026-11-04), always: its
+rule in `c64o/Makefile` passes `-D__FLIGHT_AOA__` whatever `FLIGHT_AOA` is,
+and its host tests (`opponent_test`, `gun_test`, `fpilot_test`,
+`mission_test`) are built with it the same way. It cost 804 B: fpilot went
+from 2,262 to 1,458 B free, its largest run from 1,532 to 734 B. The
+switch took retuning `mission_test`'s scripted pilots, not the missions:
+
+- **Height by climb rate.** Holding height by flicking the nose at it bled
+  ~400 of airspeed through induced drag - level at 5,000 ft the aircraft
+  settled at the recon's own 1,750 instead of ~2,155 - so the pilots now ask
+  for a climb rate in proportion to the height error (`hold_height()`).
+- **Gear up after take-off.** Down, it costs ~140 of top speed.
+- **60 degree turns, not 45.** The turn rate is g tan(bank) / V here, so 45
+  is wide at combat speed.
+- **Extending in a descent.** Level at full throttle the aircraft is only
+  ~10 m/s faster than a fighter, so a fighter 300 m behind stayed in range
+  for half a minute; descending to the pilot's floor clears it, and it
+  turns back at 1.2 km rather than 1.5.
+
+With those, every mission is won as before: the recon caught with 3.3 min
+in hand and shot down at 2.6 min, the bombers down at 3.2 min, the scramble
+at 2.6 min unhit, the head-on pair at 2.0 min with one hit taken. Both are covered by
 the host suite - `make -C c64o/test test-both` - which carries two sets of
 expectations because for several cases they are opposites, and by a narrowing
 baseline each.
