@@ -689,9 +689,11 @@ static __noinline int16_t _opponent_dot(int16_t a, int16_t b, int16_t c, int16_t
 // metres' two whole bytes, bits 8-23, with bit 23 dropped and bit 22 taken
 // as the sign - a byte move and two 16-bit shifts, not seven 32-bit ones.
 // Good to 64 units either way, which is why no leg is that long. Along y the
-// world is 256 units, and the same 64 holds.
-static __noinline int16_t _opponent_toward(uint16_t w, int32_t pos) {
-  int16_t d = (int16_t)((((int32_t)w << 8) - pos) >> 8);
+// world is 256 units, and the same 64 holds. The position is
+// _opponent_xyz[idx], read here: passed by value, every call copied its four
+// bytes into the parameters, and its top one is never read.
+static __noinline int16_t _opponent_toward(uint16_t w, uint8_t idx) {
+  int16_t d = (int16_t)((((int32_t)w << 8) - _opponent_xyz[idx]) >> 8);
   return (int16_t)(d << 1) >> 1;
 }
 
@@ -906,7 +908,7 @@ static __noinline bool _opponent_gunner(uint8_t i) {
   uint8_t c = 3, k = (uint8_t)(i + 2 * kOpponentMax);
   do {
     --c;
-    d[c] = _opponent_toward((uint16_t)(*kOpponentEye[c] >> 8), _opponent_xyz[k]);
+    d[c] = _opponent_toward((uint16_t)(*kOpponentEye[c] >> 8), k);
     k -= kOpponentMax;
   } while (c != 0);
   int16_t dx = d[0], dy = d[1];
@@ -1048,8 +1050,8 @@ void opponent_step(void) {
       ty = kOpponentWpY[k];
       dz = (int16_t)p->z;
     }
-    int16_t dx = _opponent_toward(tx, _opponent_x[i]);
-    int16_t dy = _opponent_toward(ty, _opponent_y[i]);
+    int16_t dx = _opponent_toward(tx, i);
+    int16_t dy = _opponent_toward(ty, (uint8_t)(i + kOpponentMax));
     if (!hunt && _opponent_within(dx, kOpponentReach) &&
         _opponent_within(dy, kOpponentReach)) {
       // Reached, and the next one is steered for from the next step on.
