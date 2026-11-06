@@ -49,7 +49,7 @@ FIXED = [
     (0x0002, 0x0060, None,
      'oscar64 runtime zero page (reserved; headroom checked by check_zeropage.py)'),
     (0x0100, 0x0200, None, '6502 hardware stack'),
-    (0x0800, 0x0801, None, 'BASIC link byte'),
+    (0x0800, 0x0801, None, 'BASIC link byte'),  # BASIC_LINK
     (0xD000, 0xD400, 'Menu & Missions',
      'map view screen RAM, time-shared with the title aircraft\'s 4 sprite '
      'blocks, under I/O (map.cc kMapScreenRam, mem.h kTitleSpriteData)'),
@@ -69,6 +69,9 @@ FIXED = [
      "back view's tail fin, 2 sprite blocks (mem.h kFinSpriteData)"),
     (0xFFFA, 0x10000, None, 'NMI / RESET / IRQ vectors'),
 ]
+
+BASIC_LINK = FIXED[3]
+assert BASIC_LINK[:2] == (0x0800, 0x0801)
 
 # fpilot only: the block its main region gives up below I/O.
 OPPONENT_DOT = (0xCFC0, 0xD000, 'World Model',
@@ -340,7 +343,20 @@ def walk_address_space(objects, regions, stack_free):
     # labels in the walk instead of collapsing into one anonymous run.
     owner = bytearray(0x10000)
 
+    # oscar64's startup stub at $0801 is dead once main() runs, and mem.h's
+    # bss2 region runs on over it (MEM_BSS2_END): bss2 tenants may land there,
+    # so where the region covers it the stub's bytes are free, not used.
+    bss2 = next(((s, e) for s, e, n in regions if n == 'bss2'), None)
+
+    def _dead_startup(o):
+        return (bss2 is not None and o['type'].lower().endswith(':startup') and
+                bss2[0] <= o['start'] and o['end'] <= bss2[1])
+
+    startup_reuse = 0
     for o in objects:
+        if _dead_startup(o):
+            startup_reuse += o['size']
+            continue
         for a in range(o['start'], o['end']):
             kind[a] = USED
     for i, (start, end, _owner, _label) in enumerate(FIXED, start=1):
@@ -418,6 +434,7 @@ def walk_address_space(objects, regions, stack_free):
         'sum_fixed_sizes': sum(e - s for s, e, _o, _l in FIXED),
         'unowned_fixed': sum(e - s for s, e, o, _l in FIXED if o is None),
         'screen_scratch': screen_scratch,
+        'startup_reuse': startup_reuse,
         'names': {USED: 'used', FREE_ALLOC: 'free', FREE_STACK: 'stack headroom',
                   FREE_ORPHAN: 'free (orphan)', FREE_BOOT: 'boot headroom'},
         'USED': USED, 'FREE_ALLOC': FREE_ALLOC,
@@ -443,6 +460,12 @@ def parse_map(map_path):
     if main_end == OPPONENT_DOT[0] and OPPONENT_DOT not in FIXED:
         FIXED.append(OPPONENT_DOT)
         FIXED.sort()
+    # The BASIC link byte only matters until the SYS line has run; where bss2
+    # covers it (mem.h MEM_BSS2_END), it is bss2's.
+    bss2_end = next((end for start, end, name in regions
+                     if name == 'bss2' and start <= BASIC_LINK[0]), None)
+    if bss2_end is not None and bss2_end >= BASIC_LINK[1] and BASIC_LINK in FIXED:
+        FIXED.remove(BASIC_LINK)
 
 
     categories = {
@@ -567,16 +590,21 @@ def print_reconciliation(walk, feature_total, markdown=False):
     used = walk['totals'][walk['USED']]
     overlap = (walk['sum_object_sizes'] + walk['sum_fixed_sizes']) - used
     scratch = walk['screen_scratch']
+    startup = walk['startup_reuse']
     lines = [
         f"Feature table total        {feature_total:>6,} B",
         f"+ machine-owned ranges     {walk['unowned_fixed']:>6,} B   "
-        f"processor port, runtime ZP, hardware stack, BASIC link",
-        f"- addresses counted twice  {overlap - scratch:>6,} B   "
+        f"processor port, runtime ZP, hardware stack" +
+        ("" if startup else ", BASIC link"),
+        f"- addresses counted twice  {overlap - scratch - startup:>6,} B   "
         f"oscar64 overlays call frames that cannot be live together",
     ]
     if scratch:
         lines.append(f"- screen rows as scratch   {scratch:>6,} B   "
                      f"mem.h scratch: main screen rows 14-24, dead in flight")
+    if startup:
+        lines.append(f"- startup stub in bss2     {startup:>6,} B   "
+                     f"mem.h bss2 over $0801: dead once main() runs")
     lines.append(f"= address space, used      {used:>6,} B")
     assert feature_total + walk['unowned_fixed'] - overlap == used, \
         'feature table and address space walk do not reconcile'

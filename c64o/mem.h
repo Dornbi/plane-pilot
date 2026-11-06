@@ -35,8 +35,16 @@
 // load address, so nothing in the .prg can land here. The startup code only
 // clears the main bss section, and this RAM powers up holding the KERNAL's
 // variables and vectors and the default screen, so mem_init() clears it.
+//
+// It runs on over the BASIC link byte at $0800 and oscar64's startup stub at
+// $0801-$0852 (the SYS line, the bss and zero page clears and the JSR to
+// main()) up to the boot region at $0860. Both are dead once main() is
+// running, which is before anything writes here: main() never returns, so
+// nothing after the stub's JSR ever runs, and mem_init() clears all of it
+// from the boot region. A bss2 tenant that lands there is loaded over, which
+// does not matter, as it is cleared before it is used.
 #define MEM_BSS2_START MEM_STACK_END
-#define MEM_BSS2_END 0x0800
+#define MEM_BSS2_END 0x0860
 #pragma section(bss2, 0, , , bss)
 #pragma region( bss2, MEM_BSS2_START, MEM_BSS2_END, , , {bss2} )
 #ifdef __FPILOT__

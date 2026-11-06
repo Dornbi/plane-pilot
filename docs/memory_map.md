@@ -80,7 +80,11 @@ Every byte of the 64 KB, in order. Three kinds of free space, because they
 are not equally reachable:
 
 - **free** - inside a linker region, so the compiler can still use it. This is
-  the number that matters when deciding whether a feature fits.
+  the number that matters when deciding whether a feature fits. Since
+  2026-11-05 bss2 runs on to `$085F` (mem.h `MEM_BSS2_END`), over the BASIC
+  link byte at `$0800` and oscar64's startup stub at `$0801-$0852`, both dead
+  once `main()` runs, so the walk counts them free; the table below predates
+  that.
 - **stack headroom** - the unused part of the software stack region. oscar64's
   software stack grows _down_ from the end of its region, so the `sections`
   line reports what was never reached: `$0200 - $020D` on a `$0200..$0240`
