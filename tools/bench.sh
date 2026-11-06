@@ -19,7 +19,7 @@
 # five are live, timed over the frames in which the opponents are near and
 # redrawn: scramble, fpilot's mission 04 with both opponents overtaking the
 # parked aeroplane and the guns firing; shootdown, the same with the first
-# opponent hit three times and downed on its pass; headon and chase, mission
+# opponent hit five times and downed on its pass; headon and chase, mission
 # 05; and strafe, mission 04's pair coming back to strafe. They are the only scenes
 # in which the opponents' and the rounds' model steps, the opponents' fills
 # and the smoke cost anything; frozen, everything stands still and a
@@ -53,8 +53,8 @@ BUILD="${BENCH_BUILD_DIR:-$(mktemp -d /tmp/pb.XXXXXX)}"
 OSCAR64_INCLUDE="${OSCAR64_INCLUDE:-$REPO/../../oscar64-main/include}"
 
 # name, tools/shot.cc scene number, frames skipped, frames timed, live.
-# Shootdown is scramble with the first opponent hit three times on its pass
-# and downed (tools/shot.cc scene 10): the smoke and the hit logic. Headon
+# Shootdown is scramble with the first opponent hit five times on its pass
+# and downed (tools/shot.cc scene 10): the smoke, the hit logic and the fall. Headon
 # and chase are mission 05 (scenes 11 and 12): the two hunters closing from
 # ~1.5 km to ~300 m ahead, then behind the player, turning after it, in the
 # back view. Strafe is mission 04 again, hands off and parked, as the pair

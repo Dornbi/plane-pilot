@@ -27,9 +27,9 @@ This file is the loop's memory. Every pass reads it first.
     anything: frozen, they stand still and a silhouette is filled once.
     - **scramble:** mission 04's pair making their pass over the parked
       aeroplane, the guns firing, frames 48-175.
-    - **shootdown:** scramble with the first opponent hit three times on its
-      pass and downed (the hits scripted), so the smoke and the hit and
-      downing logic are timed too.
+    - **shootdown:** scramble with the first opponent hit five times on its
+      pass, 12 frames apart, and downed (the hits scripted), so the smoke,
+      the hit and downing logic and the fall are timed too.
     - **headon** and **chase:** mission 05's two hunters closing from ahead,
       then behind the player and turning after it, in the back view.
     - **strafe:** mission 04's pair coming back to run in at the parked
@@ -53,7 +53,7 @@ table but is not a goal or a gate.
 
 The script reads this line, so keep its format exactly:
 
-cycles-baseline: start=119431 approach=144722 cruise=152338 town=144513 lake=134136 scramble=187667 shootdown=180408 headon=128118 chase=169815 strafe=187334
+cycles-baseline: start=119431 approach=144722 cruise=152338 town=144513 lake=134136 scramble=187667 shootdown=183141 headon=128118 chase=169815 strafe=187334
 
 ## Rules (binding for the worker and the reviewer)
 
@@ -74,7 +74,7 @@ cycles-baseline: start=119431 approach=144722 cruise=152338 town=144513 lake=134
    differences are fine if every one of these stays supported.
    - **Combat behaves the same:** the opponents fly their paths and hunt,
      the guns (the player's and the gunners') fire, rounds hit and stop at
-     the ground, hits flash and smoke, three bring an aircraft down and it
+     the ground, hits flash and smoke, five bring an aircraft down and it
      falls, and the missions complete and fail as before.
    - Changing an expectation in `flight_test`, `opponent_test`, `gun_test`,
      `mission_test` or `fpilot_test` is a red flag. Do it only for a
@@ -267,6 +267,15 @@ code the new timer reads 0.1-0.25% lower per scene than the old one. fpilot
 119,431, approach 144,722, cruise 152,338, town 144,513, lake 134,136,
 scramble 187,667, shootdown 180,408, headon 128,118, chase 169,815, strafe
 187,334; total 1,548,482.
+
+Only shootdown's baseline was reset on 2026-11-07, to 183,141, because its
+scene changed rather than the code. With an aircraft taking five hits
+(1fe8be2), scene 10's hits, still 24 frames apart, brought it down at frame
+173, two frames before the window ends, so it flew and was drawn all
+through: 190,444, more than scramble's 188,292. Shootdown is only cheaper
+than scramble because a downed aircraft is no longer drawn. The five hits
+are now 12 frames apart (frames 77-125), so it goes down mid-window as it
+did with three. The other nine scenes keep their 2026-11-01 figures.
 
 The script appends one row per pass. The branch column names the loop the
 change came from: claude (claude-loop) or argon (argon-loop).
