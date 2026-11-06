@@ -57,10 +57,18 @@ extern const uint8_t kMissionStartX[kMissionStarts];
 extern const uint8_t kMissionStartY[kMissionStarts];
 // flight_eye_z = start_z << 16
 extern const uint8_t kMissionStartZ[kMissionStarts];
+#ifdef __FPILOT__
+// fpilot has no speed or throttle tables: a mission starting on the ground
+// (start_z 0) starts parked, engine at idle, and one in the air at cruise -
+// these two (flight_init_from_mission()).
+static const uint8_t kMissionCruiseSpeed = 0x88;
+static const uint8_t kMissionCruiseThrottle = 0x12;
+#else
 // flight_speed = start_speed << 4;
 extern const uint8_t kMissionStartSpeed[kMissionStarts];
 // flight_throttle = start_throttle;
 extern const uint8_t kMissionStartThrottle[kMissionStarts];
+#endif
 // flight_fuel = (start_fuel << 12) - 1;
 extern const uint8_t kMissionStartFuel[kMissionCount];
 #ifdef __FPILOT__

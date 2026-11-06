@@ -1,7 +1,8 @@
 #include "mission.h"
 
 // fpilot's missions. The tables are pmission.cc's, with the same names and the
-// same encoding - see mission.h - so everything that reads them is shared.
+// same encoding - see mission.h - so everything that reads them is shared;
+// all but the start speed and throttle, which follow from the start height.
 //
 // Interceptions, a scramble, dogfights, waves of bombers, a way home past
 // patrols, a turkey shoot, an unarmed escape and a high patrol. What each
@@ -98,7 +99,9 @@ const char *const kMissionDesc[kMissionCount] = {
 // if only as the dot, within 10 s of flying straight on - 20 s of the
 // lift-off in 02 - and within 1 km inside ~90 s (test/mission_test.cc), but
 // for the missions whose targets come from behind or are to be avoided. Those
-// in the air at cruise - throttle 18, whose level trim is ~2,170 (0x88 << 4).
+// in the air at cruise - throttle 18, whose level trim is ~2,170 (0x88 << 4),
+// and those at height 0 parked, engine at idle: mission.h's
+// kMissionCruiseSpeed and kMissionCruiseThrottle, rather than two tables.
 // 01 at 2,500 ft heading north, 4.5 km south of the north edge, under the
 // recon's way in; 03 at 1,000 ft heading east, 1.8 km west of the parked
 // aircraft at runway 2, midway between them. 02 and 04 scramble: on runway 1
@@ -162,32 +165,6 @@ const uint8_t kMissionStartZ[kMissionStarts] = {
     0x03, // 08
     0x04, // 09
     0x0C, // 10
-};
-
-const uint8_t kMissionStartSpeed[kMissionStarts] = {
-    0x88, // 01
-    0x00, // 02
-    0x88, // 03
-    0x00, // 04
-    0x88, // 05
-    0x88, // 06
-    0x88, // 07
-    0x88, // 08
-    0x88, // 09
-    0x88, // 10
-};
-
-const uint8_t kMissionStartThrottle[kMissionStarts] = {
-    0x12, // 01
-    0x00, // 02
-    0x12, // 03
-    0x00, // 04
-    0x12, // 05
-    0x12, // 06
-    0x12, // 07
-    0x12, // 08
-    0x12, // 09
-    0x12, // 10
 };
 
 // About 15 minutes at full throttle. The longest way home, from runway 2 in

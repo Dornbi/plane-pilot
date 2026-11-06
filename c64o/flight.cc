@@ -578,12 +578,23 @@ void flight_init_from_mission(uint8_t mission_idx) {
   flight_eye_z = (int32_t)kMissionStartZ[mission_idx] << 16;
   model_on_ground = false;
   model_halted = true;
+#ifdef __FPILOT__
+  // In the air at cruise; on the ground, start height 0, parked at idle.
+  flight_speed = (int16_t)kMissionCruiseSpeed << 4;
+  flight_throttle = kMissionCruiseThrottle;
+#endif
   if (flight_eye_z <= kFlightMinEyeZ) {
     flight_eye_z = kFlightMinEyeZ;
     model_on_ground = true;
+#ifdef __FPILOT__
+    flight_speed = 0;
+    flight_throttle = 0;
+#endif
   }
+#ifndef __FPILOT__
   flight_speed = (int16_t)kMissionStartSpeed[mission_idx] << 4;
   flight_throttle = kMissionStartThrottle[mission_idx];
+#endif
   flight_fuel = kMissionStartFuel[mission_idx]
                     ? (((uint32_t)kMissionStartFuel[mission_idx] << 12) - 1)
                     : 0;
