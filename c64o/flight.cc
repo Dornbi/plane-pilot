@@ -813,8 +813,8 @@ static const char *const kFlightFaultText[] = {
     "GEAR RETRACTED", // FLIGHT_CRASH_GEAR
     "NOT ON RUNWAY",  // FLIGHT_CRASH_NOT_ON_RUNWAY
 #ifdef __FPILOT__
-    "SHOT DOWN",      // FLIGHT_CRASH_SHOT_DOWN
-    "COLLISION",      // FLIGHT_CRASH_COLLISION
+    "SHOT DOWN", // FLIGHT_CRASH_SHOT_DOWN
+    "COLLISION", // FLIGHT_CRASH_COLLISION
 #endif
 };
 
@@ -861,12 +861,7 @@ static const char *_flight_join(const char *prefix, const char *suffix) {
 __forceinline const char *flight_status_text(enum FlightStatus status,
                                              bool crashed) {
   if (status == FLIGHT_MISSION_COMPLETED) {
-#ifdef __FPILOT__
-    // Against its "GOALS COMPLETED!" below, which comes first.
-    return "MISSION COMPLETED!";
-#else
     return "MISSION COMPLETE!";
-#endif
   }
   return _flight_join(crashed ? "CRASHED: " : "WARNING: ",
                       kFlightFaultText[status]);
@@ -1048,7 +1043,8 @@ static void _flight_fall(void) {
     vec_rotate_step(VEC_STEP_ROLL_LEFT, &flight_cam);
   }
   if (flight_cam.front.z > kFlightFallZ) {
-    vec_rotate_step(flight_cam.up.z >= 0 ? VEC_STEP_PITCH_DOWN : VEC_STEP_PITCH_UP,
+    vec_rotate_step(flight_cam.up.z >= 0 ? VEC_STEP_PITCH_DOWN
+                                         : VEC_STEP_PITCH_UP,
                     &flight_cam);
   }
   model_need_normalize = true;

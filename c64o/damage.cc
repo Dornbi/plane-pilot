@@ -23,11 +23,13 @@ static uint8_t _damage_flash;
 
 // By failure, in kDamage* bit order: failure k is bit k, so its mask is
 // fmath.h's kBit[k] and needs no table of its own.
-static_assert(kDamageEngine == 1 << 0 && kDamageFuel == 1 << 1 && kDamageOil == 1 << 2 &&
-                  kDamageHydraulics == 1 << 3 && kDamageControls == 1 << 4,
+static_assert(kDamageEngine == 1 << 0 && kDamageFuel == 1 << 1 &&
+                  kDamageOil == 1 << 2 && kDamageHydraulics == 1 << 3 &&
+                  kDamageControls == 1 << 4,
               "failure k is bit k");
-static const char *const kDamageText[5] = {"ENGINE DAMAGED", "FUEL LEAK", "OIL LEAK",
-                                           "HYDRAULICS HIT", "CONTROLS DAMAGED"};
+static const char *const kDamageText[5] = {"ENGINE DAMAGED", "FUEL LEAK",
+                                           "OIL LEAK", "HYDRAULICS HIT",
+                                           "CONTROLS DAMAGED"};
 
 void damage_reset(void) {
   damage_bits = 0;
@@ -57,7 +59,7 @@ void damage_hit(uint8_t hits) {
   flight_events |= FLIGHT_EV_HIT;
   // The airframe's: holed, nothing broken.
   if (hits <= damage_armour) {
-    msg_show("AIRFRAME HIT");
+    msg_show("YOU HAVE BEEN HIT");
     return;
   }
   hits -= damage_armour;
@@ -68,7 +70,8 @@ void damage_hit(uint8_t hits) {
       // early from now on, so it would never announce it: the crash sound.
       flight_events |= FLIGHT_EV_CRASH;
     } else {
-      damage_bits |= (opponent_random() & 1) ? kDamageDown | kDamageSpin : kDamageDown;
+      damage_bits |=
+          (opponent_random() & 1) ? kDamageDown | kDamageSpin : kDamageDown;
       msg_show("SHOT DOWN!");
     }
     return;
