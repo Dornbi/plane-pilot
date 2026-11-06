@@ -14,7 +14,7 @@
 // Navpoint 1 is on the targets, wherever they are - the one, or midway
 // between two - and navpoint 2 is runway 1. flight.cc names them by number
 // when they are selected, TARGET and HOME BASE, so every mission keeps that
-// order. The targets go down to the guns (gun.cc), three hits each.
+// order. The targets go down to the guns (gun.cc), five hits each.
 
 const uint8_t kWaypointDefault = 1;
 static const uint8_t kWaypointTargets = 0;

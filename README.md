@@ -107,6 +107,10 @@ See [docs/development.md](docs/development.md) for more details.
 
 ## Updates
 
+### 2026-11-06
+
+- fpilot's enemy aircraft take five hits to shoot down, not three.
+
 ### 2026-11-05
 
 - ppilot and fpilot are back on the arcade flight model, which can fly a loop:

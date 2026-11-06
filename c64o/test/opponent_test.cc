@@ -1203,10 +1203,10 @@ static void test_missions(void) {
     flight_eye_z = _opponent_z[0];
     for (int k = 1; k < kOpponentHitsToDown; ++k) opponent_strike(0);
     CHECK(opponent_target(0, p) && _msgs == 0 && (_opponent_cull() & 1),
-          "strikes: down, or out of view, before the third hit");
+          "strikes: down, or out of view, before the last hit");
     opponent_strike(0);
     CHECK((_opponent_down & 1 << kOpponentFalling) && _msgs == 1 && !strcmp(_msg, "TARGET DESTROYED"),
-          "strikes: the third hit did not shoot it down (%d messages)", _msgs);
+          "strikes: the last hit did not shoot it down (%d messages)", _msgs);
     CHECK(!opponent_targets_down(), "strikes: one of two down, and the targets are down");
     CHECK(_opponent_cull() & 1, "strikes: a falling aircraft is not drawn");
     // It falls, slot 0 diving and slot 1 spinning as well: nose down at

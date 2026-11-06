@@ -262,7 +262,7 @@ static const uint16_t kOpponent2000Ft = 0x0400;
 // 08, Turkey shoot: a fighter pair in trail, 400 m apart, flying runway 2's
 // circuit, 4 km by 1.8 km, at 1,000 ft and 1,600, on a path they never
 // leave: three pairs in turn, five of the six to go down. 50 rounds are not
-// enough for fifteen hits; landing on runway 2 rearms.
+// enough for 25 hits; landing on runway 2 rearms.
 //
 // 09, Unarmed escape: a pair hunting from 450 m behind the player, at 1,800
 // against its 2,176 and full throttle's ~2,500, giving up once outrun by

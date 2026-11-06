@@ -208,7 +208,7 @@ the crash, so a stall still sounds while firing.
 
 - **Muzzle speed favours visibility.** About 48 m a step, slower than a real
   gun, so a tracer is seen for ~12 frames rather than two or three.
-- **3 hits to down.** The 10 m hit radius is still a starting point for
+- **5 hits to down** (3 until 2026-11-06). The 10 m hit radius is still a starting point for
   play.
 - **Unlimited ammunition** for now, so nothing on the panel.
 - **Wings, not middle.** The difference is only at fire time:
@@ -228,7 +228,7 @@ the crash, so a stall still sounds while firing.
 - **`gun.cc`, `gun.h`.** Space fires; `gun_step()` runs after
   `opponent_step()`, and `gun_add_sprite()` after `opponent_add_sprites()`.
   `opponent.cc` gives it `opponent_target()` and `opponent_strike()`.
-  `kOpponentHitsToDown` is 3, and a downed aircraft is no longer drawn
+  `kOpponentHitsToDown` is 5 (3 until 2026-11-06), and a downed aircraft is no longer drawn
   ("TARGET DESTROYED").
 - **Rounds relative to the eye, not in world space.** A round stays within a
   kilometre or so of the player, so its position is kept relative to the eye

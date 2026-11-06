@@ -136,6 +136,10 @@ static bool shot_down(void) {
 // rear gunner's cone, which reaches ~10 degrees below its wings.
 static const int kBelow = 100;
 
+// The height, in metres, a dive on a target pulls out under, nose level
+// (dogfight()).
+static const int kPullOut = 30;
+
 // Whether bomber t's rear gunner can bear on the player, with `margin`
 // degrees to spare: behind it inside ~650 m, within 45 degrees of its tail
 // to either side, and from 45 degrees above its wings to 10 below
@@ -371,7 +375,13 @@ static int dogfight(int m, double *closest, int min_m = 300) {
       } else if (side < -ahead / 64) {
         flight_input(FLIGHT_INPUT_YAW_RIGHT);
       }
-      if (above > ahead / 64) {
+      // Pulling out of a dive under kPullOut, plus half a metre for each
+      // 1/256 of the nose's slope: at five hits to a kill, held on 03's
+      // second parked fighter all the way down a 50 degree dive, it flew
+      // into the ground before the fifth.
+      const bool pull = flight_cam.front.z < 0 &&
+                        flight_eye_z < ((int32_t)(kPullOut - flight_cam.front.z / 2) << 9);
+      if (pull || above > ahead / 64) {
         flight_input(FLIGHT_INPUT_PITCH_UP);
       } else if (above < -ahead / 64) {
         flight_input(FLIGHT_INPUT_PITCH_DOWN);
@@ -475,7 +485,7 @@ int main() {
          caught_at / kStepsPerSecond / 60, (gone_at - caught_at) / kStepsPerSecond / 60);
 
   // End to end, with the guns: the same chase shoots the recon down before
-  // it leaves, and the mission takes it as its goals completed - three hits
+  // it leaves, and the mission takes it as its goals completed - five hits
   // through gun.cc, opponent_strike() and flight.cc's WP_TARGETS_DOWN.
   mission_completed[0] = 0;
   chase(true, &caught_at, &gone_at, &down_at);
@@ -509,7 +519,9 @@ int main() {
       flight_eye_y = _opponent_y[0];
       gun_step(false);
     }
-    CHECK(gun_player_hits >= 2 && gun_player_hits <= 8, "bombers, tail chase: %d hits in a minute",
+    // The gunner's scatter is random, and the earlier runs leave the seed:
+    // 7 to 9 hits, by the flight model and the hits to a kill.
+    CHECK(gun_player_hits >= 2 && gun_player_hits <= 10, "bombers, tail chase: %d hits in a minute",
           gun_player_hits);
     printf("  bombers, tail chase at 300 m: %d hits in a minute\n", gun_player_hits);
   }

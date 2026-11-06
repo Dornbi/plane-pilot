@@ -341,7 +341,7 @@ A Provoked slot switches to `ATTACK` on either of these:
 ## 7. Collisions and the ground
 
 - **The ground.** After the move, `z <= 0` destroys the slot, the same
-  way a third hit does:
+  way the last hit does:
   - its down bit is set and its smoke hangs for `kSmokeDown`;
   - it counts towards `WP_TARGETS_DOWN`;
   - the message is "ENEMY CRASHED".
@@ -744,7 +744,7 @@ from step 8 on. Steps 9–13 are independent of each other once step 9's
 ### Step 5: down on the ground
 
 - **Code.** `_opponent_destroy(i, text)` downs a slot: its down bit, the
-  kill smoke and the message. `opponent_strike()`'s third hit uses it with
+  kill smoke and the message. `opponent_strike()`'s last hit uses it with
   "TARGET DESTROYED". `opponent_step()` uses it with "ENEMY CRASHED" when a
   slot's height reaches 0 after its move.
 - **Test.** A slot 8 m below the ground (put there by hand, since a path
@@ -1151,7 +1151,8 @@ that climbs on to 300 m with them on its tail is shot down. fpilot is at
 
 Shot down now means falling, not stopping:
 
-- **Opponents.** The third hit says TARGET DESTROYED and the aircraft falls
+- **Opponents.** The fifth hit (*since 2026-11-06*; the third until then)
+  says TARGET DESTROYED and the aircraft falls
   (`_opponent_fall()`): drawn ~37 degrees nose down (a new kOpponentDive
   pitch), moving along its heading and down at three quarters of its
   speed, the same ~37 degrees, trailing its smoke. *Since 2026-11-05:* it

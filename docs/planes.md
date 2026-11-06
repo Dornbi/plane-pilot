@@ -1408,7 +1408,8 @@ completing it, kept per mission as the best of every attempt
 (`mission_completed[]`): `GOALS COMPLETED!` and one check mark in the menu
 for the targets, `MISSION COMPLETE!` and two for getting home after them.
 ppilot's missions still have one level and one mark. *Since 2026-10-24*
-the guns set `_opponent_down`, three hits to an aircraft
+the guns set `_opponent_down`, five hits to an aircraft (three until
+2026-11-06)
 ([projectiles.md](projectiles.md)); until then no mission could be
 completed. A failure shows a message once, `MISSION
 FAILED - RECON ESCAPED` or `- CITY BOMBED`, and after it the goal is never

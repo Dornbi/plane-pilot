@@ -22,7 +22,7 @@
 static const uint8_t kOpponentMax = 2;
 
 // Hits that down an aircraft (opponent_strike()).
-static const uint8_t kOpponentHitsToDown = 3;
+static const uint8_t kOpponentHitsToDown = 5;
 
 // Puts the mission's first pair at their start, and forgets what the last
 // attempt shot down. Also invalidates, as below. The rest of its pairs follow
@@ -52,7 +52,7 @@ bool opponent_targets_down(void);
 // not down.
 bool opponent_target(uint8_t i, int32_t *p);
 
-// Slot i is hit. It trails smoke for ~2 s, and the third hit downs it: it
+// Slot i is hit. It trails smoke for ~2 s, and the fifth hit downs it: it
 // stops, is no longer drawn or a target, and counts towards WP_TARGETS_DOWN,
 // and its smoke hangs where it fell for ~5 s. A hit provokes it too.
 void opponent_strike(uint8_t i);

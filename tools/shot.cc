@@ -122,14 +122,15 @@ static const shot_step_t kShotScript[] = {
     {4000, KSCAN_SPACE},
 };
 #elif __SHOT__ == 10
-// Scene 9 with the first opponent shot down as it overtakes: three hits
-// spread over its pass, a round's worth of smoke after each of the first two
-// and the long trail of a downed aircraft after the third, so that the
+// Scene 9 with the first opponent shot down as it overtakes: five hits
+// spread over its pass, a round's worth of smoke after each of the first four
+// and the long trail of a downed aircraft after the fifth, so that the
 // smoke, the hit and downing logic and the stack's room for the smoke are in
 // the frames tools/bench.sh times. The hits are scored directly
 // (opponent_strike()), as the parked aeroplane's rounds fly level and pass
 // under opponents 48 m up; the guns still fire throughout, released for the
-// poll of each hit. Frames 77, 101 and 125 of the mission, give or take one.
+// poll of each hit. Frames 77, 101, 125, 149 and 173 of the mission, give or
+// take one.
 static const shot_step_t kShotScript[] = {
     {100, SHOT_IDLE},
     {1, KSCAN_K},      {6, SHOT_IDLE},
@@ -138,6 +139,10 @@ static const shot_step_t kShotScript[] = {
     {1, KSCAN_RETURN},
     {4, SHOT_IDLE},
     {72, KSCAN_SPACE},
+    {1, SHOT_STRIKE},
+    {23, KSCAN_SPACE},
+    {1, SHOT_STRIKE},
+    {23, KSCAN_SPACE},
     {1, SHOT_STRIKE},
     {23, KSCAN_SPACE},
     {1, SHOT_STRIKE},
