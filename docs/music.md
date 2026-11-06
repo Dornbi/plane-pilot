@@ -658,18 +658,19 @@ estimated:
 | Item                                          |    Bytes |
 | --------------------------------------------- | -------: |
 | `kMusicLeadStartPool[133]` + `Bar[24]`        |      157 |
-| `kMusicBassStepPool[48]` + `Bar[24]`          |       72 |
-| `kMusicDrumBitsPat[5][4]` + `Bar[24]`         |       44 |
-| `kMusicLeadOnBitsPat[3][2]` + `Bar[24]`       |       30 |
+| `kMusicBassStepPool[48]`                      |       48 |
+| `kMusicDrumBitsPool[20]`                      |       20 |
+| `kMusicLeadOnBitsPool[6]`                     |        6 |
+| `kMusicBarLanes[24]` (the three lanes' bars)  |       24 |
 | `kMusicChordPat[7]` + `Bar[24]`               |       52 |
 | Six instruments × 8                           |       48 |
 | `kMusicVolMap[24]`                            |       24 |
 | `kMusicNoteTable[12]`                         |       24 |
-| **Data, as generated**                        |  **476** |
+| **Data, as generated**                        |  **428** |
 | Volume composition table (§3)                 |       48 |
-| Player code                                   |      884 |
+| Player code                                   |      887 |
 | Player state (bss + zp)                       |       13 |
-| **Total**                                     | **1,501** |
+| **Total**                                     | **1,456** |
 
 Measured from `ppilot.map` by `tools/analyze_ram.py`, not estimated. Against
 6,623 bytes free in `ppilot.prg` — which is to say the tune is a quarter of the
@@ -816,6 +817,16 @@ three shapes share no bytes, but they are stored the lead's way all the same,
 as `kMusicBassStepPool` with `kMusicBassStepBar` holding each bar's start: the
 read is an add where `[index][16]` went through oscar64's 16x table, 6 bytes
 smaller.
+
+**Later: one byte a bar for three lanes.** The bass, lead gate and drum lanes
+have only 3, 3 and 5 distinct bars, so their patterns lie end to end in
+`kMusicBassStepPool`, `kMusicLeadOnBitsPool` and `kMusicDrumBitsPool`, and
+one `kMusicBarLanes[24]` holds where all three of a bar's start, each in its
+own bits and read with a mask: the drum's start is `b & 0x1C` (patterns 4
+bytes apart), the bass's `(b & 0x60) >> 1` (16 apart) and the lead gate's
+`(b & 0x03) << 1` (2 apart). The generator asserts every start fits its
+field. Three 24-byte bar indexes become one, 48 bytes of data for 3 of code;
+`test_packed_tables_round_trip` decodes the byte with the same masks.
 
 **What is still on the table.** Two things, both measured rather than guessed.
 

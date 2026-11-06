@@ -61,6 +61,37 @@ def dedup_bars(values, per_bar):
     return patterns, index
 
 
+# The bass, lead gate and drum lanes have so few distinct bars (3, 3 and 5)
+# that one byte a bar holds where all three start in their pools, each in its
+# own bits and each read with a mask: the drum's start as it is (bits 2-4,
+# patterns 4 bytes apart), the bass's shifted right one (bits 5-6, 16 apart)
+# and the lead gate's shifted left one (bits 0-1, 2 apart). Three 24 byte
+# bar indexes become one.
+LANE_LEAD_ON_MASK = 0x03
+LANE_DRUM_MASK = 0x1C
+LANE_BASS_MASK = 0x60
+
+
+def pack_lanes(lead_on_offsets, drum_offsets, bass_offsets):
+    """One byte a bar from the three lanes' pool offsets; asserts each fits
+    its field, so the masks in musicdef.h read it back exactly."""
+    lanes = []
+    for lead, drum, bass in zip(lead_on_offsets, drum_offsets, bass_offsets):
+        b = (lead >> 1) | drum | (bass << 1)
+        assert (b & LANE_LEAD_ON_MASK) << 1 == lead, "lead gate offset does not fit"
+        assert b & LANE_DRUM_MASK == drum, "drum offset does not fit"
+        assert (b & LANE_BASS_MASK) >> 1 == bass, "bass offset does not fit"
+        lanes.append(b)
+    return lanes
+
+
+def concat_bars(patterns, index):
+    """dedup_bars()'s patterns end to end, and where each bar's starts: a
+    multiple of the pattern length, which pack_lanes() relies on."""
+    pool = [v for pat in patterns for v in pat]
+    return pool, [i * len(patterns[0]) for i in index]
+
+
 def pool_bars(patterns, index):
     """Overlaps dedup_bars()'s patterns into one byte pool, greedily.
 
@@ -100,26 +131,6 @@ def pool_bars(patterns, index):
     offsets = [starts[i] for i in index]
     assert max(offsets) + len(patterns[0]) <= 256, "a pool offset no longer fits a byte"
     return pool, offsets
-
-
-def _emit_bar_table(f, name, patterns, index, per_bar, per_line, what,
-                    was=None):
-    """Emits the pattern array and its bar index, with the saving in a
-    comment so the next person can see whether it is still earning its keep.
-    `was` is the flat size, when the lane was thinned out before the dedup."""
-    if was is None:
-        was = len(index) * per_bar
-    now = len(patterns) * per_bar + len(index)
-    f.write(f"// {what}: {len(patterns)} distinct bars of {len(index)}, "
-            f"{now} bytes instead of {was}.\n")
-    f.write(f"const uint8_t {name}Pat[{len(patterns)}][{per_bar}] = {{\n")
-    for i, pat in enumerate(patterns):
-        body = ", ".join(f"{v:3d}" for v in pat)
-        f.write(f"    {{ {body} }}, // pattern {i}\n")
-    f.write("};\n\n")
-    f.write(f"const uint8_t {name}Bar[{len(index)}] = {{\n")
-    _emit_rows(f, index, per_line)
-    f.write("};\n\n")
 
 
 def _emit_rows(f, values, per_line, comment_every=None):
@@ -209,13 +220,14 @@ def generate_c64_headers():
         f.write("// where each starts there rather than which one it is.\n")
         f.write(f"extern const uint8_t kMusicLeadStartPool[];\n")
         f.write(f"extern const uint8_t kMusicLeadStartBar[{t1['bars']}];\n")
-        f.write("// The bass's likewise, though its patterns do not overlap.\n")
+        f.write("// The bass, lead gate and drum patterns lie end to end in a pool\n")
+        f.write("// each, and one byte a bar holds where all three start, each read\n")
+        f.write("// with a mask: the drum's start is b & 0x1C, the bass's\n")
+        f.write("// (b & 0x60) >> 1 and the lead gate's (b & 0x03) << 1.\n")
         f.write(f"extern const uint8_t kMusicBassStepPool[];\n")
-        f.write(f"extern const uint8_t kMusicBassStepBar[{t1['bars']}];\n")
-        f.write(f"extern const uint8_t kMusicLeadOnBitsPat[][{rpb // 8}];\n")
-        f.write(f"extern const uint8_t kMusicLeadOnBitsBar[{t1['bars']}];\n")
-        f.write(f"extern const uint8_t kMusicDrumBitsPat[][{rpb // 4}];\n")
-        f.write(f"extern const uint8_t kMusicDrumBitsBar[{t1['bars']}];\n\n")
+        f.write(f"extern const uint8_t kMusicLeadOnBitsPool[];\n")
+        f.write(f"extern const uint8_t kMusicDrumBitsPool[];\n")
+        f.write(f"extern const uint8_t kMusicBarLanes[{t1['bars']}];\n\n")
 
         f.write("// The bar a row falls in, and the row within it.\n")
         f.write(f"#define MUSIC_BAR_OF(row)   ((row) >> {bar_shift})\n")
@@ -235,19 +247,23 @@ def generate_c64_headers():
         f.write("// the few rhythm shapes the arrangement has. The player tests the\n")
         f.write("// step and adds the root only when a note starts.\n")
         f.write("#define MUSIC_BASS_STEP_IN(bar, r)  \\\n")
-        f.write("    (kMusicBassStepPool[(uint8_t)(kMusicBassStepBar[bar] + (r))])\n")
+        f.write("    (kMusicBassStepPool[(uint8_t)(((kMusicBarLanes[bar] & "
+                f"0x{LANE_BASS_MASK:02X}) >> 1) + \\\n")
+        f.write("                                  (r))])\n")
         f.write("#define MUSIC_BASS_NOTE(bar, step)  \\\n")
         f.write("    ((uint8_t)(MUSIC_CHORD(bar).root - 1 + (step)))\n")
         f.write("#define MUSIC_BASS_START_IN(bar, r)  \\\n")
         f.write("    (MUSIC_BASS_STEP_IN(bar, r) ? \\\n")
         f.write("     MUSIC_BASS_NOTE(bar, MUSIC_BASS_STEP_IN(bar, r)) : 0)\n")
         f.write("#define MUSIC_LEAD_ON_IN(bar, r)  \\\n")
-        f.write("    ((kMusicLeadOnBitsPat[kMusicLeadOnBitsBar[bar]][(r) >> 3] \\\n")
-        f.write("      >> ((r) & 7)) & 1)\n")
+        f.write("    ((kMusicLeadOnBitsPool[(uint8_t)(((kMusicBarLanes[bar] & "
+                f"0x{LANE_LEAD_ON_MASK:02X}) << 1) + \\\n")
+        f.write("                                    ((r) >> 3))] >> ((r) & 7)) & 1)\n")
         f.write("// 0 = none, 1 = kick, 2 = snare, 3 = hat.\n")
         f.write("#define MUSIC_DRUM_AT_IN(bar, r)  \\\n")
-        f.write("    ((kMusicDrumBitsPat[kMusicDrumBitsBar[bar]][(r) >> 2] \\\n")
-        f.write("      >> (((r) & 3) << 1)) & 3)\n")
+        f.write("    ((kMusicDrumBitsPool[(uint8_t)((kMusicBarLanes[bar] & "
+                f"0x{LANE_DRUM_MASK:02X}) + \\\n")
+        f.write("                                   ((r) >> 2))] >> (((r) & 3) << 1)) & 3)\n")
         f.write("#define MUSIC_LEAD_START(row)  \\\n")
         f.write("    MUSIC_LEAD_START_IN(MUSIC_BAR_OF(row), MUSIC_IN_BAR(row))\n")
         f.write("#define MUSIC_BASS_START(row)  \\\n")
@@ -360,23 +376,36 @@ def generate_c64_source():
         f.write(f"const uint8_t kMusicLeadStartBar[{bars}] = {{\n")
         _emit_rows(f, offsets, 12)
         f.write("};\n\n")
-        # The bass's three shapes do not overlap, but pooled all the same:
-        # a start offset is an add, where [index][16] cost a 16 x table.
-        pool, offsets = pool_bars(*bass_pat)
+        # The other three lanes' patterns lie end to end, so each start is a
+        # multiple of the pattern length, and kMusicBarLanes holds all three.
+        bass_pool, bass_offsets = concat_bars(*bass_pat)
         f.write(f"// Bass interval above the chord root + 1, 0 = no new note: "
-                f"{len(bass_pat[0])} distinct bars of {bars}, pooled in {len(pool)} "
-                f"bytes, {len(pool) + bars} bytes instead of {tot_rows}.\n")
-        f.write(f"const uint8_t kMusicBassStepPool[{len(pool)}] = {{\n")
-        _emit_rows(f, pool, 16)
+                f"{len(bass_pat[0])} distinct bars of {bars} in {len(bass_pool)} "
+                f"bytes, instead of {tot_rows}.\n")
+        f.write(f"const uint8_t kMusicBassStepPool[{len(bass_pool)}] = {{\n")
+        _emit_rows(f, bass_pool, 16)
         f.write("};\n\n")
-        f.write(f"const uint8_t kMusicBassStepBar[{bars}] = {{\n")
-        _emit_rows(f, offsets, 12)
+        lead_on_pool, lead_on_offsets = concat_bars(*leadon_pat)
+        f.write(f"// Lead gate, 1 bit per row LSB first. MUSIC_LEAD_ON(row): "
+                f"{len(leadon_pat[0])} distinct bars of {bars} in "
+                f"{len(lead_on_pool)} bytes, instead of {len(lead_on_bits)}.\n")
+        f.write(f"const uint8_t kMusicLeadOnBitsPool[{len(lead_on_pool)}] = {{\n")
+        _emit_rows(f, lead_on_pool, 12)
         f.write("};\n\n")
-
-        _emit_bar_table(f, "kMusicLeadOnBits", *leadon_pat, rows_per_bar // 8, 12,
-                        "Lead gate, 1 bit per row LSB first. MUSIC_LEAD_ON(row)")
-        _emit_bar_table(f, "kMusicDrumBits", *drum_pat, rows_per_bar // 4, 12,
-                        "Drum hits, 2 bits per row. MUSIC_DRUM_AT(row)")
+        drum_pool, drum_offsets = concat_bars(*drum_pat)
+        f.write(f"// Drum hits, 2 bits per row. MUSIC_DRUM_AT(row): "
+                f"{len(drum_pat[0])} distinct bars of {bars} in "
+                f"{len(drum_pool)} bytes, instead of {len(drum_bits)}.\n")
+        f.write(f"const uint8_t kMusicDrumBitsPool[{len(drum_pool)}] = {{\n")
+        _emit_rows(f, drum_pool, 12)
+        f.write("};\n\n")
+        lanes = pack_lanes(lead_on_offsets, drum_offsets, bass_offsets)
+        f.write(f"// Where each bar's bass ((b & 0x60) >> 1), lead gate\n"
+                f"// ((b & 0x03) << 1) and drum (b & 0x1C) patterns start in their\n"
+                f"// pools: {bars} bytes instead of three {bars} byte bar indexes.\n")
+        f.write(f"const uint8_t kMusicBarLanes[{bars}] = {{\n")
+        _emit_rows(f, lanes, 12)
+        f.write("};\n\n")
 
         ins = music.INS
 

@@ -54,42 +54,30 @@ const uint8_t kMusicLeadStartBar[24] = {
      91, 103,  71,  57, 125,  31,   0,  51,  97,  65, 109,   8,
 };
 
-// Bass interval above the chord root + 1, 0 = no new note: 3 distinct bars of 24, pooled in 48 bytes, 72 bytes instead of 384.
+// Bass interval above the chord root + 1, 0 = no new note: 3 distinct bars of 24 in 48 bytes, instead of 384.
 const uint8_t kMusicBassStepPool[48] = {
-      1,   0,   1,   0,   1,   1,  13,   0,   1,   0,   8,   0,  13,   0,  11,  13,
       1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
       1,   0,   1,   0,   1,   0,  13,   0,   1,   0,   1,   0,   8,   0,  13,   0,
+      1,   0,   1,   0,   1,   1,  13,   0,   1,   0,   8,   0,  13,   0,  11,  13,
 };
 
-const uint8_t kMusicBassStepBar[24] = {
-     16,  16,  16,  16,  32,  32,  32,   0,  32,  32,  32,   0,
-     32,  32,  32,   0,  32,  32,  32,   0,  32,  32,  32,   0,
+// Lead gate, 1 bit per row LSB first. MUSIC_LEAD_ON(row): 3 distinct bars of 24 in 6 bytes, instead of 48.
+const uint8_t kMusicLeadOnBitsPool[6] = {
+      0,   0, 255, 255, 255,   0,
 };
 
-// Lead gate, 1 bit per row LSB first. MUSIC_LEAD_ON(row): 3 distinct bars of 24, 30 bytes instead of 48.
-const uint8_t kMusicLeadOnBitsPat[3][2] = {
-    {   0,   0 }, // pattern 0
-    { 255, 255 }, // pattern 1
-    { 255,   0 }, // pattern 2
+// Drum hits, 2 bits per row. MUSIC_DRUM_AT(row): 5 distinct bars of 24 in 20 bytes, instead of 96.
+const uint8_t kMusicDrumBitsPool[20] = {
+      0,   0,   0,   0,  51,  51,  51,  51,  49,  18,  49,  50,
+     49,  18,  17,  18,  49,  18,  17, 154,
 };
 
-const uint8_t kMusicLeadOnBitsBar[24] = {
-      0,   0,   0,   0,   1,   1,   1,   2,   1,   1,   1,   1,
-      1,   1,   1,   2,   1,   1,   1,   1,   1,   1,   1,   1,
-};
-
-// Drum hits, 2 bits per row. MUSIC_DRUM_AT(row): 5 distinct bars of 24, 44 bytes instead of 96.
-const uint8_t kMusicDrumBitsPat[5][4] = {
-    {   0,   0,   0,   0 }, // pattern 0
-    {  51,  51,  51,  51 }, // pattern 1
-    {  49,  18,  49,  50 }, // pattern 2
-    {  49,  18,  17,  18 }, // pattern 3
-    {  49,  18,  17, 154 }, // pattern 4
-};
-
-const uint8_t kMusicDrumBitsBar[24] = {
-      0,   0,   0,   0,   1,   1,   1,   1,   2,   2,   2,   3,
-      2,   2,   2,   4,   2,   2,   2,   3,   2,   2,   2,   4,
+// Where each bar's bass ((b & 0x60) >> 1), lead gate
+// ((b & 0x03) << 1) and drum (b & 0x1C) patterns start in their
+// pools: 24 bytes instead of three 24 byte bar indexes.
+const uint8_t kMusicBarLanes[24] = {
+      0,   0,   0,   0,  37,  37,  37,  70,  41,  41,  41,  77,
+     41,  41,  41,  82,  41,  41,  41,  77,  41,  41,  41,  81,
 };
 
 const music_instrument_t kMusicInsLead = { 5, 197, 64, 0, 0, 0 };

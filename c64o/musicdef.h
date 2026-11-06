@@ -68,13 +68,14 @@ extern const uint8_t kMusicChordBar[24];
 // where each starts there rather than which one it is.
 extern const uint8_t kMusicLeadStartPool[];
 extern const uint8_t kMusicLeadStartBar[24];
-// The bass's likewise, though its patterns do not overlap.
+// The bass, lead gate and drum patterns lie end to end in a pool
+// each, and one byte a bar holds where all three start, each read
+// with a mask: the drum's start is b & 0x1C, the bass's
+// (b & 0x60) >> 1 and the lead gate's (b & 0x03) << 1.
 extern const uint8_t kMusicBassStepPool[];
-extern const uint8_t kMusicBassStepBar[24];
-extern const uint8_t kMusicLeadOnBitsPat[][2];
-extern const uint8_t kMusicLeadOnBitsBar[24];
-extern const uint8_t kMusicDrumBitsPat[][4];
-extern const uint8_t kMusicDrumBitsBar[24];
+extern const uint8_t kMusicLeadOnBitsPool[];
+extern const uint8_t kMusicDrumBitsPool[];
+extern const uint8_t kMusicBarLanes[24];
 
 // The bar a row falls in, and the row within it.
 #define MUSIC_BAR_OF(row)   ((row) >> 4)
@@ -94,19 +95,20 @@ extern const uint8_t kMusicDrumBitsBar[24];
 // the few rhythm shapes the arrangement has. The player tests the
 // step and adds the root only when a note starts.
 #define MUSIC_BASS_STEP_IN(bar, r)  \
-    (kMusicBassStepPool[(uint8_t)(kMusicBassStepBar[bar] + (r))])
+    (kMusicBassStepPool[(uint8_t)(((kMusicBarLanes[bar] & 0x60) >> 1) + \
+                                  (r))])
 #define MUSIC_BASS_NOTE(bar, step)  \
     ((uint8_t)(MUSIC_CHORD(bar).root - 1 + (step)))
 #define MUSIC_BASS_START_IN(bar, r)  \
     (MUSIC_BASS_STEP_IN(bar, r) ? \
      MUSIC_BASS_NOTE(bar, MUSIC_BASS_STEP_IN(bar, r)) : 0)
 #define MUSIC_LEAD_ON_IN(bar, r)  \
-    ((kMusicLeadOnBitsPat[kMusicLeadOnBitsBar[bar]][(r) >> 3] \
-      >> ((r) & 7)) & 1)
+    ((kMusicLeadOnBitsPool[(uint8_t)(((kMusicBarLanes[bar] & 0x03) << 1) + \
+                                    ((r) >> 3))] >> ((r) & 7)) & 1)
 // 0 = none, 1 = kick, 2 = snare, 3 = hat.
 #define MUSIC_DRUM_AT_IN(bar, r)  \
-    ((kMusicDrumBitsPat[kMusicDrumBitsBar[bar]][(r) >> 2] \
-      >> (((r) & 3) << 1)) & 3)
+    ((kMusicDrumBitsPool[(uint8_t)((kMusicBarLanes[bar] & 0x1C) + \
+                                   ((r) >> 2))] >> (((r) & 3) << 1)) & 3)
 #define MUSIC_LEAD_START(row)  \
     MUSIC_LEAD_START_IN(MUSIC_BAR_OF(row), MUSIC_IN_BAR(row))
 #define MUSIC_BASS_START(row)  \

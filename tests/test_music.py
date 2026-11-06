@@ -200,34 +200,27 @@ class TestMusicData(unittest.TestCase):
         self.assertEqual(len(vals), size, f"{name} has {len(vals)} entries, expected {size}")
         return vals
 
-    def _bar_table(self, cc, name, per_bar):
-        """Rebuilds one flat per-row lane from its pattern array and bar index.
+    def _lane_table(self, cc, name, per_bar, start):
+        """Rebuilds one flat per-row lane from its pattern pool and
+        kMusicBarLanes, where start(b) is musicdef.h's mask for the lane:
+        where bar byte b says the bar's pattern starts in the pool.
 
         This is MUSIC_BAR_OF / MUSIC_IN_BAR applied by hand. If the split in
         musicdef.h ever changes shape, this is what notices.
         """
-        m = re.search(r'const uint8_t ' + name + r'Pat\[(\d+)\]\[' + str(per_bar)
-                      + r'\] = \{(.*?)\n\};', cc, re.S)
-        self.assertIsNotNone(m, f"{name}Pat[][{per_bar}] not found in musicdef.cc")
-        pats = [[int(x) for x in row.split(',') if x.strip()]
-                for row in re.findall(r'\{([^}]*)\}', m.group(2))]
-        self.assertEqual(len(pats), int(m.group(1)))
-        for pat in pats:
-            self.assertEqual(len(pat), per_bar, f"{name}Pat row is not {per_bar} long")
-        index = self._c_array(cc, name + "Bar", music.BARS)
-        for b in index:
-            self.assertLess(b, len(pats), f"{name}Bar points past {name}Pat")
-        return [v for b in index for v in pats[b]]
+        lanes = self._c_array(cc, "kMusicBarLanes", music.BARS)
+        return self._pool_table(cc, name, per_bar, [start(b) for b in lanes])
 
-    def _pool_table(self, cc, name, per_bar):
-        """Rebuilds one flat per-row lane from its pattern pool and the bar
-        index of where each bar's pattern starts in it."""
+    def _pool_table(self, cc, name, per_bar, index=None):
+        """Rebuilds one flat per-row lane from its pattern pool and where each
+        bar's pattern starts in it: `index`, or else the lane's own bar index."""
         m = re.search(r'const uint8_t ' + name + r'Pool\[(\d+)\] = \{(.*?)\n\};',
                       cc, re.S)
         self.assertIsNotNone(m, f"{name}Pool[] not found in musicdef.cc")
         pool = [int(x) for x in m.group(2).split(',') if x.strip()]
         self.assertEqual(len(pool), int(m.group(1)))
-        index = self._c_array(cc, name + "Bar", music.BARS)
+        if index is None:
+            index = self._c_array(cc, name + "Bar", music.BARS)
         for b in index:
             self.assertLessEqual(b + per_bar, len(pool),
                                  f"{name}Bar points past {name}Pool")
@@ -261,7 +254,8 @@ class TestMusicData(unittest.TestCase):
         self.assertEqual(unpacked_lead_start, lead_start)
         # The bass lane is the interval above the bar's chord root + 1;
         # MUSIC_BASS_START_IN adds the root back.
-        bass_step = self._pool_table(cc, "kMusicBassStep", rpb)
+        bass_step = self._lane_table(cc, "kMusicBassStep", rpb,
+                                     lambda b: (b & 0x60) >> 1)
         roots = [root for _name, root, _triad in t['chords']]
         unpacked_bass = [roots[r // rpb] - 1 + v if v else 0
                          for r, v in enumerate(bass_step)]
@@ -269,8 +263,10 @@ class TestMusicData(unittest.TestCase):
 
         # Lane 3 and 4: bar indexed *and* bit packed. MUSIC_LEAD_ON(row) and
         # MUSIC_DRUM_AT(row), spelled out.
-        lead_bits = self._bar_table(cc, "kMusicLeadOnBits", rpb // 8)
-        drum_bits = self._bar_table(cc, "kMusicDrumBits", rpb // 4)
+        lead_bits = self._lane_table(cc, "kMusicLeadOnBits", rpb // 8,
+                                     lambda b: (b & 0x03) << 1)
+        drum_bits = self._lane_table(cc, "kMusicDrumBits", rpb // 4,
+                                     lambda b: b & 0x1C)
         unpacked_lead = [(lead_bits[r >> 3] >> (r & 7)) & 1 for r in range(rows)]
         unpacked_drum = [(drum_bits[r >> 2] >> ((r & 3) * 2)) & 3 for r in range(rows)]
 
