@@ -604,3 +604,52 @@ world vertical plane rather than the body plane, so it is understated in a steep
 bank — the model is forgiving there, and a level 71° turn would become
 *harder*, not easier, with the correction in. Horizontal travel still uses the
 full airspeed rather than $\cos\gamma$ of it.
+
+## 8. It cannot loop, and it was reverted (2026-11-05)
+
+Held pull-up from level flight, the nose never gets past 65 degrees. A probe
+flew it from mission 10's start, 6,000 ft, at full throttle, with the pull key
+held every step:
+
+| entry | nose at most | flight path at most | after that |
+| :--- | :--- | :--- | :--- |
+| cruise, 2,176 | 52° | ~33° | settles ~20° nose up, stalled |
+| a dive, 3,003 | 65° | ~44° | settles ~28° nose up, stalled |
+| 3,840, induced drag /8 (`kFlightInducedShift` 9) | 67° | ~44° | the same |
+| 3,840, lift capped at 8 g (`kFlightLiftSat` 8192) | 60° | - | the same |
+
+Neither more lift nor less drag gets it there, because neither is the limit.
+The arcade model, with the same probe, loops from cruise in ~108 steps, over
+and over.
+
+**The flight path equation is a small-angle one.** `flight_gamma` integrates
+`net = lift * up.z - kFlightTrimLift`: the *vertical* part of the lift less
+the *whole* weight. The real equation, for a path in the vertical plane, is
+the lift across the path less the weight times $\cos\gamma$. They agree
+level, and part company as the nose comes up, because `up.z` falls with the
+pitch's cosine: near the vertical the lift points sideways and turns the path
+not at all, while the whole weight still pulls it back. At the 4 g cap the
+path stops curving where `up.z` is a quarter, ~75 degrees, even with no speed
+lost; with the speed the climb costs, much lower. At step 64 of the 3,003 run
+- airspeed 1,531, nose 61.5 degrees - the wing made 2.08 g, whose vertical
+part was 1 g exactly: `net` 0, where the real equation leaves ~1.3 g to curve
+the path with.
+
+**And there is nothing past the vertical to curve into.** `flight_gamma` is
+the climb's *sine*, clamped to +-4,096, and alpha is the difference of two
+sines in the world's vertical plane (§7, still open). Neither can say "past
+vertical, now going back the other way", which is what the top of a loop is.
+
+**The elevator law then holds the nose to the path.** A full pull reaches the
+stall angle within 4 steps, after which pitch up is refused while stalled
+(`flight_input()`), so the nose stays ~15 degrees above a path that has
+stopped climbing.
+
+A loop needs the flight path as a whole angle in the vertical plane, curved by
+the lift across it less $W\cos\gamma$, with a sine and cosine looked up: the
+wing's alpha, the climb, the stall and the step's movement all change, in
+both games, with fpilot's main region down to 83 B. Rather than that, both
+games went back to the arcade model, which freed 775 B in ppilot and 902 B in
+fpilot's main region (`flight.md` §1). The model stays in `flight.cc` behind
+`__FLIGHT_AOA__`, built with `make prg FLIGHT_AOA=1` and tested by
+`make -C c64o/test test-both`.

@@ -269,7 +269,9 @@ static const uint16_t kOpponent2000Ft = 0x0400;
 // kOpponentGiveUp: ~2.2 min at full throttle, a minute short of home. The
 // player has no rounds (gun.cc).
 //
-// 10, Combat patrol: at 6,000 ft, a pair at 2,700 hunting from 1.2 km behind.
+// 10, Combat patrol: at 6,000 ft, a pair at 2,400 hunting from 1.2 km behind:
+// just under full throttle's ~2,500, as the arcade flight model has no dive
+// past it to extend in. At 2,700 they caught a player running from them.
 //
 // The pairs are rows, of kOpponentPairs and kOpponentPaths alike, and
 // kOpponentWaves says which each mission sends.
@@ -287,7 +289,7 @@ static const opponent_pair_t kOpponentPairs[kOpponentRows] = {
     {2, kOpponentNoFail, 1700}, // 9: 07's second patrol.
     {4, kOpponentNoFail, 1600}, // 10: 08's square.
     {0, kOpponentNoFail, 1800}, // 11: 09's hunters.
-    {0, kOpponentNoFail, 2700}, // 12: 10's hunters.
+    {0, kOpponentNoFail, 2400}, // 12: 10's hunters.
 };
 static const opponent_path_t kOpponentPaths[kOpponentRows][kOpponentMax] = {
     // 0: 01's recon.

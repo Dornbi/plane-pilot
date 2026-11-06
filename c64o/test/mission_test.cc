@@ -89,10 +89,10 @@ static double along(const vec3_t &a, double dx, double dy, double dz) {
 // Holds height z by the climb rate: it asks for one in proportion to how far
 // off z it is, 1 for every 64 of flight_eye_z and at most 300 either way, and
 // nudges the nose towards that - which also makes it the climb and the
-// descent, at ~300. fpilot flies the angle-of-attack model, where the nose
-// sets the wing's angle: banging it up and down at the height itself, as
-// these pilots did for the arcade model, held the aircraft ~400 under its
-// level speed, and the recon at 5,000 ft was never caught.
+// descent, at ~300. In the angle-of-attack model the nose sets the wing's
+// angle: banging it up and down at the height itself, as these pilots once
+// did for the arcade model, held the aircraft ~400 under its level speed,
+// and the recon at 5,000 ft was never caught. The arcade model flies it too.
 static void hold_height(int32_t z) {
   int32_t want = std::clamp((z - flight_eye_z) / 0x40, (int32_t)-300, (int32_t)300);
   if (flight_vspeed < want - 20) {
@@ -306,7 +306,15 @@ static int dogfight(int m, double *closest, int min_m = 300) {
     const double range = bomber || calm ? 800 : 2000;
     // Throttled back on a target's tail inside 300 m: flying into it is a
     // crash. Not on the way up: 04's pair are that close from the start.
-    flight_throttle = up && ahead > 0 && d < 600 ? 10 : 24;
+    // Idle in the arcade model, which bleeds speed slowly: at 10 it overran
+    // 08's circling fighter at 2,250 against its 1,600, into it. The
+    // angle-of-attack model's drag does it at 10, and idle cost it 06.
+#ifdef __FLIGHT_AOA__
+    const uint8_t kClose = 10;
+#else
+    const uint8_t kClose = 0;
+#endif
+    flight_throttle = up && ahead > 0 && d < 600 ? kClose : 24;
     if (ahead < 0 && d < 1000) {
       extend = true;
     } else if (d > 2400) {
@@ -318,7 +326,18 @@ static int dogfight(int m, double *closest, int min_m = 300) {
         covered |= gunner_bears(i, 5);
       }
     }
-    bool aiming = up && ahead > 0 && ahead < 1600 && !covered;
+    // In the arcade model a bomber only from behind, going its way: met
+    // head-on, tracking it over the top at 100 m stood the aircraft, whose
+    // flight path goes where the nose does, on its tail at 283. The
+    // angle-of-attack model's lags, and it takes them head-on.
+#ifdef __FLIGHT_AOA__
+    const bool its_way = true;
+#else
+    const bool its_way = !bomber || (int32_t)flight_cam.front.x * _opponent_head[t].x +
+                                            (int32_t)flight_cam.front.y * _opponent_head[t].y >
+                                        0;
+#endif
+    bool aiming = up && ahead > 0 && ahead < 1600 && !covered && its_way;
     // Gear up once off the ground: down, it costs the angle-of-attack
     // model's wing ~140 of its top speed, and the extension below is won or
     // lost on that.
@@ -360,7 +379,11 @@ static int dogfight(int m, double *closest, int min_m = 300) {
     } else if (up) {
       // Under a bomber, where its rear gunner cannot bear.
       int32_t below = bomber ? (int32_t)kBelow << 9 : 0;
-      hold_height(extend ? kMinZ : std::max(_opponent_z[t] - below, kMinZ));
+      // Extending, it dives to kMinZ, but climbs to it only with the speed
+      // in hand: the arcade model's nose held up for 300 m bled it to ~800,
+      // with 04's pair 50 m behind all the way.
+      hold_height(extend ? (flight_speed > 1800 || flight_eye_z > kMinZ ? kMinZ : flight_eye_z)
+                         : std::max(_opponent_z[t] - below, kMinZ));
     }
     flight_advance();
     opponent_step();

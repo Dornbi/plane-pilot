@@ -363,7 +363,9 @@ int main() {
 
   // --- The stall warning (flight.h flight_stall_warning()) -----------------
   //
-  // fpilot flies the angle-of-attack model, where a turn held on the pull
+  // The angle-of-attack model's: the arcade model's warning is its stall
+  // flag, which flight_test holds to. In the angle-of-attack model a turn
+  // held on the pull
   // key, or a dive's pull-out, sits at the stall's angle at speed: the
   // buffet, which must not warn. A slow stall - wings level at idle, the top
   // of a zoom - must, and as one warning, not one an onset. Mission 05
@@ -371,6 +373,7 @@ int main() {
   // held whenever the wings are within 4 degrees of it, or only while
   // sinking; or a dive to front.z -180 for 8 s and the key held through the
   // pull-out; or the nose held at front.z 200 until the speed is gone.
+#ifdef __FLIGHT_AOA__
   enum { kHeld, kSinking, kPullOut, kZoom };
   {
     struct {
@@ -428,6 +431,7 @@ int main() {
     flight_advance();
     CHECK(!flight_stall_warning(), "stall warning: on the runway");
   }
+#endif
 
   if (_fails) {
     printf("fpilot_test: %d checks FAILED\n", _fails);

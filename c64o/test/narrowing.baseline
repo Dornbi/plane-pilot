@@ -33,7 +33,7 @@ flight.cc 10
 host_vec.cc 1
 mul_test.cc 1
 music_test.cc 5
-poly.cc 11
+poly.cc 9
 sound.cc 1
 sprites.cc 3
 sprites_test.cc 4

@@ -7,23 +7,28 @@ This document specifies the flight dynamics model requirements for the C64 fligh
 ### Two models, one build flag
 
 There are two flight models in `flight.cc`, selected by `__FLIGHT_AOA__`. **Both
-games ship the angle-of-attack model** (since 2026-11-04); the arcade model that
-shipped before it is still there, built with `make prg FLIGHT_AOA=0`:
+games ship the arcade model** (again, since 2026-11-05). The angle-of-attack
+model shipped in both from 2026-11-04 to 2026-11-05 and is still there, built
+with `make prg FLIGHT_AOA=1`, but it cannot fly a loop - its flight path stops
+curving before the vertical and cannot go over the top (`flight_aoa.md` §8) -
+so both went back:
 
-| | arcade (`FLIGHT_AOA=0`) | angle of attack (the default) |
+| | arcade (the default) | angle of attack (`FLIGHT_AOA=1`) |
 | :--- | :--- | :--- |
 | Lift | $f(V^2, \text{bank})$; `front.z` never enters it | $f(C_L(\alpha), V^2, \text{up.z})$ |
 | Airspeed points | along the nose, by definition | along its own flight path |
 | Stall | a speed the code is told | an angle; the speeds are derived |
-| ppilot's free RAM | 12,535 B | 11,677 B (**858 B** less) |
+| A held pull | loops, ~108 steps a loop from cruise | the nose tops out at 50-65 degrees |
+| ppilot's free RAM | 12,885 B | 12,110 B (**775 B** less) |
+| fpilot's main region free | 985 B | 83 B (**902 B** less) |
 
-The angle-of-attack model is the better aeroplane and the arcade one is the
-cheaper, which is the whole of the trade. Both are covered by the host suite -
-`make -C c64o/test test` runs the angle-of-attack model, `test-both` both -
-which carries two sets of expectations because for several cases they are
-opposites, and by a narrowing baseline each.
+The angle-of-attack model is the better aeroplane short of the vertical and
+the arcade one is the cheaper, which was the whole of the trade until the loop.
+Both are covered by the host suite - `make -C c64o/test test` runs the arcade
+model, `test-both` both - which carries two sets of expectations because for
+several cases they are opposites, and by a narrowing baseline each.
 
-**ppilot** follows `FLIGHT_AOA`, 1 unless it is set. That path keeps a
+**ppilot** follows `FLIGHT_AOA`, 0 unless it is set. That path keeps a
 `.flight_model` stamp the binary depends on, because make otherwise sees the
 same sources under the same name and hands back the binary it already had - a
 silent wrong answer, and the worst kind for a flag whose purpose is comparing
@@ -31,12 +36,28 @@ two things. `ppilota.prg`, ppilot with the angle-of-attack model under its own
 name, was built alongside the arcade ppilot until then; with ppilot on the same
 model it went.
 
-**fpilot** is always the angle-of-attack model: its rule in `c64o/Makefile`
-passes `-D__FLIGHT_AOA__` whatever `FLIGHT_AOA` is, and its host tests
-(`opponent_test`, `gun_test`, `fpilot_test`, `mission_test`) are built with it
-the same way. It cost 804 B: fpilot went from 2,262 to 1,458 B free, its
-largest run from 1,532 to 734 B. The switch took retuning `mission_test`'s
-scripted pilots, not the missions:
+**fpilot** follows `FLIGHT_AOA` as ppilot does, on the same stamp, and so do
+its host tests (`opponent_test`, `gun_test`, `fpilot_test`, `mission_test`).
+Until 2026-11-05 it was always the angle-of-attack model. Back on the arcade
+model `fpilot_test`'s stall-warning cases, which hold the angle-of-attack
+model's buffet to not warning, are built only with it, and `mission_test`'s
+dogfight pilot flies the arcade model differently where it has to:
+
+- **Extending climbs only with speed.** Holding the nose up for the 300 m
+  floor bled it to ~800 with 04's pair 50 m behind; it dives to the floor
+  but climbs to it only above 1,800.
+- **Idle on a close tail.** The arcade model sheds speed slowly: at 10 it
+  overran 08's circling fighter, 2,250 against its 1,600, into it.
+- **Bombers from behind only.** Its flight path goes where the nose does, so
+  tracking 06's bombers over the top head-on stood it on its tail at 283.
+
+And one mission changed: 10's hunters fly at 2,400, not 2,700. The arcade
+model has no dive past full throttle's ~2,500, so at 2,700 they ran down a
+player who extended from them.
+
+The switch to the angle-of-attack model, on 2026-11-04, had cost 804 B -
+fpilot went from 2,262 to 1,458 B free, its largest run from 1,532 to 734 B -
+and took retuning the scripted pilots for it, not the missions:
 
 - **Height by climb rate.** Holding height by flicking the nose at it bled
   ~400 of airspeed through induced drag - level at 5,000 ft the aircraft
@@ -50,11 +71,12 @@ scripted pilots, not the missions:
   for half a minute; descending to the pilot's floor clears it, and it
   turns back at 1.2 km rather than 1.5.
 
-With those, every mission is won as before: the recon caught with 3.3 min
+With those, every mission was won as before: the recon caught with 3.3 min
 in hand and shot down at 2.6 min, the bombers down at 3.2 min, the scramble
 at 2.6 min unhit, the head-on pair at 2.0 min with one hit taken.
 
-**Everything from §2 on describes the angle-of-attack model** unless it says
+**Everything from §2 on describes the angle-of-attack model**, which no longer
+ships, unless it says
 otherwise, because that is the model these sections were written against and
 measured on. Where the arcade model differs, the difference is called out - and
 it usually is the difference, since almost every number here moved.

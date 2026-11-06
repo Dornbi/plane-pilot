@@ -8,10 +8,10 @@ HOST_CC = g++
 # suite has to pass either way - flight_test.cc carries both sets of
 # expectations because for several cases they are opposites.
 #
-#   make test               the angle-of-attack model, which is what ships
-#   make test FLIGHT_AOA=0  the arcade model
+#   make test               the arcade model, which is what ships
+#   make test FLIGHT_AOA=1  the angle-of-attack model
 #   make test-both          one after the other
-FLIGHT_AOA ?= 1
+FLIGHT_AOA ?= 0
 ifeq ($(FLIGHT_AOA),1)
 FLIGHT_MODEL = -D__FLIGHT_AOA__
 endif
@@ -146,10 +146,8 @@ GUN_TEST_SRC = gun_test.cc ../vec.cc ../vec_lut.cc ../fmath.cc ../spritedef.cc
 GUN_TEST_HDRS = ../gun.cc ../gun.h ../damage.h ../opponent.h ../vec.h ../flight.h ../sprites.h \
 		../spritedef.h ../world.h ../mem.h ../color.h
 
-# fpilot's flight model is always the angle-of-attack one - its rule in
-# ../Makefile passes -D__FLIGHT_AOA__ whatever FLIGHT_AOA is - so its tests
-# put __FLIGHT_AOA__ in whatever the rest are built with.
-FPILOT_CFLAGS = $(filter-out -D__FLIGHT_AOA__,$(HOST_CFLAGS)) -D__FLIGHT_AOA__ -D__FPILOT__
+# fpilot follows FLIGHT_AOA as ppilot does (../Makefile).
+FPILOT_CFLAGS = $(HOST_CFLAGS) -D__FPILOT__
 
 # fpilot_test links flight.cc as fpilot builds it, with fmission.cc and
 # __FPILOT__, for the two levels of completing a mission; what it would ask

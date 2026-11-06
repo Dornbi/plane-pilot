@@ -40,8 +40,8 @@ https://github.com/Dornbi/plane-pilot/raw/refs/heads/main/bin/ppilot.prg
 
 Alternatively, download the binary and upload it to any of the online or offline emulators:
 
-- [ppilot.prg](bin/ppilot.prg) — the whole game: sound effects, music, the angle-of-attack flight model, and the debug view behind `D`
-- [fpilot.prg](bin/fpilot.prg) — Fighter Pilot, a combat variant in the making: ten missions against fighters and bombers - some in waves - that hunt you, strafe the airfield and shoot back, with damage that builds up hit by hit; the angle-of-attack flight model, and no debug view
+- [ppilot.prg](bin/ppilot.prg) — the whole game: sound effects, music, the arcade flight model, and the debug view behind `D`
+- [fpilot.prg](bin/fpilot.prg) — Fighter Pilot, a combat variant in the making: ten missions against fighters and bombers - some in waves - that hunt you, strafe the airfield and shoot back, with damage that builds up hit by hit; the arcade flight model, and no debug view
 
 Emulators:
 
@@ -106,6 +106,12 @@ The help screen (`H`) is also available from the main menu.
 See [docs/development.md](docs/development.md) for more details.
 
 ## Updates
+
+### 2026-11-05
+
+- ppilot and fpilot are back on the arcade flight model, which can fly a loop:
+  the angle-of-attack model's flight path could not get past the vertical
+  ([docs/flight_aoa.md](docs/flight_aoa.md) §8).
 
 ### 2026-11-04
 

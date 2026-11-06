@@ -1,14 +1,14 @@
 OSCAR64_INCLUDE=../../../oscar64-main/include
 
-# Which flight model ppilot is built with (docs/flight.md 1). The
-# angle-of-attack model ships, in ppilot and fpilot alike; the arcade model
-# that shipped before it is still in flight.cc, behind __FLIGHT_AOA__, and
-# still covered by the host suite - `make -C c64o/test test-both`. fpilot
-# does not follow this: it is always the angle-of-attack model.
+# Which flight model ppilot and fpilot are built with (docs/flight.md 1). The
+# arcade model ships, in both. The angle-of-attack model shipped from
+# 2026-10 to 2026-11-05 and is still in flight.cc, behind __FLIGHT_AOA__, and
+# still covered by the host suite - `make -C c64o/test test-both` - but it
+# cannot fly a loop (docs/flight_aoa.md 8), so it is back to the arcade one.
 #
-#   make prg               the angle-of-attack model
-#   make prg FLIGHT_AOA=0  ppilot with the arcade model
-FLIGHT_AOA ?= 1
+#   make prg               the arcade model
+#   make prg FLIGHT_AOA=1  both with the angle-of-attack model
+FLIGHT_AOA ?= 0
 ifeq ($(FLIGHT_AOA),1)
 FLIGHT_MODEL = -D__FLIGHT_AOA__
 endif
@@ -26,8 +26,8 @@ PPILOT_PROGRAM = ppilot
 # and missions of its own. Also built from ppilot.cc, with -D__FPILOT__, which
 # swaps pmission.cc for fmission.cc (mission.h), puts its own name on the menu,
 # embeds fpanel's art for ppanel's (view.cc) and adds the other aircraft
-# (opponent.h, docs/planes.md). The angle-of-attack flight model, always -
-# it does not follow FLIGHT_AOA (docs/flight.md 1).
+# (opponent.h, docs/planes.md). The flight model is FLIGHT_AOA's, as
+# ppilot's.
 #
 # No debug view: it is built without $(DEBUG) whatever that is set to, so the
 # D key, the stage counters behind it and the code that prints them are not
@@ -318,11 +318,8 @@ $(PPILOT_PROGRAM).prg: $(PPILOT_SRC) $(PPANEL_LZO) $(FLIGHT_STAMP)
 	@$(ROMCHECK) $(PPILOT_PROGRAM).asm
 	@$(BOOTCHECK) $(PPILOT_PROGRAM).asm
 
-# Not on FLIGHT_STAMP: its model is fixed, whatever FLIGHT_AOA is; the stamp
-# exists for ppilot, which moves from one model to the other under a name
-# that does not change.
-$(FPILOT_PROGRAM).prg: $(PPILOT_SRC) $(OPPONENT_SRC) fpanel.koa $(FPANEL_LZO)
-	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(CLOUDS) -D__FPILOT__ -D__FLIGHT_AOA__ -D__MAX_RAM__ -o=$(FPILOT_PROGRAM).prg ppilot.cc
+$(FPILOT_PROGRAM).prg: $(PPILOT_SRC) $(OPPONENT_SRC) fpanel.koa $(FPANEL_LZO) $(FLIGHT_STAMP)
+	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(CLOUDS) $(FLIGHT_MODEL) -D__FPILOT__ -D__MAX_RAM__ -o=$(FPILOT_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(FPILOT_PROGRAM).asm
 	@$(IRQCHECK) $(FPILOT_PROGRAM).asm
 	@$(MATHCHECK) $(FPILOT_PROGRAM).asm

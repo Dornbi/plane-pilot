@@ -23,12 +23,12 @@ make prg
 
 If everything goes well it builds these executables into `c64o/`:
 
-- `ppilot.prg`: The game. Sound, music, the angle-of-attack flight model and
-  the debug view behind `D`. `make prg FLIGHT_AOA=0` builds it with the arcade
-  model instead ([flight.md](flight.md) §1).
+- `ppilot.prg`: The game. Sound, music, the arcade flight model and the debug
+  view behind `D`. `make prg FLIGHT_AOA=1` builds it, and fpilot, with the
+  angle-of-attack model instead ([flight.md](flight.md) §1).
 - `fpilot.prg`: Fighter Pilot, the combat variant. Built from the same
   `ppilot.cc` with `-D__FPILOT__`, which swaps the mission table for the one
-  in `fmission.cc` (three missions), renames the menu, and adds the other
+  in `fmission.cc` (ten missions), renames the menu, and adds the other
   aircraft of [planes.md](planes.md) (`opponent.cc`; `-D__NO_OPPONENT__` leaves
   them out). It has no debug view: the build leaves out `-D__ENABLE_DEBUG__`,
   for the RAM.
