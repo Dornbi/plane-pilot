@@ -1153,8 +1153,9 @@ Shot down now means falling, not stopping:
 
 - **Opponents.** The third hit says TARGET DESTROYED and the aircraft falls
   (`_opponent_fall()`): drawn 60 degrees nose down (a new kOpponentDive
-  pitch), moving along its heading and down at 1.5 times its speed, ~56
-  degrees, trailing its smoke. Half of them, by the random byte, also spin:
+  pitch), moving along its heading and down at three quarters of its
+  speed, ~37 degrees, trailing its smoke. *Since 2026-11-05:* it was 1.5
+  times, ~56 degrees, and fell out of sight too quickly. Half of them, by the random byte, also spin:
   the heading turned a quarter each whole step and the wings drawn at 60
   degrees. It neither flies its path nor fires, and takes no more hits. It
   is down - towards WP_TARGETS_DOWN, with the longer smoke where it fell -

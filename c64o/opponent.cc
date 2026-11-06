@@ -1190,12 +1190,13 @@ static void _opponent_fail(void) {
 }
 
 // One step of slot i falling, drawn at kOpponentDive, 60 degrees nose down:
-// along its heading at its speed, and down at one and a half times it -
-// ~56 degrees, near enough what is drawn, and from 5,000 ft ~25 s; spinning,
+// along its heading at its speed, and down at three quarters of it - ~37
+// degrees, and from 5,000 ft ~50 s. At one and a half times it, ~56
+// degrees, it was gone from sight too quickly (2026-11-05); spinning,
 // its heading turned a quarter each whole step, ~1.5 turns a second, and
 // the wings drawn at 60 degrees. Its smoke trails it all the way, and where
 // it hits the ground it is down.
-static const int16_t kOpponentFallZ = -384;
+static const int16_t kOpponentFallZ = -192;
 static __noinline void _opponent_fall(uint8_t i, bool whole) {
   uint8_t bit = _opponent_bit(i);
   vec3_t *h = &_opponent_head[i];
