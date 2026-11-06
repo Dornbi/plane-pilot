@@ -101,7 +101,7 @@ static const uint8_t kToggleKeys[] = {
 #ifdef __ENABLE_DEBUG__
     KSCAN_D,
 #endif
-    KSCAN_N, KSCAN_F, KSCAN_G,
+    KSCAN_F, KSCAN_G, KSCAN_N,
 #ifdef __ENABLE_SOUND__
     KSCAN_V,
 #endif
@@ -121,16 +121,21 @@ static const uint8_t kToggleKeyCount = sizeof(kToggleKeys);
 static const uint8_t kToggleKeyP = 0x01;
 #ifdef __ENABLE_DEBUG__
 static const uint8_t kToggleKeyD = kToggleKeyP << 1;
-static const uint8_t kToggleKeyN = kToggleKeyD << 1;
+static const uint8_t kToggleKeyF = kToggleKeyD << 1;
 #else
-static const uint8_t kToggleKeyN = kToggleKeyP << 1;
+static const uint8_t kToggleKeyF = kToggleKeyP << 1;
 #endif
-static const uint8_t kToggleKeyF = kToggleKeyN << 1;
 static const uint8_t kToggleKeyG = kToggleKeyF << 1;
+static const uint8_t kToggleKeyN = kToggleKeyG << 1;
 #ifdef __ENABLE_SOUND__
-static const uint8_t kToggleKeyV = kToggleKeyG << 1;
+static const uint8_t kToggleKeyV = kToggleKeyN << 1;
 #endif
 static_assert(sizeof(kToggleKeys) <= 8, "toggle mask is one byte");
+// F, G and N are adjacent bits and their inputs adjacent values, so one loop
+// passes each edge on as its input, in that order.
+static_assert(FLIGHT_INPUT_TOGGLE_GEAR == FLIGHT_INPUT_TOGGLE_FLAP + 1 &&
+                  FLIGHT_INPUT_TOGGLE_NAV == FLIGHT_INPUT_TOGGLE_FLAP + 2,
+              "the toggle inputs follow kToggleKeys");
 
 // The held-down flight and view keys. A table plus one loop rather than a dozen
 // `if (key_pressed(K)) flight_input(I);` pairs: each pair costs a JSR, a
@@ -227,15 +232,14 @@ void sim_run(uint8_t selected_mission) {
       view_update_view(VIEW_CENTER);
       mem_switch_debug(false);
     }
-    if (toggle_edges & kToggleKeyF) {
-      flight_input(FLIGHT_INPUT_TOGGLE_FLAP);
-    }
-    if (toggle_edges & kToggleKeyG) {
-      flight_input(FLIGHT_INPUT_TOGGLE_GEAR);
-    }
-    if (toggle_edges & kToggleKeyN) {
-      flight_input(FLIGHT_INPUT_TOGGLE_NAV);
-    }
+    uint8_t edges = toggle_edges;
+    uint8_t toggle = FLIGHT_INPUT_TOGGLE_FLAP;
+    do {
+      if (edges & kToggleKeyF) {
+        flight_input((enum flight_input_t)toggle);
+      }
+      edges >>= 1;
+    } while (++toggle <= FLIGHT_INPUT_TOGGLE_NAV);
     for (uint8_t i = 0; i < kHeldKeyCount; ++i) {
       if (keys_pressed(kHeldKeys[i].scan)) {
         uint8_t input = kHeldKeys[i].input;

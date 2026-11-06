@@ -99,6 +99,10 @@ and `kToggleKeys` - and two loops. Later the four view keys (1-4) joined
 `view_update_view()` for them (−39 B in fpilot). The toggle loop then moved
 into `keys.cc` as `keys_scan(keys, count)`, entry i to bit i, which the menu's
 key table and the help screen's exit keys and V share (−40 B in fpilot).
+F, G and N sit in adjacent bits of `kToggleKeys`, in the order of their
+adjacent flight inputs (`FLIGHT_INPUT_TOGGLE_FLAP`, `_GEAR`, `_NAV`,
+static_asserted), so one loop passes each edge on as its input instead of three
+spelt-out `if (edges & mask) flight_input(I);` blocks (−10 B in fpilot).
 
 The `kToggleKey*` bit masks moved out of the function body to sit beside the
 table they now index into, with the `__ENABLE_DEBUG__` and `__ENABLE_SOUND__`
