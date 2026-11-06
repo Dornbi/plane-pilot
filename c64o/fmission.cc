@@ -1,5 +1,7 @@
 #include "mission.h"
 
+#include "print.h"
+
 // fpilot's missions. The tables are pmission.cc's, with the same names and the
 // same encoding - see mission.h - so everything that reads them is shared;
 // all but the start speed and throttle, which follow from the start height.
@@ -73,27 +75,50 @@ const char *const kMissionTitles[kMissionCount] = {
     "10 COMBAT PATROL",   // 10
 };
 
+// With print.h's PRINT_* words, which print_lines() spells out: each line's
+// text is in its comment.
+// clang-format off
 const char *const kMissionDesc[kMissionCount] = {
-    "A RECON PLANE IS COMING IN HIGH.\n"  // 01
-    "INTERCEPT IT BEFORE IT ESCAPES.",    //
-    "BOMBERS ARE RAIDING THE CITY!\n"     // 02
-    "CATCH THEM BEFORE THEY DO DAMAGE.",  //
-    "AMBUSH THE ENEMY BASE AND DESTROY\n" // 03
-    "THE PARKED PLANES.",                 //
-    "BANDITS ARE ATTACKING THE FIELD.\n"  // 04
-    "DEFEND IT AS QUICKLY AS YOU CAN!",   //
-    "TWO FIGHTERS ARE COMING STRAIGHT\n"  // 05
-    "AT YOU. SHOOT THEM DOWN!",           //
-    "BOMBERS KEEP COMING AT THE CITY.\n"  // 06
-    "SHOOT DOWN AT LEAST HALF OF THEM!",  //
-    "FLY HOME AND LAND, AVOIDING\n"       // 07
-    "THE ENEMY PATROLS.",                 //
-    "FIGHTERS ARE CIRCLING A FIELD.\n"    // 08
-    "SHOOT DOWN AT LEAST FIVE!",          //
-    "NO AMMO, AND TWO ON YOUR TAIL.\n"    // 09
-    "OUTRUN THEM, THEN LAND.",            //
-    "HIGH PATROL. CHECK YOUR SIX!",       // 10
+    // 01 A RECON PLANE IS COMING IN HIGH.
+    //    INTERCEPT IT BEFORE IT ESCAPES.
+    "A RECON PLANE IS " PRINT_COMING "IN HIGH.\n"
+    "INTERCEPT IT " PRINT_BEFORE " IT ESCAPES.",
+    // 02 BOMBERS ARE RAIDING THE CITY!
+    //    CATCH THEM BEFORE THEY DO DAMAGE.
+    PRINT_BOMBERS "ARE RAIDING" PRINT_THE " CITY!\n"
+    "CATCH" PRINT_THE "M " PRINT_BEFORE PRINT_THE "Y DO DAMAGE.",
+    // 03 AMBUSH THE ENEMY BASE AND DESTROY
+    //    THE PARKED PLANES.
+    "AMBUSH" PRINT_THE PRINT_ENEMY "BASE" PRINT_AND "DESTROY\n"
+    "THE PARKED PLANES.",
+    // 04 BANDITS ARE ATTACKING THE FIELD.
+    //    DEFEND IT AS QUICKLY AS YOU CAN!
+    "BANDITS ARE ATTACKING" PRINT_THE " FIELD.\n"
+    "DEFEND IT AS QUICKLY AS" PRINT_YOU " CAN!",
+    // 05 TWO FIGHTERS ARE COMING STRAIGHT
+    //    AT YOU. SHOOT THEM DOWN!
+    "TWO " PRINT_FIGHTERS PRINT_COMING "STRAIGHT\n"
+    "AT" PRINT_YOU ". SHOOT" PRINT_THE "M DOWN!",
+    // 06 BOMBERS KEEP COMING AT THE CITY.
+    //    SHOOT DOWN AT LEAST HALF OF THEM!
+    PRINT_BOMBERS "KEEP " PRINT_COMING "AT" PRINT_THE " CITY.\n"
+    PRINT_SHOOT_DOWN "HALF OF" PRINT_THE "M!",
+    // 07 FLY HOME AND LAND, AVOIDING
+    //    THE ENEMY PATROLS.
+    "FLY HOME" PRINT_AND "LAND, AVOIDING\n"
+    "THE" PRINT_ENEMY "PATROLS.",
+    // 08 FIGHTERS ARE CIRCLING A FIELD.
+    //    SHOOT DOWN AT LEAST FIVE!
+    PRINT_FIGHTERS "CIRCLING A FIELD.\n"
+    PRINT_SHOOT_DOWN "FIVE!",
+    // 09 NO AMMO, AND TWO ON YOUR TAIL.
+    //    OUTRUN THEM, THEN LAND.
+    "NO AMMO," PRINT_AND "TWO ON" PRINT_YOU "R TAIL.\n"
+    "OUTRUN" PRINT_THE "M," PRINT_THE "N LAND.",
+    // 10 HIGH PATROL. CHECK YOUR SIX!
+    "HIGH PATROL. CHECK" PRINT_YOU "R SIX!",
 };
+// clang-format on
 
 // Where each starts: close enough to its targets that they are on screen,
 // if only as the dot, within 10 s of flying straight on - 20 s of the

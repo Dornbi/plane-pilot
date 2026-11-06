@@ -21,22 +21,23 @@
 // One blob rather than parallel key/description arrays: print_lines() walks
 // it directly, so there is no pointer table and no per-row loop below. A
 // '\t' after each key pads it to print_lines()' kPrintTabCol, so the
-// descriptions line up in one column without the padding stored.
+// descriptions line up in one column without the padding stored, and the
+// words print.h has, its PRINT_*, are a byte each.
 // clang-format off
 static const char kHelpText[] =
-    "I J K L\tROLL AND PITCH\n"
+    "I J K L\tROLL" PRINT_AND "PITCH\n"
     "A S\tYAW\n"
     "+ -\tTHROTTLE UP/DOWN\n"
-    "F\tTOGGLE FLAPS\n"
-    "G\tTOGGLE GEAR\n"
+    "F\t" PRINT_TOGGLE "FLAPS\n"
+    "G\t" PRINT_TOGGLE "GEAR\n"
     "B\tBRAKE ON GROUND\n"
 #ifdef __ENABLE_OPPONENT__
     "SPACE\tFIRE\n"
 #endif
     "\n"
     "1 2 3 4\tLOOK LEFT/FWD/RIGHT/BACK\n"
-    "N\tTOGGLE NAV POINT\n"
-    "M\tTOGGLE MAP VIEW\n"
+    "N\t" PRINT_TOGGLE "NAV POINT\n"
+    "M\t" PRINT_TOGGLE "MAP VIEW\n"
     "P\tPAUSE / RESUME\n"
 #ifdef __ENABLE_SOUND__
     "V\tSOUND FULL / LOW / OFF\n"
@@ -45,7 +46,7 @@ static const char kHelpText[] =
     "Q\tQUIT TO MENU\n"
 #ifdef __ENABLE_DEBUG__
     "\n"
-    "D\tTOGGLE DEBUG VIEW\n"
+    "D\t" PRINT_TOGGLE "DEBUG VIEW\n"
 #endif
     "\n"
     "H\tSHOW THIS HELP SCREEN";

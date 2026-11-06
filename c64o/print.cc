@@ -88,16 +88,47 @@ void print_labeled_hex(uint16_t pos, const char *label, uint32_t value,
   print_hex(pos + len, value, num_digits);
 }
 
-// A byte at a time: no strchr() and strlen() over each line first.
+// print.h's PRINT_* words, in their order, each ended by its 0. A PRINT_* is
+// kPrintWord plus one more than its word's offset: w below, which is 0 while
+// no word is being printed.
+// clang-format off
+static const char kPrintWords[] =
+    PRINT_WORD_THE "\0"
+    PRINT_WORD_AND "\0"
+    PRINT_WORD_YOU "\0"
+    PRINT_WORD_TOGGLE "\0"
+    PRINT_WORD_COMING "\0"
+    PRINT_WORD_BOMBERS "\0"
+    PRINT_WORD_FIGHTERS "\0"
+    PRINT_WORD_SHOOT_DOWN "\0"
+    PRINT_WORD_ENEMY "\0"
+    PRINT_WORD_BEFORE;
+// clang-format on
+
+// A byte at a time: no strchr() and strlen() over each line first. A word is
+// printed by the same loop, from kPrintWords, until its 0.
 uint8_t print_lines(uint8_t row, uint8_t col, const char *text) {
   uint8_t c = 1, x = col;
   uint8_t *dst = mem_screen_row_ptrs[row];
+  uint8_t w = 0;
   for (;;) {
-    char ch = *text++;
-    if (ch == 0) {
-      return c;
+    char ch;
+    if (w != 0) {
+      ch = kPrintWords[w - 1];
+      ++w;
+    } else {
+      ch = *text++;
+      if ((uint8_t)ch >= kPrintWord) {
+        w = (uint8_t)ch - kPrintWord;
+        continue;
+      }
     }
-    if (ch == '\n') {
+    if (ch == 0) {
+      if (w == 0) {
+        return c;
+      }
+      w = 0;
+    } else if (ch == '\n') {
       dst = mem_screen_row_ptrs[++row];
       x = col;
       ++c;
