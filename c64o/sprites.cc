@@ -132,14 +132,22 @@ static_assert(kSpriteStackSize * sizeof(sprite_cand_t) < 256,
               "the candidates' byte offsets fit in uint8_t");
 #define SPRITE_CAND(o) ((sprite_cand_t *)((uint8_t *)_sprites_cand + (o)))
 
-// Whether this frame carries the orientation indicator. One flag and no
-// position: the marker does not move - see sprites_set_orientation().
-static bool _sprites_orient_on;
+// Any value but 0: a frame that never sets the two below shows neither.
+static const uint8_t kSpritesOff = 0xFF;
 
-// The same, for the tail fin - see sprites_set_fin(). The two are mutually
-// exclusive by construction, since one is the front view and the other the
-// back, but nothing here relies on that: they own different sprite indices.
-static bool _sprites_fin_on;
+// Whether this frame carries the orientation indicator, 0 if it does: the
+// view sprites_set_orientation() saw, XOR VIEW_CENTER, and kSpritesOff until
+// it is called - from the start too, so a commit before any reset shows
+// nothing. No position: the marker does not move. Kept the other way up from
+// a flag because `on = view_state == VIEW_CENTER` compiles to a compare and
+// two loads, 16 B, where the XOR is one EOR on the view.
+static uint8_t _sprites_orient_off = kSpritesOff;
+
+// The same, for the tail fin - see sprites_set_fin(): view_state XOR
+// VIEW_BACK. The two are mutually exclusive by construction, since one is the
+// front view and the other the back, but nothing here relies on that: they
+// own different sprite indices.
+static uint8_t _sprites_fin_off = kSpritesOff;
 
 // Double buffered, and that is not optional. _gfx_switch_to_terrain() reads the
 // frame from an interrupt at raster 250 while sprites_stack_commit() writes it
@@ -332,8 +340,8 @@ static bool _sprites_hidden_by_msg(int16_t x, uint8_t vy, uint8_t width) {
 
 void sprites_stack_reset(void) {
   _sprites_cand_end = 0;
-  _sprites_orient_on = false;
-  _sprites_fin_on = false;
+  _sprites_orient_off = kSpritesOff;
+  _sprites_fin_off = kSpritesOff;
 }
 
 bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
@@ -501,7 +509,7 @@ static const uint8_t kSpriteOrientVY =
 // The test is here rather than at the call site so that no caller can put the
 // mark in a side or back view by forgetting it.
 void sprites_set_orientation(void) {
-  _sprites_orient_on = view_state == VIEW_CENTER;
+  _sprites_orient_off = view_state ^ VIEW_CENTER;
 }
 
 // --- The tail fin -----------------------------------------------------------
@@ -686,7 +694,7 @@ static void _sprites_draw_fin(void) {
 //
 // Per frame, like the stack and the mark: sprites_stack_reset() clears this,
 // world.cc sets it, sprites_stack_commit() publishes it.
-void sprites_set_fin(void) { _sprites_fin_on = view_state == VIEW_BACK; }
+void sprites_set_fin(void) { _sprites_fin_off = view_state ^ VIEW_BACK; }
 
 void sprites_stack_commit(void) {
   // Main line, so a pointer is fine here - the restriction above is on the
@@ -701,7 +709,7 @@ void sprites_stack_commit(void) {
   // assignments are for.
   uint8_t idx = kSpriteStackFirst;
   uint8_t bit = 1 << kSpriteStackFirst;
-  if (_sprites_fin_on) {
+  if (_sprites_fin_off == 0) {
     idx = kSpriteFinFirst + kSpriteFinCount;
     bit = 1 << (kSpriteFinFirst + kSpriteFinCount);
   }
@@ -779,7 +787,7 @@ void sprites_stack_commit(void) {
   uint8_t orient_x = 0, orient_y = 0;
   uint8_t orient_ptr = kSpriteDefSun.bitmap_idx;
   uint8_t orient_color = kColorInstrument;
-  if (_sprites_orient_on) {
+  if (_sprites_orient_off == 0) {
     orient_x = kSpriteOrientVX;
     orient_y = kSpriteOrientVY;
     orient_ptr = kSpriteDefOrient.bitmap_idx;
@@ -795,7 +803,7 @@ void sprites_stack_commit(void) {
   // parked 0 - so it is written last, and reaches the same frame whether the
   // stack overflowed or was empty. One pointer variable rather than a table: the top sprite is the tip
   // and everything below it is the shaft, which is the whole of the art.
-  if (_sprites_fin_on) {
+  if (_sprites_fin_off == 0) {
     uint8_t sy = kSpriteFinTopVY;
     uint8_t ptr = kFinSpriteBlock;
     for (uint8_t i = kSpriteFinFirst; i < kSpriteFinFirst + kSpriteFinCount;
