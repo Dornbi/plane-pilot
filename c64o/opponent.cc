@@ -469,9 +469,11 @@ static_assert(kOpponentClimbCost % kOpponentLevelAccel == 0,
 // The pitch drawn by climb level + 3: the sine and cosine of the slope's
 // angle, atan(1/8), atan(1/4) and atan(1/2), 8.8. Level's cosine (256) is
 // unused: _opponent_axes() skips _opponent_rot() there.
-// And after them, kOpponentDive's: 60 degrees nose down, shot down.
-static const int16_t kOpponentPitchSin[8] = {-114, -62, -32, 0, 32, 62, 114, -222};
-static const uint8_t kOpponentPitchCos[8] = {229, 248, 254, 0, 254, 248, 229, 128};
+// And after them, kOpponentDive's: ~37 degrees nose down, shot down - a
+// slope of 3/4, the one _opponent_fall() descends at, so sine 0.6 and
+// cosine 0.8.
+static const int16_t kOpponentPitchSin[8] = {-114, -62, -32, 0, 32, 62, 114, -154};
+static const uint8_t kOpponentPitchCos[8] = {229, 248, 254, 0, 254, 248, 229, 205};
 static const int8_t kOpponentDive = 4;
 
 // The bank while turning, drawn only, by the turn + 2: cos and sin of 30
@@ -1189,10 +1191,11 @@ static void _opponent_fail(void) {
   }
 }
 
-// One step of slot i falling, drawn at kOpponentDive, 60 degrees nose down:
-// along its heading at its speed, and down at three quarters of it - ~37
-// degrees, and from 5,000 ft ~50 s. At one and a half times it, ~56
-// degrees, it was gone from sight too quickly (2026-11-05); spinning,
+// One step of slot i falling, drawn at kOpponentDive, ~37 degrees nose
+// down: along its heading at its speed, and down at three quarters of it -
+// that same ~37 degrees, and from 5,000 ft ~50 s. At one and a half times
+// it, ~56 degrees and drawn at 60, it was gone from sight too quickly
+// (2026-11-05); spinning,
 // its heading turned a quarter each whole step, ~1.5 turns a second, and
 // the wings drawn at 60 degrees. Its smoke trails it all the way, and where
 // it hits the ground it is down.
