@@ -2,7 +2,7 @@
 // the two levels of completing one (mission.h).
 //
 // GOALS COMPLETED! when every opponent is down, which marks the mission once
-// in the menu; MISSION COMPLETED! when the pilot then lands on runway 1,
+// in the menu; MISSION COMPLETE! when the pilot then lands on runway 1,
 // which marks it twice. A later attempt that gets only as far as the goals
 // keeps the two. And every mission has its two navpoints, the targets' and
 // runway 1's, in that order, selected as "TARGET" and "HOME BASE".
@@ -118,7 +118,7 @@ int main() {
     flight_current_wp = wp;
     flight_advance();
     CHECK(mission_completed[m] == kMissionCompleted && kMissionCompleted == 2 &&
-              !strcmp(_msg, "MISSION COMPLETED!") && flight_status == FLIGHT_MISSION_COMPLETED,
+              !strcmp(_msg, "MISSION COMPLETE!") && flight_status == FLIGHT_MISSION_COMPLETED,
           "mission %d: home: level %d, \"%s\", status %d", m + 1, mission_completed[m], _msg,
           flight_status);
     CHECK(_msgs == (land_only ? 1 : 2), "mission %d: %d messages", m + 1, _msgs);
@@ -270,7 +270,7 @@ int main() {
   }
 
   // The armour: three hits, or four, by the random byte at the reset, that
-  // break nothing - AIRFRAME HIT, the border's flash - and the next breaks
+  // break nothing - YOU HAVE BEEN HIT, the border's flash - and the next breaks
   // something.
   for (int r = 0; r < 2; ++r) {
     flight_init_from_mission(4);
@@ -281,7 +281,7 @@ int main() {
     for (int h = 1; h <= damage_armour; ++h) {
       _msgs = 0;
       damage_hit((uint8_t)h);
-      CHECK(damage_bits == 0 && _msgs == 1 && !strcmp(_msg, "AIRFRAME HIT") &&
+      CHECK(damage_bits == 0 && _msgs == 1 && !strcmp(_msg, "YOU HAVE BEEN HIT") &&
                 flight_throttle == kMaxThrottle && flight_status == FLIGHT_ONGOING,
             "armour %d: hit %d broke %02x, \"%s\"", r, h, damage_bits, _msg);
     }

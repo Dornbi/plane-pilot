@@ -48,7 +48,7 @@ extern uint8_t damage_toggle;
 void damage_reset(void);
 
 // The player's `hits`th hit, as gun.cc counts them: within the armour only
-// AIRFRAME HIT; past it a new failure, or shot down - falling
+// YOU HAVE BEEN HIT; past it a new failure, or shot down - falling
 // (kDamageDown), or on the ground the crash at once, FLIGHT_CRASH_SHOT_DOWN.
 // None counts once falling.
 void damage_hit(uint8_t hits);

@@ -1406,7 +1406,7 @@ every aircraft the mission sent is shot down (`opponent_targets_down()`),
 then land on runway 1. *Since 2026-10-23* those are two levels of
 completing it, kept per mission as the best of every attempt
 (`mission_completed[]`): `GOALS COMPLETED!` and one check mark in the menu
-for the targets, `MISSION COMPLETED!` and two for getting home after them.
+for the targets, `MISSION COMPLETE!` and two for getting home after them.
 ppilot's missions still have one level and one mark. *Since 2026-10-24*
 the guns set `_opponent_down`, three hits to an aircraft
 ([projectiles.md](projectiles.md)); until then no mission could be

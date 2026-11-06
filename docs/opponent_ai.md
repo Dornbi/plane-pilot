@@ -380,7 +380,7 @@ A Provoked slot switches to `ATTACK` on either of these:
 - **Armour.** *Since 2026-11-05:* the airframe takes the first three hits,
   and a fourth in half the flights (`damage_armour`, picked by
   `damage_reset()`), with nothing broken: the border flashes and the
-  message says AIRFRAME HIT. The failures and the fall below count from the
+  message says YOU HAVE BEEN HIT. The failures and the fall below count from the
   hit after those.
 - **Shot down.** Hits 1–4 each cause a failure. The fifth ends the flight
   with a new last crash status, `FLIGHT_CRASH_SHOT_DOWN` ("SHOT DOWN"), so
@@ -1275,7 +1275,7 @@ had. ppilot is unchanged.
 
 Every hit used to break something, and the fifth shot the player down. Now
 the airframe takes the first three hits, or four in half the flights, by the
-random byte at `damage_reset()`: the border flashes, AIRFRAME HIT, and
+random byte at `damage_reset()`: the border flashes, YOU HAVE BEEN HIT, and
 nothing else. The four failures and the fall follow as before, from the hit
 after those, so it takes 8-9 hits to go down. `damage_armour` holds this
 flight's count; `kDamageArmour` is the three, and `kDamageHitsToDown` is now
