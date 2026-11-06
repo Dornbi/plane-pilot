@@ -1043,10 +1043,10 @@ __noinline uint8_t opponent_random(void) {
 // opponent_fires() aims along. Asked from opponent_fires(), under
 // gun_step(): under opponent_step() its multiplies cost that a software
 // stack frame.
-// The eye's three axes, so that a loop can take each off in turn: written
-// out, _opponent_camera()'s three 32-bit differences were 104 B.
-static int32_t *const kOpponentEye[3] = {&flight_eye_x, &flight_eye_y,
-                                         &flight_eye_z};
+//
+// The eye's three axes come through flight.h's kFlightEye, so that a loop can
+// take each off in turn: written out, _opponent_camera()'s three 32-bit
+// differences were 104 B.
 static vec3_t _opponent_aim_d;
 static __noinline bool _opponent_gunner(uint8_t i) {
   // The line to the player, an axis at a time, counted down: oscar64
@@ -1055,7 +1055,7 @@ static __noinline bool _opponent_gunner(uint8_t i) {
   uint8_t c = 3, k = (uint8_t)(i + 2 * kOpponentMax);
   do {
     --c;
-    d[c] = _opponent_toward((uint16_t)(*kOpponentEye[c] >> 8), k);
+    d[c] = _opponent_toward((uint16_t)(*kFlightEye[c] >> 8), k);
     k -= kOpponentMax;
   } while (c != 0);
   int16_t dx = d[0], dy = d[1];
@@ -1138,12 +1138,12 @@ static __noinline void _opponent_gone(uint8_t i) {
 }
 
 // Whether the player is within r of slot i on both axes across the ground,
-// in half metres. An axis at a time, through kOpponentEye: written out, the
+// in half metres. An axis at a time, through kFlightEye: written out, the
 // two were 99 B.
 static __noinline bool _opponent_close(uint8_t i, uint16_t r) {
   uint8_t c = 0;
   do {
-    if (_opponent_abs(_opponent_toward((uint16_t)(*kOpponentEye[c] >> 8), i)) >= r) {
+    if (_opponent_abs(_opponent_toward((uint16_t)(*kFlightEye[c] >> 8), i)) >= r) {
       return false;
     }
     i += kOpponentMax;
@@ -1391,7 +1391,7 @@ static __noinline uint8_t _opponent_camera(uint8_t i) {
     // The difference's fraction, for the loop below, and its whole units,
     // wrapped to the world: x repeats every 128 units, so its seven bits are
     // sign-extended; y every 256, and z never gets there.
-    int32_t d = _opponent_xyz[k] - *kOpponentEye[c];
+    int32_t d = _opponent_xyz[k] - *kFlightEye[c];
     _opponent_d[c] = (uint16_t)d;
     uint8_t u = (uint8_t)(d >> 16);
     if (c == 0) {

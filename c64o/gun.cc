@@ -121,9 +121,18 @@ void gun_reset(void) {
   for (uint8_t r = 0; r < kRoundMax; ++r) {
     _round_age[r] = 0;
   }
-  _gun_eye[0] = flight_eye_x;
-  _gun_eye[1] = flight_eye_y;
-  _gun_eye[2] = flight_eye_z;
+  // Counted down through kFlightEye: written out, the three 32-bit copies
+  // were twelve byte moves, 60 B.
+  uint8_t c = 3, k = sizeof(_gun_eye);
+  do {
+    --c;
+    const uint8_t *e = (const uint8_t *)kFlightEye[c];
+    uint8_t b = sizeof(int32_t);
+    do {
+      --b;
+      ((uint8_t *)_gun_eye)[--k] = e[b];
+    } while (b != 0);
+  } while (c != 0);
   _gun_last = kRoundNone;
   _gun_near = 0;
   _gun_wait = 0;

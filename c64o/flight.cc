@@ -103,6 +103,7 @@ uint8_t flight_nav_heading = 0;
 int32_t flight_eye_x;
 int32_t flight_eye_y;
 int32_t flight_eye_z;
+int32_t *const kFlightEye[3] = {&flight_eye_x, &flight_eye_y, &flight_eye_z};
 
 #ifdef __FLIGHT_AOA__
 int16_t flight_gamma;

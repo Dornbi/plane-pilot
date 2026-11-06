@@ -245,6 +245,8 @@ extern uint8_t flight_path_count;
 extern int32_t flight_eye_x;
 extern int32_t flight_eye_y;
 extern int32_t flight_eye_z;
+// The three, so that a loop can take each in turn (opponent.cc, gun.cc).
+extern int32_t *const kFlightEye[3];
 
 enum flight_input_t {
   FLIGHT_INPUT_NONE,

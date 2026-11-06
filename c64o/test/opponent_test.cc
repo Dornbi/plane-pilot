@@ -55,6 +55,7 @@ enum FlightStatus flight_status;
 uint8_t flight_step_shift = 0;
 uint8_t kFlightSubstepMask = 0;
 int32_t flight_eye_x, flight_eye_y, flight_eye_z;
+int32_t *const kFlightEye[3] = {&flight_eye_x, &flight_eye_y, &flight_eye_z};
 mat3_t world_cam;
 // The player's heading, for a hunter breaking off: head-on or not.
 mat3_t flight_cam;

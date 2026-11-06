@@ -28,6 +28,7 @@ uint8_t flight_active_mission_idx;
 uint8_t flight_step_shift = 0;
 uint8_t kFlightSubstepMask = 0;
 int32_t flight_eye_x, flight_eye_y, flight_eye_z;
+int32_t *const kFlightEye[3] = {&flight_eye_x, &flight_eye_y, &flight_eye_z};
 mat3_t flight_cam;
 mat3_t world_cam;
 int16_t flight_speed;
