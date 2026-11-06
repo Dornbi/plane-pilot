@@ -151,19 +151,26 @@ static const uint8_t kOpponentNoFail = 0xFF;
 // and flight.cc names them TARGET and HOME BASE by number for the same reason
 // (test/fpilot_test.cc checks the order).
 static const uint8_t kOpponentNav = 0;
-struct opponent_path_t {
-  // opponent_kind_t, role, behaviour and starting heading.
-  uint8_t kind;
+// What a pair's two aircraft share, a row of kOpponentPairs: the number of
+// waypoints, the one that fails the mission and the airspeed. Both slots'
+// paths are alike in them, so they are stored once.
+struct opponent_pair_t {
   uint8_t count;
   // The waypoint whose reaching fails the mission, or kOpponentNoFail.
   uint8_t fail;
-  // Its first waypoint's index in kOpponentWpX/Y: a path's waypoints are
-  // there in order, count of them, so no path pays for a longer one's.
-  uint8_t wp;
   // Airspeed in the model's units (flight.md): the player flies level at
   // 1,476 on half throttle and ~2,500 on full below 4,000 ft, 2,350 at
   // 5,000; it climbs at 1,450-1,600 and stalls at 1,024.
   int16_t speed;
+};
+// And what is each slot's own.
+struct opponent_path_t {
+  // opponent_kind_t, role, behaviour and starting heading.
+  uint8_t kind;
+  // Its first waypoint's index in kOpponentWpX/Y: a path's waypoints are
+  // there in order, its pair's count of them, so no path pays for a longer
+  // one's.
+  uint8_t wp;
   uint16_t start_x, start_y;
   uint16_t z;
 };
@@ -264,73 +271,89 @@ static const uint16_t kOpponent2000Ft = 0x0400;
 //
 // 10, Combat patrol: at 6,000 ft, a pair at 2,700 hunting from 1.2 km behind.
 //
-// The pairs are rows, and kOpponentWaves says which each mission sends.
+// The pairs are rows, of kOpponentPairs and kOpponentPaths alike, and
+// kOpponentWaves says which each mission sends.
 static const uint8_t kOpponentRows = 13;
+static const opponent_pair_t kOpponentPairs[kOpponentRows] = {
+    {4, 3, 1750},               // 0: 01's recon.
+    {3, 1, 1500},               // 1: 02's bombers.
+    {0, kOpponentNoFail, 0},    // 2: 03's parked pair.
+    {1, kOpponentNoFail, 2000}, // 3: 04's pass.
+    {0, kOpponentNoFail, 2000}, // 4: 04's second pair, from the west.
+    {0, kOpponentNoFail, 2000}, // 5: 05's head-on pair.
+    {0, kOpponentNoFail, 2000}, // 6: 05's second pair, from the south.
+    {2, kOpponentNoFail, 1750}, // 7: 06's bombers.
+    {2, kOpponentNoFail, 1700}, // 8: 07's first patrol.
+    {2, kOpponentNoFail, 1700}, // 9: 07's second patrol.
+    {4, kOpponentNoFail, 1600}, // 10: 08's square.
+    {0, kOpponentNoFail, 1800}, // 11: 09's hunters.
+    {0, kOpponentNoFail, 2700}, // 12: 10's hunters.
+};
 static const opponent_path_t kOpponentPaths[kOpponentRows][kOpponentMax] = {
     // 0: 01's recon.
-    {{kOpponentOneWay | kOpponentBomber | kOpponentPath | kOpponentSouth, 4, 3, 0, 1750, 0x7E00,
-      0x6000, kOpponent5000Ft},
+    {{kOpponentOneWay | kOpponentBomber | kOpponentPath | kOpponentSouth, 0, 0x7E00, 0x6000,
+      kOpponent5000Ft},
      {kOpponentNone}},
     // 1: 02's bombers.
-    {{kOpponentOneWay | kOpponentBomber | kOpponentHunt | kOpponentSouth, 3, 1, 4, 1500, 0x4800,
-      0x4000, kOpponent3000Ft},
-     {kOpponentOneWay | kOpponentBomber | kOpponentHunt | kOpponentSouth, 3, 1, 7, 1500, 0x48C8,
-      0x3F6A, kOpponent3500Ft}},
+    {{kOpponentOneWay | kOpponentBomber | kOpponentHunt | kOpponentSouth, 4, 0x4800, 0x4000,
+      kOpponent3000Ft},
+     {kOpponentOneWay | kOpponentBomber | kOpponentHunt | kOpponentSouth, 7, 0x48C8, 0x3F6A,
+      kOpponent3500Ft}},
     // 2: 03's parked pair.
-    {{kOpponentParked | kOpponentFighter | kOpponentPath | kOpponentEast, 0, kOpponentNoFail, 0,
-      0, 0x5C9C, 0xC096, 0x000A},
-     {kOpponentParked | kOpponentFighter | kOpponentPath | kOpponentEast, 0, kOpponentNoFail, 0,
-      0, 0x5D64, 0xC096, 0x000A}},
+    {{kOpponentParked | kOpponentFighter | kOpponentPath | kOpponentEast, 0, 0x5C9C, 0xC096,
+      0x000A},
+     {kOpponentParked | kOpponentFighter | kOpponentPath | kOpponentEast, 0, 0x5D64, 0xC096,
+      0x000A}},
     // 3: 04's pass.
-    {{kOpponentOneWay | kOpponentFighter | kOpponentPass | kOpponentNorth, 1, kOpponentNoFail, 10,
-      2000, 0x1A70, 0x3FE0, 0x0060},
-     {kOpponentOneWay | kOpponentFighter | kOpponentPass | kOpponentNorth, 1, kOpponentNoFail, 11,
-      2000, 0x1900, 0x3F20, 0x0060}},
+    {{kOpponentOneWay | kOpponentFighter | kOpponentPass | kOpponentNorth, 10, 0x1A70, 0x3FE0,
+      0x0060},
+     {kOpponentOneWay | kOpponentFighter | kOpponentPass | kOpponentNorth, 11, 0x1900, 0x3F20,
+      0x0060}},
     // 4: 04's second pair, from the west.
-    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentEast, 0, kOpponentNoFail, 0,
-      2000, 0x2400, 0x6000, kOpponent2000Ft},
-     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentEast, 0, kOpponentNoFail, 0,
-      2000, 0x2400, 0x6100, kOpponent2000Ft}},
+    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentEast, 0, 0x2400, 0x6000,
+      kOpponent2000Ft},
+     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentEast, 0, 0x2400, 0x6100,
+      kOpponent2000Ft}},
     // 5: 05's head-on pair.
-    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentSouth, 0, kOpponentNoFail, 0,
-      2000, 0x4200, 0x9000, 0x0660},
-     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentSouth, 0, kOpponentNoFail, 0,
-      2000, 0x4200, 0x9100, 0x0660}},
+    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentSouth, 0, 0x4200, 0x9000,
+      0x0660},
+     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentSouth, 0, 0x4200, 0x9100,
+      0x0660}},
     // 6: 05's second pair, from the south.
-    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0, kOpponentNoFail, 0,
-      2000, 0x1C00, 0x9000, 0x0660},
-     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0, kOpponentNoFail, 0,
-      2000, 0x1C00, 0x9100, 0x0660}},
+    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0, 0x1C00, 0x9000,
+      0x0660},
+     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0, 0x1C00, 0x9100,
+      0x0660}},
     // 7: 06's bombers, on 02's last two waypoints.
-    {{kOpponentOneWay | kOpponentBomber | kOpponentPath | kOpponentSouth, 2, kOpponentNoFail, 5,
-      1750, 0x1A00, 0x6800, kOpponent3000Ft},
-     {kOpponentOneWay | kOpponentBomber | kOpponentPath | kOpponentSouth, 2, kOpponentNoFail, 8,
-      1750, 0x1AC8, 0x676A, kOpponent3500Ft}},
+    {{kOpponentOneWay | kOpponentBomber | kOpponentPath | kOpponentSouth, 5, 0x1A00, 0x6800,
+      kOpponent3000Ft},
+     {kOpponentOneWay | kOpponentBomber | kOpponentPath | kOpponentSouth, 8, 0x1AC8, 0x676A,
+      kOpponent3500Ft}},
     // 8: 07's first patrol.
-    {{kOpponentLoop | kOpponentFighter | kOpponentProvoked | kOpponentStray | kOpponentWest, 2,
-      kOpponentNoFail, 12, 1700, 0x4800, 0x7400, kOpponent3000Ft},
-     {kOpponentLoop | kOpponentFighter | kOpponentProvoked | kOpponentStray | kOpponentWest, 2,
-      kOpponentNoFail, 12, 1700, 0x4800, 0x7200, kOpponent3000Ft}},
+    {{kOpponentLoop | kOpponentFighter | kOpponentProvoked | kOpponentStray | kOpponentWest, 12,
+      0x4800, 0x7400, kOpponent3000Ft},
+     {kOpponentLoop | kOpponentFighter | kOpponentProvoked | kOpponentStray | kOpponentWest, 12,
+      0x4800, 0x7200, kOpponent3000Ft}},
     // 9: 07's second patrol.
-    {{kOpponentLoop | kOpponentFighter | kOpponentProvoked | kOpponentStray | kOpponentSouth, 2,
-      kOpponentNoFail, 14, 1700, 0x3800, 0x4800, kOpponent2000Ft},
-     {kOpponentLoop | kOpponentFighter | kOpponentProvoked | kOpponentStray | kOpponentSouth, 2,
-      kOpponentNoFail, 14, 1700, 0x3A00, 0x4800, kOpponent2000Ft}},
+    {{kOpponentLoop | kOpponentFighter | kOpponentProvoked | kOpponentStray | kOpponentSouth, 14,
+      0x3800, 0x4800, kOpponent2000Ft},
+     {kOpponentLoop | kOpponentFighter | kOpponentProvoked | kOpponentStray | kOpponentSouth, 14,
+      0x3A00, 0x4800, kOpponent2000Ft}},
     // 10: 08's square.
-    {{kOpponentLoop | kOpponentFighter | kOpponentPath | kOpponentNorth, 4, kOpponentNoFail, 16,
-      1600, 0x6000, 0xB800, 0x0200},
-     {kOpponentLoop | kOpponentFighter | kOpponentPath | kOpponentNorth, 4, kOpponentNoFail, 16,
-      1600, 0x5D00, 0xB800, 0x0200}},
+    {{kOpponentLoop | kOpponentFighter | kOpponentPath | kOpponentNorth, 16, 0x6000, 0xB800,
+      0x0200},
+     {kOpponentLoop | kOpponentFighter | kOpponentPath | kOpponentNorth, 16, 0x5D00, 0xB800,
+      0x0200}},
     // 11: 09's hunters.
     {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentStray | kOpponentEast, 0,
-      kOpponentNoFail, 0, 1800, 0x1F80, 0xA400, kOpponent2000Ft + 0x20},
+      0x1F80, 0xA400, kOpponent2000Ft + 0x20},
      {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentStray | kOpponentEast, 0,
-      kOpponentNoFail, 0, 1800, 0x2080, 0xA400, kOpponent2000Ft + 0x20}},
+      0x2080, 0xA400, kOpponent2000Ft + 0x20}},
     // 12: 10's hunters.
-    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0, kOpponentNoFail, 0,
-      2700, 0x3700, 0xA000, 0x0C40},
-     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0, kOpponentNoFail, 0,
-      2700, 0x3700, 0xA100, 0x0C40}},
+    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0, 0x3700, 0xA000,
+      0x0C40},
+     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0, 0x3700, 0xA100,
+      0x0C40}},
 };
 
 // The waves: each mission's rows in the order sent, one byte a pair - its
@@ -499,6 +522,8 @@ static const uint8_t kSmokeDown = 35;
 #pragma bss(bss2)
 static bool _opponent_on[kOpponentMax];
 static const opponent_path_t *_opponent_path[kOpponentMax];
+// Both slots' row of kOpponentPairs: a pair is sent whole.
+static const opponent_pair_t *_opponent_pair;
 // The mission, whether it has failed, and bit i: slot i was shot down, after
 // kOpponentHitsToDown hits (gun.cc). A downed slot is neither drawn nor a
 // target.
@@ -760,12 +785,15 @@ static __noinline void _opponent_send(void) {
   _opponent_attack = 0;
   _opponent_pullup = 0;
   _opponent_firing = 0;
-  // Counted up a row at a time: indexed, the 24 B rows took oscar64's 21 B
-  // multiply tables.
+  // Counted up a row at a time, in both tables: indexed, the paths' rows
+  // took oscar64's multiply tables when they were 24 B.
   const opponent_path_t *p = &kOpponentPaths[0][0];
+  const opponent_pair_t *q = kOpponentPairs;
   for (w &= kOpponentRowMask; w != 0; --w) {
     p += kOpponentMax;
+    ++q;
   }
+  _opponent_pair = q;
   for (uint8_t i = 0; i < kOpponentMax; ++i, ++p) {
     _opponent_on[i] = p->kind != kOpponentNone;
     if ((p->kind & kOpponentBehaviourMask) == kOpponentHunt) {
@@ -779,7 +807,7 @@ static __noinline void _opponent_send(void) {
     _opponent_start_head(p, &_opponent_head[i]);
     _opponent_turn[i] = 0;
     _opponent_bank[i] = 0;
-    _opponent_speed[i] = p->speed;
+    _opponent_speed[i] = q->speed;
     _opponent_climb[i] = 0;
     _opponent_pitch[i] = 0;
     _opponent_hits[i] = 0;
@@ -867,11 +895,11 @@ static __noinline void _opponent_ahead(uint8_t i) {
 static __noinline void _opponent_fly(uint8_t i, int8_t want, bool whole) {
   int8_t climb = _opponent_climb[i];
   if (whole) {
-    const opponent_path_t *p = _opponent_path[i];
     // Unsigned: a speed is never below 0, and oscar64's signed compares
     // cost twice the bytes.
     uint16_t speed = (uint16_t)_opponent_speed[i];
-    uint8_t role = (uint8_t)((p->kind & kOpponentBomber) >> 2);
+    uint16_t cruise = (uint16_t)_opponent_pair->speed;
+    uint8_t role = (uint8_t)((_opponent_path[i]->kind & kOpponentBomber) >> 2);
     climb = want;
     if (climb > 0 ? speed <= kOpponentMinSpeed[role]
                   : climb < 0 && speed >= kOpponentMaxSpeed[role]) {
@@ -880,9 +908,9 @@ static __noinline void _opponent_fly(uint8_t i, int8_t want, bool whole) {
     // Back towards the default a whole kOpponentLevelAccel, never part of
     // one: every change to the speed is a multiple of it, starting from the
     // default, so it lands there exactly.
-    if (speed < (uint16_t)p->speed) {
+    if (speed < cruise) {
       speed += kOpponentLevelAccel;
-    } else if (speed > (uint16_t)p->speed) {
+    } else if (speed > cruise) {
       speed -= kOpponentLevelAccel;
     }
     _opponent_speed[i] = (int16_t)speed + kOpponentClimbSpeed[climb + 3];
@@ -1252,10 +1280,10 @@ void opponent_step(void) {
         _opponent_within(dy, kOpponentReach)) {
       // Reached, and the next one is steered for from the next step on.
       uint8_t w = _opponent_next[i];
-      if (w == p->fail) {
+      if (w == _opponent_pair->fail) {
         _opponent_fail();
       }
-      if (++w == p->count) {
+      if (++w == _opponent_pair->count) {
         if ((p->kind & kOpponentBehaviourMask) == kOpponentPass) {
           // The pass is over: the player, from the next step on.
           _opponent_attack |= bit;

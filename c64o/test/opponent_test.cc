@@ -612,17 +612,23 @@ static double metres(uint16_t w, int32_t pos, bool wrap) {
 // and a 1.5 km square anticlockwise. Both paths' waypoints are appended to
 // the pool after the missions' (OPPONENT_TEST_WP_X/Y above): the square's,
 // then the straight one's, 32 units apart, the fourth 128 units on from its
-// start.
-static const opponent_path_t kStraight = {kOpponentLoop, 4, kOpponentNoFail,
-                                          kOpponentWpCount + 4, 1500,
-                                          0x1A70, 0x3FE0, 0x0060};
-static const opponent_path_t kSquare = {kOpponentLoop, 4, kOpponentNoFail, kOpponentWpCount,
-                                        1500, 0x0A00, 0x6200, 0x0700};
+// start. A test path is a pair's row and a slot's path in one: the two
+// slots share the pair (_opponent_pair), so two flown at once share it too.
+struct test_path_t {
+  opponent_pair_t pair;
+  opponent_path_t path;
+};
+static const test_path_t kStraight = {{4, kOpponentNoFail, 1500},
+    {kOpponentLoop, kOpponentWpCount + 4, 0x1A70, 0x3FE0, 0x0060}};
+static const test_path_t kSquare = {{4, kOpponentNoFail, 1500},
+    {kOpponentLoop, kOpponentWpCount, 0x0A00, 0x6200, 0x0700}};
 static uint16_t wp_x(const opponent_path_t &p, int w) { return kOpponentWpX[p.wp + w]; }
 static uint16_t wp_y(const opponent_path_t &p, int w) { return kOpponentWpY[p.wp + w]; }
 
-static void fly(int slot, const opponent_path_t *p) {
+static void fly(int slot, const test_path_t *t) {
+  const opponent_path_t *p = &t->path;
   _opponent_on[slot] = true;
+  _opponent_pair = &t->pair;
   _opponent_path[slot] = p;
   _opponent_next[slot] = 0;
   _opponent_x[slot] = (int32_t)p->start_x << 8;
@@ -630,7 +636,7 @@ static void fly(int slot, const opponent_path_t *p) {
   _opponent_z[slot] = (int32_t)p->z << 8;
   _opponent_start_head(p, &_opponent_head[slot]);
   _opponent_turn[slot] = _opponent_bank[slot] = 0;
-  _opponent_speed[slot] = p->speed;
+  _opponent_speed[slot] = t->pair.speed;
   _opponent_climb[slot] = 0;
 }
 
@@ -644,7 +650,7 @@ static void test_paths(void) {
     opponent_reset(0);
     fly(0, &kStraight);
     fly(1, &kSquare);
-    const opponent_path_t &patrol = kSquare;
+    const test_path_t &patrol = kSquare;
 
     // A lap of the patrol at shift 0 is ~1,100 steps; four of them.
     const int steps = 4500 << shift;
@@ -660,14 +666,14 @@ static void test_paths(void) {
       // The pass: dead north, a full step a step, never turning.
       CHECK(_opponent_head[0].x == 256 && _opponent_head[0].y == 0 && _opponent_turn[0] == 0,
             "paths: the pass turned at step %d", n);
-      CHECK(_opponent_y[0] == y0 && _opponent_x[0] - x0 == ((kStraight.speed << 1) >> shift),
+      CHECK(_opponent_y[0] == y0 && _opponent_x[0] - x0 == ((kStraight.pair.speed << 1) >> shift),
             "paths: the pass moved %d, %d at step %d", (int)(_opponent_x[0] - x0),
             (int)(_opponent_y[0] - y0), n);
 
       // The patrol: waypoints in order, and the wings never rocked from one
       // side to the other.
       if (_opponent_next[1] != next) {
-        CHECK(_opponent_next[1] == (next + 1) % patrol.count,
+        CHECK(_opponent_next[1] == (next + 1) % patrol.pair.count,
               "paths: the patrol skipped from waypoint %d to %d", next, _opponent_next[1]);
         next = _opponent_next[1];
         ++reached;
@@ -685,16 +691,16 @@ static void test_paths(void) {
       double len = sqrt((double)h.x * h.x + (double)h.y * h.y);
       worst_len = std::max(worst_len, fabs(len - 256));
       CHECK(h.z == 0, "paths: the patrol's heading has a z");
-      CHECK(_opponent_z[1] == (int32_t)patrol.z << 8, "paths: the patrol changed height");
+      CHECK(_opponent_z[1] == (int32_t)patrol.path.z << 8, "paths: the patrol changed height");
       // How far outside its square, in metres.
-      double nx = metres(wp_x(patrol, 0), _opponent_x[1], true);
-      double sx = metres(wp_x(patrol, 2), _opponent_x[1], true);
-      double wy = metres(wp_y(patrol, 1), _opponent_y[1], false);
-      double ey = metres(wp_y(patrol, 0), _opponent_y[1], false);
+      double nx = metres(wp_x(patrol.path, 0), _opponent_x[1], true);
+      double sx = metres(wp_x(patrol.path, 2), _opponent_x[1], true);
+      double wy = metres(wp_y(patrol.path, 1), _opponent_y[1], false);
+      double ey = metres(wp_y(patrol.path, 0), _opponent_y[1], false);
       double out = std::max(std::max(-nx, sx), std::max(-wy, ey));
       worst_out = std::max(worst_out, out);
     }
-    CHECK(reached >= 4 * (int)patrol.count, "paths: shift %d, %d waypoints in %d steps", shift,
+    CHECK(reached >= 4 * (int)patrol.pair.count, "paths: shift %d, %d waypoints in %d steps", shift,
           reached, steps);
     CHECK(flips == 0, "paths: shift %d, the patrol rolled straight from one bank into the other "
           "%d times", shift, flips);
@@ -751,11 +757,11 @@ static void test_paths(void) {
 // back to it. Too slow, the aircraft does not climb until the speed is back;
 // too fast, it does not descend until the speed has come down.
 
-static const opponent_path_t kHigh = {kOpponentLoop, 4, kOpponentNoFail, kOpponentWpCount + 4, 1500,
-                                      0x1A70, 0x3FE0, 0x0400};
+static const test_path_t kHigh = {{4, kOpponentNoFail, 1500},
+    {kOpponentLoop, kOpponentWpCount + 4, 0x1A70, 0x3FE0, 0x0400}};
 
 // Half metres from slot 0 to kHigh's height.
-static int below(void) { return (int)kHigh.z - (int)(_opponent_z[0] >> 8); }
+static int below(void) { return (int)kHigh.path.z - (int)(_opponent_z[0] >> 8); }
 
 static void test_flight_model(void) {
   flight_step_shift = 0;
@@ -768,7 +774,7 @@ static void test_flight_model(void) {
   fly(0, &kHigh);
   for (int n = 0; n < 200; ++n) {
     opponent_step();
-    CHECK(_opponent_speed[0] == kHigh.speed && _opponent_climb[0] == 0 && below() == 0,
+    CHECK(_opponent_speed[0] == kHigh.pair.speed && _opponent_climb[0] == 0 && below() == 0,
           "model: level at step %d, speed %d, climb %d, %d half metres off", n,
           _opponent_speed[0], _opponent_climb[0], below());
   }
@@ -785,8 +791,8 @@ static void test_flight_model(void) {
       int16_t sp = _opponent_speed[0];
       CHECK(dir > 0 ? now <= last : now >= last, "model: %s went the wrong way at step %d",
             what, steps);
-      CHECK(dir > 0 ? sp >= kHigh.speed - kOpponentClimbCost && sp <= kHigh.speed
-                    : sp <= kHigh.speed + kOpponentClimbCost && sp >= kHigh.speed,
+      CHECK(dir > 0 ? sp >= kHigh.pair.speed - kOpponentClimbCost && sp <= kHigh.pair.speed
+                    : sp <= kHigh.pair.speed + kOpponentClimbCost && sp >= kHigh.pair.speed,
             "model: %s at speed %d at step %d", what, sp, steps);
       last = now;
       if (steps > 2000) break;
@@ -795,7 +801,7 @@ static void test_flight_model(void) {
     CHECK(abs(below()) <= kOpponentPathBand && steps > 350 && steps < 470,
           "model: %s ended %d half metres off after %d steps", what, below(), steps);
     for (int n = 0; n < 100; ++n) opponent_step();
-    CHECK(_opponent_speed[0] == kHigh.speed && _opponent_climb[0] == 0 &&
+    CHECK(_opponent_speed[0] == kHigh.pair.speed && _opponent_climb[0] == 0 &&
               abs(below()) <= kOpponentPathBand,
           "model: after the %s, speed %d, climb %d", what, _opponent_speed[0],
           _opponent_climb[0]);
@@ -811,7 +817,7 @@ static void test_flight_model(void) {
   CHECK(_opponent_climb[0] == 1 && _opponent_pitch[0] == 0, "pitch: drawn on the climb's first step");
   opponent_step();
   CHECK(_opponent_pitch[0] == 1, "pitch: not drawn on the climb's second step");
-  _opponent_z[0] = (int32_t)kHigh.z << 8;
+  _opponent_z[0] = (int32_t)kHigh.path.z << 8;
   opponent_step();
   CHECK(_opponent_climb[0] == 0 && _opponent_pitch[0] == 1, "pitch: levelled on the first step");
   opponent_step();
@@ -919,13 +925,14 @@ static void test_missions(void) {
   for (int m = 0; m < kOpponentRows; ++m) {
     for (int k = 0; k < kOpponentMax; ++k) {
       const opponent_path_t &p = kOpponentPaths[m][k];
+      const opponent_pair_t &q = kOpponentPairs[m];
       if (p.kind == kOpponentNone) continue;
-      CHECK(p.fail == kOpponentNoFail || p.fail < p.count, "row %d slot %d: fail at %d of %d",
-            m, k, p.fail, p.count);
-      CHECK(p.wp + p.count <= kOpponentWpCount, "row %d slot %d: waypoints %d-%d past the pool",
-            m, k, p.wp, p.wp + p.count - 1);
+      CHECK(q.fail == kOpponentNoFail || q.fail < q.count, "row %d slot %d: fail at %d of %d",
+            m, k, q.fail, q.count);
+      CHECK(p.wp + q.count <= kOpponentWpCount, "row %d slot %d: waypoints %d-%d past the pool",
+            m, k, p.wp, p.wp + q.count - 1);
       uint16_t px = p.start_x, py = p.start_y;
-      for (int w = 0; w < p.count; ++w) {
+      for (int w = 0; w < q.count; ++w) {
         int dx = (int16_t)(wp_x(p, w) - px), dy = (int16_t)(wp_y(p, w) - py);
         // x repeats every 128 units, 0x8000 in 8.8.
         dx = ((dx + 0x4000) & 0x7FFF) - 0x4000;
@@ -1370,14 +1377,14 @@ static void test_missions(void) {
 // is moved here by hand, straight and level at the player's half-throttle
 // trim, 1,476.
 
-static const opponent_path_t kHunter = {kOpponentLoop | kOpponentFighter | kOpponentHunt, 0,
-                                        kOpponentNoFail, 0, 2000, 0x2000, 0x8080, 0x0600};
+static const test_path_t kHunter = {{0, kOpponentNoFail, 2000},
+    {kOpponentLoop | kOpponentFighter | kOpponentHunt, 0, 0x2000, 0x8080, 0x0600}};
 // kSquare's lap, once, then the player.
-static const opponent_path_t kSquarePass = {kOpponentLoop | kOpponentFighter | kOpponentPass, 4,
-                                            kOpponentNoFail, kOpponentWpCount, 1500, 0x0A00,
-                                            0x6200, 0x0700};
+static const test_path_t kSquarePass = {{4, kOpponentNoFail, 1500},
+    {kOpponentLoop | kOpponentFighter | kOpponentPass, kOpponentWpCount, 0x0A00, 0x6200,
+     0x0700}};
 
-static void hunt(int slot, const opponent_path_t *p) {
+static void hunt(int slot, const test_path_t *p) {
   fly(slot, p);
   _opponent_attack |= _opponent_bit((uint8_t)slot);
 }
@@ -1429,8 +1436,8 @@ static void test_hunting(void) {
   // hunter slower than the player, so that it stays behind: a faster one
   // overtakes, breaking off over it (below), and turns back.
   {
-    static const opponent_path_t kSlow = {kOpponentLoop | kOpponentFighter | kOpponentHunt, 0,
-                                          kOpponentNoFail, 0, 1400, 0x2000, 0x8080, 0x0600};
+    static const test_path_t kSlow = {{0, kOpponentNoFail, 1400},
+        {kOpponentLoop | kOpponentFighter | kOpponentHunt, 0, 0x2000, 0x8080, 0x0600}};
     opponent_reset(0);
     _opponent_on[0] = false;
     hunt(1, &kSlow);
@@ -1479,7 +1486,7 @@ static void test_hunting(void) {
     fly(1, &kSquarePass);
     flight_eye_x = 0x1000 << 8;
     flight_eye_y = 0x6800 << 8;
-    flight_eye_z = (int32_t)kSquarePass.z << 8;
+    flight_eye_z = (int32_t)kSquarePass.path.z << 8;
     int reached = 0, at = -1;
     uint8_t next = _opponent_next[1];
     for (int n = 0; n < 3000 && at < 0; ++n) {
@@ -1583,9 +1590,9 @@ static void test_provoked(void) {
   flight_paused = false;
   flight_status = FLIGHT_ONGOING;
   model_on_ground = false;
-  static const opponent_path_t kCalm = {kOpponentLoop | kOpponentFighter | kOpponentProvoked, 4,
-                                        kOpponentNoFail, kOpponentWpCount, 1500, 0x0A00, 0x6200,
-                                        0x0700};
+  static const test_path_t kCalm = {{4, kOpponentNoFail, 1500},
+      {kOpponentLoop | kOpponentFighter | kOpponentProvoked, kOpponentWpCount, 0x0A00, 0x6200,
+       0x0700}};
   // Fired upon (0), a near miss (1), a Path slot (2), and the player seen
   // within kOpponentSpot (3). Until then the player is out of sight, 4 km
   // north of the square.
@@ -1595,7 +1602,7 @@ static void test_provoked(void) {
     fly(1, how == 2 ? &kSquare : &kCalm);
     flight_eye_x = (int32_t)0x4000 << 8;
     flight_eye_y = (int32_t)0x6800 << 8;
-    flight_eye_z = (int32_t)kCalm.z << 8;
+    flight_eye_z = (int32_t)kCalm.path.z << 8;
     CHECK(opponent_calm(1) == (how != 2), "provoked %d: calm %d at the start", how,
           opponent_calm(1));
     for (int n = 0; n < 200; ++n) opponent_step();
@@ -1756,8 +1763,8 @@ static void test_guns(void) {
 
   // Parked, a bomber never fires: on the ground it is not flying, whatever
   // sits behind it. 03's pair are fighters, so one of them as a bomber.
-  static const opponent_path_t kParkedBomber = {kOpponentParked | kOpponentBomber | kOpponentHunt,
-                                                0, kOpponentNoFail, 0, 0, 0x5C9C, 0xC096, 0x000A};
+  static const test_path_t kParkedBomber = {{0, kOpponentNoFail, 0},
+      {kOpponentParked | kOpponentBomber | kOpponentHunt, 0, 0x5C9C, 0xC096, 0x000A}};
   opponent_reset(2);
   _opponent_on[1] = false;
   fly(0, &kParkedBomber);
