@@ -68,7 +68,8 @@ extern const uint8_t kMusicChordBar[24];
 // where each starts there rather than which one it is.
 extern const uint8_t kMusicLeadStartPool[];
 extern const uint8_t kMusicLeadStartBar[24];
-extern const uint8_t kMusicBassStepPat[][16];
+// The bass's likewise, though its patterns do not overlap.
+extern const uint8_t kMusicBassStepPool[];
 extern const uint8_t kMusicBassStepBar[24];
 extern const uint8_t kMusicLeadOnBitsPat[][2];
 extern const uint8_t kMusicLeadOnBitsBar[24];
@@ -93,7 +94,7 @@ extern const uint8_t kMusicDrumBitsBar[24];
 // the few rhythm shapes the arrangement has. The player tests the
 // step and adds the root only when a note starts.
 #define MUSIC_BASS_STEP_IN(bar, r)  \
-    (kMusicBassStepPat[kMusicBassStepBar[bar]][r])
+    (kMusicBassStepPool[(uint8_t)(kMusicBassStepBar[bar] + (r))])
 #define MUSIC_BASS_NOTE(bar, step)  \
     ((uint8_t)(MUSIC_CHORD(bar).root - 1 + (step)))
 #define MUSIC_BASS_START_IN(bar, r)  \

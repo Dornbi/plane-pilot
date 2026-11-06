@@ -209,7 +209,8 @@ def generate_c64_headers():
         f.write("// where each starts there rather than which one it is.\n")
         f.write(f"extern const uint8_t kMusicLeadStartPool[];\n")
         f.write(f"extern const uint8_t kMusicLeadStartBar[{t1['bars']}];\n")
-        f.write(f"extern const uint8_t kMusicBassStepPat[][{rpb}];\n")
+        f.write("// The bass's likewise, though its patterns do not overlap.\n")
+        f.write(f"extern const uint8_t kMusicBassStepPool[];\n")
         f.write(f"extern const uint8_t kMusicBassStepBar[{t1['bars']}];\n")
         f.write(f"extern const uint8_t kMusicLeadOnBitsPat[][{rpb // 8}];\n")
         f.write(f"extern const uint8_t kMusicLeadOnBitsBar[{t1['bars']}];\n")
@@ -234,7 +235,7 @@ def generate_c64_headers():
         f.write("// the few rhythm shapes the arrangement has. The player tests the\n")
         f.write("// step and adds the root only when a note starts.\n")
         f.write("#define MUSIC_BASS_STEP_IN(bar, r)  \\\n")
-        f.write("    (kMusicBassStepPat[kMusicBassStepBar[bar]][r])\n")
+        f.write("    (kMusicBassStepPool[(uint8_t)(kMusicBassStepBar[bar] + (r))])\n")
         f.write("#define MUSIC_BASS_NOTE(bar, step)  \\\n")
         f.write("    ((uint8_t)(MUSIC_CHORD(bar).root - 1 + (step)))\n")
         f.write("#define MUSIC_BASS_START_IN(bar, r)  \\\n")
@@ -359,8 +360,18 @@ def generate_c64_source():
         f.write(f"const uint8_t kMusicLeadStartBar[{bars}] = {{\n")
         _emit_rows(f, offsets, 12)
         f.write("};\n\n")
-        _emit_bar_table(f, "kMusicBassStep", *bass_pat, rows_per_bar, 12,
-                        "Bass interval above the chord root + 1, 0 = no new note")
+        # The bass's three shapes do not overlap, but pooled all the same:
+        # a start offset is an add, where [index][16] cost a 16 x table.
+        pool, offsets = pool_bars(*bass_pat)
+        f.write(f"// Bass interval above the chord root + 1, 0 = no new note: "
+                f"{len(bass_pat[0])} distinct bars of {bars}, pooled in {len(pool)} "
+                f"bytes, {len(pool) + bars} bytes instead of {tot_rows}.\n")
+        f.write(f"const uint8_t kMusicBassStepPool[{len(pool)}] = {{\n")
+        _emit_rows(f, pool, 16)
+        f.write("};\n\n")
+        f.write(f"const uint8_t kMusicBassStepBar[{bars}] = {{\n")
+        _emit_rows(f, offsets, 12)
+        f.write("};\n\n")
 
         _emit_bar_table(f, "kMusicLeadOnBits", *leadon_pat, rows_per_bar // 8, 12,
                         "Lead gate, 1 bit per row LSB first. MUSIC_LEAD_ON(row)")

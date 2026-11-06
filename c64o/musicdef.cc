@@ -54,16 +54,16 @@ const uint8_t kMusicLeadStartBar[24] = {
      91, 103,  71,  57, 125,  31,   0,  51,  97,  65, 109,   8,
 };
 
-// Bass interval above the chord root + 1, 0 = no new note: 3 distinct bars of 24, 72 bytes instead of 384.
-const uint8_t kMusicBassStepPat[3][16] = {
-    {   1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0 }, // pattern 0
-    {   1,   0,   1,   0,   1,   0,  13,   0,   1,   0,   1,   0,   8,   0,  13,   0 }, // pattern 1
-    {   1,   0,   1,   0,   1,   1,  13,   0,   1,   0,   8,   0,  13,   0,  11,  13 }, // pattern 2
+// Bass interval above the chord root + 1, 0 = no new note: 3 distinct bars of 24, pooled in 48 bytes, 72 bytes instead of 384.
+const uint8_t kMusicBassStepPool[48] = {
+      1,   0,   1,   0,   1,   1,  13,   0,   1,   0,   8,   0,  13,   0,  11,  13,
+      1,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+      1,   0,   1,   0,   1,   0,  13,   0,   1,   0,   1,   0,   8,   0,  13,   0,
 };
 
 const uint8_t kMusicBassStepBar[24] = {
-      0,   0,   0,   0,   1,   1,   1,   2,   1,   1,   1,   2,
-      1,   1,   1,   2,   1,   1,   1,   2,   1,   1,   1,   2,
+     16,  16,  16,  16,  32,  32,  32,   0,  32,  32,  32,   0,
+     32,  32,  32,   0,  32,  32,  32,   0,  32,  32,  32,   0,
 };
 
 // Lead gate, 1 bit per row LSB first. MUSIC_LEAD_ON(row): 3 distinct bars of 24, 30 bytes instead of 48.

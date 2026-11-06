@@ -658,7 +658,7 @@ estimated:
 | Item                                          |    Bytes |
 | --------------------------------------------- | -------: |
 | `kMusicLeadStartPool[133]` + `Bar[24]`        |      157 |
-| `kMusicBassStepPat[3][16]` + `Bar[24]`        |       72 |
+| `kMusicBassStepPool[48]` + `Bar[24]`          |       72 |
 | `kMusicDrumBitsPat[5][4]` + `Bar[24]`         |       44 |
 | `kMusicLeadOnBitsPat[3][2]` + `Bar[24]`       |       30 |
 | `kMusicChordPat[7]` + `Bar[24]`               |       52 |
@@ -811,7 +811,11 @@ into three rhythm shapes: the intro pedal, the groove and the push bar. The
 player tests the step for the hard restart and adds `MUSIC_CHORD(bar).root`
 only when a note starts. 200 → 72 bytes of data, about 10 of code; the
 generator asserts no note lies below its root, and
-`test_packed_tables_round_trip` adds the roots back before comparing.
+`test_packed_tables_round_trip` adds the roots back before comparing. The
+three shapes share no bytes, but they are stored the lead's way all the same,
+as `kMusicBassStepPool` with `kMusicBassStepBar` holding each bar's start: the
+read is an add where `[index][16]` went through oscar64's 16x table, 6 bytes
+smaller.
 
 **What is still on the table.** Two things, both measured rather than guessed.
 

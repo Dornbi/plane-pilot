@@ -261,7 +261,7 @@ class TestMusicData(unittest.TestCase):
         self.assertEqual(unpacked_lead_start, lead_start)
         # The bass lane is the interval above the bar's chord root + 1;
         # MUSIC_BASS_START_IN adds the root back.
-        bass_step = self._bar_table(cc, "kMusicBassStep", rpb)
+        bass_step = self._pool_table(cc, "kMusicBassStep", rpb)
         roots = [root for _name, root, _triad in t['chords']]
         unpacked_bass = [roots[r // rpb] - 1 + v if v else 0
                          for r, v in enumerate(bass_step)]
