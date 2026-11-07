@@ -102,8 +102,9 @@ void debrief_run(void) {
   screen_begin_text_page();
 
   print_lines(0, kDebriefCol, kDebriefText);
-  print_lines(kDebriefRowTitle, kDebriefCol,
-              kMissionTitles[flight_active_mission_idx]);
+  // The mission's title, centred under the heading.
+  const char *title = kMissionTitles[flight_active_mission_idx];
+  print_lines(kDebriefRowTitle, (uint8_t)((40 - strlen(title)) >> 1), title);
   _debrief_answer(kDebriefRowGoals, kDebriefAnswers[flight_current_wp]);
   _debrief_answer(kDebriefRowAircraft,
                   kDebriefAnswers[kDebriefAircraft + _debrief_aircraft()]);
