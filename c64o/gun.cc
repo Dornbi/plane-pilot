@@ -518,21 +518,33 @@ static uint8_t _gun_dir(int16_t dx, int16_t dy) {
 
 // Transforms _gun_c (initialized to a point relative to the eye in eighth
 // metres) into camera space in place, and projects where it is on screen into
-// _gun_sx, _gun_sy; false if it is not in the view's cone.
+// _gun_s, x then y; false if it is not in the view's cone.
 #pragma bss(tscratch)
 static vec3_t _gun_c;
 static vec3_t _gun_w;
-static int16_t _gun_sx, _gun_sy;
+static int16_t _gun_s[2];
 static int16_t _gun_h[2];
 #pragma bss(bss)
+// The screen's centre, x then y: camera y and z project onto them.
+static const int16_t kGunCentre[2] = {kScreenWidthPixels / 2,
+                                      kViewportEndYPixels / 2};
 static __noinline bool _gun_view(void) {
   vec_transform_inv(&world_cam, &_gun_c, &_gun_c);
-  if (_gun_c.x <= 64 || _gun_abs(_gun_c.y) >= (uint16_t)_gun_c.x ||
-      _gun_abs(_gun_c.z) >= (uint16_t)_gun_c.x) {
+  int16_t x = _gun_c.x;
+  if (x <= 64) {
     return false;
   }
-  _gun_sx = kScreenWidthPixels / 2 - vec_div8p8(_gun_c.y, _gun_c.x);
-  _gun_sy = kViewportEndYPixels / 2 - vec_div8p8(_gun_c.z, _gun_c.x);
+  // z, then y, counted down: written out, the two were 104 B. A point
+  // outside the cone on z leaves _gun_s[1] written, which nothing reads.
+  uint8_t c = 2;
+  do {
+    --c;
+    int16_t v = (&_gun_c.y)[c];
+    if (_gun_abs(v) >= (uint16_t)x) {
+      return false;
+    }
+    _gun_s[c] = kGunCentre[c] - vec_div8p8(v, x);
+  } while (c != 0);
   return true;
 }
 
@@ -541,7 +553,7 @@ static __noinline bool _gun_view(void) {
 // (12, 10) = (kSpriteDefArmCenterX, kSpriteDefArmCenterY).
 static __noinline void _gun_offer(uint8_t bitmap, uint8_t color,
                                   uint8_t flags) {
-  sprites_stack_add((int16_t)((uint16_t)_gun_c.x >> 3), _gun_sx, _gun_sy,
+  sprites_stack_add((int16_t)((uint16_t)_gun_c.x >> 3), _gun_s[0], _gun_s[1],
                     kSpriteDefArmCenterX, kSpriteDefArmCenterY, bitmap,
                     kSpriteNoBitmap, color, flags);
 }
