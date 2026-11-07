@@ -588,17 +588,17 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
     return 0;
   }
   static vertex16_t proj_buf[kPolyMaxVertices + 4];
-  int16_t min_x = 32767;
-  int16_t max_x = -32768;
-  int16_t min_y = 32767;
-  int16_t max_y = -32768;
+  // 4-bit Cohen-Sutherland outcodes, bit e for edge e in the order
+  // min x, max x, min y, max y: all_out rejects when every vertex sits past
+  // the same edge, and edges records which edges need _clip_2d passes below.
+  uint8_t all_out = 0x0f;
+  uint8_t edges = 0;
 
   // n counts the vertices for proj_buf and the 2D clips below.
   uint8_t n = 0;
   for (uint8_t o = 0; o != end3; o += sizeof(vec3_t), ++n) {
     vec_v = *(const vec3_t *)((const uint8_t *)clip3_buf + o);
-    int16_t px = 40;
-    int16_t py = 14;
+    int16_t px, py;
     if (vec_project_nocull()) {
       // Rounded, not truncated toward zero: the bias is half a sub-pixel and
       // it is signed, so the two ends of a polygon are pulled in opposite
@@ -612,24 +612,27 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
       // cannot see it - there int is 32 bits and the sum simply fits - so
       // this one was caught in the emulator, not in test/poly_test.cc.
       //
-      // (x >> 2) + bit 1 of x is the same round-half-up with no addition to
-      // overflow: the bit is set exactly when x mod 4 >= 2.
-      px -= (vec_sx >> 2) + ((vec_sx >> 1) & 1);
-      py -= (vec_sy >> 2) + ((vec_sy >> 1) & 1);
+      // Shifting right by 1 first halves the range to [-16384, 16383], so
+      // 80 - (vec_sx >> 1) cannot overflow 16 bits, and the second >> 1 folds
+      // bit 1 of vec_sx in as the round-half-up bias.
+      px = (80 - (vec_sx >> 1)) >> 1;
+      py = (28 - (vec_sy >> 1)) >> 1;
+    } else {
+      px = 40;
+      py = 14;
     }
     proj_buf[n].x = px;
     proj_buf[n].y = py;
-    if (px < min_x)
-      min_x = px;
-    if (px > max_x)
-      max_x = px;
-    if (py < min_y)
-      min_y = py;
-    if (py > max_y)
-      max_y = py;
+    uint8_t out = 0;
+    if ((uint16_t)px >= kViewportWidth * 2)
+      out = (px < 0) ? 1 : 2;
+    if ((uint16_t)py >= kViewportHeight * 2)
+      out |= (py < 0) ? 4 : 8;
+    all_out &= out;
+    edges |= out;
   }
 
-  if (max_x < 0 || min_x > 79 || max_y < 0 || min_y > 27) {
+  if (all_out) {
     return 0;
   }
 
@@ -639,20 +642,10 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
   static vertex16_t clip2_buf1[kPolyMax2dVertices];
   static vertex16_t clip2_buf2[kPolyMax2dVertices];
 
-  // The viewport edges the polygon crosses, bit e for edge e in the order
-  // min x, max x, min y, max y: edge e clips axis e >> 1 at kClipLimit[e]
-  // and keeps the greater side when e is even.
+  // Edge e clips axis e >> 1 at kClipLimit[e] and keeps the greater side when
+  // e is even.
   static const int16_t kClipLimit[4] = {0, kViewportWidth * 2 - 1, 0,
                                         kViewportHeight * 2 - 1};
-  uint8_t edges = 0;
-  if (min_x < 0)
-    edges |= 1;
-  if (max_x > 79)
-    edges |= 2;
-  if (min_y < 0)
-    edges |= 4;
-  if (max_y > 27)
-    edges |= 8;
 
   // The first clip writes clip2_buf1 and each one after it the other buffer.
   vertex16_t *src = proj_buf;
