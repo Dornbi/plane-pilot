@@ -706,6 +706,29 @@ int main() {
            gun_player_hits);
   }
 
+  // 09 again, the player flying straight on at cruise, doing nothing: the
+  // hunters, from either side ahead, take a while to turn in - no hit in the
+  // first 15 s - and then hit it, three times at least in two minutes.
+  {
+    flight_init_from_mission(8);
+    opponent_reset(8);
+    gun_reset();
+    const int32_t z = flight_eye_z;
+    int first = -1;
+    for (int n = 0; n < (int)(kStepsPerSecond * 120) && !shot_down(); ++n) {
+      hold_height(z);
+      flight_advance();
+      opponent_step();
+      gun_step(false);
+      if (first < 0 && gun_player_hits) first = n;
+    }
+    CHECK(first >= 15 * kStepsPerSecond && gun_player_hits >= 3,
+          "escape, idle: the first hit at %.0f s, %d hits", first / kStepsPerSecond,
+          gun_player_hits);
+    printf("  unarmed escape, idle: the first hit at %.0f s, %d hits taken%s\n",
+           first / kStepsPerSecond, gun_player_hits, shot_down() ? ", shot down" : "");
+  }
+
   // 07: flying straight for runway 1, the first patrol sees the player and
   // attacks; outrun, it gives up and the second comes, which sees it on the
   // approach. Where it was seen, how many hits it took, and when it was home.

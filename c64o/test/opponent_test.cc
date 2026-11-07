@@ -959,7 +959,7 @@ static void test_missions(void) {
         {F, kOpponentHunt, 0, -256},     {F, kOpponentHunt, -256, 0},
         {F, kOpponentHunt, 256, 0},      {B, kOpponentPath, -256, 0},
         {F | S, kOpponentProvoked, 0, 256}, {F | S, kOpponentProvoked, -256, 0},
-        {F, kOpponentPath, 256, 0},      {F | S, kOpponentHunt, 0, -256},
+        {F, kOpponentPath, 256, 0},      {F | S, kOpponentHunt, -256, 0},
         {F, kOpponentHunt, 256, 0},
     };
     for (int m = 0; m < kOpponentRows; ++m) {
@@ -979,7 +979,11 @@ static void test_missions(void) {
                   behaviour == kSent[m].behaviour,
               "row %d slot %d: role %d, behaviour %d", m, k, p.kind & kOpponentBomber,
               behaviour >> 3);
-        CHECK(_opponent_head[k].x == kSent[m].hx && _opponent_head[k].y == kSent[m].hy &&
+        // A pair starts on one heading, but for 09's, from either side: slot
+        // 1 on the opposite one.
+        const int flip = m == 11 && k == 1 ? -1 : 1;
+        CHECK(_opponent_head[k].x == flip * kSent[m].hx &&
+                  _opponent_head[k].y == flip * kSent[m].hy &&
                   _opponent_head[k].z == 0,
               "row %d slot %d: starts heading %d, %d", m, k, _opponent_head[k].x,
               _opponent_head[k].y);

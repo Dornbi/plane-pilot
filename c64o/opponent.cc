@@ -264,10 +264,15 @@ static const uint16_t kOpponent2000Ft = 0x0400;
 // leave: three pairs in turn, five of the six to go down. 50 rounds are not
 // enough for 25 hits; landing on runway 2 rearms.
 //
-// 09, Unarmed escape: a pair hunting from 450 m behind the player, at 1,800
-// against its 2,176 and full throttle's ~2,500, giving up once outrun by
-// kOpponentGiveUp: ~2.2 min at full throttle, a minute short of home. The
-// player has no rounds (gun.cc).
+// 09, Unarmed escape: a pair hunting from either side, 1 km north and 1 km
+// south of the player and 2 km ahead of it, the one heading south and the
+// other north, at 1,800 against its 2,176 and full throttle's ~2,500. They
+// turn in across its way: flown straight home at full throttle it takes one
+// to four hits, at cruise doing nothing it is shot down. Outrun by
+// kOpponentGiveUp they give up: ~2.7 min at full throttle, under a minute
+// short of home. Farther than that ahead, they would give up at the start.
+// The player has no rounds (gun.cc). *Until 2026-11-07* the pair started
+// 450 m behind it, inside their guns' reach, and hit it at once.
 //
 // 10, Combat patrol: at 6,000 ft, a pair at 2,400 hunting from 1.2 km behind:
 // just under full throttle's ~2,500, as the arcade flight model has no dive
@@ -346,11 +351,11 @@ static const opponent_path_t kOpponentPaths[kOpponentRows][kOpponentMax] = {
       0x0200},
      {kOpponentLoop | kOpponentFighter | kOpponentPath | kOpponentNorth, 16, 0x5D00, 0xB800,
       0x0200}},
-    // 11: 09's hunters.
-    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentStray | kOpponentEast, 0,
-      0x1F80, 0xA400, kOpponent2000Ft + 0x20},
-     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentStray | kOpponentEast, 0,
-      0x2080, 0xA400, kOpponent2000Ft + 0x20}},
+    // 11: 09's hunters, from the north and from the south.
+    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentStray | kOpponentSouth, 0,
+      0x2800, 0x9000, kOpponent2000Ft + 0x20},
+     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentStray | kOpponentNorth, 0,
+      0x1800, 0x9000, kOpponent2000Ft + 0x20}},
     // 12: 10's hunters.
     {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0, 0x3700, 0xA000,
       0x0C40},

@@ -1254,7 +1254,7 @@ The missions:
 | 06 Big week | bombers over the city, three times, each gone over the south edge after ~80 s | three of six down |
 | 07 Way home | two patrols in turn, Provoked and straying | land |
 | 08 Turkey shoot | fighters flying runway 2's circuit, three times, never firing | five of six down |
-| 09 Unarmed escape | hunters from 450 m behind, straying, no rounds | outrun them, then land |
+| 09 Unarmed escape | hunters from either side, 1 km off and 2 km ahead (450 m behind until 2026-11-07), straying, no rounds | outrun them, then land |
 | 10 Combat patrol | hunters from 1.2 km behind at 6,000 ft | both down |
 
 mission_test's pilots fly all of them. The dogfight pilot waits between

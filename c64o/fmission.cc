@@ -111,10 +111,10 @@ const char *const kMissionDesc[kMissionCount] = {
     //    SHOOT DOWN AT LEAST FIVE!
     PRINT_FIGHTERS "CIRCLING A FIELD.\n"
     PRINT_SHOOT_DOWN "FIVE!",
-    // 09 NO AMMO, AND TWO ON YOUR TAIL.
-    //    OUTRUN THEM, THEN LAND.
-    "NO AMMO," PRINT_AND "TWO ON" PRINT_YOU "R TAIL.\n"
-    "OUTRUN" PRINT_THE "M," PRINT_THE "N LAND.",
+    // 09 NO AMMO, AND FIGHTERS FROM BOTH
+    //    SIDES. OUTRUN THEM, THEN LAND.
+    "NO AMMO," PRINT_AND "FIGHTERS FROM BOTH\n"
+    "SIDES. OUTRUN" PRINT_THE "M," PRINT_THE "N LAND.",
     // 10 HIGH PATROL. CHECK YOUR SIX!
     "HIGH PATROL. CHECK" PRINT_YOU "R SIX!",
 };
@@ -137,7 +137,7 @@ const char *const kMissionDesc[kMissionCount] = {
 // near runway 2, 14 km from home, the first patrol's line across the way.
 // 08 at 1,500 ft heading north, 1 km south of the circuit the fighters fly
 // over runway 2. 09 at 2,000 ft heading east, 12.4 km west of runway 1, the
-// hunters behind. 10 at 6,000 ft heading north, the hunters behind.
+// hunters ahead to either side. 10 at 6,000 ft heading north, the hunters behind.
 const uint8_t kMissionStartX[kMissionStarts] = {
     0x5C, // 01
     0x1C, // 02

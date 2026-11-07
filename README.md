@@ -111,6 +111,8 @@ See [docs/development.md](docs/development.md) for more details.
 ### 2026-11-06
 
 - fpilot's enemy aircraft take five hits to shoot down, not three.
+- 09, Unarmed escape: the two fighters come in from either side ahead, not
+  from just behind, where they hit the player at once.
 
 ### 2026-11-05
 
