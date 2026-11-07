@@ -1209,7 +1209,7 @@ static void test_missions(void) {
     CHECK(opponent_target(0, p) && _msgs == 0 && (_opponent_cull() & 1),
           "strikes: down, or out of view, before the last hit");
     opponent_strike(0);
-    CHECK((_opponent_down & 1 << kOpponentFalling) && _msgs == 1 && !strcmp(_msg, "TARGET DESTROYED"),
+    CHECK((_opponent_down & 1 << kOpponentFalling) && _msgs == 1 && !strcmp(_msg, "OPPONENT SHOT DOWN"),
           "strikes: the last hit did not shoot it down (%d messages)", _msgs);
     CHECK(!opponent_targets_down(), "strikes: one of two down, and the targets are down");
     CHECK(_opponent_cull() & 1, "strikes: a falling aircraft is not drawn");

@@ -66,10 +66,13 @@ static_assert(kOpponentKn % 4 == 0, "kViewFar divides it by four");
 // sprite may start on, plain and Y-expanded (mem.h), with the cap and the
 // numerator _opponent_set_view() picks for each slot. One view written over
 // rather than three that differ in those two.
-static planes_view_t _opponent_view = {
-    kScreenWidthPixels / 2, kViewportEndYPixels / 2,
-    kSpriteVisibleEndYPixels - 1,
-    kViewportEndYPixels - kSpritesOffLeadExpandY - 1, kPlaneKMax, kOpponentKn};
+static planes_view_t _opponent_view = {kScreenWidthPixels / 2,
+                                       kViewportEndYPixels / 2,
+                                       kSpriteVisibleEndYPixels - 1,
+                                       kViewportEndYPixels -
+                                           kSpritesOffLeadExpandY - 1,
+                                       kPlaneKMax,
+                                       kOpponentKn};
 static_assert(kSpriteVisibleEndYPixels - 1 == 89 &&
                   kViewportEndYPixels - kSpritesOffLeadExpandY - 1 == 68,
               "the DMA cuts moved: check planes.h's description of them");
@@ -99,10 +102,10 @@ static inline void _opponent_set_view(bool far, bool two) {
 // Each aircraft holds its path's height, and in level flight its path's
 // speed (the flight model below). It flies straight at its next waypoint,
 // and turns at one fixed rate when the waypoint is off its nose. Once the
-// waypoint is within kOpponentReach it heads for the next. After the last, a loop starts again at the first and a
-// one-way path's aircraft is gone: it has left the map. It steers at a point,
-// not along the line between two: reacting to the player would only change
-// the point.
+// waypoint is within kOpponentReach it heads for the next. After the last, a
+// loop starts again at the first and a one-way path's aircraft is gone: it has
+// left the map. It steers at a point, not along the line between two: reacting
+// to the player would only change the point.
 //
 // Positions in 8.8 world units, 128 m each, so that flight_eye_x = x << 8;
 // the height likewise, flight_eye_z = z << 8. x is north and +y west, as
@@ -197,14 +200,14 @@ static const uint16_t kOpponent2000Ft = 0x0400;
 // that come from behind (04, 09, 10) or are to be avoided (07).
 //
 // 01, Recon: a bomber, so brown when near, on a path, whose rear gunner
-// fires at a player on its tail. At 5,000 ft and 1,750, faster than the player climbs and slower
-// than it flies level up there. It comes in from the north edge head-on to
-// the player, 2,500 ft below, passing 64 m to one side after ~45 s; then on
-// south over the city at ~5.4 min and out over the south edge at ~6.2 min,
-// gone with the mission failed. The climb is the challenge: in level flight
-// the recon is on screen, as the dot, only from 2.6 s to 19 s, when it rises
-// out of the top of the viewport 2.45 km off. A pilot who turns after it at
-// the pass and only then climbs is within 250 m of it at ~3.8 min, 2.4 min
+// fires at a player on its tail. At 5,000 ft and 1,750, faster than the player
+// climbs and slower than it flies level up there. It comes in from the north
+// edge head-on to the player, 2,500 ft below, passing 64 m to one side after
+// ~45 s; then on south over the city at ~5.4 min and out over the south edge at
+// ~6.2 min, gone with the mission failed. The climb is the challenge: in level
+// flight the recon is on screen, as the dot, only from 2.6 s to 19 s, when it
+// rises out of the top of the viewport 2.45 km off. A pilot who turns after it
+// at the pass and only then climbs is within 250 m of it at ~3.8 min, 2.4 min
 // before it leaves (test/mission_test.cc). 2,000 at first, from the runway,
 // which play found too hard.
 //
@@ -298,69 +301,75 @@ static const opponent_pair_t kOpponentPairs[kOpponentRows] = {
 };
 static const opponent_path_t kOpponentPaths[kOpponentRows][kOpponentMax] = {
     // 0: 01's recon.
-    {{kOpponentOneWay | kOpponentBomber | kOpponentPath | kOpponentSouth, 0, 0x7E00, 0x6000,
-      kOpponent5000Ft},
+    {{kOpponentOneWay | kOpponentBomber | kOpponentPath | kOpponentSouth, 0,
+      0x7E00, 0x6000, kOpponent5000Ft},
      {kOpponentNone}},
     // 1: 02's bombers.
-    {{kOpponentOneWay | kOpponentBomber | kOpponentHunt | kOpponentSouth, 4, 0x4800, 0x4000,
-      kOpponent3000Ft},
-     {kOpponentOneWay | kOpponentBomber | kOpponentHunt | kOpponentSouth, 7, 0x48C8, 0x3F6A,
-      kOpponent3500Ft}},
+    {{kOpponentOneWay | kOpponentBomber | kOpponentHunt | kOpponentSouth, 4,
+      0x4800, 0x4000, kOpponent3000Ft},
+     {kOpponentOneWay | kOpponentBomber | kOpponentHunt | kOpponentSouth, 7,
+      0x48C8, 0x3F6A, kOpponent3500Ft}},
     // 2: 03's parked pair.
-    {{kOpponentParked | kOpponentFighter | kOpponentPath | kOpponentEast, 0, 0x5C9C, 0xC096,
-      0x000A},
-     {kOpponentParked | kOpponentFighter | kOpponentPath | kOpponentEast, 0, 0x5D64, 0xC096,
-      0x000A}},
+    {{kOpponentParked | kOpponentFighter | kOpponentPath | kOpponentEast, 0,
+      0x5C9C, 0xC096, 0x000A},
+     {kOpponentParked | kOpponentFighter | kOpponentPath | kOpponentEast, 0,
+      0x5D64, 0xC096, 0x000A}},
     // 3: 04's pass.
-    {{kOpponentOneWay | kOpponentFighter | kOpponentPass | kOpponentNorth, 10, 0x1A70, 0x3FE0,
-      0x0060},
-     {kOpponentOneWay | kOpponentFighter | kOpponentPass | kOpponentNorth, 11, 0x1900, 0x3F20,
-      0x0060}},
+    {{kOpponentOneWay | kOpponentFighter | kOpponentPass | kOpponentNorth, 10,
+      0x1A70, 0x3FE0, 0x0060},
+     {kOpponentOneWay | kOpponentFighter | kOpponentPass | kOpponentNorth, 11,
+      0x1900, 0x3F20, 0x0060}},
     // 4: 04's second pair, from the west.
-    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentEast, 0, 0x2400, 0x6000,
-      kOpponent2000Ft},
-     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentEast, 0, 0x2400, 0x6100,
-      kOpponent2000Ft}},
+    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentEast, 0,
+      0x2400, 0x6000, kOpponent2000Ft},
+     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentEast, 0,
+      0x2400, 0x6100, kOpponent2000Ft}},
     // 5: 05's head-on pair.
-    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentSouth, 0, 0x4200, 0x9000,
-      0x0660},
-     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentSouth, 0, 0x4200, 0x9100,
-      0x0660}},
+    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentSouth, 0,
+      0x4200, 0x9000, 0x0660},
+     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentSouth, 0,
+      0x4200, 0x9100, 0x0660}},
     // 6: 05's second pair, from the south.
-    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0, 0x1C00, 0x9000,
-      0x0660},
-     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0, 0x1C00, 0x9100,
-      0x0660}},
+    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0,
+      0x1C00, 0x9000, 0x0660},
+     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0,
+      0x1C00, 0x9100, 0x0660}},
     // 7: 06's bombers, on 02's last two waypoints.
-    {{kOpponentOneWay | kOpponentBomber | kOpponentPath | kOpponentSouth, 5, 0x1A00, 0x6800,
-      kOpponent3000Ft},
-     {kOpponentOneWay | kOpponentBomber | kOpponentPath | kOpponentSouth, 8, 0x1AC8, 0x676A,
-      kOpponent3500Ft}},
+    {{kOpponentOneWay | kOpponentBomber | kOpponentPath | kOpponentSouth, 5,
+      0x1A00, 0x6800, kOpponent3000Ft},
+     {kOpponentOneWay | kOpponentBomber | kOpponentPath | kOpponentSouth, 8,
+      0x1AC8, 0x676A, kOpponent3500Ft}},
     // 8: 07's first patrol.
-    {{kOpponentLoop | kOpponentFighter | kOpponentProvoked | kOpponentStray | kOpponentWest, 12,
-      0x4800, 0x7400, kOpponent3000Ft},
-     {kOpponentLoop | kOpponentFighter | kOpponentProvoked | kOpponentStray | kOpponentWest, 12,
-      0x4800, 0x7200, kOpponent3000Ft}},
+    {{kOpponentLoop | kOpponentFighter | kOpponentProvoked | kOpponentStray |
+          kOpponentWest,
+      12, 0x4800, 0x7400, kOpponent3000Ft},
+     {kOpponentLoop | kOpponentFighter | kOpponentProvoked | kOpponentStray |
+          kOpponentWest,
+      12, 0x4800, 0x7200, kOpponent3000Ft}},
     // 9: 07's second patrol.
-    {{kOpponentLoop | kOpponentFighter | kOpponentProvoked | kOpponentStray | kOpponentSouth, 14,
-      0x3800, 0x4800, kOpponent2000Ft},
-     {kOpponentLoop | kOpponentFighter | kOpponentProvoked | kOpponentStray | kOpponentSouth, 14,
-      0x3A00, 0x4800, kOpponent2000Ft}},
+    {{kOpponentLoop | kOpponentFighter | kOpponentProvoked | kOpponentStray |
+          kOpponentSouth,
+      14, 0x3800, 0x4800, kOpponent2000Ft},
+     {kOpponentLoop | kOpponentFighter | kOpponentProvoked | kOpponentStray |
+          kOpponentSouth,
+      14, 0x3A00, 0x4800, kOpponent2000Ft}},
     // 10: 08's square.
-    {{kOpponentLoop | kOpponentFighter | kOpponentPath | kOpponentNorth, 16, 0x6000, 0xB800,
-      0x0200},
-     {kOpponentLoop | kOpponentFighter | kOpponentPath | kOpponentNorth, 16, 0x5D00, 0xB800,
-      0x0200}},
+    {{kOpponentLoop | kOpponentFighter | kOpponentPath | kOpponentNorth, 16,
+      0x6000, 0xB800, 0x0200},
+     {kOpponentLoop | kOpponentFighter | kOpponentPath | kOpponentNorth, 16,
+      0x5D00, 0xB800, 0x0200}},
     // 11: 09's hunters, from the north and from the south.
-    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentStray | kOpponentSouth, 0,
-      0x2800, 0x9000, kOpponent2000Ft + 0x20},
-     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentStray | kOpponentNorth, 0,
-      0x1800, 0x9000, kOpponent2000Ft + 0x20}},
+    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentStray |
+          kOpponentSouth,
+      0, 0x2800, 0x9000, kOpponent2000Ft + 0x20},
+     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentStray |
+          kOpponentNorth,
+      0, 0x1800, 0x9000, kOpponent2000Ft + 0x20}},
     // 12: 10's hunters.
-    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0, 0x3700, 0xA000,
-      0x0C40},
-     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0, 0x3700, 0xA100,
-      0x0C40}},
+    {{kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0,
+      0x3700, 0xA000, 0x0C40},
+     {kOpponentLoop | kOpponentFighter | kOpponentHunt | kOpponentNorth, 0,
+      0x3700, 0xA100, 0x0C40}},
 };
 
 // The waves: each mission's rows in the order sent, one byte a pair - its
@@ -372,16 +381,23 @@ static const uint8_t kOpponentLastWave = 0x80;
 static const uint8_t kOpponentNeedShift = 4;
 static const uint8_t kOpponentRowMask = 0x0F;
 static const uint8_t kOpponentWaves[] = {
-    0 | kOpponentLastWave,                                  // 01
-    1 | kOpponentLastWave,                                  // 02
-    2 | kOpponentLastWave,                                  // 03
-    3, 4 | kOpponentLastWave,                               // 04
-    5, 6 | kOpponentLastWave,                               // 05
-    7 | 3 << kOpponentNeedShift, 7, 7 | kOpponentLastWave,  // 06
-    8, 9 | kOpponentLastWave,                               // 07
-    10 | 5 << kOpponentNeedShift, 10, 10 | kOpponentLastWave, // 08
-    11 | kOpponentLastWave,                                 // 09
-    12 | kOpponentLastWave,                                 // 10
+    0 | kOpponentLastWave, // 01
+    1 | kOpponentLastWave, // 02
+    2 | kOpponentLastWave, // 03
+    3,
+    4 | kOpponentLastWave, // 04
+    5,
+    6 | kOpponentLastWave, // 05
+    7 | 3 << kOpponentNeedShift,
+    7,
+    7 | kOpponentLastWave, // 06
+    8,
+    9 | kOpponentLastWave, // 07
+    10 | 5 << kOpponentNeedShift,
+    10,
+    10 | kOpponentLastWave, // 08
+    11 | kOpponentLastWave, // 09
+    12 | kOpponentLastWave, // 10
 };
 static_assert(kOpponentRows <= kOpponentRowMask + 1, "a row fits its bits");
 
@@ -396,22 +412,18 @@ static const uint8_t kOpponentWpCount = 20;
 #define OPPONENT_TEST_WP_X
 #define OPPONENT_TEST_WP_Y
 #endif
-__striped static const uint16_t kOpponentWpX[kOpponentWpCount + OPPONENT_TEST_WP_N] = {
-    0x5C00, 0x3000, 0x1000, 0x0000,
-    0x2800, 0x1000, 0x0000,
-    0x28C8, 0x10C8, 0x00C8,
-    0x2270, 0x2100,
-    0x4800, 0x4800,
-    0x1800, 0x3800,
-    0x7000, 0x7000, 0x5000, 0x5000 OPPONENT_TEST_WP_X};
-__striped static const uint16_t kOpponentWpY[kOpponentWpCount + OPPONENT_TEST_WP_N] = {
-    0x6000, 0x6400, 0x6800, 0x6800,
-    0x4000, 0x6800, 0x6800,
-    0x3F6A, 0x676A, 0x676A,
-    0x3FE0, 0x3F20,
-    0x9000, 0x6000,
-    0x4800, 0x4800,
-    0xB800, 0xC600, 0xC600, 0xB800 OPPONENT_TEST_WP_Y};
+__striped static const uint16_t
+    kOpponentWpX[kOpponentWpCount + OPPONENT_TEST_WP_N] = {
+        0x5C00, 0x3000, 0x1000, 0x0000, 0x2800,
+        0x1000, 0x0000, 0x28C8, 0x10C8, 0x00C8,
+        0x2270, 0x2100, 0x4800, 0x4800, 0x1800,
+        0x3800, 0x7000, 0x7000, 0x5000, 0x5000 OPPONENT_TEST_WP_X};
+__striped static const uint16_t
+    kOpponentWpY[kOpponentWpCount + OPPONENT_TEST_WP_N] = {
+        0x6000, 0x6400, 0x6800, 0x6800, 0x4000,
+        0x6800, 0x6800, 0x3F6A, 0x676A, 0x676A,
+        0x3FE0, 0x3F20, 0x9000, 0x6000, 0x4800,
+        0x4800, 0xB800, 0xC600, 0xC600, 0xB800 OPPONENT_TEST_WP_Y};
 
 // What the message says when the mission fails: 01's recon gets away, or
 // the city is bombed - 02's reach it, or too few of 06's go down.
@@ -458,8 +470,8 @@ static const int16_t kOpponentLevelAccel = 8;
 // By climb level + 3, -3 to 3: what a whole step of it does to the speed;
 // -4 times this is the 8.8 slope.
 static const int8_t kOpponentClimbSpeed[7] = {
-    4 * kOpponentClimbCost, 2 * kOpponentClimbCost, kOpponentClimbCost, 0,
-    -kOpponentClimbCost, -2 * kOpponentClimbCost, -4 * kOpponentClimbCost};
+    4 * kOpponentClimbCost, 2 * kOpponentClimbCost,  kOpponentClimbCost,     0,
+    -kOpponentClimbCost,    -2 * kOpponentClimbCost, -4 * kOpponentClimbCost};
 static_assert(kOpponentClimbCost == 8, "8.8 slope is -4 * kOpponentClimbSpeed");
 // Within this of its path's height, in half metres, an aircraft on its path
 // flies level: 20 m.
@@ -477,8 +489,10 @@ static_assert(kOpponentClimbCost % kOpponentLevelAccel == 0,
 // And after them, kOpponentDive's: ~37 degrees nose down, shot down - a
 // slope of 3/4, the one _opponent_fall() descends at, so sine 0.6 and
 // cosine 0.8.
-static const int16_t kOpponentPitchSin[8] = {-114, -62, -32, 0, 32, 62, 114, -154};
-static const uint8_t kOpponentPitchCos[8] = {229, 248, 254, 0, 254, 248, 229, 205};
+static const int16_t kOpponentPitchSin[8] = {-114, -62, -32, 0,
+                                             32,   62,  114, -154};
+static const uint8_t kOpponentPitchCos[8] = {229, 248, 254, 0,
+                                             254, 248, 229, 205};
 static const int8_t kOpponentDive = 4;
 
 // The bank while turning, drawn only, by the turn + 2: cos and sin of 30
@@ -509,7 +523,8 @@ static const int16_t kOpponentGunnerReach = 1200;
 // being ~0.9 degrees: by three random bits for x and for y, so that across
 // the line of fire it is up to ~6 degrees, and two for z. At 300 m about
 // one round in eight lands, closer in more (test/mission_test.cc).
-__striped static const int16_t kOpponentScatter[8] = {-28, -20, -12, -4, 4, 12, 20, 28};
+__striped static const int16_t kOpponentScatter[8] = {-28, -20, -12, -4,
+                                                      4,   12,  20,  28};
 
 // The pixel size, planes_frame_t::d, from which an aircraft is drawn in
 // kColorOpponentNear: about 620 m at kOpponentKn, and below
@@ -603,7 +618,8 @@ static struct {
 #define _opponent_pitch (_opponent_fresh.pitch)
 #define _opponent_hits (_opponent_fresh.hits)
 #define _opponent_gun (_opponent_fresh.gun)
-static_assert(sizeof(_opponent_fresh) < 256, "_opponent_send() clears it by a byte count");
+static_assert(sizeof(_opponent_fresh) < 256,
+              "_opponent_send() clears it by a byte count");
 // Position in flight_eye_*'s 24.8 half metres: x, y, then z, packed for
 // _opponent_pos() and _opponent_move().
 static int32_t _opponent_xyz[3 * kOpponentMax];
@@ -669,9 +685,7 @@ void opponent_invalidate(void) {
 
 static_assert(kOpponentMax == 2, "slot i's mask bit is i + 1");
 
-static inline uint8_t _opponent_bit(uint8_t i) {
-  return (uint8_t)(i + 1);
-}
+static inline uint8_t _opponent_bit(uint8_t i) { return (uint8_t)(i + 1); }
 
 static inline bool _opponent_live(uint8_t i) {
   return _opponent_on[i] && !(_opponent_down & _opponent_bit(i));
@@ -710,7 +724,8 @@ static __noinline void _opponent_destroy(uint8_t i, const char *text) {
 }
 
 static inline bool _opponent_provoked(uint8_t i) {
-  return (_opponent_path[i]->kind & kOpponentBehaviourMask) == kOpponentProvoked;
+  return (_opponent_path[i]->kind & kOpponentBehaviourMask) ==
+         kOpponentProvoked;
 }
 
 bool opponent_calm(uint8_t i) {
@@ -745,7 +760,7 @@ void opponent_strike(uint8_t i) {
     }
     _opponent_firing &= (uint8_t)~bit;
     ++opponent_shot_down;
-    msg_show("TARGET DESTROYED");
+    msg_show("OPPONENT SHOT DOWN");
   }
 }
 
@@ -833,7 +848,8 @@ static __noinline void _opponent_send(void) {
     _opponent_set_pos((uint8_t)(i + 2 * kOpponentMax), p->z);
     _opponent_start_head(p, &_opponent_head[i]);
     _opponent_speed[i] = q->speed;
-    _opponent_color[i] = (p->kind & kOpponentBomber) ? kColorBrown : kColorOpponentNear;
+    _opponent_color[i] =
+        (p->kind & kOpponentBomber) ? kColorBrown : kColorOpponentNear;
   }
   _opponent_track();
   opponent_invalidate();
@@ -855,7 +871,8 @@ void opponent_reset(uint8_t mission) {
     }
   }
   _opponent_wave = w;
-  _opponent_need = (uint8_t)((kOpponentWaves[w] & ~kOpponentLastWave) >> kOpponentNeedShift);
+  _opponent_need =
+      (uint8_t)((kOpponentWaves[w] & ~kOpponentLastWave) >> kOpponentNeedShift);
   _opponent_send();
 }
 
@@ -877,7 +894,8 @@ static inline bool _opponent_within(int16_t d, uint16_t r) {
 
 // a * b + c * d, each in 8.8 with b and d no more than 256: every product
 // below, which are all two-term dot products, called rather than written out.
-static __noinline int16_t _opponent_dot(int16_t a, int16_t b, int16_t c, int16_t d) {
+static __noinline int16_t _opponent_dot(int16_t a, int16_t b, int16_t c,
+                                        int16_t d) {
   return vec_fastmul8p8(a, b) + vec_fastmul8p8(c, d);
 }
 
@@ -966,8 +984,8 @@ static __noinline bool _opponent_below(uint8_t i, uint8_t lim) {
 // slope comes nearest the player's, from dz against the distance along the
 // ground, max + min / 2 of |dx| and |dy|, all in bytes; or, breaking off,
 // the steepest away from it. And above `floor`, in half metres.
-static __noinline int8_t _opponent_want(uint8_t i, int8_t dx, int8_t dy, int16_t dz,
-                                        uint8_t floor) {
+static __noinline int8_t _opponent_want(uint8_t i, int8_t dx, int8_t dy,
+                                        int16_t dz, uint8_t floor) {
   uint16_t az16 = _opponent_abs(dz);
   uint8_t az = az16 > 255 ? 255 : (uint8_t)az16;
   uint8_t ax = (uint8_t)(dx < 0 ? -dx : dx), ay = (uint8_t)(dy < 0 ? -dy : dy);
@@ -1036,18 +1054,20 @@ static __noinline uint8_t _opponent_strafe(uint8_t i, int16_t dot,
       _opponent_pullup &= (uint8_t)~bit;
     }
   } else if (ground && dot > 0 && across < ((uint16_t)dot >> 2) && cut > 2 &&
-             !_opponent_below(
-                 i, (uint8_t)(kOpponentStrafeFloor + kOpponentFloorMargin + 1))) {
+             !_opponent_below(i, (uint8_t)(kOpponentStrafeFloor +
+                                           kOpponentFloorMargin + 1))) {
     floor = (uint8_t)kOpponentStrafeFloor;
   } else if (_opponent_below(i, kOpponentFloor)) {
     _opponent_pullup |= bit;
   }
   _opponent_aim = !(_opponent_pullup & bit) && cut <= 4 && dot > 0 &&
                   across < ((uint16_t)dot >> 3);
-  _opponent_break = !ground && dot > 0 &&
-                    (cut <= 1 || (cut == 2 && _opponent_dot(flight_cam.front.x, _opponent_head[i].x,
-                                                            flight_cam.front.y,
-                                                            _opponent_head[i].y) < 0));
+  _opponent_break =
+      !ground && dot > 0 &&
+      (cut <= 1 ||
+       (cut == 2 &&
+        _opponent_dot(flight_cam.front.x, _opponent_head[i].x,
+                      flight_cam.front.y, _opponent_head[i].y) < 0));
   return floor;
 }
 
@@ -1137,11 +1157,11 @@ static __noinline bool _opponent_gunner(uint8_t i) {
 // of a metre a step: three times a unit vector, scattered by
 // kOpponentScatter on each axis. A fighter's along its nose, the heading
 // with the climb's sine for its z; a bomber's gunner's at the player, along
-// the line _opponent_gunner() found, vec_normalize()d. Unscattered, a fighter's pure pursuit put every round on a player
-// it was chasing, who moves along the line of fire. No multiply: the
-// aircraft's own speed, 3-11 m a step against the round's 48, and the
-// climb's cosine, 0.89 at the steepest, are left out, which the guns not
-// aiming makes nothing of.
+// the line _opponent_gunner() found, vec_normalize()d. Unscattered, a fighter's
+// pure pursuit put every round on a player it was chasing, who moves along the
+// line of fire. No multiply: the aircraft's own speed, 3-11 m a step against
+// the round's 48, and the climb's cosine, 0.89 at the steepest, are left out,
+// which the guns not aiming makes nothing of.
 static_assert(kGunMuzzle == 3 * 256, "the round is three times the nose");
 bool opponent_fires(uint8_t i, int16_t *v) {
   uint8_t bit = _opponent_bit(i);
@@ -1193,7 +1213,8 @@ static __noinline void _opponent_gone(uint8_t i) {
 static __noinline bool _opponent_close(uint8_t i, uint16_t r) {
   uint8_t c = 0;
   do {
-    if (_opponent_abs(_opponent_toward((uint16_t)(*kFlightEye[c] >> 8), i)) >= r) {
+    if (_opponent_abs(_opponent_toward((uint16_t)(*kFlightEye[c] >> 8), i)) >=
+        r) {
       return false;
     }
     i += kOpponentMax;
@@ -1205,7 +1226,8 @@ static __noinline bool _opponent_close(uint8_t i, uint16_t r) {
 static void _opponent_fail(void) {
   if (!_opponent_failed) {
     _opponent_failed = true;
-    msg_show(kOpponentFailText[_opponent_mission != 0], 3 * MSG_DEFAULT_DURATION);
+    msg_show(kOpponentFailText[_opponent_mission != 0],
+             3 * MSG_DEFAULT_DURATION);
   }
 }
 
@@ -1281,7 +1303,8 @@ void opponent_step(void) {
       if (_opponent_provoked(i) && _opponent_close(i, kOpponentSpot)) {
         _opponent_attack |= bit;
       }
-    } else if ((p->kind & kOpponentStray) && !_opponent_close(i, kOpponentGiveUp)) {
+    } else if ((p->kind & kOpponentStray) &&
+               !_opponent_close(i, kOpponentGiveUp)) {
       _opponent_gone(i);
       continue;
     }
@@ -1582,7 +1605,8 @@ static __noinline uint8_t _opponent_cull(void) {
     // the pass, or just off to one side, would be projected, and drawn or
     // looked up in the cache, for nothing: 7,000-38,000 cycles a frame. In
     // the far range's half metres the margins are four times what they need be.
-    if (range != kOpponentOut && _opponent_c.x > 64 && !_opponent_off_screen()) {
+    if (range != kOpponentOut && _opponent_c.x > 64 &&
+        !_opponent_off_screen()) {
       seen |= bit;
       if (range == kOpponentFar) {
         far |= bit;
@@ -1752,7 +1776,8 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
   } else if (_opponent_f.d < kOpponentNearD - 1) {
     _opponent_near &= (uint8_t)~bit;
   }
-  uint8_t color = (_opponent_near & bit) ? _opponent_color[i] : kColorOpponentFar;
+  uint8_t color =
+      (_opponent_near & bit) ? _opponent_color[i] : kColorOpponentFar;
   // Depth in the clouds' 1 m units, so that the two sort together.
   sprites_stack_add(far ? _opponent_c.x >> 1 : _opponent_c.x >> 3,
                     _opponent_f.x, _opponent_f.y, 0, 0, bitmap, bitmap2, color,
@@ -1775,7 +1800,8 @@ void opponent_add_sprites(void) {
   uint8_t first = _opponent_first;
   for (uint8_t n = 0; n < kOpponentMax; ++n) {
     uint8_t i = n ^ first;
-    if ((_opponent_seen & _opponent_bit(i)) && _opponent_draw(i, _opponent_busy)) {
+    if ((_opponent_seen & _opponent_bit(i)) &&
+        _opponent_draw(i, _opponent_busy)) {
       _opponent_busy = true;
       _opponent_first = i ^ 1;
     }

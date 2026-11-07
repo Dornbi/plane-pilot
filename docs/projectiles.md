@@ -229,7 +229,7 @@ the crash, so a stall still sounds while firing.
   `opponent_step()`, and `gun_add_sprite()` after `opponent_add_sprites()`.
   `opponent.cc` gives it `opponent_target()` and `opponent_strike()`.
   `kOpponentHitsToDown` is 5 (3 until 2026-11-06), and a downed aircraft is no longer drawn
-  ("TARGET DESTROYED").
+  ("OPPONENT SHOT DOWN").
 - **Rounds relative to the eye, not in world space.** A round stays within a
   kilometre or so of the player, so its position is kept relative to the eye
   in sixteenths of a metre, int16, good to 2 km. Each step the eye's own
