@@ -156,34 +156,39 @@ static_assert(FLIGHT_INPUT_TOGGLE_GEAR == FLIGHT_INPUT_TOGGLE_FLAP + 1 &&
                   FLIGHT_INPUT_TOGGLE_NAV == FLIGHT_INPUT_TOGGLE_FLAP + 2,
               "the toggle inputs follow kToggleKeys");
 
-// The held-down flight and view keys. A table plus one loop rather than a dozen
-// `if (key_pressed(K)) flight_input(I);` pairs: each pair costs a JSR, a
-// branch and two constant loads, and this runs at ~10 Hz where a loop's
-// index arithmetic is free. The view keys share it: an input with
-// kHeldKeyView set is a view_update_view() state rather than a flight input.
-struct held_key_t {
-  uint8_t scan;
-  uint8_t input;
+// The held-down flight and view keys, one scan code per entry in the order of
+// flight_input_t (entries 0..8 -> ROLL_LEFT..BRAKE = 1..9) followed by
+// view_state_t (entries 9..12 -> VIEW_LEFT..VIEW_BACK = 1..4). Polled once
+// before bm_model_start() for the first step, and again before each extra step
+// under time compression.
+static const uint8_t kHeldKeys[] = {
+    KSCAN_J, KSCAN_L,    KSCAN_K,     KSCAN_I, KSCAN_A,
+    KSCAN_S, KSCAN_PLUS, KSCAN_MINUS, KSCAN_B, KSCAN_1,
+    KSCAN_2, KSCAN_3,    KSCAN_4,
 };
-static const uint8_t kHeldKeyView = 0x80;
-static_assert(FLIGHT_INPUT_BRAKE < kHeldKeyView && VIEW_BACK < kHeldKeyView,
-              "inputs and views must stay clear of the view flag");
-static const held_key_t kHeldKeys[] = {
-    {KSCAN_J, FLIGHT_INPUT_ROLL_LEFT},
-    {KSCAN_L, FLIGHT_INPUT_ROLL_RIGHT},
-    {KSCAN_I, FLIGHT_INPUT_PITCH_DOWN},
-    {KSCAN_K, FLIGHT_INPUT_PITCH_UP},
-    {KSCAN_A, FLIGHT_INPUT_YAW_LEFT},
-    {KSCAN_S, FLIGHT_INPUT_YAW_RIGHT},
-    {KSCAN_PLUS, FLIGHT_INPUT_THROTTLE_UP},
-    {KSCAN_MINUS, FLIGHT_INPUT_THROTTLE_DOWN},
-    {KSCAN_B, FLIGHT_INPUT_BRAKE},
-    {KSCAN_1, kHeldKeyView | VIEW_LEFT},
-    {KSCAN_2, kHeldKeyView | VIEW_CENTER},
-    {KSCAN_3, kHeldKeyView | VIEW_RIGHT},
-    {KSCAN_4, kHeldKeyView | VIEW_BACK},
-};
-static const uint8_t kHeldKeyCount = sizeof(kHeldKeys) / sizeof(kHeldKeys[0]);
+static const uint8_t kHeldFlightCount = 9;
+static_assert(FLIGHT_INPUT_ROLL_LEFT == 1 && FLIGHT_INPUT_ROLL_RIGHT == 2 &&
+                  FLIGHT_INPUT_PITCH_UP == 3 && FLIGHT_INPUT_PITCH_DOWN == 4 &&
+                  FLIGHT_INPUT_YAW_LEFT == 5 && FLIGHT_INPUT_YAW_RIGHT == 6 &&
+                  FLIGHT_INPUT_THROTTLE_UP == 7 &&
+                  FLIGHT_INPUT_THROTTLE_DOWN == 8 &&
+                  FLIGHT_INPUT_BRAKE == kHeldFlightCount,
+              "kHeldKeys 0..8 follow flight_input_t");
+static_assert(VIEW_LEFT == 1 && VIEW_CENTER == 2 && VIEW_RIGHT == 3 &&
+                  VIEW_BACK == 4,
+              "kHeldKeys 9..12 follow view_state_t");
+
+static __noinline void _poll_held(void) {
+  for (uint8_t i = 0; i < sizeof(kHeldKeys); ++i) {
+    if (keys_pressed((enum KeyScanCode)kHeldKeys[i])) {
+      if (i < kHeldFlightCount) {
+        flight_input((enum flight_input_t)(i + 1));
+      } else {
+        view_update_view((view_state_t)(i - (kHeldFlightCount - 1)));
+      }
+    }
+  }
+}
 
 // T's messages. The 2X one is patched to 4X in place, as flight.cc does its
 // navpoint number.
@@ -302,6 +307,13 @@ void sim_run(uint8_t selected_mission) {
       screen_restore_simulation();
       keys_wait_release(KSCAN_H);
     }
+    _poll_held();
+#ifdef __FPILOT__
+    // Space fires (docs/projectiles.md); held, a round from each wing in turn.
+    const bool trigger = keys_pressed(KSCAN_SPACE);
+#else
+    const bool trigger = false;
+#endif
 
     bm_model_start();
     // One step per rendered frame, and never two unless T asked for them. The
@@ -318,38 +330,30 @@ void sim_run(uint8_t selected_mission) {
     // a frame, each the world's - the aircraft, the opponents and every round,
     // so waypoints, crashes, landings and hits are all still tested on each
     // step and nothing can be stepped over. The held controls are part of the
-    // step too: they act before each one, so a held roll, the throttle and
-    // the brakes do 2 or 4 times as much a frame, exactly as much per step
-    // as they always did, and each sees the state the step before left
-    // (the ground, the stall). The view keys ride along in the same table;
-    // past the first step they find the view already set. The toggles were
-    // taken once above, and anything that runs in the player's time below -
-    // the message timers, the hit flash, the panel and the sound - stays
-    // once a frame.
+    // step too: _poll_held() ran once above for the first step and runs again
+    // before each extra step, so a held roll, the throttle and the brakes do
+    // 2 or 4 times as much a frame, exactly as much per step as they always
+    // did, and each sees the state the step before left (the ground, the
+    // stall). The view keys ride along in the same table; past the first step
+    // they find the view already set. The toggles were taken once above, and
+    // anything that runs in the player's time below - the message timers, the
+    // hit flash, the panel and the sound - stays once a frame.
     //
     // The sound reads flight_events once a frame, and each step's publish
     // replaces the last one's, so a gear thump or a hit from any but the last
     // step would be lost. The frame's steps are ORed together for it instead.
-    // Space fires (docs/projectiles.md); held, a round from each wing in turn.
-    const bool trigger = keys_pressed(KSCAN_SPACE);
     uint8_t events = 0;
     uint8_t steps = sim_time_steps;
-    do {
-      for (uint8_t i = 0; i < kHeldKeyCount; ++i) {
-        if (keys_pressed(kHeldKeys[i].scan)) {
-          uint8_t input = kHeldKeys[i].input;
-          if (input & kHeldKeyView) {
-            view_update_view((view_state_t)(input & ~kHeldKeyView));
-          } else {
-            flight_input(input);
-          }
-        }
-      }
+    for (;;) {
       flight_advance();
       opponent_step();
       gun_step(trigger);
       events |= flight_events;
-    } while (--steps != 0);
+      if (--steps == 0) {
+        break;
+      }
+      _poll_held();
+    }
     flight_events = events;
     if (flight_crashed()) {
       // A crash is the end of the flight, so its message stays up until R or

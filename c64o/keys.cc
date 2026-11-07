@@ -26,12 +26,11 @@ __noinline bool keys_pressed(enum KeyScanCode key) {
 
 __noinline uint8_t keys_scan(const uint8_t *keys, uint8_t count) {
   uint8_t down = 0;
-  uint8_t bit = 1;
-  for (uint8_t i = 0; i < count; ++i) {
-    if (keys_pressed((enum KeyScanCode)keys[i])) {
-      down |= bit;
+  while (count != 0) {
+    down <<= 1;
+    if (keys_pressed((enum KeyScanCode)keys[--count])) {
+      down |= 1;
     }
-    bit <<= 1;
   }
   return down;
 }
