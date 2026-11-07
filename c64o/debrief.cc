@@ -7,6 +7,7 @@
 #include "keys.h"
 #include "mem.h"
 #include "mission.h"
+#include "opponent.h"
 #include "print.h"
 #include "screen.h"
 
@@ -24,6 +25,12 @@ static const uint8_t kDebriefRowTitle = 2;
 static const uint8_t kDebriefRowGoals = 5;
 static const uint8_t kDebriefRowAircraft = kDebriefRowGoals + 1;
 static const uint8_t kDebriefRowTallies = kDebriefRowGoals + 3;
+static const uint8_t kDebriefRowDown = kDebriefRowTallies + kGunTallies;
+
+// A plane, one per enemy shot down: '*' in the font (generate_gfx_chars.py),
+// which nothing else prints. A mission sends at most three pairs, so six of
+// them end well clear of the label.
+static const uint8_t kDebriefPlane = '*';
 
 // The whole page but the answers, from row 0 at kDebriefCol: a '\t' pads to
 // column 11. Keep the rows above in step with its lines.
@@ -88,17 +95,6 @@ static __noinline void _debrief_answer(uint8_t row, const char *text) {
 }
 
 void debrief_run(void) {
-  // The aircraft shot down, into the last tally: two digits, which is more
-  // than any mission sends.
-  uint8_t k = opponent_shot_down;
-  uint8_t t = 0;
-  while (k >= 10) {
-    k -= 10;
-    ++t;
-  }
-  gun_tally[kGunTallyDown + kGunTallyDigits - 2] = t;
-  gun_tally[kGunTallyDown + kGunTallyDigits - 1] = k;
-
   screen_begin_text_page();
 
   print_lines(0, kDebriefCol, kDebriefText);
@@ -125,6 +121,19 @@ void debrief_run(void) {
         dst[j] = (uint8_t)('0' + v);
       }
     }
+  }
+
+  // The aircraft shot down, as that many planes leftwards from the right
+  // edge, or a 0 like the tallies' when there are none.
+  uint8_t *down = mem_screen_row_ptrs[kDebriefRowDown];
+  uint8_t col = kDebriefRight - 1;
+  uint8_t n = opponent_shot_down;
+  if (n == 0) {
+    down[col] = '0';
+  } else {
+    do {
+      down[col--] = kDebriefPlane;
+    } while (--n);
   }
 
   // Q is what brought the player here, and it is the way on: the press that
