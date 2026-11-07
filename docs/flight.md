@@ -729,9 +729,13 @@ airspeed through the world moves with what is on screen.
 renders: `flight_advance()`, `opponent_step()` and `gun_step()` in turn, each
 time. So everything that happens in the world's time - the waypoints, the crash
 and touchdown checks, the opponents, every round and its hit tests - still runs
-once a step and nothing is stepped over. What runs in the player's time does
-not: the keys are read and `flight_input()` acts once a frame, so a held roll
-turns the picture no faster than it ever did, and the message timers, the hit
+once a step and nothing is stepped over. The held controls are part of the
+step too: the held-key table is read before each one, so a held roll, the
+throttle and the brakes do 2 or 4 times as much a frame and exactly as much a
+step, each input seeing the state the step before left. N frames at 4x end
+bit for bit where 4N frames at 1x with the same keys do, attitude, position and
+throttle (checked in VICE in both games). What runs in the player's time does
+not: the toggles (F, G, N) act once a press, and the message timers, the hit
 flash, the panel and the sound stay once a frame. The sound reads one event set
 a frame and each step's publish replaces the last, so the loop ORs the frame's
 sets together and publishes that (sound.md, "Handoff without a race").

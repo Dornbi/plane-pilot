@@ -290,16 +290,6 @@ void sim_run(uint8_t selected_mission) {
       }
       edges >>= 1;
     } while (++toggle <= FLIGHT_INPUT_TOGGLE_NAV);
-    for (uint8_t i = 0; i < kHeldKeyCount; ++i) {
-      if (keys_pressed(kHeldKeys[i].scan)) {
-        uint8_t input = kHeldKeys[i].input;
-        if (input & kHeldKeyView) {
-          view_update_view((view_state_t)(input & ~kHeldKeyView));
-        } else {
-          flight_input(input);
-        }
-      }
-    }
     // Only the opening half of the toggle lives here; the map's own key
     // handling above closes it, M included.
     if (key_pressed(KSCAN_M)) {
@@ -327,11 +317,15 @@ void sim_run(uint8_t selected_mission) {
     // Time compression is the exception the pilot chooses: 2 or 4 whole steps
     // a frame, each the world's - the aircraft, the opponents and every round,
     // so waypoints, crashes, landings and hits are all still tested on each
-    // step and nothing can be stepped over. The keys are not: the controls
-    // were read once above and act once a frame, so a held roll turns the
-    // aircraft as fast on screen as it always did. Nor is anything that runs
-    // in the player's time below - the message timers, the hit flash, the
-    // panel and the sound.
+    // step and nothing can be stepped over. The held controls are part of the
+    // step too: they act before each one, so a held roll, the throttle and
+    // the brakes do 2 or 4 times as much a frame, exactly as much per step
+    // as they always did, and each sees the state the step before left
+    // (the ground, the stall). The view keys ride along in the same table;
+    // past the first step they find the view already set. The toggles were
+    // taken once above, and anything that runs in the player's time below -
+    // the message timers, the hit flash, the panel and the sound - stays
+    // once a frame.
     //
     // The sound reads flight_events once a frame, and each step's publish
     // replaces the last one's, so a gear thump or a hit from any but the last
@@ -341,6 +335,16 @@ void sim_run(uint8_t selected_mission) {
     uint8_t events = 0;
     uint8_t steps = sim_time_steps;
     do {
+      for (uint8_t i = 0; i < kHeldKeyCount; ++i) {
+        if (keys_pressed(kHeldKeys[i].scan)) {
+          uint8_t input = kHeldKeys[i].input;
+          if (input & kHeldKeyView) {
+            view_update_view((view_state_t)(input & ~kHeldKeyView));
+          } else {
+            flight_input(input);
+          }
+        }
+      }
       flight_advance();
       opponent_step();
       gun_step(trigger);
