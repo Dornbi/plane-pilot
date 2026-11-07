@@ -738,15 +738,20 @@ static inline bool _flight_move_forward(int16_t fspeed, int16_t vspeed) {
 
 #else // !__FLIGHT_AOA__
 
-static inline void _flight_move_forward(int16_t fspeed, int16_t vspeed) {
+// Returns whether the eye is at the ground plane after the step, clamped
+// there or not: the contact check's flight_eye_z <= kFlightMinEyeZ, which the
+// clamp's own compare answers, so the 32-bit compare is made once.
+static inline bool _flight_move_forward(int16_t fspeed, int16_t vspeed) {
   // The shift is after the multiply, not on fspeed: the product carries the
   // bits a quarter-sized step needs and fspeed on its own does not.
   _flight_eye_add(&flight_eye_x, vec_fastmul8p8(flight_cam.front.x, fspeed));
   _flight_eye_add(&flight_eye_y, vec_fastmul8p8(flight_cam.front.y, fspeed));
   _flight_eye_add(&flight_eye_z, vspeed);
-  if (flight_eye_z < kFlightMinEyeZ) {
+  bool floor = flight_eye_z <= kFlightMinEyeZ;
+  if (floor) {
     flight_eye_z = kFlightMinEyeZ;
   }
+  return floor;
 }
 
 #endif // __FLIGHT_AOA__
@@ -1445,10 +1450,15 @@ void flight_advance() {
     const bool hit_floor =
         _flight_move_forward(flight_speed << 1, flight_vspeed);
 #else
-    _flight_move_forward(flight_speed << 1, flight_vspeed);
+    const bool on_floor =
+        _flight_move_forward(flight_speed << 1, flight_vspeed);
 #endif
 
-    if (!model_on_ground && flight_vspeed < 0 && flight_eye_z <= 0x4000) {
+    // Z <= 0x4000 in 16 bits: the move above leaves Z at kFlightMinEyeZ or
+    // more, never negative, so it is that low only with its top half clear.
+    if (!model_on_ground && flight_vspeed < 0 &&
+        (uint16_t)(flight_eye_z >> 16) == 0 &&
+        (uint16_t)flight_eye_z <= 0x4000) {
       // The advisory does not test the runway, which is why check_runway is
       // false here while the touchdown verdict below still passes true.
       //
@@ -1485,7 +1495,7 @@ void flight_advance() {
     if (flight_eye_z <= kFlightMinEyeZ &&
         (model_on_ground || flight_vspeed < 0 || hit_floor)) {
 #else
-    if (flight_eye_z <= kFlightMinEyeZ) {
+    if (on_floor) {
 #endif
       // model_on_ground still holds last frame's value here, so it says
       // whether this is a touchdown or another frame of an existing ground
