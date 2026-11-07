@@ -462,13 +462,15 @@ def generate_sun_sprite(bitmap_offset):
 # drawn per frame. Three colours over four blocks buys a readable aeroplane
 # where hires would buy a grey cross.
 #
-# The crop is the second aircraft in gfx/ppilot_sprites_concept.png, the one
-# flying towards the bottom left, and it was drawn to land on exactly 2 x 2
-# sprites: 48 screen pixels wide is two multicolour sprites (12 double-wide
-# pixels each) and 42 rows is two sprites tall.
+# Each game has its own aircraft, and both are cut from
+# gfx/ppilot_sprites_concept.png: ppilot's is the red one flying towards the
+# bottom left, fpilot's the brown one below it, pointing the same way (title.cc
+# moves every flyby down and to the left). Each was drawn to land on exactly
+# 2 x 2 sprites: 48 screen pixels wide is two multicolour sprites (12
+# double-wide pixels each) and 42 rows is two sprites tall. A build carries
+# only its own game's four blocks - title.cc picks the .bin by __FPILOT__ - so
+# the second aircraft costs ppilot nothing and fpilot nothing either.
 KTITLE_PNG = "ppilot_sprites_concept.png"
-KTITLE_CROP_X = 88
-KTITLE_CROP_Y = 16
 KTITLE_COLS = 2
 KTITLE_ROWS = 2
 
@@ -486,26 +488,52 @@ KSPRITE_MC_COLS = KSPRITE_COLS // 2
 #   01  $D025, shared        - the dark shading
 #   10  $D027+n, per sprite  - the main body tone
 #   11  $D026, shared        - the light highlight
-KTITLE_COLOR_MC0 = 2  # red
-KTITLE_COLOR_MAIN = 10  # light red
-KTITLE_COLOR_MC1 = 15  # light grey
-KTITLE_BITPAIR = {
-    0: 0,
-    KTITLE_COLOR_MC0: 1,
-    KTITLE_COLOR_MAIN: 2,
-    KTITLE_COLOR_MC1: 3,
+#
+# `fixes` resolves a multicolour pixel whose two art pixels are two different
+# colours, which is otherwise a build failure (_title_pair_color). Each entry
+# is one stray hires pixel in the drawing, named by the left pixel of its pair,
+# and says which colour the pair becomes. `holes` is how many pairs are one
+# colour and one transparent, which the generator fills silently; it is pinned
+# by tests/test_titledef.py so that a redraw that adds more has to say so.
+KTITLE_GAMES = {
+    "ppilot": {
+        "bin": "titledef.bin",
+        "crop_x": 88,
+        "crop_y": 16,
+        "mc0": 2,  # red
+        "main": 10,  # light red
+        "mc1": 15,  # light grey
+        "fixes": {},
+        "holes": 0,
+    },
+    "fpilot": {
+        "bin": "ftitledef.bin",
+        "crop_x": 88,
+        "crop_y": 79,
+        "mc0": 9,  # brown
+        "main": 8,  # orange
+        "mc1": 3,  # cyan, the canopy
+        "fixes": {},
+        "holes": 0,
+    },
 }
 
 
-def _title_pair_color(img, x, y):
+def title_bitpair(game):
+    g = KTITLE_GAMES[game]
+    return {0: 0, g["mc0"]: 1, g["main"]: 2, g["mc1"]: 3}
+
+
+def _title_pair_color(img, x, y, fixes=None):
     """The colour of one multicolour pixel, from the two art pixels under it.
 
     The art is drawn on the multicolour grid, so the pair is almost always two
     of the same. The exception is a single stray transparent pixel inside a
-    solid run at (126, 27), which is a one-pixel hole in the drawing rather
-    than a misalignment: resolving a mixed pair in favour of the colour fills
-    it. Two *different* colours in one pair would mean the crop had slipped by
-    one, and that is a build failure rather than something to round off.
+    solid run, which is a one-pixel hole in the drawing rather than a
+    misalignment: resolving a mixed pair in favour of the colour fills it. Two
+    *different* colours in one pair would mean the crop had slipped by one,
+    and that is a build failure rather than something to round off - unless
+    the game's `fixes` names that pair as a stray pixel in the art.
     """
     a, b = img[y][x], img[y][x + 1]
     if a == b:
@@ -514,11 +542,14 @@ def _title_pair_color(img, x, y):
         return b
     if b == 0:
         return a
+    if fixes and (x, y) in fixes:
+        return fixes[(x, y)]
     raise SystemExit(
         "generate_sprites: the title aircraft has two different colours in one "
         "multicolour pixel at (%d, %d): %d and %d.\n"
-        "  The crop is off the multicolour grid - check KTITLE_CROP_X, which "
-        "must stay even." % (x, y, a, b)
+        "  The crop is off the multicolour grid - check the game's crop_x in "
+        "KTITLE_GAMES, which must stay even - or the art has a stray pixel, "
+        "which goes in its `fixes`." % (x, y, a, b)
     )
 
 
@@ -535,7 +566,7 @@ def _mc_grid_to_sprite_bytes(grid):
     return sprite_bytes
 
 
-def generate_title_sprites(bitmap_offset):
+def generate_title_sprites(bitmap_offset, game="ppilot"):
     """The four blocks of the title aircraft, in reading order.
 
     Block order is top-left, top-right, bottom-left, bottom-right, which is
@@ -544,8 +575,10 @@ def generate_title_sprites(bitmap_offset):
     """
     png_path = os.path.join(REPO_ROOT, "gfx", KTITLE_PNG)
     img, _w, _h = _read_concept_png(png_path)
+    g = KTITLE_GAMES[game]
+    bitpair = title_bitpair(game)
 
-    assert KTITLE_CROP_X % 2 == 0, "the crop must start on a multicolour pixel"
+    assert g["crop_x"] % 2 == 0, "the crop must start on a multicolour pixel"
 
     data = []
     meta = []
@@ -556,18 +589,18 @@ def generate_title_sprites(bitmap_offset):
                 [0 for _ in range(KSPRITE_MC_COLS)] for _ in range(KSPRITE_ROWS)
             ]
             for sy in range(KSPRITE_ROWS):
-                iy = KTITLE_CROP_Y + row * KSPRITE_ROWS + sy
+                iy = g["crop_y"] + row * KSPRITE_ROWS + sy
                 for sx in range(KSPRITE_MC_COLS):
-                    ix = KTITLE_CROP_X + col * KSPRITE_COLS + sx * 2
-                    c = _title_pair_color(img, ix, iy)
-                    if c not in KTITLE_BITPAIR:
+                    ix = g["crop_x"] + col * KSPRITE_COLS + sx * 2
+                    c = _title_pair_color(img, ix, iy, g["fixes"])
+                    if c not in bitpair:
                         raise SystemExit(
                             "generate_sprites: the title aircraft uses palette "
                             "index %d at (%d, %d), which has no bit pair.\n"
                             "  A multicolour sprite has room for three colours "
-                            "and transparent; see KTITLE_BITPAIR." % (c, ix, iy)
+                            "and transparent; see KTITLE_GAMES." % (c, ix, iy)
                         )
-                    grid[sy][sx] = KTITLE_BITPAIR[c]
+                    grid[sy][sx] = bitpair[c]
 
             data.append(_mc_grid_to_sprite_bytes(grid))
             grids.append(grid)
@@ -940,13 +973,18 @@ def main():
     # room in front of it for four more blocks - $D000..$D3FF is the map view's
     # screen RAM. These four share that 1 KB with it, at $D000, and are expanded
     # by title.cc every time the menu opens. See c64o/mem.h.
-    title_data, title_meta, title_bits = generate_title_sprites(title_base)
-
-    title_bin_path = os.path.join(REPO_ROOT, "c64o", "titledef.bin")
-    with open(title_bin_path, "wb") as f:
-        for data in title_data:
-            f.write(data)
-    print(f"Generated {title_bin_path} ({len(title_data) * 64} bytes)")
+    titles = {}
+    for game, g in KTITLE_GAMES.items():
+        title_data, title_meta, title_bits = generate_title_sprites(
+            title_base, game
+        )
+        titles[game] = (title_meta, title_bits)
+        title_bin_path = os.path.join(REPO_ROOT, "c64o", g["bin"])
+        with open(title_bin_path, "wb") as f:
+            for data in title_data:
+                f.write(data)
+        print(f"Generated {title_bin_path} ({len(title_data) * 64} bytes)")
+    title_count = KTITLE_COLS * KTITLE_ROWS
 
     title_h_path = os.path.join(REPO_ROOT, "c64o", "titledef.h")
     with open(title_h_path, "w") as f:
@@ -959,11 +997,14 @@ def main():
                 "block of\n")
         f.write("// multicolour sprites, in reading order - top left, top "
                 "right, bottom\n")
-        f.write("// left, bottom right. 48 x 42 screen pixels.\n")
+        f.write("// left, bottom right. 48 x 42 screen pixels. Each game has "
+                "its own\n")
+        f.write("// drawing: titledef.bin for ppilot, ftitledef.bin for "
+                "fpilot.\n")
         f.write(f"static const uint8_t kTitleDefCols = {KTITLE_COLS};\n")
         f.write(f"static const uint8_t kTitleDefRows = {KTITLE_ROWS};\n")
         f.write("static const uint8_t kTitleDefBitmapCount = "
-                f"{len(title_data)};\n")
+                f"{title_count};\n")
         f.write("// First VIC sprite block; the four are consecutive. "
                 "c64o/mem.h places\n")
         f.write("// the bitmaps and asserts that its address agrees with "
@@ -975,43 +1016,52 @@ def main():
         f.write("// registers; bit pair 10 is each sprite's own colour, and "
                 "all four\n")
         f.write("// blocks are given the same one.\n")
-        f.write("static const uint8_t kTitleDefColorMc0 = "
-                f"{KTITLE_COLOR_MC0};\n")
-        f.write("static const uint8_t kTitleDefColorMain = "
-                f"{KTITLE_COLOR_MAIN};\n")
-        f.write("static const uint8_t kTitleDefColorMc1 = "
-                f"{KTITLE_COLOR_MC1};\n\n")
+        for i, game in enumerate(("fpilot", "ppilot")):
+            g = KTITLE_GAMES[game]
+            f.write("#ifdef __FPILOT__\n" if i == 0 else "#else\n")
+            f.write(f"static const uint8_t kTitleDefColorMc0 = {g['mc0']};\n")
+            f.write("static const uint8_t kTitleDefColorMain = "
+                    f"{g['main']};\n")
+            f.write(f"static const uint8_t kTitleDefColorMc1 = {g['mc1']};\n")
+        f.write("#endif\n\n")
         f.write("#endif\n")
     print(f"Generated {title_h_path}")
 
     title_lib_path = os.path.join(REPO_ROOT, "lib", "titledef.py")
     with open(title_lib_path, "w") as f:
         f.write("# Generated Title Screen Aircraft Sprite Definitions\n\n")
-        f.write(f"NUM_BITMAPS = {len(title_data)}\n")
+        f.write(f"NUM_BITMAPS = {title_count}\n")
         f.write(f"COLS = {KTITLE_COLS}\n")
         f.write(f"ROWS = {KTITLE_ROWS}\n")
-        f.write(f"BITMAP_BASE = {title_base}\n")
-        f.write(f"COLOR_MC0 = {KTITLE_COLOR_MC0}\n")
-        f.write(f"COLOR_MAIN = {KTITLE_COLOR_MAIN}\n")
-        f.write(f"COLOR_MC1 = {KTITLE_COLOR_MC1}\n\n")
-        f.write("META = [\n")
-        for m in title_meta:
-            f.write(f"    {{'bitmap_idx': {m['bitmap_idx']}, "
-                    f"'label': '{m['label']}'}},\n")
-        f.write("]\n\n")
-        # One character per multicolour pixel: '.' transparent, then the bit
-        # pair as a digit, so a pattern can be read back as art or as data.
-        f.write("PATTERNS = [\n")
-        for i, grid in enumerate(title_bits):
-            f.write(f"    # {title_meta[i]['label']}\n")
-            f.write("    [\n")
-            for row in grid:
-                row_str = "".join("." if v == 0 else str(v) for v in row)
-                f.write(f'        "{row_str}",\n')
-            f.write("    ],\n")
-        f.write("]\n")
+        f.write(f"BITMAP_BASE = {title_base}\n\n")
+        f.write("GAMES = {\n")
+        for game, g in KTITLE_GAMES.items():
+            title_meta, title_bits = titles[game]
+            f.write(f"    '{game}': {{\n")
+            f.write(f"        'BIN': '{g['bin']}',\n")
+            f.write(f"        'COLOR_MC0': {g['mc0']},\n")
+            f.write(f"        'COLOR_MAIN': {g['main']},\n")
+            f.write(f"        'COLOR_MC1': {g['mc1']},\n")
+            f.write("        'META': [\n")
+            for m in title_meta:
+                f.write(f"            {{'bitmap_idx': {m['bitmap_idx']}, "
+                        f"'label': '{m['label']}'}},\n")
+            f.write("        ],\n")
+            # One character per multicolour pixel: '.' transparent, then the
+            # bit pair as a digit, so a pattern can be read back as art or as
+            # data.
+            f.write("        'PATTERNS': [\n")
+            for i, grid in enumerate(title_bits):
+                f.write(f"            # {title_meta[i]['label']}\n")
+                f.write("            [\n")
+                for row in grid:
+                    row_str = "".join("." if v == 0 else str(v) for v in row)
+                    f.write(f'                "{row_str}",\n')
+                f.write("            ],\n")
+            f.write("        ],\n")
+            f.write("    },\n")
+        f.write("}\n")
     print(f"Generated {title_lib_path}")
-
 
 if __name__ == "__main__":
     main()

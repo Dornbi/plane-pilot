@@ -8,7 +8,8 @@
 
 // The title screen aircraft: one drawing across a 2 x 2 block of
 // multicolour sprites, in reading order - top left, top right, bottom
-// left, bottom right. 48 x 42 screen pixels.
+// left, bottom right. 48 x 42 screen pixels. Each game has its own
+// drawing: titledef.bin for ppilot, ftitledef.bin for fpilot.
 static const uint8_t kTitleDefCols = 2;
 static const uint8_t kTitleDefRows = 2;
 static const uint8_t kTitleDefBitmapCount = 4;
@@ -19,8 +20,14 @@ static const uint8_t kTitleDefBitmapBase = 64;
 // Bit pair 01 and 11 are the two screen-wide sprite multicolour
 // registers; bit pair 10 is each sprite's own colour, and all four
 // blocks are given the same one.
+#ifdef __FPILOT__
+static const uint8_t kTitleDefColorMc0 = 9;
+static const uint8_t kTitleDefColorMain = 8;
+static const uint8_t kTitleDefColorMc1 = 3;
+#else
 static const uint8_t kTitleDefColorMc0 = 2;
 static const uint8_t kTitleDefColorMain = 10;
 static const uint8_t kTitleDefColorMc1 = 15;
+#endif
 
 #endif

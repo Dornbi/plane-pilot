@@ -56,7 +56,7 @@ program (`__MAX_RAM__`).
 | `$0860–$0A5F` | boot-only code (`_boot()`, `cpu_probe()`, `mem_init()`); once `main()` is past it, scratch for `box.cc`'s caches (`mem.h` `kBootScratch`) |
 | `$0A60–$CFFF` | code, data, bss, heap                                      |
 | `$D000–$DFFF` | I/O (`MMAP_NO_ROM`)                                        |
-| `$D000–$D3FF` | map view screen RAM while the map is open; the title screen aircraft, expanded from `titledef.bin`, while the menu is |
+| `$D000–$D3FF` | map view screen RAM while the map is open; the title screen aircraft, expanded from `titledef.bin` (fpilot: `ftitledef.bin`), while the menu is |
 | `$D400`       | sprite bitmaps, expanded from `spritedef.bin` at startup   |
 | `$D800`       | color RAM                                                  |
 | `$DA30`       | panel color rows (= `$D800 + 14*40`)                       |

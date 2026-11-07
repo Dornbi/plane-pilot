@@ -114,6 +114,7 @@ PPILOT_SRC = \
 		title.cc \
 		titledef.h \
 		titledef.bin \
+		ftitledef.bin \
 		vec.h \
 		vec.cc \
 		vec_asm.cc \

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """The title screen aircraft: that the art still fits four multicolour sprites,
-and that the generator still reproduces the bitmaps that are checked in.
+and that the generator still reproduces the bitmaps that are checked in. Each
+game has its own aircraft (KTITLE_GAMES), and every check runs on both.
 
 Three things can silently go wrong here, and all three are invisible until the
 menu is on screen for the two seconds a flyby lasts.
 
 The crop can slip. It is a hand-written rectangle into a 320 x 200 concept
-image and nothing in the PNG says where the second aeroplane starts. One pixel
+image and nothing in the PNG says where an aeroplane starts. One pixel
 left or right and every multicolour pixel straddles two of the artist's, which
 the generator turns into a build failure only when the two happen to be
 different colours - so this checks the alignment directly, on the whole crop.
@@ -36,6 +37,7 @@ from lib import titledef
 ROWS = generate_sprites.KSPRITE_ROWS  # 21
 MC_COLS = generate_sprites.KSPRITE_MC_COLS  # 12
 BASE = titledef.BITMAP_BASE
+GAMES = generate_sprites.KTITLE_GAMES
 
 
 def concept_art():
@@ -53,93 +55,106 @@ class TestCropFitsTheSprites(unittest.TestCase):
         self.assertEqual(titledef.ROWS * ROWS, 42)
         self.assertEqual(titledef.NUM_BITMAPS, titledef.COLS * titledef.ROWS)
 
+    def test_both_games_have_an_aircraft(self):
+        self.assertEqual(set(GAMES), {"ppilot", "fpilot"})
+        self.assertEqual(set(titledef.GAMES), set(GAMES))
+
     def test_the_art_is_on_the_multicolour_grid(self):
         # Every pair of art pixels under one multicolour pixel is the same
         # colour, or one of the two is transparent - a single-pixel hole in the
-        # drawing, which _title_pair_color() fills. Two different colours would
-        # mean the crop had slipped off the grid by one.
+        # drawing, which _title_pair_color() fills - or it is a stray pixel the
+        # game's `fixes` names. Anything else would mean the crop had slipped
+        # off the grid by one.
         img = concept_art()
-        mixed = 0
-        for y in range(
-            generate_sprites.KTITLE_CROP_Y, generate_sprites.KTITLE_CROP_Y + 42
-        ):
-            for x in range(
-                generate_sprites.KTITLE_CROP_X,
-                generate_sprites.KTITLE_CROP_X + 48,
-                2,
-            ):
-                a, b = img[y][x], img[y][x + 1]
-                if a == b:
-                    continue
-                self.assertIn(
-                    0, (a, b),
-                    "two different colours in one multicolour pixel at "
-                    "(%d, %d): %d and %d - the crop is off the grid"
-                    % (x, y, a, b),
-                )
-                mixed += 1
-        # As drawn today there is exactly one, at (126, 27). Pinned so that a
-        # redraw which introduces a spray of them has to say so here.
-        self.assertEqual(mixed, 1)
+        for game, g in GAMES.items():
+            holes = 0
+            for y in range(g["crop_y"], g["crop_y"] + 42):
+                for x in range(g["crop_x"], g["crop_x"] + 48, 2):
+                    a, b = img[y][x], img[y][x + 1]
+                    if a == b or (x, y) in g["fixes"]:
+                        continue
+                    self.assertIn(
+                        0, (a, b),
+                        "%s: two different colours in one multicolour pixel "
+                        "at (%d, %d): %d and %d - the crop is off the grid"
+                        % (game, x, y, a, b),
+                    )
+                    holes += 1
+            # Pinned so that a redraw which introduces a spray of them has to
+            # say so in KTITLE_GAMES.
+            self.assertEqual(holes, g["holes"], game)
+
+    def test_every_fix_is_a_real_stray_pixel(self):
+        # A fix that no longer lands on a two-colour pair is left over from an
+        # older drawing and would silently override a pixel the artist redrew.
+        img = concept_art()
+        for game, g in GAMES.items():
+            for (x, y), c in g["fixes"].items():
+                pair = (img[y][x], img[y][x + 1])
+                self.assertNotIn(0, pair, game)
+                self.assertNotEqual(pair[0], pair[1], game)
+                self.assertIn(c, pair, game)
 
     def test_three_colours_and_transparent(self):
         # A multicolour sprite has four states and one of them is transparent,
         # so a fourth colour in the art has nowhere to go. lib/titledef.py
         # writes the bit pair as a digit and transparent as a dot.
-        used = {v for grid in titledef.PATTERNS for row in grid for v in row}
-        self.assertEqual(used, {".", "1", "2", "3"})
+        for game, t in titledef.GAMES.items():
+            used = {v for grid in t["PATTERNS"] for row in grid for v in row}
+            self.assertEqual(used, {".", "1", "2", "3"}, game)
 
     def test_the_colours_are_the_ones_the_c64_is_told_about(self):
         # The bit pair a colour lands on is what decides which VIC register has
         # to hold it, and title.cc reads all three straight out of titledef.h.
-        self.assertEqual(
-            generate_sprites.KTITLE_BITPAIR[titledef.COLOR_MC0], 1
-        )
-        self.assertEqual(
-            generate_sprites.KTITLE_BITPAIR[titledef.COLOR_MAIN], 2
-        )
-        self.assertEqual(
-            generate_sprites.KTITLE_BITPAIR[titledef.COLOR_MC1], 3
-        )
+        for game, t in titledef.GAMES.items():
+            bitpair = generate_sprites.title_bitpair(game)
+            self.assertEqual(bitpair[t["COLOR_MC0"]], 1, game)
+            self.assertEqual(bitpair[t["COLOR_MAIN"]], 2, game)
+            self.assertEqual(bitpair[t["COLOR_MC1"]], 3, game)
 
 
 class TestReadingOrder(unittest.TestCase):
     def test_reassembling_the_four_blocks_gives_back_the_art(self):
         img = concept_art()
-        bitpair = generate_sprites.KTITLE_BITPAIR
-
-        for row in range(titledef.ROWS):
-            for col in range(titledef.COLS):
-                grid = titledef.PATTERNS[row * titledef.COLS + col]
-                self.assertEqual(len(grid), ROWS)
-                for sy in range(ROWS):
-                    line = grid[sy]
-                    self.assertEqual(len(line), MC_COLS)
-                    iy = generate_sprites.KTITLE_CROP_Y + row * ROWS + sy
-                    for sx in range(MC_COLS):
-                        ix = (
-                            generate_sprites.KTITLE_CROP_X
-                            + col * generate_sprites.KSPRITE_COLS
-                            + sx * 2
-                        )
-                        want = bitpair[
-                            generate_sprites._title_pair_color(img, ix, iy)
-                        ]
-                        got = 0 if line[sx] == "." else int(line[sx])
-                        self.assertEqual(
-                            got, want,
-                            "block %d, row %d, column %d"
-                            % (row * titledef.COLS + col, sy, sx),
-                        )
+        for game, g in GAMES.items():
+            bitpair = generate_sprites.title_bitpair(game)
+            patterns = titledef.GAMES[game]["PATTERNS"]
+            for row in range(titledef.ROWS):
+                for col in range(titledef.COLS):
+                    grid = patterns[row * titledef.COLS + col]
+                    self.assertEqual(len(grid), ROWS)
+                    for sy in range(ROWS):
+                        line = grid[sy]
+                        self.assertEqual(len(line), MC_COLS)
+                        iy = g["crop_y"] + row * ROWS + sy
+                        for sx in range(MC_COLS):
+                            ix = (
+                                g["crop_x"]
+                                + col * generate_sprites.KSPRITE_COLS
+                                + sx * 2
+                            )
+                            want = bitpair[
+                                generate_sprites._title_pair_color(
+                                    img, ix, iy, g["fixes"]
+                                )
+                            ]
+                            got = 0 if line[sx] == "." else int(line[sx])
+                            self.assertEqual(
+                                got, want,
+                                "%s block %d, row %d, column %d"
+                                % (game, row * titledef.COLS + col, sy, sx),
+                            )
 
     def test_bitmap_indices_are_consecutive_from_the_base(self):
         # title.cc writes sprite pointer i as kTitleSpriteBlock + i and places
         # sprite i at (i & 1, i >> 1) of the block. Neither has a table to get
         # out of step with, so long as the four stay consecutive and in order.
-        self.assertEqual(
-            [m["bitmap_idx"] for m in titledef.META],
-            [BASE, BASE + 1, BASE + 2, BASE + 3],
-        )
+        for game, t in titledef.GAMES.items():
+            self.assertEqual(
+                [m["bitmap_idx"] for m in t["META"]],
+                [BASE, BASE + 1, BASE + 2, BASE + 3],
+                game,
+            )
 
     def test_the_base_block_is_the_page_mem_h_places(self):
         # ($D000 - $C000) / 64. Spelled out rather than imported, so that this
@@ -148,23 +163,33 @@ class TestReadingOrder(unittest.TestCase):
 
 
 class TestGeneratorReproducesCheckedInData(unittest.TestCase):
-    def test_bitmaps_match_titledef_bin(self):
+    def test_bitmaps_match_the_checked_in_bins(self):
         # Everything is computed in memory - the generator's main() writes
         # files into the repo and a test has no business doing that.
-        data, _meta, _bits = generate_sprites.generate_title_sprites(BASE)
-        produced = b"".join(bytes(b) for b in data)
+        for game, g in GAMES.items():
+            data, _meta, _bits = generate_sprites.generate_title_sprites(
+                BASE, game
+            )
+            produced = b"".join(bytes(b) for b in data)
 
+            with open(os.path.join(REPO_ROOT, "c64o", g["bin"]), "rb") as f:
+                checked_in = f.read()
+
+            self.assertEqual(len(produced), 4 * 64)
+            self.assertEqual(
+                produced,
+                checked_in,
+                "the generator no longer reproduces c64o/%s - if that is "
+                "deliberate, rerun `make sprites` and commit the result"
+                % g["bin"],
+            )
+
+    def test_the_two_games_draw_different_aircraft(self):
         with open(os.path.join(REPO_ROOT, "c64o", "titledef.bin"), "rb") as f:
-            checked_in = f.read()
-
-        self.assertEqual(len(produced), 4 * 64)
-        self.assertEqual(
-            produced,
-            checked_in,
-            "the generator no longer reproduces c64o/titledef.bin - if that is "
-            "deliberate, rerun `make sprites` and commit the result",
-        )
-
+            p = f.read()
+        with open(os.path.join(REPO_ROOT, "c64o", "ftitledef.bin"), "rb") as f:
+            q = f.read()
+        self.assertNotEqual(p, q)
 
 if __name__ == "__main__":
     unittest.main()

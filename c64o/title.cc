@@ -20,8 +20,14 @@ static const char *oscar_expand_lzo(char *dp, const char *sp) { return sp; }
 
 #ifdef __OSCAR64__
 #pragma data(data_compr)
+// Each game has its own aircraft, cut from the same concept sheet; titledef.h
+// gives the matching colours under the same __FPILOT__ test.
 static const char kTitleDataCompressed[] = {
+#ifdef __FPILOT__
+#embed 256 lzo "ftitledef.bin"
+#else
 #embed 256 lzo "titledef.bin"
+#endif
 };
 #pragma data(data)
 #else
