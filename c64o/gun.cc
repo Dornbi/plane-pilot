@@ -598,16 +598,23 @@ static void _gun_smoke(void) {
     if (!_gun_rel3_to()) {
       return;
     }
-    for (uint8_t c = 0; c < 2; ++c) {
-      (&_gun_c.x)[c] = (_gun_t[c] - vec_fastmul8p8(_gun_h[c], kSmokeBack)) >> 1;
-    }
   } else if (_gun_puff_t != 0) {
-    _gun_t[2] = _gun_puff[2];
-    for (uint8_t c = 0; c < 2; ++c) {
-      (&_gun_c.x)[c] = _gun_puff[c] >> 1;
-    }
+    // The puff where the round hit, with no heading to sit back along: the
+    // aircraft's sum below, at a zero offset, rather than a loop of its own.
+    uint8_t c = 3;
+    do {
+      --c;
+      _gun_t[c] = _gun_puff[c];
+    } while (c != 0);
+    _gun_h[0] = 0;
+    _gun_h[1] = 0;
   } else {
     return;
+  }
+  // A for loop, which oscar64 unrolls: counted down as a do-while, it read
+  // _gun_h[1] and wrote _gun_c.y on both passes.
+  for (uint8_t c = 0; c < 2; ++c) {
+    (&_gun_c.x)[c] = (_gun_t[c] - vec_fastmul8p8(_gun_h[c], kSmokeBack)) >> 1;
   }
   _gun_c.z = (_gun_t[2] + kSmokeUp) >> 1;
   if (!_gun_view()) {
