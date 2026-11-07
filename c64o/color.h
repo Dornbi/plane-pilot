@@ -69,7 +69,6 @@ struct ColorScheme {
   uint8_t cloud;
   uint8_t sun;
   uint8_t fin;  // the tail fin in the back view
-  uint8_t text; // colour RAM: the message line, hires
   uint8_t dot[kColorSchemeDots]; // colour RAM, by WorldMapType
   uint8_t obj[kColorSchemeObjs]; // colour RAM, by object
 };
@@ -82,7 +81,6 @@ extern ColorScheme color_scheme;
 #define COLOR_CLOUD (color_scheme.cloud)
 #define COLOR_SUN (color_scheme.sun)
 #define COLOR_FIN (color_scheme.fin)
-#define COLOR_TEXT (color_scheme.text)
 #else
 #define COLOR_SKY8 (kColorSky | 0x08)
 #define COLOR_GRAD1_8 (kColorGrad1 | 0x08)
@@ -92,7 +90,6 @@ extern ColorScheme color_scheme;
 #define COLOR_CLOUD kColorCloud
 #define COLOR_SUN kColorSun
 #define COLOR_FIN kColorAircraft
-#define COLOR_TEXT kColorBlack
 #endif
 
 #endif /* COLOR_H */

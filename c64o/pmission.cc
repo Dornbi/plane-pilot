@@ -265,38 +265,40 @@ ColorScheme color_scheme;
 // clang-format off
 // Earth is what ppilot always looked like, and what fpilot still does: the
 // constants in color.h, KWorldDotColors and kWorldObjColors. The others come
-// from the scheme sheet in docs/color_schemes.md, plus three colours it does
-// not give: Night's white message line and white (lit) runway, and Dusk's
-// dark grey tail fin, which in medium grey would vanish into its grey ground.
-// Night's fin stays medium grey, the same grey as its clouds.
+// from the scheme sheet in docs/color_schemes.md, plus two colours it does
+// not give: Night's white (lit) runway, and Dusk's dark grey tail fin, which
+// in medium grey would vanish into its grey ground. Night's fin stays medium
+// grey, the same grey as its clouds. The message box stays black, as it is
+// for fpilot (msg.cc): its letters are $D021, grad2, so at night they are
+// brown on the black sky.
 //
-// Every colour RAM field - sky8, grad1_8, text, dot and obj - is 0 to 7, the
+// Every colour RAM field - sky8, grad1_8, dot and obj - is 0 to 7, the
 // only colours colour RAM has in multicolour mode. dot[MAP_DOT_GROUND] is
 // kGfxDotGround in all of them: those dots are ground, and drawn in $D022.
 const ColorScheme kColorSchemes[kColorSchemeCount] = {
     // Earth
     {kColorBlue | 0x08, kColorCyan | 0x08, kColorLightBlue, kColorGreen, kColorOrange,
-     kColorWhite, kColorYellow, kColorMedGray, kColorBlack,
+     kColorWhite, kColorYellow, kColorMedGray,
      {kColorBlack, kGfxDotGround, kColorBlack, kColorWhite, kColorCyan, kColorBlue, kColorYellow},
      {kColorBlack, kColorBlack, kColorBlack, kColorYellow, kColorYellow,
       kColorBlue, kColorBlue, kColorBlack, kColorBlack}},
     // Desert: Earth on orange ground, its fields brown - in orange, as
     // Earth's are, they would vanish into it.
     {kColorBlue | 0x08, kColorCyan | 0x08, kColorLightBlue, kColorOrange, kColorBrown,
-     kColorWhite, kColorYellow, kColorMedGray, kColorBlack,
+     kColorWhite, kColorYellow, kColorMedGray,
      {kColorBlack, kGfxDotGround, kColorBlack, kColorWhite, kColorCyan, kColorBlue, kColorYellow},
      {kColorBlack, kColorBlack, kColorBlack, kColorYellow, kColorYellow,
       kColorBlue, kColorBlue, kColorBlack, kColorBlack}},
     // Dusk: a red sky over grey ground, a white sun, towns and cities lit.
     {kColorRed | 0x08, kColorYellow | 0x08, kColorLightRed, kColorMedGray, kColorOrange,
-     kColorWhite, kColorWhite, kColorDarkGray, kColorBlack,
+     kColorWhite, kColorWhite, kColorDarkGray,
      {kColorBlack, kGfxDotGround, kColorBlack, kColorWhite, kColorCyan, kColorBlue, kColorYellow},
      {kColorBlack, kColorBlack, kColorBlack, kColorYellow, kColorYellow,
       kColorBlue, kColorBlue, kColorYellow, kColorYellow}},
     // Night: a black sky, a white moon, grey clouds over dark grey ground;
     // the runway, towns and cities lit, yellow fields gone dark red.
     {kColorBlack | 0x08, kColorRed | 0x08, kColorBrown, kColorDarkGray, kColorLightGray,
-     kColorMedGray, kColorWhite, kColorMedGray, kColorWhite,
+     kColorMedGray, kColorWhite, kColorMedGray,
      {kColorBlack, kGfxDotGround, kColorBlack, kColorWhite, kColorGreen, kColorBlue, kColorRed},
      {kColorWhite, kColorBlack, kColorBlack, kColorRed, kColorRed,
       kColorBlue, kColorBlue, kColorYellow, kColorYellow}},

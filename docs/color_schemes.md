@@ -2,7 +2,7 @@
 
 A plan for ppilot missions to choose a colour scheme for everything in the
 viewport: the sky and its gradient, the ground, the dots and objects on the
-map, the clouds, the sun, the tail fin and the message line. The instrument
+map, the clouds, the sun and the tail fin. The instrument
 panel does not change.
 
 *Planned and built 2026-11-07; §7 records what was built and where it
@@ -40,16 +40,17 @@ exists: its targets are the cities, which Night lights up.
 | `cloud` | cloud sprites | 1 white | 1 | 1 | 12 grey |
 | `sun` | sun sprite (the moon at night) | 7 yellow | 7 | 1 white | 1 white |
 | `fin` | tail fin sprites | 12 grey | 12 | **11 dk grey** | 12 grey |
-| `text` | message line, colour RAM | 0 black | 0 | 0 | **1 white** |
 | `dot[7]` | `KWorldDotColors` | today's | today's | today's | black, cyan→green, blue, yellow→red |
 | `obj[9]` | `kWorldObjColors` | today's | today's | town and city yellow | town and city yellow, yellow fields red, **runway white** |
 
-That is 9 bytes of colours and 16 of tables, 25 bytes a scheme.
+That is 8 bytes of colours and 16 of tables, 24 bytes a scheme.
 
-The values in bold are the three fixes the scheme sheet does not cover:
+The values in bold are fixes the scheme sheet does not cover; the first was
+planned and then dropped:
 
-1. **Message text, Night.** [msg.cc](../c64o/msg.cc) writes the message in
-   black, which is invisible on Night's black sky. Night uses white.
+1. **Message text, Night.** Planned as a `text` field, white at night, since
+   black text looked invisible on the black sky. It was not (§7); the field
+   is gone and the message line keeps its black.
 2. **Runway, Night.** A black runway on dark grey ground is hard to find, and
    08 ends with a landing on runway 2. Night makes it white, a lit runway.
 3. **Tail fin, Dusk.** The fin is medium grey (12). Dusk's ground is 12, so
@@ -61,7 +62,7 @@ The values in bold are the three fixes the scheme sheet does not cover:
 
 In multicolour character mode colour RAM holds only colours 0 to 7 (bit 3 is
 the multicolour flag). Every field that lands in colour RAM - `sky8`,
-`grad1_8`, `text`, `dot` and `obj` - must be 0 to 7. `grad2`, `ground`,
+`grad1_8`, `dot` and `obj` - must be 0 to 7. `grad2`, `ground`,
 `grndobj` and the sprite colours can be any of the 16. All four schemes above
 keep to this; a `static_assert` over the table (§6 step 5) keeps it that way.
 
@@ -114,7 +115,7 @@ other scheme's.
 // ... one per field, each today's constant
 #else
 struct ColorScheme { uint8_t sky8, grad2, grad1_8, ground, grndobj,
-                     cloud, sun, fin, text, dot[7], obj[9]; };
+                     cloud, sun, fin, dot[7], obj[9]; };
 extern ColorScheme color_scheme;
 #define COLOR_SKY8 (color_scheme.sky8)
 // ...
@@ -195,7 +196,8 @@ All of §6 in one change. Where it differs from the plan:
   `$D021` (`grad2`), and the scheme's `text` colour fills the box around them.
   So black text was never invisible at night - it is brown letters on the
   black sky, a box that vanishes. White, as planned, is brown letters in a
-  white box. Both read; white is what is built.
+  white box. Both read; the user chose black, which every scheme then had,
+  so the `text` field was dropped and msg.cc writes `kColorBlack` again.
 
 **Desert's ground, after:** orange rather than the sheet's light red, at
 the user's choice. Its fields, `grndobj`, are brown with it, as in the
