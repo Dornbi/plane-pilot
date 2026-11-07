@@ -587,8 +587,9 @@ therefore whatever the last thing to touch them left behind — and the low
 nibble of `$D417` routes voices *into* the filter, so a voice routed into a
 filter with cutoff 0 is silent.
 
-It happened to work, because `sound.cc` zeroes those three registers on every
-flight frame and `sound_silence()` zeroes them on the way to the menu. That is
+It happened to work, because `sound.cc` zeroed those three registers on every
+flight frame (it now leaves them at the zero `sound_init()` wrote) and
+`sound_silence()` zeroes them on the way to the menu. That is
 a dependency on another module's housekeeping, across a screen transition, for
 registers this one never writes. `music_start()` now clears them explicitly and
 the test starts from `0xFF` in all 32 registers to prove it.

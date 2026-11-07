@@ -719,8 +719,8 @@ are kept last in the enum so that predicate stays a single comparison.
   shift-subtract), and LUT-based `_get_heading` (48 steps) and
   `_get_roll_angle` (60 steps).
 - **`sound.cc`** — flight audio. Split by rate: `sound_update()` computes a
-  25-byte shadow on the main line, `sound_blit()` copies it to `$D400` from
-  `_switch_to_terrain`. See [sound.md](sound.md).
+  25-byte shadow on the main line, `sound_blit()` copies its 19 live
+  registers to `$D400` from `_switch_to_terrain`. See [sound.md](sound.md).
 - **`music.cc` / `musicdef.cc`** — the title tune, a separate owner of the SID
   under the same rule: only one of the two drivers may hold the chip, so
   `music_playing` makes `sound_silence()` return without touching the

@@ -104,7 +104,11 @@ The driver splits by rate:
   analysis is correct. Its only output is a 25-byte shadow register block.
 - **`sound_blit()`** is inlined into `_switch_to_terrain` (raster 250) as a
   flat unrolled `lda shadow+n` / `sta $d400+n` sequence. No locals, no calls,
-  no `@stack` entry, ~200 cycles.
+  no `@stack` entry, ~150 cycles. It stores 19 of the 25 registers: V2
+  PwLo/PwHi, V3 PwLo and the three filter registers never move off zero in
+  the shadow, and the chip already holds that zero all through a flight
+  (`sound_init()`'s `sound_silence()` writes it before the raster interrupts
+  start), so `sound_reg_blitted()` leaves them out.
 
 This resolves four problems at once: the interrupt allocates no stack frame; the
 mapping becomes a pure function that host tests can assert on; the cycle cost
@@ -114,7 +118,7 @@ Hz even though the game frame rate wobbles.
 The price is up to 100 ms of latency on an effect's onset. That is one video
 frame at the current frame rate, so it is not worth engineering away.
 
-Re-blitting every register every tick is safe. Rewriting frequency, pulse
+Re-blitting every live register every tick is safe. Rewriting frequency, pulse
 width, ADSR and a *held* gate bit changes nothing; only a 0→1 gate transition
 or the TEST bit would retrigger, and neither happens by accident.
 
@@ -371,9 +375,11 @@ Measured by counting straight-line cost through `_switch_to_terrain`:
 The blit got *cheaper* across five phases of feature work, which is worth
 knowing was not luck: narrowing the retrigger pass from all three voices to
 voice 3 alone (phase 5, §6) removed two `lda`/`and`/`sta` triples from the
-mismatch path and more than paid for everything since. The 25 register stores
-are a fixed 200 cycles and cannot change; everything else here is the
-generation check and the gate-off pass.
+mismatch path and more than paid for everything since. The register stores
+are a fixed 8 cycles each; everything else here is the generation check and
+the gate-off pass. The table predates the skipped registers: the blit now
+stores 19 registers, not 25 (§3), which takes about 48 cycles off its
+column.
 
 **The NTSC margin is nine lines**, and it is the tightest constraint in the
 design. Nothing waits on a raster line past 242, so overrunning only delays the

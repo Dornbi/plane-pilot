@@ -270,9 +270,9 @@ void music_start(void) {
   // routed into a filter whose cutoff is 0 is silent, which sounds exactly
   // like that voice not being written at all.
   //
-  // Until now this worked only because sound.cc happens to zero the same three
-  // registers on every frame of every flight, and sound_silence() zeroes them
-  // on the way to the menu. That is a dependency on another module's
+  // Until now this worked only because sound.cc keeps the same three registers
+  // at zero all through a flight (sound_init() zeroes them and the blit never
+  // writes them), and sound_silence() zeroes them on the way to the menu. That is a dependency on another module's
   // housekeeping, running through a screen transition, for a register this one
   // never writes - which is the shape of a bug that appears years later when
   // something else starts using the filter. ../docs/music.md section 3 says

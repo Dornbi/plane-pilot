@@ -178,17 +178,33 @@ void sound_init(void);
 void sound_update(void);
 void sound_silence(void);
 
+// The registers sound_update() never moves off zero: V2 PwLo/PwHi, V3 PwLo
+// and the three filter registers. The chip already holds zero there in
+// flight - sound_init()'s sound_silence() writes it before the raster IRQs
+// start (music_stop() has cleared music_playing by then), and in flight only
+// sound_silence() writes them again, with zeros - so the blit skips them.
+inline bool sound_reg_blitted(uint8_t i) {
+  return i != kSoundRegV2 + kSoundVoicePwLo &&
+         i != kSoundRegV2 + kSoundVoicePwHi &&
+         i != kSoundRegV3 + kSoundVoicePwLo && i != kSoundRegCutoffLo &&
+         i != kSoundRegCutoffHi && i != kSoundRegResFilt;
+}
+
 inline void sound_blit(void) {
   if (sound_gen != sound_gen_seen) {
     sound_gen_seen = sound_gen;
     sid.voices[2].ctrl = sound_shadow[kSoundRegV3Ctrl] & ~SID_CTRL_GATE;
   }
 
+  // Unrolled, so sound_reg_blitted() folds away and only the 19 live
+  // registers are stored.
 #ifdef __OSCAR64__
 #pragma unroll(full)
 #endif
   for (uint8_t i = 0; i < kSoundRegCount; ++i) {
-    SID_REGS[i] = sound_shadow[i];
+    if (sound_reg_blitted(i)) {
+      SID_REGS[i] = sound_shadow[i];
+    }
   }
 }
 
