@@ -33,8 +33,6 @@ static void _gfx_rirq_init(void) {}
 static void rirq_build(RIRQCode *ic, uint8_t size) {}
 static void rirq_call(RIRQCode *ic, uint8_t n, void *addr) {}
 static void rirq_write(RIRQCode *ic, uint8_t n, void *addr, uint8_t data) {}
-static void rirq_set(uint8_t n, uint8_t raster, RIRQCode *ic) {}
-static void rirq_sort(void) {}
 static void rirq_start(void) {}
 static void rirq_stop(void) {}
 
@@ -226,13 +224,12 @@ static void _gfx_switch_to_terrain() {
 // order it reads its tables in.
 //
 // The tables and nextIRQ are rasterirq.c's own globals: not in its header, but
-// not static either, and neither is rirq_init_tables().
+// not static either. _gfx_rirq_tables() below fills them.
 extern byte rasterIRQIndex[];
 extern byte rasterIRQNext[];
 extern byte rasterIRQLow[];
 extern byte rasterIRQHigh[];
 extern volatile byte nextIRQ;
-void rirq_init_tables(void);
 
 // clang-format off
 __asm _gfx_isr
@@ -308,9 +305,9 @@ e2:
 // clang-format on
 
 // rirq_init(false), which is rirq_init_io(), with the entry above in place of
-// the library's.
+// the library's, and without its rirq_init_tables(): _gfx_rirq_tables() below
+// writes every table entry the entry reads.
 static void _gfx_rirq_init(void) {
-  rirq_init_tables();
   __asm {
     sei
   }
@@ -343,6 +340,41 @@ static_assert(RIRQ_ADDR_0 + 2 <= kGfxRirqCode1 && RIRQ_DATA_0 < kGfxRirqCode1,
 static gfx_rirq1_t _rirq_buf[4];
 #pragma bss(bss)
 
+#ifdef __OSCAR64__
+// The split's four raster lines, top to bottom: sprite DMA off, the panel's
+// top and bottom, and the terrain. Slot i is _rirq_buf[i].
+static const uint8_t kGfxRasterRows[4] = {
+    kRasterScreenYStart + kViewportEndYPixels - 1 - kSpritesOffLead,
+    kRasterScreenYStart + kViewportEndYPixels - 1,
+    kRasterScreenYStart + kViewportEndYPixels + 24,
+    kRasterScreenYStart + kScreenHeightPixels};
+static_assert(kSpritesOffLead > 0 &&
+                  kViewportEndYPixels + 24 < kScreenHeightPixels &&
+                  kRasterScreenYStart + kScreenHeightPixels < 0xff,
+              "the slots' rows must ascend below 0xff");
+
+// rirq_set() for each slot and then rirq_sort(), written as the tables they
+// leave behind. The rows already ascend with the slot, so the sort's order is
+// the identity: rasterIRQIndex[i + 1] = i and rasterIRQNext[i] = row i, ended
+// by 0xff. That is all _gfx_isr reads, together with each slot's handler
+// address; the library's rasterIRQRows and the sort itself (118 B) drop out.
+// The sort's write of $d012 is left out too: rirq_start() writes it next.
+static void _gfx_rirq_tables(void) {
+  const uint8_t *code = _rirq_buf[0].code;
+  for (uint8_t i = 0; i < 4; ++i) {
+    rasterIRQIndex[i + 1] = i;
+    rasterIRQNext[i] = kGfxRasterRows[i];
+    rasterIRQLow[i] = (uint8_t)(uint16_t)code;
+    rasterIRQHigh[i] = (uint8_t)((uint16_t)code >> 8);
+    code += sizeof(gfx_rirq1_t);
+  }
+  rasterIRQNext[4] = 0xff;
+  nextIRQ = 0;
+}
+#else
+static void _gfx_rirq_tables(void) {}
+#endif
+
 // Raster-IRQ setup and charset loading; one-off, not per frame. The IRQ
 // handlers themselves are above and are deliberately left alone.
 #pragma optimize(push, outline)
@@ -372,8 +404,6 @@ void gfx_init_raster_irqs(void) {
   RIRQCode *terrain = (RIRQCode *)&_rirq_buf[3];
   rirq_build(sprites_off, 1);
   rirq_write(sprites_off, 0, (void *)0xD015, 0);
-  rirq_set(0, kRasterScreenYStart + kViewportEndYPixels - 1 - kSpritesOffLead,
-           sprites_off);
 
   rirq_build(panel_top, 1);
   // Which of the two padding counts this machine needs, from the boot probe.
@@ -382,14 +412,11 @@ void gfx_init_raster_irqs(void) {
   rirq_call(panel_top, 0,
             cpu_step_shift ? (void *)_gfx_switch_to_panel_top_fast
                            : (void *)_gfx_switch_to_panel_top);
-  rirq_set(1, kRasterScreenYStart + kViewportEndYPixels - 1, panel_top);
   rirq_build(panel_bottom, 1);
   rirq_call(panel_bottom, 0, (void *)_switch_to_panel_bottom);
-  rirq_set(2, kRasterScreenYStart + kViewportEndYPixels + 24, panel_bottom);
   rirq_build(terrain, 1);
   rirq_call(terrain, 0, (void *)_gfx_switch_to_terrain);
-  rirq_set(3, kRasterScreenYStart + kScreenHeightPixels, terrain);
-  rirq_sort();
+  _gfx_rirq_tables();
   rirq_start();
 }
 
