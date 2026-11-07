@@ -181,7 +181,7 @@ static void _switch_to_panel_bottom() {
 
 static void _gfx_switch_to_terrain() {
   sprites_show_terrain_sprites();
-  vic.color_back = kColorGrad2;
+  vic.color_back = COLOR_GRAD2;
   vic.ctrl1 = 0x1b; // Multicolor character mode
   vic_memptr = mem_using_alt_buffer ? 0xA8 : 0xB8;
 
@@ -505,7 +505,7 @@ void gfx_project_and_draw(uint8_t color) {
         uint8_t lpx = (uint8_t)px;
         uint8_t lpy = (uint8_t)py;
         uint8_t off = ((lpx & 0x06) >> 1) + ((lpy & 0x06) << 1);
-        if (color == kColorGround) {
+        if (color == kGfxDotGround) {
           *p = kGfxGroundPoints + off;
         } else {
           *p = kGfxColorPoints + off;

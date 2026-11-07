@@ -250,6 +250,10 @@ CLOUDS ?= -D__ENABLE_CLOUDS__
 # SOUND= or DEBUG= to leave one out and measure what it costs, the same dial
 # CLOUDS= is. fpilot never has the debug view; see FPILOT_PROGRAM.
 SOUND ?= -D__ENABLE_SOUND__
+
+# Viewport colour schemes per mission (docs/color_schemes.md). ppilot only:
+# fpilot and the demos build without it and keep color.h's constants.
+COLOR_SCHEMES ?= -D__ENABLE_COLOR_SCHEMES__
 DEBUG ?= -D__ENABLE_DEBUG__
 
 
@@ -313,7 +317,7 @@ fram:
 	$(RAMANALYSIS) $(FPILOT_PROGRAM).map
 
 $(PPILOT_PROGRAM).prg: $(PPILOT_SRC) $(PPANEL_LZO) $(FLIGHT_STAMP)
-	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(DEBUG) $(CLOUDS) $(FLIGHT_MODEL) -D__MAX_RAM__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
+	$(CC) $(CFLAGS) $(OPTFLAGS) $(SOUND) $(DEBUG) $(CLOUDS) $(COLOR_SCHEMES) $(FLIGHT_MODEL) -D__MAX_RAM__ -o=$(PPILOT_PROGRAM).prg ppilot.cc
 	@$(ZPCHECK) $(PPILOT_PROGRAM).asm
 	@$(IRQCHECK) $(PPILOT_PROGRAM).asm
 	@$(MATHCHECK) $(PPILOT_PROGRAM).asm

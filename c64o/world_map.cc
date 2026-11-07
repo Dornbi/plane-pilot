@@ -11,10 +11,13 @@ static const auto DC_ = MAP_DOT_CYAN;
 static const auto DB_ = MAP_DOT_BLUE;
 static const auto DY_ = MAP_DOT_YELLOW;
 
+// Replaced by the mission's colour scheme in ppilot (world.h
+// WORLD_DOT_COLORS), whose Earth holds these same values.
+#ifndef __ENABLE_COLOR_SCHEMES__
 // clang-format off
 const uint8_t KWorldDotColors[7] = {
     kColorBlack,
-    kColorGround,
+    kGfxDotGround,
     kColorBlack,
     kColorWhite,
     kColorCyan,
@@ -22,6 +25,7 @@ const uint8_t KWorldDotColors[7] = {
     kColorYellow,
 };
 // clang-format on
+#endif
 
 static const auto RWY = MAP_OBJ_RUNWAY;
 static const auto FLD = MAP_OBJ_FIELD;
@@ -87,6 +91,8 @@ const uint8_t kWorldObjChars[kWorldObjDim] = {
     kGfxQuadMixed,        // MAP_OBJ_CITY
 };
 
+// As KWorldDotColors: ppilot draws with WORLD_OBJ_COLORS instead.
+#ifndef __ENABLE_COLOR_SCHEMES__
 const uint8_t kWorldObjColors[kWorldObjDim] = {
     kColorBlack,  // MAP_OBJ_RUNWAY
     kColorBlack,  // MAP_OBJ_FIELD
@@ -98,6 +104,7 @@ const uint8_t kWorldObjColors[kWorldObjDim] = {
     kColorBlack,  // MAP_OBJ_TOWN
     kColorBlack,  // MAP_OBJ_CITY
 };
+#endif
 
 // Two cells per byte, the even column in the low nibble (world.h
 // world_map_cell()). The rows below stay one entry per cell.

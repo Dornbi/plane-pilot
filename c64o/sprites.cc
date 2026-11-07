@@ -811,7 +811,7 @@ void sprites_stack_commit(void) {
       f->pos[i << 1] = kSpriteFinVX;
       f->pos[(i << 1) + 1] = sy;
       f->ptr[i] = ptr;
-      f->color[i] = kColorAircraft;
+      f->color[i] = COLOR_FIN;
       sy += kSpriteFinPitch;
       ptr = kFinSpriteBlock + 1;
     }

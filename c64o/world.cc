@@ -103,7 +103,7 @@ static __noinline void _world_split_vec(vec3_t *v, vec3_t d9[9]) {
 static inline void _world_draw_box_points(uint8_t start_idx, uint8_t num_points,
                                           WorldMapType map_type) {
   uint8_t idx = start_idx & 0x0F;
-  uint8_t color = KWorldDotColors[map_type];
+  uint8_t color = WORLD_DOT_COLORS[map_type];
   for (uint8_t i = num_points;;) {
     vec_v.x = _world_vec_v.x + _world_mitch_x[idx];
     vec_v.y = _world_vec_v.y + _world_mitch_y[idx];
@@ -228,7 +228,7 @@ void _world_render_object(WorldMapType object_type) {
   // with the by-hand figure in docs/framerate.md.
   bm_sub_start();
   poly_draw_3d(poly_verts, num_verts, kWorldObjChars[obj_idx],
-               kWorldObjColors[obj_idx]);
+               WORLD_OBJ_COLORS[obj_idx]);
   bm_sub_end(BM_SUB_POLY);
 }
 
@@ -338,7 +338,7 @@ __forceinline void world_update_objects() {
     sprites_stack_add(0x7FFF, kScreenWidthPixels / 2 - vec_sx,
                       kViewportEndYPixels / 2 - vec_sy, kSpriteDefSun.pivot_x,
                       kSpriteDefSun.pivot_y, kSpriteDefSun.bitmap_idx,
-                      kSpriteNoBitmap, kColorSun, 0);
+                      kSpriteNoBitmap, COLOR_SUN, 0);
   }
   // The orientation indicator, on the sprite the stack never hands out
   // (sprites.h). Fixed in the middle of the viewport, so this offers no

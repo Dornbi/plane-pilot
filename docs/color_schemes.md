@@ -5,13 +5,14 @@ viewport: the sky and its gradient, the ground, the dots and objects on the
 map, the clouds, the sun, the tail fin and the message line. The instrument
 panel does not change.
 
-*Planned 2026-11-07, not built yet.* The colours come from the scheme sheet
+*Planned and built 2026-11-07; §7 records what was built and where it
+differs from the plan.* The colours come from the scheme sheet
 "C64 / Plane Pilot" (Earth, Bright, Desert, Mountain, Dusk, Night); four of
 them are used here. §6 is the step-by-step implementation order.
 
-**fpilot does not change.** Every scheme read goes through a macro that, with
-`-D__FPILOT__`, is today's constant, so fpilot's code stays byte for byte what
-it is now. §6 step 2 checks this.
+**fpilot does not change.** ppilot builds with `-D__ENABLE_COLOR_SCHEMES__`
+(c64o/Makefile `COLOR_SCHEMES`); without it every scheme read is a macro for
+today's constant, so fpilot, the demos and the host tests keep their code.
 
 ## 1. The four schemes and their missions
 
@@ -34,11 +35,11 @@ exists: its targets are the cities, which Night lights up.
 | `sky8` | colour RAM, bit pair 11 (`| 0x08` stored) | 6 blue | 6 | 2 red | 0 black |
 | `grad2` | `$D021`, upper gradient band | 14 lt blue | 14 | 10 lt red | 9 brown |
 | `grad1_8` | colour RAM, horizon band (`| 0x08` stored) | 3 cyan | 3 | 7 yellow | 2 red |
-| `ground` | `$D022` | 5 green | 10 lt red | 12 grey | 11 dk grey |
-| `grndobj` | `$D023` | 8 orange | 8 | 8 | 15 lt grey |
+| `ground` | `$D022` | 5 green | 8 orange | 12 grey | 11 dk grey |
+| `grndobj` | `$D023`, the fields | 8 orange | 9 brown | 8 | 15 lt grey |
 | `cloud` | cloud sprites | 1 white | 1 | 1 | 12 grey |
 | `sun` | sun sprite (the moon at night) | 7 yellow | 7 | 1 white | 1 white |
-| `fin` | tail fin sprites | 12 grey | 12 | **11 dk grey** | **15 lt grey** |
+| `fin` | tail fin sprites | 12 grey | 12 | **11 dk grey** | 12 grey |
 | `text` | message line, colour RAM | 0 black | 0 | 0 | **1 white** |
 | `dot[7]` | `KWorldDotColors` | today's | today's | today's | black, cyan→green, blue, yellow→red |
 | `obj[9]` | `kWorldObjColors` | today's | today's | town and city yellow | town and city yellow, yellow fields red, **runway white** |
@@ -51,9 +52,10 @@ The values in bold are the three fixes the scheme sheet does not cover:
    black, which is invisible on Night's black sky. Night uses white.
 2. **Runway, Night.** A black runway on dark grey ground is hard to find, and
    08 ends with a landing on runway 2. Night makes it white, a lit runway.
-3. **Tail fin, Dusk and Night.** The fin is medium grey (12). Dusk's ground is
-   12, so the fin disappears over it; dark grey (11) instead. Night's clouds
-   are 12, so the fin looks like a cloud; light grey (15) instead.
+3. **Tail fin, Dusk.** The fin is medium grey (12). Dusk's ground is 12, so
+   the fin disappears over it; dark grey (11) instead. Night's fin stays
+   medium grey, the user's choice, although its clouds are the same grey
+   (the plan had light grey, 15).
 
 ### The colour RAM limit
 
@@ -162,8 +164,56 @@ Each step builds both games and runs the existing tests.
    mission assignment in §1.
 6. **Look at it.** Fly each scheme in VICE and take screenshots: the gradient
    bands, the fin over ground and over sky, clouds, the sun, the message line,
-   and the runway at night. Check Desert's fin (12 on light red) in
+   and the runway at night. Check Desert's fin (12 on orange) in
    particular. Measure the frame time against
    [framerate.md](framerate.md) on a busy view.
 7. **Docs.** Record the schemes in [missions.md](missions.md) and the RAM in
    [memory_map.md](memory_map.md), and add a section here on what was built.
+
+## 7. What was built
+
+All of §6 in one change. Where it differs from the plan:
+
+- **A build flag, not `__FPILOT__`.** `__ENABLE_COLOR_SCHEMES__` is set for
+  ppilot.prg only. The demos and the host tests build without it, so they
+  need no `color_scheme` of their own and still test the constant colours.
+- **The ground-dot marker moved to 8.** `gfx_project_and_draw()` recognised a
+  ground dot by `kColorGround`, green - and Night's cyan dots are green, so
+  they would have been drawn as ground. The marker is now `kGfxDotGround`,
+  8, which is no colour RAM colour (gfx.h), in both games. That is the whole
+  of fpilot's change: the same size, two bytes different, `cmp #5` and the
+  table's 5 now 8.
+- **Earth's tables replaced the old ones.** ppilot leaves `KWorldDotColors`
+  and `kWorldObjColors` out (world_map.cc) and draws from the scheme through
+  `WORLD_DOT_COLORS` / `WORLD_OBJ_COLORS` (world.h).
+- **No static_assert on the colour RAM fields.** The table is plain const data
+  oscar64 cannot assert over; pmission.cc says the rule next to it.
+- **The boot fill stays on the constant.** Every frame rewrites the colour of
+  every sky and box cell, and ground cells never read theirs, so the fill
+  before the first mission does not matter.
+- **The message line.** The font is inverted: the letters are pixel pair 00,
+  `$D021` (`grad2`), and the scheme's `text` colour fills the box around them.
+  So black text was never invisible at night - it is brown letters on the
+  black sky, a box that vanishes. White, as planned, is brown letters in a
+  white box. Both read; white is what is built.
+
+**Desert's ground, after:** orange rather than the sheet's light red, at
+the user's choice. Its fields, `grndobj`, are brown with it, as in the
+sheet's Mountain: orange like Earth's, they would be the ground's own colour.
+
+**RAM:** ppilot 52,288 → 52,445 B used, +157 B (`make pram`); fpilot
+unchanged.
+
+**Speed:** the span fill in render.cc now loads the sky colour from memory,
+`LDA abs` for `LDA #`, two cycles a cell. Only the partly-sky rows of a banked
+view pay it, at most 14 × 40 cells, so ≤ 1,120 cycles a frame and usually
+under half of that. The full rows go through `_fill_line()`, which loads the
+value once. Not measured on target: tools/bench.sh is fpilot's.
+
+**Checked:** Earth's three posed scenes (final, bank, lake) are
+pixel-identical to the build before the change. All four schemes were
+captured in those scenes and in the back view with a message up
+(`SHOT_CFLAGS="-DSHOT_SCHEME=n -DSHOT_BACK -DSHOT_MSG"
+tools/make_shots.sh`, tools/shot.cc). The posed scenes pin Earth by default,
+so screens/ keeps showing it although they start mission 04, now Desert.
+

@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#include "color.h"
 #include "gfx.h"
 #include "vec.h"
 
@@ -78,6 +79,18 @@ extern const uint8_t kWorldObjFirstVert[kWorldObjDim];
 extern const uint8_t kWorldObjNumVerts[kWorldObjDim];
 extern const uint8_t kWorldObjChars[kWorldObjDim];
 extern const uint8_t kWorldObjColors[kWorldObjDim];
+
+// The dot and object colours to draw with: the tables above, or with
+// __ENABLE_COLOR_SCHEMES__ the mission's scheme (color.h), which replaces
+// them - world_map.cc then leaves them out.
+#ifdef __ENABLE_COLOR_SCHEMES__
+static_assert(kColorSchemeObjs == kWorldObjDim, "color.h ColorScheme::obj");
+#define WORLD_DOT_COLORS (color_scheme.dot)
+#define WORLD_OBJ_COLORS (color_scheme.obj)
+#else
+#define WORLD_DOT_COLORS KWorldDotColors
+#define WORLD_OBJ_COLORS kWorldObjColors
+#endif
 
 #pragma compile("world.cc")
 #pragma compile("world_map.cc")

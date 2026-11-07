@@ -4,6 +4,8 @@
 #   tools/make_shots.sh [scene ...]      # default: every scene
 #   tools/make_shots.sh menu help        # just those two
 #   KEEP=1 tools/make_shots.sh           # leave the scratch build in place
+#   SHOT_OUT_DIR=/some/dir SHOT_CFLAGS=-DSHOT_SCHEME=3 tools/make_shots.sh bank
+#                                        # elsewhere, with extra flags
 #
 # Each scene is one headless VICE run of a purpose-built binary: c64o/ is
 # copied to a scratch directory, tools/shot.cc is dropped in beside it, the
@@ -21,7 +23,7 @@
 set -eu
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-SCREENS="$REPO/screens"
+SCREENS="${SHOT_OUT_DIR:-$REPO/screens}"
 
 # oscar64 smashes a stack buffer and dies with an unexplained SIGABRT when the
 # path to the sources is long - it builds an absolute path in a fixed buffer
@@ -104,7 +106,10 @@ done
 # Same flags as the ppilot.prg rule in c64o/Makefile: a scene has to be a
 # picture of the binary people actually run.
 CFLAGS="-ii=../include -D__OSCAR64__ -DNUM_IRQS=4 -g -xz -O2 -Op -Oa -Oi -Oz -Oo"
-CFLAGS="$CFLAGS -D__ENABLE_SOUND__ -D__ENABLE_DEBUG__ -D__ENABLE_CLOUDS__ -D__MAX_RAM__"
+CFLAGS="$CFLAGS -D__ENABLE_SOUND__ -D__ENABLE_DEBUG__ -D__ENABLE_CLOUDS__ -D__ENABLE_COLOR_SCHEMES__ -D__MAX_RAM__"
+# SHOT_CFLAGS adds to them, e.g. -DSHOT_SCHEME=3 for a posed scene in Night's
+# colours (tools/shot.cc).
+CFLAGS="$CFLAGS ${SHOT_CFLAGS:-}"
 
 wanted="${*:-}"
 echo "$SCENES" | while read -r name shot cycles out; do

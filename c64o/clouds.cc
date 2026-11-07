@@ -259,7 +259,7 @@ void clouds_add_candidates(void) {
         sprites_stack_add(vec_v.x, (int16_t)kScreenWidthPixels / 2 - vec_sx,
                           (int16_t)kViewportEndYPixels / 2 - vec_sy,
                           meta->pivot_x, meta->pivot_y, meta->bitmap,
-                          meta->bitmap2, kColorCloud,
+                          meta->bitmap2, COLOR_CLOUD,
                           kSpriteFlagExpandX | kSpriteFlagAlignDither);
       }
     }

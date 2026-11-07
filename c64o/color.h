@@ -49,4 +49,50 @@ static const uint8_t kColorOpponentFar = kColorBlack;
 static const uint8_t kColorOpponentNear = kColorDarkGray;
 static const uint8_t kColorWater = kColorBlue;
 
+// The viewport's colour scheme (docs/color_schemes.md). ppilot builds with
+// __ENABLE_COLOR_SCHEMES__ and every mission picks one of the schemes in
+// pmission.cc; _start_mission() (sim.cc) copies it into color_scheme. fpilot,
+// the demos and the host tests build without it, and every COLOR_ macro below
+// is then today's constant, so their code does not change by a byte.
+//
+// Fields marked "colour RAM" end up in colour RAM, where multicolour mode
+// keeps only colours 0 to 7; pmission.cc asserts that.
+#ifdef __ENABLE_COLOR_SCHEMES__
+static const uint8_t kColorSchemeDots = 7;  // world.h KWorldDotColors
+static const uint8_t kColorSchemeObjs = 9;  // world.h kWorldObjDim
+struct ColorScheme {
+  uint8_t sky8;    // colour RAM, | 0x08: the sky, bit pair 11
+  uint8_t grad1_8; // colour RAM, | 0x08: the horizon band of the gradient
+  uint8_t grad2;   // $D021: the upper band of the gradient
+  uint8_t ground;  // $D022
+  uint8_t grndobj; // $D023
+  uint8_t cloud;
+  uint8_t sun;
+  uint8_t fin;  // the tail fin in the back view
+  uint8_t text; // colour RAM: the message line, hires
+  uint8_t dot[kColorSchemeDots]; // colour RAM, by WorldMapType
+  uint8_t obj[kColorSchemeObjs]; // colour RAM, by object
+};
+extern ColorScheme color_scheme;
+#define COLOR_SKY8 (color_scheme.sky8)
+#define COLOR_GRAD1_8 (color_scheme.grad1_8)
+#define COLOR_GRAD2 (color_scheme.grad2)
+#define COLOR_GROUND (color_scheme.ground)
+#define COLOR_GRNDOBJ (color_scheme.grndobj)
+#define COLOR_CLOUD (color_scheme.cloud)
+#define COLOR_SUN (color_scheme.sun)
+#define COLOR_FIN (color_scheme.fin)
+#define COLOR_TEXT (color_scheme.text)
+#else
+#define COLOR_SKY8 (kColorSky | 0x08)
+#define COLOR_GRAD1_8 (kColorGrad1 | 0x08)
+#define COLOR_GRAD2 kColorGrad2
+#define COLOR_GROUND kColorGround
+#define COLOR_GRNDOBJ kColorGrndObj
+#define COLOR_CLOUD kColorCloud
+#define COLOR_SUN kColorSun
+#define COLOR_FIN kColorAircraft
+#define COLOR_TEXT kColorBlack
+#endif
+
 #endif /* COLOR_H */

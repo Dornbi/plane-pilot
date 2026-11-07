@@ -37,6 +37,16 @@
 #include "shot.h"
 
 #include "flight.h"
+#ifdef SHOT_MSG
+#include "msg.h"
+#endif
+#ifdef __ENABLE_COLOR_SCHEMES__
+#include <string.h>
+
+#include "box.h"
+#include "mission.h"
+#include "vic.h"
+#endif
 #include "vec.h"
 
 // Script entries: hold `key` for `polls` polls of whichever loop is running.
@@ -204,6 +214,11 @@ static const shot_step_t kShotScript[] = {
     {1, KSCAN_D},
 #endif
     {1, SHOT_POSE},
+#ifdef SHOT_BACK
+    // -DSHOT_BACK: held 4, the back view, with the tail fin in it, to the
+    // capture and past it.
+    {30000, KSCAN_4},
+#endif
 };
 
 static void _shot_apply_pose(void) {
@@ -233,6 +248,24 @@ static void _shot_apply_pose(void) {
   flight_gear = kShotPose.gear;
   flight_flap = kShotPose.flap;
   flight_paused = true;
+
+#ifdef __ENABLE_COLOR_SCHEMES__
+  // A pose is a picture of a place, not of mission 04, so it is in Earth's
+  // colours - what the screens/ pictures have always shown - unless
+  // SHOT_SCHEME picks another (docs/color_schemes.md). $D021 is rewritten
+  // every frame from the scheme; the two ground registers only at entry.
+#ifndef SHOT_SCHEME
+#define SHOT_SCHEME 0
+#endif
+  memcpy(&color_scheme, &kColorSchemes[SHOT_SCHEME], sizeof(ColorScheme));
+  box_invalidate();
+  vic.color_back1 = COLOR_GROUND;
+  vic.color_back2 = COLOR_GRNDOBJ;
+#endif
+#ifdef SHOT_MSG
+  // -DSHOT_MSG: a message on the line, held, for the scheme's text colour.
+  msg_show(kMissionTitles[0], 0, true);
+#endif
 }
 
 #else

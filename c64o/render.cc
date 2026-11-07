@@ -185,7 +185,7 @@ static uint8_t *_row_dst, *_row_color;
 static void _fill_full_row(bool sky) {
   if (sky) {
     _fill_line(_row_dst, kCharSolid11);
-    _fill_line(_row_color, kColorSky | 0x08);
+    _fill_line(_row_color, COLOR_SKY8);
   } else {
     _fill_line(_row_dst, kCharSolidGround);
   }
@@ -284,7 +284,7 @@ void render_fill_sky_ground() {
           if (sky_left) {
             do {
               _row_dst[i] = kCharSolid11;
-              _row_color[i] = kColorSky | 0x08;
+              _row_color[i] = COLOR_SKY8;
             } while (--i >= 0);
           } else {
             do {
@@ -297,7 +297,7 @@ void render_fill_sky_ground() {
           if (!sky_left) {
             do {
               _row_dst[i] = kCharSolid11;
-              _row_color[i] = kColorSky | 0x08;
+              _row_color[i] = COLOR_SKY8;
             } while (++i < kViewportWidth);
           } else {
             do {

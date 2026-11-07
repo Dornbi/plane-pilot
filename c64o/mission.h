@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "bool.h"
+#include "color.h"
 
 enum MissionWaypointConstraint {
   WP_NOTHING = 0,
@@ -98,6 +99,16 @@ static const uint8_t kMissionCompleted = 2;
 static const uint8_t kMissionCompleted = 1;
 #endif
 extern uint8_t mission_completed[kMissionCount];
+
+#ifdef __ENABLE_COLOR_SCHEMES__
+// ppilot's viewport colour schemes (color.h, docs/color_schemes.md), and the
+// one each mission flies in: its byte offset into kColorSchemes, so that
+// picking it needs no multiply. _start_mission() (sim.cc) copies it into
+// color_scheme.
+static const uint8_t kColorSchemeCount = 4;
+extern const ColorScheme kColorSchemes[kColorSchemeCount];
+extern const uint8_t kMissionScheme[kMissionCount];
+#endif
 
 #ifdef __FPILOT__
 #pragma compile("fmission.cc")

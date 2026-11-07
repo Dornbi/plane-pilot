@@ -147,11 +147,11 @@ void box_prepare(void) {
   // char RAM copy above was in no counter at all, TOT included, and CHR
   // reported the tail of the function as though it were the whole of it.
   _char_lut[0] = kCharSolidGround;
-  _color_lut[0] = kColorGrad1 | 0x08;
+  _color_lut[0] = COLOR_GRAD1_8;
   _char_lut[1] = kCharSolidSky;
-  _color_lut[1] = kColorSky | 0x08;
+  _color_lut[1] = COLOR_SKY8;
   _char_lut[2] = kCharSolid11;
-  _color_lut[2] = kColorGrad1 | 0x08;
+  _color_lut[2] = COLOR_GRAD1_8;
 
   // A byte counter and a base three entries in, not `_char_lut[i + 3]` with an
   // int8_t: the tables are behind a pointer now (kBootScratch), and with a
@@ -162,8 +162,8 @@ void box_prepare(void) {
   uint8_t *const color_lut_tile = _color_lut + 3;
   for (uint8_t i = boxdef.char_count; i-- != 0;) {
     char_lut_tile[i] = mem_box_char_start + i;
-    color_lut_tile[i] = (i >= boxdef.grad1_color_start) ? (kColorGrad1 | 0x08)
-                                                        : (kColorSky | 0x08);
+    color_lut_tile[i] =
+        (i >= boxdef.grad1_color_start) ? COLOR_GRAD1_8 : COLOR_SKY8;
   }
 
   // Fill box_chars and box_colors with the box definition. Its w * h cells

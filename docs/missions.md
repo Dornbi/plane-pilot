@@ -70,6 +70,10 @@ wider circuit than a pilot who knows where the runway is. Mission 03's spread
 is the cost of finding the field again: the same flight is 9 minutes when the
 turn onto final comes out right the first time.
 
+Each mission also has a viewport colour scheme ([color_schemes.md](color_schemes.md)):
+Earth for 01, 02, 03, 06 and 09, Desert for 04 and 05, Dusk for 07 and 10,
+and Night for 08 (`kMissionScheme` in `pmission.cc`).
+
 ### Notes on individual missions
 
 **01 / 03** start parked with the throttle closed, and their first waypoint

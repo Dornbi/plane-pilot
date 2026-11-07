@@ -58,7 +58,7 @@ void msg_update(void) {
 
 __forceinline void msg_restore_color(void) {
   if (msg_color_len != 0) {
-    memset(mem_color_buffer + msg_color_col, kColorSky | 0x08, msg_color_len);
+    memset(mem_color_buffer + msg_color_col, COLOR_SKY8, msg_color_len);
     msg_color_len = 0;
   }
 }
@@ -71,7 +71,7 @@ void msg_render(void) {
   }
 
   memcpy(mem_screen_row_ptrs[0] + msg_col, msg_text, msg_len);
-  memset(mem_color_buffer + msg_col, kColorBlack, msg_len);
+  memset(mem_color_buffer + msg_col, COLOR_TEXT, msg_len);
   msg_color_col = msg_col;
   msg_color_len = msg_len;
 }

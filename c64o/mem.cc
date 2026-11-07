@@ -262,9 +262,9 @@ inline void mem_set_mccm_mode(void) {
 
 __forceinline void mem_init_mccm(void) {
   vic.color_border = kColorBg;
-  vic.color_back = kColorGrad2;
-  vic.color_back1 = kColorGround;
-  vic.color_back2 = kColorGrndObj;
+  vic.color_back = COLOR_GRAD2;
+  vic.color_back1 = COLOR_GROUND;
+  vic.color_back2 = COLOR_GRNDOBJ;
   mem_set_mccm_mode();
 }
 

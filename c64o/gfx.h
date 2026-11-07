@@ -44,9 +44,15 @@ void gfx_wait_vsync(void);
 // deadlines that define it. Interrupt-safe; used by mem_switch_buffer().
 void gfx_wait_flip_window(void);
 
+// The dot colour that means "ground": the dot is drawn with kGfxGroundPoints,
+// in $D022, and colour RAM is left alone. Not a colour RAM colour (those are
+// 0 to 7 in multicolour mode), so no scheme's dot colour can be mistaken for
+// it - it used to be kColorGround, green, which Night's dots use.
+static const uint8_t kGfxDotGround = 0x08;
+
 // Project and draw a single point using vec_project().
-// If color < 8, it uses kGfxColorPoints and sets the color ram.
-// Otherwise it uses kGfxGroundPoints.
+// If color is kGfxDotGround, it uses kGfxGroundPoints; otherwise it uses
+// kGfxColorPoints and sets the color ram to color.
 // @param vec_v
 void gfx_project_and_draw(uint8_t color);
 
