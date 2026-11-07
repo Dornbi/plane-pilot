@@ -59,6 +59,25 @@
 #define SHOT_POSE 0xfd
 // Scores a hit on fpilot's first opponent, as a round of the player's would.
 #define SHOT_STRIKE 0xfc
+// Puts SHOT_SCHEME's colours in place of the mission's; see below.
+#define SHOT_RECOLOR 0xfb
+
+#ifdef __ENABLE_COLOR_SCHEMES__
+// A posed scene is a picture of a place, and the map one of the map, not of
+// mission 04, so they are in Earth's colours - what the screens/ pictures
+// have always shown - unless SHOT_SCHEME picks another
+// (docs/color_schemes.md). $D021 is rewritten every frame from the scheme
+// and the map sets its own; the two ground registers are set only at entry.
+#ifndef SHOT_SCHEME
+#define SHOT_SCHEME 0
+#endif
+static void _shot_apply_scheme(void) {
+  memcpy(&color_scheme, &kColorSchemes[SHOT_SCHEME], sizeof(ColorScheme));
+  box_invalidate();
+  vic.color_back1 = COLOR_GROUND;
+  vic.color_back2 = COLOR_GRNDOBJ;
+}
+#endif
 
 struct shot_step_t {
   uint16_t polls;
@@ -101,6 +120,7 @@ static const shot_step_t kShotScript[] = {
     {200, SHOT_IDLE},
     {4, KSCAN_L},
     {300, SHOT_IDLE},
+    {1, SHOT_RECOLOR},
     {1, KSCAN_M},
 };
 #elif __SHOT__ == 8
@@ -250,20 +270,10 @@ static void _shot_apply_pose(void) {
   flight_paused = true;
 
 #ifdef __ENABLE_COLOR_SCHEMES__
-  // A pose is a picture of a place, not of mission 04, so it is in Earth's
-  // colours - what the screens/ pictures have always shown - unless
-  // SHOT_SCHEME picks another (docs/color_schemes.md). $D021 is rewritten
-  // every frame from the scheme; the two ground registers only at entry.
-#ifndef SHOT_SCHEME
-#define SHOT_SCHEME 0
-#endif
-  memcpy(&color_scheme, &kColorSchemes[SHOT_SCHEME], sizeof(ColorScheme));
-  box_invalidate();
-  vic.color_back1 = COLOR_GROUND;
-  vic.color_back2 = COLOR_GRNDOBJ;
+  _shot_apply_scheme();
 #endif
 #ifdef SHOT_MSG
-  // -DSHOT_MSG: a message on the line, held, for the scheme's text colour.
+  // -DSHOT_MSG: a message on the line, held, to see it in a scheme.
   msg_show(kMissionTitles[0], 0, true);
 #endif
 }
@@ -296,6 +306,10 @@ void shot_poll(void) {
 #ifdef SHOT_POSED
   } else if (key == SHOT_POSE) {
     _shot_apply_pose();
+#endif
+#ifdef __ENABLE_COLOR_SCHEMES__
+  } else if (key == SHOT_RECOLOR) {
+    _shot_apply_scheme();
 #endif
 #if __SHOT__ == 10
   } else if (key == SHOT_STRIKE) {

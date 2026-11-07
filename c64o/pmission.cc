@@ -259,6 +259,7 @@ uint8_t mission_completed[kMissionCount] = {
 
 #ifdef __ENABLE_COLOR_SCHEMES__
 #include "gfx.h"
+#include "mapdefs.h"
 
 ColorScheme color_scheme;
 
@@ -275,33 +276,57 @@ ColorScheme color_scheme;
 // Every colour RAM field - sky8, grad1_8, dot and obj - is 0 to 7, the
 // only colours colour RAM has in multicolour mode. dot[MAP_DOT_GROUND] is
 // kGfxDotGround in all of them: those dots are ground, and drawn in $D022.
+//
+// The map's 18 tiles, each a pair of colours (mapdefs.h), are drawn on the
+// ground colour. Each scheme's follow its view: a tile in a colour of the
+// view has that colour, and one that would vanish into the ground is moved
+// off it.
 const ColorScheme kColorSchemes[kColorSchemeCount] = {
     // Earth
     {kColorBlue | 0x08, kColorCyan | 0x08, kColorLightBlue, kColorGreen, kColorOrange,
      kColorWhite, kColorYellow, kColorMedGray,
      {kColorBlack, kGfxDotGround, kColorBlack, kColorWhite, kColorCyan, kColorBlue, kColorYellow},
      {kColorBlack, kColorBlack, kColorBlack, kColorYellow, kColorYellow,
-      kColorBlue, kColorBlue, kColorBlack, kColorBlack}},
+      kColorBlue, kColorBlue, kColorBlack, kColorBlack},
+     // Map: mapdefs.cc's kMapTileColors.
+     {0x00, 0xC0, 0xC0, 0xC0,                         // grid
+      0x00, 0xF0, 0x30, 0xE6, 0xD7,                   // dots
+      0x0C, 0x8C, 0xC8, 0x7F, 0xF7, 0xE6, 0xE6, 0x80, 0x80}},
     // Desert: Earth on orange ground, its fields brown - in orange, as
     // Earth's are, they would vanish into it.
     {kColorBlue | 0x08, kColorCyan | 0x08, kColorLightBlue, kColorOrange, kColorBrown,
      kColorWhite, kColorYellow, kColorMedGray,
      {kColorBlack, kGfxDotGround, kColorBlack, kColorWhite, kColorCyan, kColorBlue, kColorYellow},
      {kColorBlack, kColorBlack, kColorBlack, kColorYellow, kColorYellow,
-      kColorBlue, kColorBlue, kColorBlack, kColorBlack}},
+      kColorBlue, kColorBlue, kColorBlack, kColorBlack},
+     // Map: fields and towns brown, as in the view; orange would be ground.
+     {0x00, 0xC0, 0xC0, 0xC0,
+      0x00, 0xF0, 0x30, 0xE6, 0xD7,
+      0x0C, 0x9C, 0xC9, 0x7F, 0xF7, 0xE6, 0xE6, 0x90, 0x90}},
     // Dusk: a red sky over grey ground, a white sun, towns and cities lit.
     {kColorRed | 0x08, kColorYellow | 0x08, kColorLightRed, kColorMedGray, kColorOrange,
      kColorWhite, kColorWhite, kColorDarkGray,
      {kColorBlack, kGfxDotGround, kColorBlack, kColorWhite, kColorCyan, kColorBlue, kColorYellow},
      {kColorBlack, kColorBlack, kColorBlack, kColorYellow, kColorYellow,
-      kColorBlue, kColorBlue, kColorYellow, kColorYellow}},
+      kColorBlue, kColorBlue, kColorYellow, kColorYellow},
+     // Map: on grey, the grid dark grey, white dots white, the runway's and
+     // the fields' grey light grey; towns and cities lit yellow.
+     {0x00, 0xB0, 0xB0, 0xB0,
+      0x00, 0x10, 0x30, 0xE6, 0xD7,
+      0x0F, 0x8F, 0xF8, 0x7F, 0xF7, 0xE6, 0xE6, 0x87, 0x87}},
     // Night: a black sky, a white moon, grey clouds over dark grey ground;
     // the runway, towns and cities lit, yellow fields gone dark red.
     {kColorBlack | 0x08, kColorRed | 0x08, kColorBrown, kColorDarkGray, kColorLightGray,
      kColorMedGray, kColorWhite, kColorMedGray,
      {kColorBlack, kGfxDotGround, kColorBlack, kColorWhite, kColorGreen, kColorBlue, kColorRed},
      {kColorWhite, kColorBlack, kColorBlack, kColorRed, kColorRed,
-      kColorBlue, kColorBlue, kColorYellow, kColorYellow}},
+      kColorBlue, kColorBlue, kColorYellow, kColorYellow},
+     // Map: as the view - cyan dots green, yellow ones and yellow fields red,
+     // fields light grey, towns and cities lit - but the runway black with
+     // light grey markings: white, the navpoint digit on it would vanish.
+     {0x00, 0xC0, 0xC0, 0xC0,
+      0x00, 0xF0, 0x50, 0xE6, 0x52,
+      0x0F, 0xFC, 0xCF, 0x2C, 0xC2, 0xE6, 0xE6, 0xF7, 0xF7}},
 };
 // clang-format on
 

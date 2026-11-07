@@ -30,6 +30,15 @@ static char mmap_set(char pla) { return pla; }
 // straight-line code.
 #pragma optimize(push, outline)
 
+// The tile colours and the ground: mapdefs.cc's and green, or with
+// __ENABLE_COLOR_SCHEMES__ the mission's scheme (color.h).
+#ifdef __ENABLE_COLOR_SCHEMES__
+static_assert(kColorSchemeMapTiles == kMapTileCount, "color.h ColorScheme::map");
+#define MAP_TILE_COLORS (color_scheme.map)
+#else
+#define MAP_TILE_COLORS kMapTileColors
+#endif
+
 bool map_mode = false;
 
 // The map is a multicolor bitmap; see docs/map.md for the full plan.
@@ -289,7 +298,7 @@ static inline void _map_draw_object_layer(void) {
       } while (++r < 8);
       bm += 8;
       // Bit pair 11's color is the low nibble; color RAM drops the high one.
-      *cr++ = kMapTileColors[idx];
+      *cr++ = MAP_TILE_COLORS[idx];
     }
     bm += kMapCharGap * 8;
     cr += kMapCharGap;
@@ -306,7 +315,7 @@ static void _map_draw_screen_layer(void) {
   for (uint8_t row = kWorldMapHeight; row-- != 0;) {
     for (uint8_t col = kWorldMapWidth; col-- != 0;) {
       const uint8_t idx = _map_tile_at(row, col);
-      *sm++ = (kColorWhite << 4) | (kMapTileColors[idx] >> 4);
+      *sm++ = (kColorWhite << 4) | (MAP_TILE_COLORS[idx] >> 4);
     }
     sm += kMapCharGap;
   }
@@ -349,7 +358,7 @@ void map_enter() {
   vic.ctrl1 = 0x2b; // bitmap mode, screen off
   vic.ctrl2 = 0xd8; // multicolor
   vic_memptr = kVicMemMap;
-  vic.color_back = kColorGreen; // bit pair 00, the ground everywhere
+  vic.color_back = COLOR_GROUND; // bit pair 00, the ground everywhere
   vic.color_border = kColorBlack;
 
   // The 8-cell-wide surround outside the map is solid 11 over black color

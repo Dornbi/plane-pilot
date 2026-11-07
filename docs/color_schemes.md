@@ -2,7 +2,7 @@
 
 A plan for ppilot missions to choose a colour scheme for everything in the
 viewport: the sky and its gradient, the ground, the dots and objects on the
-map, the clouds, the sun and the tail fin. The instrument
+map, the clouds, the sun and the tail fin, and the map view (§8). The instrument
 panel does not change.
 
 *Planned and built 2026-11-07; §7 records what was built and where it
@@ -218,4 +218,40 @@ captured in those scenes and in the back view with a message up
 (`SHOT_CFLAGS="-DSHOT_SCHEME=n -DSHOT_BACK -DSHOT_MSG"
 tools/make_shots.sh`, tools/shot.cc). The posed scenes pin Earth by default,
 so screens/ keeps showing it although they start mission 04, now Desert.
+
+## 8. The map view
+
+Added after §7. The map (map.cc, [map.md](map.md)) is a multicolour bitmap
+of its own, so it took none of the view's colours: green ground in `$D021`
+and two colours per tile, `kMapTileColors` (mapdefs.cc, generated from
+gfx/ppilot_map_tiles.png). With schemes, `$D021` is the scheme's `ground`
+and the tiles' colours are `ColorScheme::map[18]`, Earth's being
+`kMapTileColors` exactly. fpilot reads `kMapTileColors` and green as before
+(map.cc `MAP_TILE_COLORS`), byte-identical. In a bitmap colour RAM has all
+16 colours, so the map has no 0-to-7 limit.
+
+Each scheme's tiles follow its view, and a tile that would vanish into the
+ground is moved off it:
+
+| Tile | Earth | Desert | Dusk | Night |
+|---|---|---|---|---|
+| ground (`$D021`) | green | orange | grey | dark grey |
+| grid | grey | grey | dark grey | grey |
+| white dots | light grey | light grey | white | light grey |
+| cyan dots | cyan | cyan | cyan | green |
+| yellow dots | light green, yellow | same | same | green, red |
+| runway | black, grey | same | black, light grey | black, light grey |
+| fields | orange, grey | brown, grey | orange, light grey | light grey, grey |
+| yellow fields | yellow, light grey | same | same | red, grey |
+| towns, cities | orange, black | brown, black | orange, yellow | light grey, yellow |
+
+Night's runway is black on the map although it is white in the view: the
+navpoint digit on it is white (bit pair 01), and on a white runway it was
+gone. The white path, the digits, the black surround with its compass
+letters and the light green aircraft marker are the same in every scheme.
+
+**RAM:** ppilot +73 B (52,459 → 52,532 used, against HEAD built the same
+way). **Checked:** the map scene in all four schemes
+(`SHOT_CFLAGS=-DSHOT_SCHEME=n tools/make_shots.sh map`; the scene now
+applies `SHOT_SCHEME`, Earth by default, before pressing M).
 

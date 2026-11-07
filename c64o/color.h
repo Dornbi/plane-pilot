@@ -55,11 +55,12 @@ static const uint8_t kColorWater = kColorBlue;
 // the demos and the host tests build without it, and every COLOR_ macro below
 // is then today's constant, so their code does not change by a byte.
 //
-// Fields marked "colour RAM" end up in colour RAM, where multicolour mode
-// keeps only colours 0 to 7; pmission.cc asserts that.
+// Fields marked "colour RAM" end up in colour RAM, where multicolour
+// character mode keeps only colours 0 to 7; pmission.cc says so beside them.
 #ifdef __ENABLE_COLOR_SCHEMES__
 static const uint8_t kColorSchemeDots = 7;  // world.h KWorldDotColors
 static const uint8_t kColorSchemeObjs = 9;  // world.h kWorldObjDim
+static const uint8_t kColorSchemeMapTiles = 18; // mapdefs.h kMapTileCount
 struct ColorScheme {
   uint8_t sky8;    // colour RAM, | 0x08: the sky, bit pair 11
   uint8_t grad1_8; // colour RAM, | 0x08: the horizon band of the gradient
@@ -71,6 +72,9 @@ struct ColorScheme {
   uint8_t fin;  // the tail fin in the back view
   uint8_t dot[kColorSchemeDots]; // colour RAM, by WorldMapType
   uint8_t obj[kColorSchemeObjs]; // colour RAM, by object
+  // The map view (map.cc), as mapdefs.h kMapTileColors: bit pair 10's colour
+  // in the high nibble, 11's in the low. A bitmap, so all 16 colours.
+  uint8_t map[kColorSchemeMapTiles];
 };
 extern ColorScheme color_scheme;
 #define COLOR_SKY8 (color_scheme.sky8)
