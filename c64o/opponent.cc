@@ -780,6 +780,8 @@ static __noinline bool _opponent_none(void) {
   return !_opponent_live(0) && !_opponent_live(1);
 }
 
+bool opponent_none_left(void) { return _opponent_last && _opponent_none(); }
+
 bool opponent_targets_down(void) {
   if (_opponent_failed) {
     return false;
@@ -787,7 +789,7 @@ bool opponent_targets_down(void) {
   if (_opponent_need != 0) {
     return _opponent_kills >= _opponent_need;
   }
-  return _opponent_last && _opponent_none();
+  return opponent_none_left();
 }
 
 static __noinline uint16_t _opponent_mid(uint8_t a, uint8_t b) {

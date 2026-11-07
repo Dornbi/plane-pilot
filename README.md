@@ -108,6 +108,12 @@ See [docs/development.md](docs/development.md) for more details.
 
 ## Updates
 
+### 2026-11-07
+
+- fpilot says OPPONENT SHOT DOWN, not TARGET DESTROYED, when an enemy
+  aircraft goes down.
+- fpilot's N selects only the home base once no enemy aircraft are left.
+
 ### 2026-11-06
 
 - fpilot's enemy aircraft take five hits to shoot down, not three.

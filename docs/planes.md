@@ -1424,7 +1424,9 @@ map's digit and the nav guidance read the navpoint arrays as they are, so
 both follow. Selecting the two says `TARGET SELECTED` and `HOME BASE
 SELECTED` rather than `NAVPOINT 1` and `2`: by number, as every mission has
 the two in that order (`test/fpilot_test.cc` checks). A target that has left the map leaves the navpoint where it was
-last seen.
+last seen. *Since 2026-11-07*, once no opponent is left - the last pair
+sent, and none of it flying, parked or falling (`opponent_none_left()`) - N
+selects only the home base.
 
 Parked aircraft are drawn with the flying ones' renderer, low over the
 ground: from behind and low, wings edge-on, they are thin lines until close.

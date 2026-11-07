@@ -31,6 +31,9 @@ struct VIC *vic_host = (struct VIC *)_vic;
 static bool _down = false;
 bool opponent_targets_down(void) { return _down; }
 
+static bool _none_left = false;
+bool opponent_none_left(void) { return _none_left; }
+
 static int _rearms = 0;
 void gun_rearm(void) { ++_rearms; }
 
@@ -84,6 +87,16 @@ int main() {
     flight_input(FLIGHT_INPUT_TOGGLE_NAV);
     CHECK(!strcmp(_msg, land_only ? "HOME BASE SELECTED" : "TARGET SELECTED"),
           "mission %d: selecting the one after says \"%s\"", m + 1, _msg);
+    // With no opponent left, N selects only the home base, from either.
+    _none_left = true;
+    for (int k = 0; k < 2; ++k) {
+      flight_input(FLIGHT_INPUT_TOGGLE_NAV);
+      CHECK(flight_nav == 1 && !strcmp(_msg, "HOME BASE SELECTED"),
+            "mission %d: none left, N %d selects navpoint %d, \"%s\"", m + 1, k + 1,
+            flight_nav + 1, _msg);
+    }
+    _none_left = false;
+    flight_nav = (uint8_t)kMissionWpBegin[m];
     // flight.cc names them by number, so the mission has to have them in
     // that order: the targets' waypoint first, then landing on runway 1.
     CHECK(kMissionWpEnd[m] == 2 && kMissionWpBegin[m] <= 1 &&

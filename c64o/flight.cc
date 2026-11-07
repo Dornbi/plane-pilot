@@ -1693,6 +1693,13 @@ void flight_input(enum flight_input_t input) {
       if (flight_nav >= flight_num_nav_points) {
         flight_nav = 0;
       }
+#ifdef __FPILOT__
+      // With no opponent left, the targets' navpoint only marks where the
+      // last went down: N stays on the home base.
+      if (opponent_none_left()) {
+        flight_nav = 1;
+      }
+#endif
       _flight_update_nav();
 
 #ifdef __FPILOT__

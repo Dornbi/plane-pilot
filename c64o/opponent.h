@@ -47,6 +47,11 @@ void opponent_add_sprites(void);
 // sends is down or gone (09's give up).
 bool opponent_targets_down(void);
 
+// No opponent is left: the mission's last pair has been sent, and neither of
+// it is flying, parked or falling - down, or gone off the map. flight.cc's N
+// then selects only the home base.
+bool opponent_none_left(void);
+
 // For gun.cc: slot i's position, x, y and z in flight_eye_*'s 24.8 half
 // metres, into p, and whether it is there to be hit - flying or parked, and
 // not down.
@@ -99,6 +104,7 @@ inline void opponent_invalidate(void) {}
 inline void opponent_step(void) {}
 inline void opponent_add_sprites(void) {}
 inline bool opponent_targets_down(void) { return false; }
+inline bool opponent_none_left(void) { return false; }
 inline bool opponent_target(uint8_t i, int32_t *p) { return false; }
 inline void opponent_strike(uint8_t i) {}
 inline bool opponent_smoke(int32_t *p, int16_t *h) { return false; }

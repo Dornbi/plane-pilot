@@ -1242,12 +1242,14 @@ static void test_missions(void) {
           "falls: down %d after %d steps, turned %d %d", _opponent_down, steps, turned[0],
           turned[1]);
     CHECK(!opponent_target(0, p) && !(_opponent_cull() & 3), "falls: down, but drawn or a target");
-    CHECK(_opponent_none() && !opponent_targets_down(),
+    CHECK(_opponent_none() && !opponent_targets_down() && !opponent_none_left(),
           "strikes: both down, and 04's second pair not to come");
     _opponent_last = true;
-    CHECK(opponent_targets_down(), "strikes: both of the last pair down, but the targets are not down");
+    CHECK(opponent_targets_down() && opponent_none_left(),
+          "strikes: both of the last pair down, but the targets are not down or some left");
     opponent_reset(3);
-    CHECK(opponent_target(0, p) && !opponent_targets_down(), "strikes: a reset left them down");
+    CHECK(opponent_target(0, p) && !opponent_targets_down() && !opponent_none_left(),
+          "strikes: a reset left them down");
   }
 
   // The smoke: none until a hit, then behind the last slot hit for kSmokeHit
