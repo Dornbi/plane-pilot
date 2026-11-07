@@ -181,7 +181,7 @@ static inline void _opponent_start_head(const opponent_path_t *p, vec3_t *h) {
   uint8_t t = p->kind >> kOpponentHeadShift;
   h->x = kMissionQuarterCos[t] << 8;
   h->y = kMissionQuarterCos[t + 3] << 8;
-  h->z = 0;
+  // z stays the 0 _opponent_send() cleared it to: nothing sets it.
 }
 
 // Heights on flight.cc's scale, 1,000 ft to 0x0200; the ground is at 0.
@@ -557,10 +557,7 @@ static uint8_t _opponent_attack;
 // floor, and while the player is on the ground ~1 km off, before it turns
 // for another run (_opponent_strafe()).
 static uint8_t _opponent_pullup;
-static uint8_t _opponent_hits[kOpponentMax];
-// Whole steps left of the gun's cycle, 0 when it is ready for a burst; and
-// bit i: slot i fires a round this step (opponent_fires()).
-static uint8_t _opponent_gun[kOpponentMax];
+// Bit i: slot i fires a round this step (opponent_fires()).
 static uint8_t _opponent_firing;
 // An 8-bit xorshift, never 0 once opponent_reset() has run: the rear
 // gunners' scatter, and the player's damage (damage.cc).
@@ -569,30 +566,46 @@ static uint8_t _opponent_lfsr;
 // the frames it has left.
 static uint8_t _opponent_smoke;
 static uint8_t _opponent_smoke_t;
-// The waypoint it is flying to.
-static uint8_t _opponent_next[kOpponentMax];
+// What a pair starts from at 0, together, so that _opponent_send() clears it
+// in one loop rather than a store an array.
+static struct {
+  // The heading: the front, a unit vector in 8.8. Always level, so z is 0,
+  // the left is (-y, x, 0) and the up is the world's.
+  vec3_t head[kOpponentMax];
+  // The waypoint it is flying to.
+  uint8_t next[kOpponentMax];
+  // Which way it turned on the last step: +1 left, -1 right, 0 straight. And
+  // the bank drawn: the same, once a turn has lasted two steps, so that the
+  // one-step corrections on a leg do not flick the wings.
+  int8_t turn[kOpponentMax];
+  int8_t bank[kOpponentMax];
+  // The climb level, -3 to 3: below 0 a descent.
+  int8_t climb[kOpponentMax];
+  // The climb level drawn: the climb, once it has lasted two whole steps, as
+  // the bank holds a turn, so that a one-step correction does not flick the
+  // nose. Held, not levelled, in between.
+  int8_t pitch[kOpponentMax];
+  uint8_t hits[kOpponentMax];
+  // Whole steps left of the gun's cycle, 0 when it is ready for a burst.
+  uint8_t gun[kOpponentMax];
+} _opponent_fresh;
+#define _opponent_head (_opponent_fresh.head)
+#define _opponent_next (_opponent_fresh.next)
+#define _opponent_turn (_opponent_fresh.turn)
+#define _opponent_bank (_opponent_fresh.bank)
+#define _opponent_climb (_opponent_fresh.climb)
+#define _opponent_pitch (_opponent_fresh.pitch)
+#define _opponent_hits (_opponent_fresh.hits)
+#define _opponent_gun (_opponent_fresh.gun)
+static_assert(sizeof(_opponent_fresh) < 256, "_opponent_send() clears it by a byte count");
 // Position in flight_eye_*'s 24.8 half metres: x, y, then z, packed for
 // _opponent_pos() and _opponent_move().
 static int32_t _opponent_xyz[3 * kOpponentMax];
 #define _opponent_x (_opponent_xyz)
 #define _opponent_y (_opponent_xyz + kOpponentMax)
 #define _opponent_z (_opponent_xyz + 2 * kOpponentMax)
-// The heading: the front, a unit vector in 8.8. Always level, so z is 0, the
-// left is (-y, x, 0) and the up is the world's.
-static vec3_t _opponent_head[kOpponentMax];
-// Which way it turned on the last step: +1 left, -1 right, 0 straight. And
-// the bank drawn: the same, once a turn has lasted two steps, so that the
-// one-step corrections on a leg do not flick the wings.
-static int8_t _opponent_turn[kOpponentMax];
-static int8_t _opponent_bank[kOpponentMax];
-// The airspeed, which the path's speed is now only the default of, and the
-// climb level, -3 to 3: below 0 a descent.
+// The airspeed, which the path's speed is now only the default of.
 __striped static int16_t _opponent_speed[kOpponentMax];
-static int8_t _opponent_climb[kOpponentMax];
-// The climb level drawn: the climb, once it has lasted two whole steps, as
-// the bank holds a turn, so that a one-step correction does not flick the
-// nose. Held, not levelled, in between.
-static int8_t _opponent_pitch[kOpponentMax];
 // Counts model steps, for the turns at a larger flight_step_shift.
 static uint8_t _opponent_substep;
 static planes_state_t _opponent_planes[kOpponentMax];
@@ -798,24 +811,21 @@ static __noinline void _opponent_send(void) {
     ++q;
   }
   _opponent_pair = q;
+  uint8_t k = (uint8_t)sizeof(_opponent_fresh);
+  do {
+    ((uint8_t *)&_opponent_fresh)[--k] = 0;
+  } while (k != 0);
   for (uint8_t i = 0; i < kOpponentMax; ++i, ++p) {
     _opponent_on[i] = p->kind != kOpponentNone;
     if ((p->kind & kOpponentBehaviourMask) == kOpponentHunt) {
       _opponent_attack |= _opponent_bit(i);
     }
     _opponent_path[i] = p;
-    _opponent_next[i] = 0;
     _opponent_set_pos(i, p->start_x);
     _opponent_set_pos((uint8_t)(i + kOpponentMax), p->start_y);
     _opponent_set_pos((uint8_t)(i + 2 * kOpponentMax), p->z);
     _opponent_start_head(p, &_opponent_head[i]);
-    _opponent_turn[i] = 0;
-    _opponent_bank[i] = 0;
     _opponent_speed[i] = q->speed;
-    _opponent_climb[i] = 0;
-    _opponent_pitch[i] = 0;
-    _opponent_hits[i] = 0;
-    _opponent_gun[i] = 0;
     _opponent_color[i] = (p->kind & kOpponentBomber) ? kColorBrown : kColorOpponentNear;
   }
   _opponent_track();
