@@ -88,10 +88,11 @@ static bool _gun_armed;
 uint8_t gun_player_hits;
 // Counted down a digit at a time, which is what the panel draws: no binary to
 // decimal step between the two. Ten a round, so the units digit stays 0 and
-// only the digits above it count. 50 rounds is about 20 s of fire: one every
-// kGunInterval model steps comes to 2.5-2.7 a second on the emulator.
-// And after it, 09's: none (gun_rearm()).
-static const uint8_t kGunAmmoStart[2 * kGunAmmoDigits] = {5, 0, 0, 0, 0, 0};
+// only the digits above it count. 60 rounds, 600 on the counter (50 until
+// 2026-11-07), is about 23 s of fire: one every kGunInterval model steps
+// comes to 2.5-2.7 a second on the emulator. And after it, 09's: none
+// (gun_rearm()).
+static const uint8_t kGunAmmoStart[2 * kGunAmmoDigits] = {6, 0, 0, 0, 0, 0};
 static const uint8_t kGunAmmoTens = kGunAmmoDigits - 2;
 uint8_t gun_ammo[kGunAmmoDigits];
 bool gun_ammo_shown;

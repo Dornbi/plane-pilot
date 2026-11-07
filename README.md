@@ -113,6 +113,7 @@ See [docs/development.md](docs/development.md) for more details.
 - fpilot says OPPONENT SHOT DOWN, not TARGET DESTROYED, when an enemy
   aircraft goes down.
 - fpilot's N selects only the home base once no enemy aircraft are left.
+- fpilot starts with 600 ammo, 60 rounds, not 500.
 
 ### 2026-11-06
 

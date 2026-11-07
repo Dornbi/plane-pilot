@@ -317,9 +317,10 @@ static void test_tally(void) {
     step(true);
     _target[0][0] += vec_fastmul8p8(256, 1500 << 1);
   }
+  const int full = kGunAmmoStart[0] * 10 + kGunAmmoStart[1];
   const int left = gun_ammo[0] * 10 + gun_ammo[1];
-  CHECK(tally(kGunTallyFired) == 50 - left, "tally %d fired, ammo says %d", tally(kGunTallyFired),
-        50 - left);
+  CHECK(tally(kGunTallyFired) == full - left, "tally %d fired, ammo says %d",
+        tally(kGunTallyFired), full - left);
   CHECK(tally(kGunTallyHits) == _strikes[0] && _strikes[0] > 0, "tally %d hits, %d strikes",
         tally(kGunTallyHits), _strikes[0]);
   // Every round fired after a rearm counts on top of the ones before.
