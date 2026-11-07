@@ -85,6 +85,11 @@ uint8_t opponent_random(void);
 // is up.
 bool opponent_smoke(int32_t *p, int16_t *h);
 
+// Aircraft the player has shot down since opponent_reset(), for the debrief
+// (debrief.h): those the guns downed, not those that flew into the ground or
+// into the player.
+extern uint8_t opponent_shot_down;
+
 #pragma compile("opponent.cc")
 
 #else

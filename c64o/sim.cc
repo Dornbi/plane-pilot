@@ -6,6 +6,7 @@
 #include "box.h"
 #include "chardefs.h"
 #include "damage.h"
+#include "debrief.h"
 #include "flight.h"
 #include "gfx.h"
 #include "help.h"
@@ -222,7 +223,10 @@ void sim_run(uint8_t selected_mission) {
     }
 #endif
 
+    // fpilot goes by its debrief, which waits for Q again (debrief.h);
+    // ppilot's is nothing, and Q goes straight back to the menu.
     if (key_pressed(KSCAN_Q)) {
+      debrief_run();
       keys_wait_release(KSCAN_Q);
       return;
     }

@@ -302,6 +302,48 @@ static void test_hits(void) {
 // A slot waiting to be fired upon: a round past it at 60 m leaves it calm,
 // one at 30 m provokes it, once, and neither is a hit. A slot that is not
 // calm is never provoked.
+// A tally's value in tens of rounds: its digits but the last, which stays 0.
+static int tally(uint8_t first) {
+  int v = 0;
+  for (uint8_t d = 0; d + 1 < kGunTallyDigits; ++d) v = v * 10 + gun_tally[first + d];
+  return gun_tally[first + kGunTallyDigits - 1] == 0 ? v : -1;
+}
+
+static void test_tally(void) {
+  printf("  the debrief's tallies count rounds fired and on target, with carries\n");
+  start(1500);
+  place_target(0, 250, 0, -1.5);
+  for (int n = 0; n < 40; ++n) {
+    step(true);
+    _target[0][0] += vec_fastmul8p8(256, 1500 << 1);
+  }
+  const int left = gun_ammo[0] * 10 + gun_ammo[1];
+  CHECK(tally(kGunTallyFired) == 50 - left, "tally %d fired, ammo says %d", tally(kGunTallyFired),
+        50 - left);
+  CHECK(tally(kGunTallyHits) == _strikes[0] && _strikes[0] > 0, "tally %d hits, %d strikes",
+        tally(kGunTallyHits), _strikes[0]);
+  // Every round fired after a rearm counts on top of the ones before.
+  const int before = tally(kGunTallyFired);
+  gun_rearm();
+  for (int n = 0; n < 4; ++n) step(true);
+  CHECK(tally(kGunTallyFired) > before, "fired %d after the rearm, %d before",
+        tally(kGunTallyFired), before);
+  // Carries, and the first tally's top one stopping rather than running off.
+  memset(gun_tally, 0, sizeof(gun_tally));
+  gun_tally[kGunTallyFired + 2] = 9;
+  gun_tally[kGunTallyFired + 3] = 9;
+  _gun_count(kGunTallyFired + kGunTallyDigits - 2);
+  CHECK(tally(kGunTallyFired) == 100, "99 + 1 is %d", tally(kGunTallyFired));
+  memset(gun_tally, 9, 4);
+  _gun_count(kGunTallyFired + kGunTallyDigits - 2);
+  CHECK(tally(kGunTallyFired) == 0 && tally(kGunTallyHits) == 0, "9999 + 1 is %d, hits %d",
+        tally(kGunTallyFired), tally(kGunTallyHits));
+  gun_reset();
+  bool zero = true;
+  for (uint8_t i = 0; i < sizeof(gun_tally); ++i) zero = zero && gun_tally[i] == 0;
+  CHECK(zero, "gun_reset() left a tally");
+}
+
 static void test_near_miss(void) {
   printf("  a round within 40 m provokes a calm slot, one at 60 m does not\n");
   static const struct {
@@ -801,6 +843,7 @@ int main() {
   test_life();
   test_world_frame();
   test_hits();
+  test_tally();
   test_near_miss();
   test_collide();
   test_wrap();

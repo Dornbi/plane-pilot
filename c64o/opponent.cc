@@ -540,6 +540,7 @@ static uint8_t _opponent_wave;
 static bool _opponent_last;
 static uint8_t _opponent_need;
 static uint8_t _opponent_kills;
+uint8_t opponent_shot_down;
 //
 // And above those, in the same byte rather than two more: bit i <<
 // kOpponentFalling, slot i has been shot down and is falling, in a steep
@@ -738,6 +739,7 @@ void opponent_strike(uint8_t i) {
       _opponent_down |= (uint8_t)(bit << kOpponentSpin);
     }
     _opponent_firing &= (uint8_t)~bit;
+    ++opponent_shot_down;
     msg_show("TARGET DESTROYED");
   }
 }
@@ -839,6 +841,7 @@ void opponent_reset(uint8_t mission) {
   _opponent_smoke = kOpponentNoSmoke;
   _opponent_substep = 0;
   _opponent_kills = 0;
+  opponent_shot_down = 0;
   // Past every earlier mission's waves to its own first.
   uint8_t w = 0;
   while (mission != 0) {

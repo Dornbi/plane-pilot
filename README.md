@@ -97,7 +97,7 @@ To fly the plane you can use the following keys:
 | `V`             | Volume: full / low / off (any screen) |
 | `D`             | Toggle debug view                     |
 | `H`             | Show the help screen                  |
-| `Q`             | Quit to the main menu                 |
+| `Q`             | Quit to menu (fpilot: debrief first)  |
 
 The help screen (`H`) is also available from the main menu.
 

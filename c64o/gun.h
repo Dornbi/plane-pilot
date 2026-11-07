@@ -57,6 +57,19 @@ extern uint8_t gun_ammo[kGunAmmoDigits];
 // panel bitmap under the counter has been redrawn (gfx_invalidate_panel_bitmap).
 extern bool gun_ammo_shown;
 
+// The attempt's tallies for the debrief (debrief.h), as decimal digits like
+// gun_ammo, most significant first, kGunTallyDigits a tally: the player's
+// rounds fired, reloads included, from kGunTallyFired; those that hit an
+// opponent, from kGunTallyHits; and from kGunTallyDown the aircraft shot down,
+// which debrief.cc fills in from opponent_shot_down. The rounds are counted
+// in tens like gun_ammo, so their last digit stays 0. gun_reset() zeroes them.
+static const uint8_t kGunTallyDigits = 5;
+static const uint8_t kGunTallyFired = 0;
+static const uint8_t kGunTallyHits = kGunTallyDigits;
+static const uint8_t kGunTallyDown = 2 * kGunTallyDigits;
+static const uint8_t kGunTallies = 3;
+extern uint8_t gun_tally[kGunTallies * kGunTallyDigits];
+
 #pragma compile("gun.cc")
 
 #else

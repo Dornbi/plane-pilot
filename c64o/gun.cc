@@ -95,6 +95,7 @@ static const uint8_t kGunAmmoStart[2 * kGunAmmoDigits] = {5, 0, 0, 0, 0, 0};
 static const uint8_t kGunAmmoTens = kGunAmmoDigits - 2;
 uint8_t gun_ammo[kGunAmmoDigits];
 bool gun_ammo_shown;
+uint8_t gun_tally[kGunTallies * kGunTallyDigits];
 #pragma bss(tscratch)
 static int32_t _gun_p[3];
 // What a round is being tested against, relative to the eye like a round;
@@ -141,6 +142,9 @@ void gun_reset(void) {
   _gun_puff_t = 0;
   _gun_armed = false;
   gun_player_hits = 0;
+  for (uint8_t i = 0; i < sizeof(gun_tally); ++i) {
+    gun_tally[i] = 0;
+  }
   damage_reset();
   gun_rearm();
   gun_ammo_shown = false;
@@ -225,6 +229,18 @@ static uint8_t _gun_slot(bool enemy) {
   return slot;
 }
 
+// Adds a round, ten, to the tally whose tens digit is gun_tally[i]. A carry
+// out of a tally's top digit runs into the tally before it, and out of the
+// first one stops: at ten thousand rounds of them, which no flight fires.
+static __noinline void _gun_count(uint8_t i) {
+  do {
+    if (++gun_tally[i] != 10) {
+      return;
+    }
+    gun_tally[i] = 0;
+  } while (i-- != 0);
+}
+
 // Takes a round off gun_ammo, or returns false if there are none left: ten a
 // round, so the tens digit goes down one, borrowing from the hundreds.
 static_assert(kGunAmmoDigits == 3 && kGunAmmoTens == 1,
@@ -240,6 +256,7 @@ static bool _gun_take_round(void) {
     --gun_ammo[1];
   }
   gun_ammo_shown = false;
+  _gun_count(kGunTallyFired + kGunTallyDigits - 2);
   return true;
 }
 
@@ -368,6 +385,7 @@ static void _gun_hit_opponents(void) {
     for (uint8_t r = 0; r < kRoundMax; ++r) {
       if (_gun_hits(r, true, kRoundHit)) {
         _round_age[r] = 0;
+        _gun_count(kGunTallyHits + kGunTallyDigits - 2);
         opponent_strike(i);
       } else if (calm && _gun_hits(r, true, kRoundNear)) {
         opponent_provoke(i);
