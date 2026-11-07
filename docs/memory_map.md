@@ -271,8 +271,8 @@ until the linker happens to move a variable into the window:
   running, so the picture was static, the controls dead, and the engine still
   audible.
 
-That loop is gone — `sim.cc` takes exactly one step per rendered frame now
-([flight.md](flight.md) §8) — so this particular symptom is no longer
+That loop is gone — `sim.cc` takes exactly one step per rendered frame now,
+or a fixed 2 or 4 under time compression ([flight.md](flight.md) §8) — so this particular symptom is no longer
 reachable. The hazard it came from is, which is the point of the check below.
 
 Because it depends only on where one variable lands, unrelated changes to bss2

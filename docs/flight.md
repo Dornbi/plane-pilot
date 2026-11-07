@@ -107,8 +107,8 @@ produced the alternative and the measurements either side.
     metres: a world unit (`>> 16`) is 128 m ([map.md](map.md) §4, "The scale").
   - **What the airspeed is in the world.** Each step moves the aircraft
     `flight_speed << 1` of the position's 1/256ths, so 256 of airspeed is 1 m
-    a step. There is one step per rendered frame, ~6-8 a second on a stock
-    C64, so at 7: the clean stall, 1024, is ~100 km/h; half throttle's 1476
+    a step. There is one step per rendered frame (two or four under time
+    compression, T: §8), ~6-8 a second on a stock C64, so at 7: the clean stall, 1024, is ~100 km/h; half throttle's 1476
     ~145; full throttle's ~2430 ~240; and `kMaxSpeed`, 3840, ~380 in a dive.
   - Velocities ($V_{\text{speed}}, V_{\text{vspeed}}$), angles, and scalars: 8.8 fixed-point (`int16_t` / `uint16_t`).
   - Orientation matrix: 3x3 orthonormal direction cosine matrix (`mat3_t`), with periodic re-orthonormalization (`vec_orthonormalize`).
@@ -723,6 +723,24 @@ model this document describes.
 once per iteration of the simulation loop. The model carries no elapsed time, so
 the aircraft covers the same ground per frame however long the frame took, and
 airspeed through the world moves with what is on screen.
+
+**Time compression is the one exception, and the pilot asks for it.** T cycles
+2x, 4x and off, and while it is on `sim_run()` takes 2 or 4 whole steps between
+renders: `flight_advance()`, `opponent_step()` and `gun_step()` in turn, each
+time. So everything that happens in the world's time - the waypoints, the crash
+and touchdown checks, the opponents, every round and its hit tests - still runs
+once a step and nothing is stepped over. What runs in the player's time does
+not: the keys are read and `flight_input()` acts once a frame, so a held roll
+turns the picture no faster than it ever did, and the message timers, the hit
+flash, the panel and the sound stay once a frame. The sound reads one event set
+a frame and each step's publish replaces the last, so the loop ORs the frame's
+sets together and publishes that (sound.md, "Handoff without a race").
+
+The bounded cost above is given up on purpose there: a frame's model time is 2
+or 4 steps, so it renders more slowly, and the world goes by at a bit under
+2x or 4x. Every mission start and R set it back to off, and so do pausing and
+resuming: there is nothing left on screen to say compression is on once its
+message has gone, and coming back from a pause at 4x would be a trap.
 
 That is a deliberate choice and it was not always this one. Between
 `bfc81c2` (18 August 2026) and `9b31591` the timebase was the raster:

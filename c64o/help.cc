@@ -39,6 +39,7 @@ static const char kHelpText[] =
     "N\t" PRINT_TOGGLE "NAV POINT\n"
     "M\t" PRINT_TOGGLE "MAP VIEW\n"
     "P\tPAUSE / RESUME\n"
+    "T\tTIME COMPRESSION 2X/4X/OFF\n"
 #ifdef __ENABLE_SOUND__
     "V\tSOUND FULL / LOW / OFF\n"
 #endif

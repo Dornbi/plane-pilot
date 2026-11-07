@@ -505,6 +505,12 @@ Flipping `flight_gen` after the event bits acts as a release barrier: an
 observer that sees the new generation is guaranteed to see the complete event
 set. Two bytes of state, no locks, no disabled interrupts.
 
+Under time compression (T) `sim_run()` takes two or four steps a frame, and
+each one's publish replaces the last. So the loop ORs `flight_events` after each
+step and writes the union back once they are done: the frame's set, still
+behind the newest generation. Without that, a gear thump from the first step,
+or a hit from any but the last, would be lost.
+
 **Priority within a generation is touchdown > gear > flaps**, and lower-priority
 events are **dropped, not queued**. Queuing would surface a flap click 200 ms
 after the key press, which reads as a bug rather than as feedback.

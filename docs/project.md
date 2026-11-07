@@ -402,7 +402,7 @@ matrix from drifting. It is the dominant cost of a step — 58% of it — which 
 why `model_need_normalize` is set as sparingly as it is.
 
 The model has no elapsed time in it: `sim.cc` takes exactly one step per
-rendered frame, and the step *size* scales with what `cpu_probe()` measured the
+rendered frame (two or four while the pilot has time compression on, T), and the step *size* scales with what `cpu_probe()` measured the
 machine to be at boot. [flight.md](flight.md) §8 has the reasoning, the
 measurements, and what the raster timebase that preceded it cost.
 

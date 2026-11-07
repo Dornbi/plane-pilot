@@ -94,6 +94,7 @@ To fly the plane you can use the following keys:
 | `M`             | Toggle map view                       |
 | `R`             | Reset to starting state               |
 | `P`             | Pause / Resume flight                 |
+| `T`             | Time compression: 2x / 4x / off       |
 | `V`             | Volume: full / low / off (any screen) |
 | `D`             | Toggle debug view                     |
 | `H`             | Show the help screen                  |

@@ -29,10 +29,16 @@
 // per-frame render path, so the outliner's size-for-a-JSR trade is free here.
 #pragma optimize(push, outline)
 
+// Time compression (T): model steps per rendered frame, 1, 2 or 4. Every
+// start of a mission, R included, sets it back to 1, and so does pausing
+// (see the P handler in sim_run()).
+static uint8_t sim_time_steps;
+
 // The mission from its start, for entering the simulation and for R: the
 // message line, the aircraft, the opponents and the guns.
 static __noinline void _start_mission(uint8_t selected_mission) {
   msg_clear();
+  sim_time_steps = 1;
 #ifdef __ENABLE_COLOR_SCHEMES__
   // Before mem_init_mccm(), which puts the ground colours in $D022/$D023, and
   // with the horizon boxes' colour caches dropped: they hold the old sky.
@@ -114,6 +120,7 @@ static const uint8_t kToggleKeys[] = {
 #ifdef __ENABLE_SOUND__
     KSCAN_V,
 #endif
+    KSCAN_T,
 };
 static const uint8_t kToggleKeyCount = sizeof(kToggleKeys);
 
@@ -138,6 +145,9 @@ static const uint8_t kToggleKeyG = kToggleKeyF << 1;
 static const uint8_t kToggleKeyN = kToggleKeyG << 1;
 #ifdef __ENABLE_SOUND__
 static const uint8_t kToggleKeyV = kToggleKeyN << 1;
+static const uint8_t kToggleKeyT = kToggleKeyV << 1;
+#else
+static const uint8_t kToggleKeyT = kToggleKeyN << 1;
 #endif
 static_assert(sizeof(kToggleKeys) <= 8, "toggle mask is one byte");
 // F, G and N are adjacent bits and their inputs adjacent values, so one loop
@@ -175,6 +185,12 @@ static const held_key_t kHeldKeys[] = {
 };
 static const uint8_t kHeldKeyCount = sizeof(kHeldKeys) / sizeof(kHeldKeys[0]);
 
+// T's messages. The 2X one is patched to 4X in place, as flight.cc does its
+// navpoint number.
+static const char kTimeOffMsg[] = "TIME COMPRESSION OFF";
+static char sim_time_msg[] = "TIME COMPRESSION 2X";
+static const uint8_t kTimeMsgDigit = 17;
+
 void sim_run(uint8_t selected_mission) {
   _enter_simulation(selected_mission);
 
@@ -209,6 +225,13 @@ void sim_run(uint8_t selected_mission) {
 #endif
     if (toggle_edges & kToggleKeyP) {
       flight_paused = !flight_paused;
+      // Pausing and resuming both end time compression. The pilot who pauses
+      // is usually stopping to deal with something, and resuming at 4x with
+      // nothing on screen to say so - the message is long gone - would be a
+      // trap. It also makes T over the PAUSED banner harmless, which is why
+      // T needs no test of its own: the banner swallows its message, and the
+      // P that resumes undoes it.
+      sim_time_steps = 1;
       if (flight_paused) {
         msg_show("PAUSED", MSG_FOREVER, true);
       } else {
@@ -230,6 +253,21 @@ void sim_run(uint8_t selected_mission) {
       msg_show(sound_volume_label());
     }
 #endif
+
+    // Time compression: 2x, 4x, off, round again.
+    if (toggle_edges & kToggleKeyT) {
+      uint8_t steps = (uint8_t)(sim_time_steps << 1);
+      if (steps > 4) {
+        steps = 1;
+      }
+      sim_time_steps = steps;
+      if (steps == 1) {
+        msg_show(kTimeOffMsg);
+      } else {
+        sim_time_msg[kTimeMsgDigit] = (char)('0' + steps);
+        msg_show(sim_time_msg);
+      }
+    }
 
     // fpilot goes by its debrief, which waits for Q again (debrief.h);
     // ppilot's is nothing, and Q goes straight back to the menu.
@@ -276,18 +314,39 @@ void sim_run(uint8_t selected_mission) {
     }
 
     bm_model_start();
-    // Exactly one step per rendered frame, and never two. The model carries no
-    // elapsed time, so the aircraft covers the same ground per frame however
-    // long the frame took and airspeed through the world moves with what is on
-    // screen - about 13% between the runway and cruise on a stock C64
-    // (docs/framerate.md). That unevenness is accepted deliberately; what it
-    // buys is a model cost that is bounded by construction, so a heavy scene
-    // cannot also be the frame that owes the model two steps. docs/flight.md
-    // section 8 has the reasoning and the measurements on both sides of it.
-    flight_advance();
-    opponent_step();
+    // One step per rendered frame, and never two unless T asked for them. The
+    // model carries no elapsed time, so the aircraft covers the same ground
+    // per frame however long the frame took and airspeed through the world
+    // moves with what is on screen - about 13% between the runway and cruise
+    // on a stock C64 (docs/framerate.md). That unevenness is accepted
+    // deliberately; what it buys is a model cost that is bounded by
+    // construction, so a heavy scene cannot also be the frame that owes the
+    // model two steps. docs/flight.md section 8 has the reasoning and the
+    // measurements on both sides of it.
+    //
+    // Time compression is the exception the pilot chooses: 2 or 4 whole steps
+    // a frame, each the world's - the aircraft, the opponents and every round,
+    // so waypoints, crashes, landings and hits are all still tested on each
+    // step and nothing can be stepped over. The keys are not: the controls
+    // were read once above and act once a frame, so a held roll turns the
+    // aircraft as fast on screen as it always did. Nor is anything that runs
+    // in the player's time below - the message timers, the hit flash, the
+    // panel and the sound.
+    //
+    // The sound reads flight_events once a frame, and each step's publish
+    // replaces the last one's, so a gear thump or a hit from any but the last
+    // step would be lost. The frame's steps are ORed together for it instead.
     // Space fires (docs/projectiles.md); held, a round from each wing in turn.
-    gun_step(keys_pressed(KSCAN_SPACE));
+    const bool trigger = keys_pressed(KSCAN_SPACE);
+    uint8_t events = 0;
+    uint8_t steps = sim_time_steps;
+    do {
+      flight_advance();
+      opponent_step();
+      gun_step(trigger);
+      events |= flight_events;
+    } while (--steps != 0);
+    flight_events = events;
     if (flight_crashed()) {
       // A crash is the end of the flight, so its message stays up until R or
       // Q. Completing a mission is not: flight.cc announces it for a few
