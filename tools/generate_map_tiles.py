@@ -43,7 +43,9 @@ Output
                                      (the screen RAM low nibble), bit pair
                                      11's in the low (color RAM, which keeps
                                      only the low nibble of what is written)
-    kMapDigitMask[kMapDigitCount][8] overlay stencils for '1'..'4'
+    kMapDigitMask[kMapDigitCount][8] overlay stencils for '1'..'4'; fpilot's
+                                     build keeps '1' and '2' only, as its
+                                     missions have two navpoints (FPILOT_DIGITS)
 """
 
 import argparse
@@ -97,6 +99,10 @@ TILE_NAMES = [
     "CITY",
 ]
 DIGIT_NAMES = ["DIGIT_1", "DIGIT_2", "DIGIT_3", "DIGIT_4"]
+# Every fpilot mission has the same two navpoints, the targets and home
+# (flight.h's kMaxNavPoints), so a __FPILOT__ build compiles only the first
+# this many digits.
+FPILOT_DIGITS = 2
 
 # Compass letters, drawn in the black surround outside the map. Stencils like
 # the digits: the surround is solid 11 over black color RAM, so punching 01
@@ -284,7 +290,11 @@ def _write_header(path, tiles, digits, compass, pool_size):
             "#include <stdint.h>\n"
             "\n"
             f"static const uint8_t kMapTileCount = {len(tiles)};\n"
+            "#ifdef __FPILOT__\n"
+            f"static const uint8_t kMapDigitCount = {FPILOT_DIGITS};\n"
+            "#else\n"
             f"static const uint8_t kMapDigitCount = {len(digits)};\n"
+            "#endif\n"
             f"static const uint8_t kMapCompassCount = {len(compass)};\n"
             "\n"
             "// Group bases, so a WorldMapType becomes a tile index with\n"
@@ -311,8 +321,8 @@ def _write_header(path, tiles, digits, compass, pool_size):
             "// RAM as it is: color RAM keeps only the low nibble.\n"
             "extern const uint8_t kMapTileColors[kMapTileCount];\n"
             "\n"
-            "// Overlay stencils for navpoints 1..4. Each byte holds 11 in\n"
-            "// every ink pair; the draw is\n"
+            "// Overlay stencils for navpoints 1..4, 1..2 in fpilot. Each\n"
+            "// byte holds 11 in every ink pair; the draw is\n"
             "//   dst[r] = (dst[r] & ~mask[r]) | (mask[r] & 0x55)\n"
             "// which deposits 01 into the ink pairs and leaves the object\n"
             "// art in every other pair untouched.\n"
@@ -365,9 +375,11 @@ def _write_source(path, tiles, digits, compass, pool, starts):
         f.write("};\n\n")
 
         f.write("const uint8_t kMapDigitMask[kMapDigitCount][8] = {\n")
-        for name, mask in zip(DIGIT_NAMES, digits):
+        for i, (name, mask) in enumerate(zip(DIGIT_NAMES, digits)):
+            if i == FPILOT_DIGITS:
+                f.write("#ifndef __FPILOT__\n")
             f.write(f"    {{{_hex_row(mask)}}}, // {name}\n")
-        f.write("};\n\n")
+        f.write("#endif\n};\n\n")
 
         f.write("const uint8_t kMapCompassMask[kMapCompassCount][8] = {\n")
         for name, mask in zip(COMPASS_NAMES, compass):

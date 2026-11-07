@@ -457,7 +457,10 @@ Walking `kMissionWpBegin/End` against the `(0, 0)` skip rule:
 Four is the cap, and it became the declared limit rather than an observation.
 `flight.cc` used to size `flight_nav_point_x[6]`, `flight_nav_point_y[6]` and
 `flight_waypoint_nav[6]`; all three are `kMaxNavPoints = 4` now, 10 bytes
-saved.
+saved. These are ppilot's missions. Every fpilot mission has the same two
+navpoints, the targets and home, so fpilot builds with `kMaxNavPoints = 2`,
+and `generate_map_tiles.py` leaves its digit stencils at '1' and '2'
+(`FPILOT_DIGITS`; `kMapDigitCount` is 2 under `__FPILOT__`).
 
 Both index spaces stay in bounds: `flight_waypoint_nav` is indexed by
 waypoint-within-mission and `flight_nav_point_*` by navpoint, and the largest

@@ -203,8 +203,14 @@ extern uint8_t flight_nav_heading;
 // against the "skip a (0, 0) waypoint" rule, missions 06, 08 and 09 reach
 // four and nothing reaches five, so this is a declared limit rather than an
 // observation: flight_init_from_mission() clamps to it, and the map view
-// only has digit stencils for '1'..'4'.
+// only has digit stencils for '1'..'4'. fpilot's missions all have the same
+// two, the targets and home (flight_init_from_mission()), and its map keeps
+// only '1' and '2'.
+#ifdef __FPILOT__
+static const uint8_t kMaxNavPoints = 2;
+#else
 static const uint8_t kMaxNavPoints = 4;
+#endif
 
 // Navpoint positions in world coordinates, high byte = world unit. Read by
 // the map view to place the navpoint digits; flight_num_nav_points is how

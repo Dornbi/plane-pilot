@@ -7,7 +7,11 @@
 #include <stdint.h>
 
 static const uint8_t kMapTileCount = 18;
+#ifdef __FPILOT__
+static const uint8_t kMapDigitCount = 2;
+#else
 static const uint8_t kMapDigitCount = 4;
+#endif
 static const uint8_t kMapCompassCount = 4;
 
 // Group bases, so a WorldMapType becomes a tile index with
@@ -46,8 +50,8 @@ extern const uint8_t kMapTileStart[kMapTileCount];
 // RAM as it is: color RAM keeps only the low nibble.
 extern const uint8_t kMapTileColors[kMapTileCount];
 
-// Overlay stencils for navpoints 1..4. Each byte holds 11 in
-// every ink pair; the draw is
+// Overlay stencils for navpoints 1..4, 1..2 in fpilot. Each
+// byte holds 11 in every ink pair; the draw is
 //   dst[r] = (dst[r] & ~mask[r]) | (mask[r] & 0x55)
 // which deposits 01 into the ink pairs and leaves the object
 // art in every other pair untouched.
