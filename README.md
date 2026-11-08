@@ -108,51 +108,40 @@ See [docs/development.md](docs/development.md) for more details.
 
 ## Updates
 
-### 2026-11-07
+### 2026-11-08
 
-- fpilot says OPPONENT SHOT DOWN, not TARGET DESTROYED, when an enemy
-  aircraft goes down.
-- fpilot's N selects only the home base once no enemy aircraft are left.
-- fpilot starts with 600 ammo, 60 rounds, not 500.
+Fighter Pilot (`fpilot.prg`), new:
 
-### 2026-11-06
+- 10 combat missions.
+- Guns on `Space`: yellow tracers from the wings.
+- Enemy fighters and bombers, drawn as filled 3D aircraft. Up to two are in
+  the air at once, some missions send them in waves of pairs.
+- Fighters hunt the player with forward guns, break off before a collision
+  and strafe the player on the ground. Bombers have rear gunners that aim at
+  a player on their tail.
+- Damage model.
+- Sounds for the guns and for being hit.
+- Its own instrument panel with an ammo counter, and its own title aircraft.
+- `Q` in flight opens a debrief before the menu: goals met, the aircraft's
+  state, rounds fired and on target, and the aircraft shot down.
+- No debug view, which frees the RAM for all of the above.
 
-- fpilot's enemy aircraft take five hits to shoot down, not three.
-- 09, Unarmed escape: the two fighters come in from either side ahead, not
-  from just behind, where they hit the player at once.
+Plane Pilot (`ppilot.prg`):
 
-### 2026-11-05
+- Each mission has a colour scheme for the sky, ground, clouds and map view:
+  Earth, Desert, Dusk or Night.
 
-- ppilot and fpilot are back on the arcade flight model, which can fly a loop:
-  the angle-of-attack model's flight path could not get past the vertical
-  ([docs/flight_aoa.md](docs/flight_aoa.md) §8).
+Both games:
 
-### 2026-11-04
-
-- ppilot and fpilot both fly the angle-of-attack flight model (see the 2026-09-05
-  note below). The separate `ppilota.prg` is gone.
-
-### 2026-09-12
-
-- A fourth view, `4`: over the tail, 180 degrees from the nose.
-- The back view shows the vertical stabilizer: three sprites stretched to
-  double height, in front of the clouds and clear of the message row.
-
-### 2026-09-05
-
-Another binary, in which the flight model has an angle of attack:
-
-- In this version the aircraft now has two directions instead of one: where the nose points, and where it is actually going.
-- The angle between them drives lift, and everythin else follows from that.
-  — The stall is an angle rather than a speed,; turn rate depends on airspeed; induced drag is one term instead of three stand-ins; and the takeoff needs no rotation fudge, because rotating makes lift.
-- Level flight needs a little nose-up at every speed, less of it the faster you
-  go. Zero pitch is a gentle descent.
-- Pulling hard can stall the wing at any speed, not just a slow one.
-- A flare with speed in hand lands; holding it off until the wing stops flying
-  is a stall onto the runway.
-- Inverted flight needs a visibly nose-high attitude and flies nearer the
-  stall.
-- The glide is longer (7.3 : 1, was 6.1 : 1) and the climb is slower.
+- Time compression on `T`: 2x, 4x, off.
+- A fourth view, `4`, over the tail, with the vertical stabilizer standing in
+  the middle of it.
+- Landing and coming to a halt refuels.
+- Rearranged and redrawn instrument panels.
+- Bugfix: a race in the sprite double buffer made the clouds flicker.
+- Faster rendering and a lot of free RAM from many optimisation passes:
+  projection, polygon fill, clouds, the grid and the near clip, plus
+  smaller tables for music, maps, roll and boxes.
 
 ### 2026-08-30
 
