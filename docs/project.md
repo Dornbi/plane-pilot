@@ -290,7 +290,8 @@ outside the view cone, the other only rejects points behind the near plane
 (`x < 8`). Inside the cone both use the reciprocal table, about 480 cycles and
 within 2 of `trunc(256·y/x)`; outside it `vec_project_nocull()` falls back to
 two exact `vec_div8p8` calls, about 1,230. Only the grid loop inlines
-`vec_project()`; everything else shares the out-of-line `vec_project_once()`.
+projection (`vec_project_viewport()`); everything else shares the out-of-line
+`vec_project_once()`.
 
 `vec_frac16` and `vec_mulfrac` are the clipping pair, and they exist because
 8.8 is not enough for a clip parameter — see the clipping notes under

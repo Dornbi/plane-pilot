@@ -406,9 +406,27 @@ inline bool vec_project() {
   return true;
 }
 
+inline bool vec_project_viewport() {
+  if (vec_v.x <= 8) {
+    return false;
+  }
+
+  project_mul_a = _abs16(vec_v.y);
+  if ((uint16_t)project_mul_a > (uint16_t)vec_v.x) {
+    return false;
+  }
+  project_mul_b = _abs16(vec_v.z);
+  if ((uint16_t)project_mul_b > ((uint16_t)vec_v.x >> 2)) {
+    return false;
+  }
+
+  _vec_project_internal();
+  return true;
+}
+
 // One out-of-line copy for everything but the grid: the horizon and the sun in
 // world.cc, the cloud blobs, and vec_project_nocull. Only the grid points keep
-// vec_project() inline; each inlined copy is about 270 bytes.
+// projection inline; each inlined copy is about 270 bytes.
 __noinline bool vec_project_once() { return vec_project(); }
 
 // Restoring division, one iteration per quotient bit. The dividend is

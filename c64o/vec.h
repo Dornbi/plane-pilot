@@ -164,6 +164,9 @@ void vec_negate(vec3_t *v);
 // @result vec_sx, vec_sy: screen coordinates
 // Returns true on success, false on failure.
 bool vec_project();
+// Same projection, with tighter vertical frustum bound (|z| <= x/4) that
+// covers the 320x112 viewport and guarantees |vec_sy| <= 64.
+bool vec_project_viewport();
 // vec_project() out of line, for every caller but the per-point grid loop.
 bool vec_project_once();
 
