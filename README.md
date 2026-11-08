@@ -112,18 +112,12 @@ See [docs/development.md](docs/development.md) for more details.
 
 Fighter Pilot (`fpilot.prg`), new:
 
-- 10 combat missions.
-- Guns on `Space`: yellow tracers from the wings.
-- Enemy fighters and bombers, drawn as filled 3D aircraft. Up to two are in
-  the air at once, some missions send them in waves of pairs.
-- Fighters hunt the player with forward guns, break off before a collision
-  and strafe the player on the ground. Bombers have rear gunners that aim at
-  a player on their tail.
-- Damage model.
+- 10 combat missions, with guns and ammo.
+- Enemy fighters and bombers, drawn as filled 3D aircraft.
+- Opponent AI for fighters to hunt the players and bombers to shoot from the rear.
+- Player can have damage when being hit.
 - Sounds for the guns and for being hit.
-- Its own instrument panel with an ammo counter, and its own title aircraft.
-- `Q` in flight opens a debrief before the menu: goals met, the aircraft's
-  state, rounds fired and on target, and the aircraft shot down.
+- Debrief screen.
 - No debug view, which frees the RAM for all of the above.
 
 Plane Pilot (`ppilot.prg`):
@@ -134,14 +128,15 @@ Plane Pilot (`ppilot.prg`):
 Both games:
 
 - Time compression on `T`: 2x, 4x, off.
-- A fourth view, `4`, over the tail, with the vertical stabilizer standing in
-  the middle of it.
 - Landing and coming to a halt refuels.
 - Rearranged and redrawn instrument panels.
 - Bugfix: a race in the sprite double buffer made the clouds flicker.
-- Faster rendering and a lot of free RAM from many optimisation passes:
-  projection, polygon fill, clouds, the grid and the near clip, plus
-  smaller tables for music, maps, roll and boxes.
+- Faster rendering and a lot of free RAM from many optimisation passes.
+
+### 2026-09-12
+
+- A fourth view, `4`: over the tail, 180 degrees from the nose.
+- The back view shows the vertical stabilizer.
 
 ### 2026-08-30
 
