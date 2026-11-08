@@ -291,7 +291,8 @@ static bool _unused_vec_project(const vec3_t *v) {
 
 // Left to the outliner (-Oo) down to vec_transform3_inv(): nothing in the
 // render reaches these, and the flight model calls them once per model step.
-// Only vec_transform_inv() and vec_turn3_xy() below run per object or frame.
+// Only vec_dot(), vec_transform_inv() and vec_turn3_xy() below run per object
+// or frame.
 #pragma optimize(push, outline)
 
 // A loop over the three components rather than three copies of the test: 63
@@ -476,19 +477,17 @@ void vec_transform3_inv(const mat3_t *t, mat3_t *m) {
 
 #pragma optimize(pop)
 
+__noinline int16_t vec_dot(const vec3_t *a, const vec3_t *b) {
+  return vec_fastmul8p8(a->x, b->x) + vec_fastmul8p8(a->y, b->y) +
+         vec_fastmul8p8(a->z, b->z);
+}
+
 void vec_transform_inv(const mat3_t *mat, const vec3_t *u, vec3_t *res) {
-  const int16_t ux = u->x;
-  const int16_t uy = u->y;
-  const int16_t uz = u->z;
-  res->x = vec_fastmul8p8(mat->front.x, ux) +
-           vec_fastmul8p8(mat->front.y, uy) +
-           vec_fastmul8p8(mat->front.z, uz);
-  res->y = vec_fastmul8p8(mat->left.x, ux) +
-           vec_fastmul8p8(mat->left.y, uy) +
-           vec_fastmul8p8(mat->left.z, uz);
-  res->z = vec_fastmul8p8(mat->up.x, ux) +
-           vec_fastmul8p8(mat->up.y, uy) +
-           vec_fastmul8p8(mat->up.z, uz);
+  const int16_t rx = vec_dot(&mat->front, u);
+  const int16_t ry = vec_dot(&mat->left, u);
+  res->z = vec_dot(&mat->up, u);
+  res->x = rx;
+  res->y = ry;
 }
 
 // Both components come from the values the vector arrived with, which is what

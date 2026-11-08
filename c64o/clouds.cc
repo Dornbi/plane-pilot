@@ -163,10 +163,11 @@ void clouds_add_candidates(void) {
       delta.x = (int16_t)(off_x - kCloudCullU);
       delta.y = (int16_t)(off_y - kCloudCullU);
 
-      vec_transform_inv(&world_cam, &delta, &centre);
+      centre.x = vec_dot(&world_cam.front, &delta);
 
       // Behind the camera, or past the ladder's reach. vec_project() would
-      // reject the first anyway; testing it here skips the rung walk.
+      // reject the first anyway; testing it here skips the other two axes and
+      // the rung walk.
       if (centre.x <= 8 || centre.x > kCloudRungDepth[0]) {
         continue;
       }
@@ -183,10 +184,12 @@ void clouds_add_candidates(void) {
       // centre.x is in (8, kCloudRungDepth[0]] here, so both bounds are
       // positive and well inside _clouds_outside()'s range.
       const int16_t vert = (centre.x >> 2) + 128;
+      centre.z = vec_dot(&world_cam.up, &delta);
       if (_clouds_outside(centre.z, vert)) {
         continue;
       }
       const int16_t lat = (centre.x >> 1) + (vert >> 1) + 64;
+      centre.y = vec_dot(&world_cam.left, &delta);
       if (_clouds_outside(centre.y, lat)) {
         continue;
       }

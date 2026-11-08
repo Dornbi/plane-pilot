@@ -215,6 +215,8 @@ void vec_set_rotation_shift(uint8_t shift);
 // Column-major counterpart of vec_transform_inv. ppilot no longer calls it
 // (see vec_transform3), so it only ends up in vectest and the host tests.
 void vec_transform(const mat3_t *mat, const vec3_t *u, vec3_t *res);
+// 8.8 fixed-point dot product of a and b.
+int16_t vec_dot(const vec3_t *a, const vec3_t *b);
 // (Inverted) transforms u by vec_mat and stores the result in res.
 void vec_transform_inv(const mat3_t *mat, const vec3_t *u, vec3_t *res);
 
