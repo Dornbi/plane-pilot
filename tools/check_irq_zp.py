@@ -32,7 +32,7 @@ Usage:  check_irq_zp.py <program.asm> [<program.asm> ...]
 import re
 import sys
 
-# Functions installed with rirq_call() in gfx.cc, plus anything they call that
+# Functions installed with rirq_call() or _gfx_rirq_entry() in gfx.cc, plus anything they call that
 # the compiler did not inline. A handler that is renamed and not listed here
 # stops being checked, which is the one way this guard can rot -- keep it in
 # step with gfx_init_raster_irqs().

@@ -17,7 +17,7 @@
 //
 // The split exists for three reasons. oscar64 allocates @stack frames
 // statically by call graph, and the raster handlers are installed as function
-// pointers through rirq_call(), so they are invisible to that analysis - an
+// pointers (rirq_call(), _gfx_rirq_entry()), so they are invisible to that analysis - an
 // interrupt-side function needing a frame may be overlaid onto a live one and
 // corrupt it. Keeping all the work on the main line means only sound_blit()
 // has to be frame-free, and it is (no locals, no calls). Second, the frame

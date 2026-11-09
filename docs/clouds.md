@@ -462,8 +462,10 @@ the fix is the pop, not any clipping: an object whose top would land in the
 last 23 lines of the viewport is not drawn at all, and one that is drawn is
 drawn whole, down to raster 160 — two lines above the panel.
 The sprites-off handler is `_rirq_buf[0]` in `gfx.cc`, at `$FFC0` (mem.h's
-`irqcode` region, below the hardware vectors) with the other three: each is 14 bytes, the one write or call that `rirq_build(ic, 1)`
-lays out, not oscar64's 32-byte `RIRQCode`.
+`irqcode` region, below the hardware vectors) with the panel top's: each is 14 bytes, the one write or call that `rirq_build(ic, 1)`
+lays out, not oscar64's 32-byte `RIRQCode`. The panel's bottom and the terrain
+have no deadline and no `RIRQCode`: `_gfx_isr` calls them directly
+(`_gfx_rirq_entry()`).
 
 ### 1.9. Sprite 7 belongs to the vertical-speed needle
 

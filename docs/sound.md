@@ -38,7 +38,7 @@ constraint, not a space one.
 
 oscar64 allocates `@stack` frames **statically, by call graph**, overlaying
 frames it believes cannot be live at the same time. The raster handlers are
-installed as function pointers through `rirq_call()`, so they are invisible to
+installed as function pointers (`rirq_call()`, `_gfx_rirq_entry()`), so they are invisible to
 that analysis. Any interrupt-side function needing a frame may be overlaid onto
 `world_render_grid@stack` or `vec_transform3_inv@stack` and corrupt them when
 the interrupt fires mid-render — a fault that appears once every few thousand

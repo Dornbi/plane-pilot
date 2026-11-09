@@ -320,10 +320,12 @@ static void _gfx_rirq_init(void) {
 
 #pragma optimize(pop)
 
-// Each handler is one write or one call: rirq_build(ic, 1) writes code[0..12],
+// The two handlers with a deadline, sprite DMA off and the panel's top, are
+// each one write or one call: rirq_build(ic, 1) writes code[0..12],
 // its RTS at 12, and rirq_write()/rirq_call() for write 0 touch only 1 and
 // 9-11 (c64/rasterirq.c). So 14 bytes each, not the library's RIRQCode,
-// whose 32 are sized for five writes; cast to it at the calls.
+// whose 32 are sized for five writes; cast to it at the calls. The other two
+// have no RIRQCode at all, see kGfxRasterRows.
 static const uint8_t kGfxRirqCode1 = 13;
 typedef struct {
   uint8_t size;
@@ -334,24 +336,48 @@ static_assert(RIRQ_ADDR_0 + 2 <= kGfxRirqCode1 && RIRQ_DATA_0 < kGfxRirqCode1,
               "write 0 fits a one-write handler");
 #endif
 
-// In mem.h's irqcode region at $FFC0, which it fills: built in full by
+// In mem.h's irqcode region at $FFC0: built in full by
 // gfx_init_raster_irqs() before the interrupts start, so it needs no clear.
 #pragma bss(irqcode)
-static gfx_rirq1_t _rirq_buf[4];
+static gfx_rirq1_t _rirq_buf[2];
 #pragma bss(bss)
 
 #ifdef __OSCAR64__
 // The split's four raster lines, top to bottom: sprite DMA off, the panel's
-// top and bottom, and the terrain. Slot i is _rirq_buf[i].
+// top and bottom, and the terrain.
+//
+// _gfx_isr arms a slot's interrupt on the line above its row, and a RIRQCode
+// then spins on $d012 until the line below its row starts: that spin is what
+// takes the entry's jitter out, and the first two slots, _rirq_buf[0] and
+// [1], have a deadline that needs it. The panel's bottom and the terrain have
+// none, so _gfx_isr calls their handlers directly, with no RIRQCode and no
+// spin, about 70 cycles less every time one runs. Their rows are lower to
+// make up for it, so that neither starts on a line it could show on:
+//
+// - The panel's bottom, one lower. On a stock C64 the entry takes just over a
+//   raster line, so the handler starts on the line it always did, the one
+//   below kViewportEndYPixels + 24, within a few cycles of where the spin let
+//   it go. On a SuperCPU the entry is over at once and it starts a line
+//   earlier, which shows nothing: the needles it places are 15 lines further
+//   down, and the band above has sprites 1-7 parked in the border.
+// - The terrain, two lower, because it rewrites $d011, $d018 and $d021 and so
+//   has to stay off the panel's last line on both machines: a SuperCPU starts
+//   it on the first border line, as before, and a stock C64 a line later.
 static const uint8_t kGfxRasterRows[4] = {
     kRasterScreenYStart + kViewportEndYPixels - 1 - kSpritesOffLead,
     kRasterScreenYStart + kViewportEndYPixels - 1,
-    kRasterScreenYStart + kViewportEndYPixels + 24,
-    kRasterScreenYStart + kScreenHeightPixels};
+    kRasterScreenYStart + kViewportEndYPixels + 24 + 1,
+    kRasterScreenYStart + kScreenHeightPixels + 2};
 static_assert(kSpritesOffLead > 0 &&
                   kViewportEndYPixels + 24 < kScreenHeightPixels &&
-                  kRasterScreenYStart + kScreenHeightPixels < 0xff,
+                  kRasterScreenYStart + kScreenHeightPixels + 2 < 0xff,
               "the slots' rows must ascend below 0xff");
+
+// What _gfx_isr calls for slot i.
+static inline void _gfx_rirq_entry(uint8_t i, const void *entry) {
+  rasterIRQLow[i] = (uint8_t)(uint16_t)entry;
+  rasterIRQHigh[i] = (uint8_t)((uint16_t)entry >> 8);
+}
 
 // rirq_set() for each slot and then rirq_sort(), written as the tables they
 // leave behind. The rows already ascend with the slot, so the sort's order is
@@ -359,15 +385,20 @@ static_assert(kSpritesOffLead > 0 &&
 // by 0xff. That is all _gfx_isr reads, together with each slot's handler
 // address; the library's rasterIRQRows and the sort itself (118 B) drop out.
 // The sort's write of $d012 is left out too: rirq_start() writes it next.
+//
+// The addresses are four spelt-out stores: read in the loop from a table of
+// pointers, oscar64 indexed every table with the pointer table's byte offset.
 static void _gfx_rirq_tables(void) {
-  const uint8_t *code = _rirq_buf[0].code;
-  for (uint8_t i = 0; i < 4; ++i) {
+  uint8_t i = 4;
+  do {
+    --i;
     rasterIRQIndex[i + 1] = i;
     rasterIRQNext[i] = kGfxRasterRows[i];
-    rasterIRQLow[i] = (uint8_t)(uint16_t)code;
-    rasterIRQHigh[i] = (uint8_t)((uint16_t)code >> 8);
-    code += sizeof(gfx_rirq1_t);
-  }
+  } while (i != 0);
+  _gfx_rirq_entry(0, _rirq_buf[0].code);
+  _gfx_rirq_entry(1, _rirq_buf[1].code);
+  _gfx_rirq_entry(2, (const void *)_switch_to_panel_bottom);
+  _gfx_rirq_entry(3, (const void *)_gfx_switch_to_terrain);
   rasterIRQNext[4] = 0xff;
   nextIRQ = 0;
 }
@@ -405,8 +436,6 @@ void gfx_init_raster_irqs(void) {
   // flickers as you fly. See mem.h and docs/clouds.md §1.8.
   RIRQCode *sprites_off = (RIRQCode *)&_rirq_buf[0];
   RIRQCode *panel_top = (RIRQCode *)&_rirq_buf[1];
-  RIRQCode *panel_bottom = (RIRQCode *)&_rirq_buf[2];
-  RIRQCode *terrain = (RIRQCode *)&_rirq_buf[3];
   rirq_build(sprites_off, 1);
   rirq_write(sprites_off, 0, (void *)0xD015, 0);
 
@@ -417,10 +446,8 @@ void gfx_init_raster_irqs(void) {
   rirq_call(panel_top, 0,
             cpu_step_shift ? (void *)_gfx_switch_to_panel_top_fast
                            : (void *)_gfx_switch_to_panel_top);
-  rirq_build(panel_bottom, 1);
-  rirq_call(panel_bottom, 0, (void *)_switch_to_panel_bottom);
-  rirq_build(terrain, 1);
-  rirq_call(terrain, 0, (void *)_gfx_switch_to_terrain);
+  // The panel's bottom and the terrain are called straight from _gfx_isr
+  // (kGfxRasterRows).
   _gfx_rirq_tables();
   rirq_start();
 }
