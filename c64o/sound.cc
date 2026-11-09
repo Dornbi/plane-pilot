@@ -11,6 +11,7 @@
 uint8_t sound_shadow[kSoundRegCount];
 uint8_t sound_gen;
 uint8_t sound_gen_seen;
+volatile uint8_t sound_dirty;
 
 // Not reset by sound_init(): see the comment in sound.h. This is the only
 // piece of driver state that outlives a flight.
@@ -874,6 +875,9 @@ void sound_update(void) {
                                       ? sound_volume
                                       : kSoundVolumeDefault]
                   : 0);
+
+  // The shadow is whole again: the next sound_blit() takes it (sound.h).
+  sound_mark_dirty();
 }
 
 #endif // __ENABLE_SOUND__

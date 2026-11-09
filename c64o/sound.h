@@ -12,7 +12,8 @@
 //   sound_update()  runs on the main line, once per frame (~10 Hz), and its
 //                   only output is sound_shadow[].
 //   sound_blit()    runs from _switch_to_terrain at raster 250 and copies
-//                   sound_shadow[] to $D400.
+//                   sound_shadow[] to $D400, once after each
+//                   sound_update(): see sound_dirty below.
 //
 // The split exists for three reasons. oscar64 allocates @stack frames
 // statically by call graph, and the raster handlers are installed as function
@@ -93,6 +94,26 @@ extern uint8_t sound_shadow[kSoundRegCount];
 // either side.
 extern uint8_t sound_gen;
 extern uint8_t sound_gen_seen;
+
+// Set when the shadow has something the chip has not been given, and cleared
+// by sound_blit() as it copies it. The shadow only changes once a frame, in
+// sound_update(), and a frame is six to ten of sound_blit()'s ticks, so the
+// blit used to store the same bytes again on every tick but one.
+//
+// sound_update() sets it after its last store, so on its own tick the blit
+// waits for a finished register set and the chip sees it at the next one,
+// 20 ms later - which is when the every-tick blit first delivered the whole
+// of it too. A blit can still land inside sound_update(), if no tick has
+// fallen since the last one finished (a SuperCPU can be that fast): it then
+// copies a torn set exactly as before, and sound_update() sets the flag again
+// behind it. gfx_init_raster_irqs() sets it too, through sound_mark_dirty(),
+// so that the first tick after the interrupts come back pushes the shadow
+// sound_silence() zeroed, as it always did.
+//
+// volatile: sound_update()'s store must stay behind the shadow's, which are
+// volatile stores themselves (_sound_poke()). The main line only ever sets it
+// and the interrupt only ever clears it, each with one store.
+extern volatile uint8_t sound_dirty;
 
 #ifndef __OSCAR64__
 // Test-only observer, compiled out of the C64 build entirely.
@@ -178,34 +199,49 @@ void sound_init(void);
 void sound_update(void);
 void sound_silence(void);
 
-// The registers sound_update() never moves off zero: V2 PwLo/PwHi, V3 PwLo
-// and the three filter registers. The chip already holds zero there in
-// flight - sound_init()'s sound_silence() writes it before the raster IRQs
-// start (music_stop() has cleared music_playing by then), and in flight only
-// sound_silence() writes them again, with zeros - so the blit skips them.
-inline bool sound_reg_blitted(uint8_t i) {
-  return i != kSoundRegV2 + kSoundVoicePwLo &&
-         i != kSoundRegV2 + kSoundVoicePwHi &&
-         i != kSoundRegV3 + kSoundVoicePwLo && i != kSoundRegCutoffLo &&
-         i != kSoundRegCutoffHi && i != kSoundRegResFilt;
-}
+// Has the next sound_blit() copy the shadow. See sound_dirty above.
+inline void sound_mark_dirty(void) { sound_dirty = 1; }
 
+// The registers of one voice, and so the passes of sound_blit()'s loop.
+static const uint8_t kSoundVoiceRegs = 7;
+
+// Copies the shadow to the chip, but only when sound_dirty says the main line
+// has rewritten it: on the six or seven ticks out of every seven or eight in
+// which it has not, the handler is over after one load and a branch, where it
+// used to store every register again with the value the chip already held.
+//
+// One pass per register of a voice, all three voices in it, and counted down:
+// the handler has no cycles to count at raster 250 (gfx.cc), and it runs once
+// a frame, so the loop is 85 B shorter than the flat store sequence for 80
+// cycles a frame. Down, because oscar64 dropped the index from the ascending
+// form (see _sound_write_through() in sound.cc) - and it also puts each
+// voice's envelope on the chip ahead of the control register that latches it,
+// the order sound_update() writes the shadow in.
+//
+// The three filter registers are not stored. sound_update() never moves them
+// off zero, and the chip already holds zero there in flight - sound_init()'s
+// sound_silence() writes it before the raster IRQs start (music_stop() has
+// cleared music_playing by then), and in flight only sound_silence() writes
+// them again, with zeros.
 inline void sound_blit(void) {
+  if (!sound_dirty) {
+    return;
+  }
+  sound_dirty = 0;
+
   if (sound_gen != sound_gen_seen) {
     sound_gen_seen = sound_gen;
     sid.voices[2].ctrl = sound_shadow[kSoundRegV3Ctrl] & ~SID_CTRL_GATE;
   }
 
-  // Unrolled, so sound_reg_blitted() folds away and only the 19 live
-  // registers are stored.
-#ifdef __OSCAR64__
-#pragma unroll(full)
-#endif
-  for (uint8_t i = 0; i < kSoundRegCount; ++i) {
-    if (sound_reg_blitted(i)) {
-      SID_REGS[i] = sound_shadow[i];
-    }
-  }
+  uint8_t i = kSoundVoiceRegs;
+  do {
+    --i;
+    SID_REGS[kSoundRegV1 + i] = sound_shadow[kSoundRegV1 + i];
+    SID_REGS[kSoundRegV2 + i] = sound_shadow[kSoundRegV2 + i];
+    SID_REGS[kSoundRegV3 + i] = sound_shadow[kSoundRegV3 + i];
+  } while (i != 0);
+  SID_REGS[kSoundRegModeVol] = sound_shadow[kSoundRegModeVol];
 }
 
 #pragma compile("sound.cc")
@@ -219,6 +255,7 @@ inline void sound_cycle_volume(void) {}
 inline void sound_init(void) {}
 inline void sound_update(void) {}
 inline void sound_silence(void) {}
+inline void sound_mark_dirty(void) {}
 inline void sound_blit(void) {}
 #endif
 

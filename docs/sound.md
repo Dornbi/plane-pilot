@@ -102,13 +102,20 @@ The driver splits by rate:
   `panel_update_instruments()`. It is ordinary C — locals, calls, sstack frames
   all fine, because it sits in the main call graph where oscar64's overlay
   analysis is correct. Its only output is a 25-byte shadow register block.
-- **`sound_blit()`** is inlined into `_switch_to_terrain` (raster 250) as a
-  flat unrolled `lda shadow+n` / `sta $d400+n` sequence. No locals, no calls,
-  no `@stack` entry, ~150 cycles. It stores 19 of the 25 registers: V2
-  PwLo/PwHi, V3 PwLo and the three filter registers never move off zero in
+- **`sound_blit()`** is inlined into `_switch_to_terrain` (raster 250). No
+  locals, no calls, no `@stack` entry. It copies the shadow only when
+  `sound_dirty` is set, which `sound_update()` does after its last store and
+  the blit clears: the shadow changes once a frame and a frame is six to ten
+  ticks, so on every other tick the blit is one load and a branch, 7 cycles,
+  where it used to store the same bytes again for ~160. When it does copy, it
+  is a loop of seven passes, one per register of a voice and all three voices
+  in each, counted down, then the master volume: ~260 cycles, once a frame,
+  and 85 B shorter than the flat `lda shadow+n` / `sta $d400+n` sequence it
+  was. The three filter registers are not stored: they never move off zero in
   the shadow, and the chip already holds that zero all through a flight
   (`sound_init()`'s `sound_silence()` writes it before the raster interrupts
-  start), so `sound_reg_blitted()` leaves them out.
+  start). `gfx_init_raster_irqs()` sets `sound_dirty` as well, so the first
+  tick after the interrupts come back still pushes the zeroed shadow.
 
 This resolves four problems at once: the interrupt allocates no stack frame; the
 mapping becomes a pure function that host tests can assert on; the cycle cost
@@ -118,14 +125,21 @@ Hz even though the game frame rate wobbles.
 The price is up to 100 ms of latency on an effect's onset. That is one video
 frame at the current frame rate, so it is not worth engineering away.
 
-Re-blitting every live register every tick is safe. Rewriting frequency, pulse
-width, ADSR and a *held* gate bit changes nothing; only a 0→1 gate transition
-or the TEST bit would retrigger, and neither happens by accident.
+Blitting a register the chip already holds is safe - rewriting frequency,
+pulse width, ADSR and a *held* gate bit changes nothing; only a 0→1 gate
+transition or the TEST bit would retrigger, and neither happens by accident -
+which is why the blit could run on every tick, and did until `sound_dirty`.
+It is also why skipping it changes nothing: the ticks left out are the ones
+that stored what was already there.
 
 ### Torn reads are safe only by construction
 
 The interrupt can land between any two of the stores `sound_update()` makes, so
-it can blit a half-written register set. An earlier version of this document
+it can blit a half-written register set. (Since `sound_dirty` it does so only
+if no tick has fallen since the last `sound_update()` finished, which a stock
+C64's frame is too long for and a SuperCPU's is not; `sound_update()` then
+sets the flag again behind the torn blit, so the next tick corrects it as
+before. Nothing below may rely on that being rare.) An earlier version of this document
 called that harmless, reasoning that "the two halves are both valid register
 sets and the next tick corrects it 20 ms later".
 
@@ -377,9 +391,9 @@ knowing was not luck: narrowing the retrigger pass from all three voices to
 voice 3 alone (phase 5, §6) removed two `lda`/`and`/`sta` triples from the
 mismatch path and more than paid for everything since. The register stores
 are a fixed 8 cycles each; everything else here is the generation check and
-the gate-off pass. The table predates the skipped registers: the blit now
-stores 19 registers, not 25 (§3), which takes about 48 cycles off its
-column.
+the gate-off pass. The table predates `sound_dirty` and the loop (§3): the
+blit now costs 7 cycles on a tick with nothing new to copy and ~260 on the
+one tick a frame that has, storing 22 registers, not 25.
 
 **The NTSC margin is nine lines**, and it is the tightest constraint in the
 design. Nothing waits on a raster line past 242, so overrunning only delays the
@@ -534,6 +548,9 @@ sound_blit():    if (sound_gen != sound_gen_seen) {
                    gate off, then gate on, inline
                  }
 ```
+
+All of it inside the blit's `sound_dirty` test (§3), so the gate-off pass runs
+on the tick that also copies the new effect's registers.
 
 Only the main line writes `sound_gen`; only the interrupt writes
 `sound_gen_seen`. Same one-writer-per-byte discipline as above.

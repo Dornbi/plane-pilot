@@ -186,8 +186,8 @@ static void _gfx_switch_to_terrain() {
   vic_memptr = mem_using_alt_buffer ? 0xA8 : 0xB8;
 
   // Last, and only after the $d018 latch above, which is the one write here
-  // with a deadline. The blit is ~200 cycles at raster 250; on PAL that ends
-  // around line 254 with 58 lines of border left, on NTSC around 254 with 9.
+  // with a deadline. The blit is ~260 cycles, four raster lines, on the one
+  // tick a frame that has a new shadow to copy, and 7 cycles on the others.
   // Nothing waits on a raster line past this one - gfx_wait_flip_window()
   // closes at 242 - so overrunning only delays the blit itself.
   sound_blit();
@@ -387,6 +387,11 @@ void gfx_init_raster_irqs(void) {
   mem_den = 0x10;
 
   _gfx_rirq_init();
+
+  // Interrupts are masked from here to rirq_start(). The first sound_blit()
+  // then pushes the shadow, which sound_silence() zeroed on the way out, over
+  // whatever the chip was left holding.
+  sound_mark_dirty();
 
   // Sprite DMA off, kSpritesOffLead lines above the split. This one is a bare
   // write rather than a call: the raster IRQ executes it inline, so it costs
