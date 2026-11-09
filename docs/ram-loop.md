@@ -278,7 +278,8 @@ are now 12 frames apart (frames 77-125), so it goes down mid-window as it
 did with three. The other nine scenes keep their 2026-11-01 figures.
 
 The script appends one row per pass. The branch column names the loop the
-change came from: claude (claude-loop) or argon (argon-loop).
+change came from: claude (claude-loop), argon (argon-loop) or fable
+(fable-loop).
 The fpilot and ppilot columns are the change in free allocatable bytes. The
 cycles column is the change in bench total against the last kept state.
 

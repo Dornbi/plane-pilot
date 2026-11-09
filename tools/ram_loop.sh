@@ -39,6 +39,8 @@
 #   BRANCH=claude-loop  MAX_FAILS=4  REVIEW=1  SHOTS=1
 #   MODEL=<model>    BUDGET=<usd per agent call>  PERM=acceptEdits
 #   CLAUDE=<path to the claude CLI>  RUN_DIR=/tmp/ram-loop (logs, rejected diffs)
+#   FOCUS=cycles     the worker looks for a cycle saving first; what is kept
+#                    is judged as always
 set -u
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -60,6 +62,17 @@ export SHOT_BUILD_DIR=${SHOT_BUILD_DIR:-/tmp/ram-loop-shots}
 # worth having, not about noise.
 CYCLE_SLACK_PERCENT=2
 SPEED_GAIN_PERMILLE=5
+# What the worker is asked to look for first. The gates do not change.
+FOCUS_NOTE=
+case "${FOCUS:-}" in
+  "") ;;
+  cycles) FOCUS_NOTE="
+This run emphasises speed. Look first for a change that cuts fpilot's cycles per frame in
+the scenes above: the render, the model step, the raster interrupts. Find where a frame's
+time goes before you choose. Settle for a RAM-only saving only if, after a real search, no
+cycle saving of at least 0.$SPEED_GAIN_PERMILLE% of the total turns up." ;;
+  *) echo "ram_loop: unknown FOCUS=$FOCUS (cycles, or unset)" >&2; exit 1 ;;
+esac
 
 if [ -z "${CLAUDE:-}" ]; then
   CLAUDE=$(command -v claude || true)
@@ -225,7 +238,7 @@ The fixed budget: every scene must stay within +$CYCLE_SLACK_PERCENT% of: $BASEL
 Your task: find ONE new saving and implement it. It must either raise fpilot's
 "Free, allocatable" while staying inside the cycle budget, or cut total cycles by at
 least 0.$SPEED_GAIN_PERMILLE% without losing any free RAM. A change that does both is best.
-Prefer changes that are cycle-neutral or faster.
+Prefer changes that are cycle-neutral or faster.$FOCUS_NOTE
 - Measure RAM with: make -C c64o all && make fram
 - Measure cycles with: tools/bench.sh   (about 2 min; tools/bench.sh <scene>... times just
   those). BENCH_SHOTS=<dir> also saves each scene's frame, the way to see fpilot's
