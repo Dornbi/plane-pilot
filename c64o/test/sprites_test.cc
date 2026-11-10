@@ -86,7 +86,11 @@ static uint8_t spr_enable(void) { return vic_regs[0x15]; }
 static uint8_t spr_expand(void) { return vic_regs[0x1d]; }
 static uint8_t spr_expand_y(void) { return vic_regs[0x17]; }
 static uint8_t spr_color(uint8_t i) { return vic_regs[0x27 + i]; }
-static uint8_t spr_ptr(uint8_t i) { return screen_main[1016 + i]; }
+// The pointers the VIC fetches: in the terrain band from the screen that band
+// shows (program_terrain() notes which), in the panel always from the alt one.
+static const uint8_t *shown_screen = screen_main;
+static uint8_t spr_ptr(uint8_t i) { return shown_screen[1016 + i]; }
+static uint8_t panel_ptr(uint8_t i) { return screen_alt[1016 + i]; }
 
 // Run the terrain band's handler on whatever buffer is on screen.
 static void program_terrain(void) {
@@ -94,10 +98,17 @@ static void program_terrain(void) {
   memset(screen_main + 1016, 0xAA, 8);
   memset(screen_alt + 1016, 0xAA, 8);
   sprites_show_terrain_sprites();
-  // Both screen buffers are double buffered under the handler, so every sprite
-  // pointer has to be written to both or the pointer goes stale on alternate
-  // frames. Checking it once here rather than in every case below.
-  assert(memcmp(screen_main + 1016, screen_alt + 1016, 8) == 0);
+  // The screens are double buffered under the handler, and gfx.cc's
+  // _gfx_switch_to_terrain() puts the main one on screen while the main line
+  // draws into the alt one. The handler writes the pointers of that screen
+  // alone, on every tick, so they cannot go stale; the other screen's are
+  // never fetched and stay as they were. Checked once here rather than in
+  // every case below, which read the shown screen through spr_ptr().
+  shown_screen = mem_using_alt_buffer ? screen_main : screen_alt;
+  const uint8_t *hidden = mem_using_alt_buffer ? screen_alt : screen_main;
+  for (uint8_t i = 0; i < 8; ++i) {
+    assert(hidden[1016 + i] == 0xAA);
+  }
 }
 
 // Program the terrain band from the frame the last commit published: put the
@@ -542,7 +553,7 @@ static void test_orientation(void) {
   assert(spr_expand() == 0x00);
   assert(spr_x(kSpriteIdxVSpeed) == _sprites_instrument_xy[kSpriteIdxVSpeed].x);
   assert(spr_y(kSpriteIdxVSpeed) == _sprites_instrument_xy[kSpriteIdxVSpeed].y);
-  assert(spr_ptr(kSpriteIdxVSpeed) == _sprites_instrument_idx[kSpriteIdxVSpeed]);
+  assert(panel_ptr(kSpriteIdxVSpeed) == _sprites_instrument_idx[kSpriteIdxVSpeed]);
   // Sharing the index is safe because the VIC has finished fetching the mark
   // before the needle's line comes round: a viewport sprite may not begin below
   // 139, and this one begins at 96 and is done 21 lines later (clouds.md §1.9).
@@ -628,7 +639,7 @@ static void test_panel_bands(void) {
     }
   }
   assert(spr_x(kSpriteIdxVSpeed) == _sprites_instrument_xy[kSpriteIdxVSpeed].x);
-  assert(spr_ptr(kSpriteIdxVSpeed) == _sprites_instrument_idx[kSpriteIdxVSpeed]);
+  assert(panel_ptr(kSpriteIdxVSpeed) == _sprites_instrument_idx[kSpriteIdxVSpeed]);
 
   sprites_show_panel_bottom_sprites();
   // All eight, unconditionally. Doing it here is what frees the terrain band to
@@ -640,7 +651,7 @@ static void test_panel_bands(void) {
   for (uint8_t i = 0; i < 8; ++i) {
     assert(spr_x(i) == _sprites_instrument_xy[i].x);
     assert(spr_y(i) == _sprites_instrument_xy[i].y);
-    assert(spr_ptr(i) == _sprites_instrument_idx[i]);
+    assert(panel_ptr(i) == _sprites_instrument_idx[i]);
   }
   assert(spr_msbx() == (1 << kSpriteIdxThrottle));
 

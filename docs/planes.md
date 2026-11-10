@@ -269,7 +269,7 @@ Per plane, per frame:
 11. **Cache check** on the local vertex bytes (§7). Hit → skip to 13.
 12. **Fill** into the back buffer: clear, fill each polygon (§6), flip.
 13. **Program the sprite(s)**: position, `$D010` MSB, `$D01D` and `$D017`
-    expansion, colour (§8), pointer in both screen RAM copies.
+    expansion, colour (§8), pointer in the screen RAM the band shows.
 
 ### The model
 
@@ -1154,8 +1154,9 @@ below, and the order of work at the end, are about that.
    left edge stays for later.
 6. **The flip** — see the next subsection.
 7. **Double buffering.** A front-set bit per plane, flipped only when a
-   redraw is complete. The raster handler already writes every pointer into
-   both screens from the committed frame, so nothing new writes pointers.
+   redraw is complete. The raster handler already writes every pointer of
+   the screen on show from the committed frame, so nothing new writes
+   pointers.
 8. **Measure** the runway, approach and cruise poses of framerate.md with and
    without an enemy in view, and take VICE shots of a parked one at the
    distances of §2's table. Only then the rest of this section.

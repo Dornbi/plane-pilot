@@ -178,6 +178,10 @@ inline void sprites_show_terrain_sprites() {
 }
 ```
 
+(*Since 2026-11-10* each handler writes the pointers of one screen only, the
+one its band is shown from: `$d018` picks the screen in the same handler that
+picks the frame, and the panel is always the alt screen.)
+
 Roughly 240 cycles against the ~30 the sun costs today. The handler runs at
 raster 250 in the bottom border and the only write in it with a deadline is the
 `$d018` latch, which comes first; `sound_blit()` already follows it and the

@@ -841,11 +841,17 @@ void sprites_stack_commit(void) {
 // is where the $00-$5F layout it checks against comes from.
 // Two loops rather than one, for the same register-pressure reason as the
 // layout above: each carries a single index and a single value, which is what
-// a 6502 has room for. Neither is unrolled - this sits at raster 250 in the
-// bottom border with ~58 PAL lines of slack after sound_blit(), so the cycles
-// are raster lines nobody is waiting on, and unrolling two copies of it would
-// cost around 500 bytes.
-#define _sprites_program_frame(F)                                              \
+// a 6502 has room for. Neither is fully unrolled - unrolling two copies of it
+// would cost around 500 bytes - but the handler runs on every PAL frame, six
+// to ten times for each frame drawn, inside the main line's time, so the
+// position loop moves two bytes a pass and both count down to zero.
+//
+// SCREEN is the screen the frame's buffer is shown from. The VIC reads the
+// sprite pointers at the end of the video matrix $d018 selects, and
+// _gfx_switch_to_terrain() selects it from mem_using_alt_buffer just as
+// sprites_show_terrain_sprites() selects the frame, so the other screen's
+// eight pointers are never fetched and are not written.
+#define _sprites_program_frame(F, SCREEN)                                      \
   do {                                                                         \
     /* Counts down. Counting up made oscar64 increment the index before the  */ \
     /* store, so it kept the pre-increment copy in X and shuffled the two    */ \
@@ -853,14 +859,16 @@ void sprites_stack_commit(void) {
     /* Downward, one register indexes both sides and nothing spills.         */ \
     uint8_t i = 16;                                                            \
     do {                                                                       \
-      --i;                                                                     \
+      i -= 2;                                                                  \
+      kVicSpritePos[i + 1] = (F).pos[i + 1];                                   \
       kVicSpritePos[i] = (F).pos[i];                                           \
     } while (i != 0);                                                          \
-    for (uint8_t i = 0; i < 8; i++) {                                          \
-      *(kScreenRamMain + 1016 + i) = (F).ptr[i];                               \
-      *(kScreenRamAlt + 1016 + i) = (F).ptr[i];                                \
-      vic.spr_color[i] = (F).color[i];                                         \
-    }                                                                          \
+    uint8_t k = 8;                                                             \
+    do {                                                                       \
+      --k;                                                                     \
+      *((SCREEN) + 1016 + k) = (F).ptr[k];                                     \
+      vic.spr_color[k] = (F).color[k];                                         \
+    } while (k != 0);                                                          \
     vic.spr_msbx = (F).msbx;                                                   \
     vic.spr_expand_x = (F).expand;                                             \
     vic.spr_expand_y = (F).expand_y;                                           \
@@ -871,9 +879,9 @@ void sprites_stack_commit(void) {
 // draws into the alt one, and the other way round.
 inline void sprites_show_terrain_sprites() {
   if (mem_using_alt_buffer) {
-    _sprites_program_frame(_sprites_frame_a);
+    _sprites_program_frame(_sprites_frame_a, kScreenRamMain);
   } else {
-    _sprites_program_frame(_sprites_frame_b);
+    _sprites_program_frame(_sprites_frame_b, kScreenRamAlt);
   }
 }
 
@@ -923,8 +931,9 @@ inline void sprites_show_panel_top_sprites() {
   } else {
     vic.spr_pos[kSpriteIdxVSpeed].x = 0;
   }
-  *(kScreenRamMain + 1016 + kSpriteIdxVSpeed) =
-      _sprites_instrument_idx[kSpriteIdxVSpeed];
+  // The panel is always shown from the alt screen (_gfx_panel_top_writes()
+  // has just put $b8 in $d018), so that is the only screen whose sprite
+  // pointers the VIC fetches in this band and the one below.
   *(kScreenRamAlt + 1016 + kSpriteIdxVSpeed) =
       _sprites_instrument_idx[kSpriteIdxVSpeed];
 }
@@ -942,24 +951,24 @@ inline void sprites_show_panel_bottom_sprites() {
   } while (i != 0);
   if (view_state == VIEW_CENTER) {
     // Sprites 1-7: 0 is the vertical-speed needle the band above placed.
-    uint8_t j = 16;
+    // Both loops count an offset from sprite 1 down to zero, the first two
+    // bytes a pass: this runs on every PAL frame, in the main line's time.
+    // The pointers go to the alt screen alone, the one the panel is shown
+    // from (see sprites_show_panel_top_sprites()).
+    uint8_t j = 14;
     do {
-      --j;
-      kVicSpritePos[j] = ((volatile uint8_t *)_sprites_instrument_xy)[j];
-    } while (j != 2);
-    uint8_t k = 8;
+      j -= 2;
+      kVicSpritePos[j + 3] = ((volatile uint8_t *)_sprites_instrument_xy)[j + 3];
+      kVicSpritePos[j + 2] = ((volatile uint8_t *)_sprites_instrument_xy)[j + 2];
+    } while (j != 0);
+    uint8_t k = 7;
     do {
-      --k;
-      uint8_t ptr = _sprites_instrument_idx[k];
-      *(kScreenRamMain + 1016 + k) = ptr;
-      *(kScreenRamAlt + 1016 + k) = ptr;
-    } while (k != 1);
+      *(kScreenRamAlt + 1016 + k) = _sprites_instrument_idx[k];
+    } while (--k != 0);
     vic.spr_msbx = (1 << kSpriteIdxThrottle);
   } else if (view_state == VIEW_LEFT) {
     vic.spr_pos[kSpriteIdxFuel].x = _sprites_instrument_xy[kSpriteIdxFuel].x;
     vic.spr_pos[kSpriteIdxFuel].y = _sprites_instrument_xy[kSpriteIdxFuel].y;
-    *(kScreenRamMain + 1016 + kSpriteIdxFuel) =
-        _sprites_instrument_idx[kSpriteIdxFuel];
     *(kScreenRamAlt + 1016 + kSpriteIdxFuel) =
         _sprites_instrument_idx[kSpriteIdxFuel];
     vic.spr_msbx = (1 << kSpriteIdxFuel);
@@ -968,8 +977,6 @@ inline void sprites_show_panel_bottom_sprites() {
         _sprites_instrument_xy[kSpriteIdxThrottle].x;
     vic.spr_pos[kSpriteIdxThrottle].y =
         _sprites_instrument_xy[kSpriteIdxThrottle].y;
-    *(kScreenRamMain + 1016 + kSpriteIdxThrottle) =
-        _sprites_instrument_idx[kSpriteIdxThrottle];
     *(kScreenRamAlt + 1016 + kSpriteIdxThrottle) =
         _sprites_instrument_idx[kSpriteIdxThrottle];
     // Assume vic.spr_msbx is already 0

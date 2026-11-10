@@ -544,8 +544,9 @@ the terrain, and the instrument needles over the panel. Needle bitmaps are
 pre-rotated into 16 directions; the other 16 reuse them with the pivot
 mirrored through the sprite centre (`kSpriteDefLongArm`, `kSpriteDefShortArm`
 hold the first half-turn's pivots), so setting an instrument is a table lookup,
-an optional mirror and two subtractions. Sprite pointers are written into both
-screen buffers at offset 1016.
+an optional mirror and two subtractions. Sprite pointers sit at offset 1016 of
+a screen buffer; each raster handler writes those of the screen its band is
+shown from (the terrain band's buffer on screen, the panel's alt screen).
 
 **The sprite stack** is how the terrain band's sprites are handed out. VIC
 sprite-to-sprite priority is fixed by index — sprite 0 draws in front of sprite
