@@ -7,6 +7,7 @@ static const uint8_t kColorBlack = 0;
 static const uint8_t kColorWhite = 1;
 static const uint8_t kColorRed = 2;
 static const uint8_t kColorCyan = 3;
+static const uint8_t kColorPurple = 4;
 static const uint8_t kColorGreen = 5;
 static const uint8_t kColorBlue = 6;
 static const uint8_t kColorYellow = 7;
@@ -58,8 +59,8 @@ static const uint8_t kColorWater = kColorBlue;
 // Fields marked "colour RAM" end up in colour RAM, where multicolour
 // character mode keeps only colours 0 to 7; pmission.cc says so beside them.
 #ifdef __ENABLE_COLOR_SCHEMES__
-static const uint8_t kColorSchemeDots = 7;  // world.h KWorldDotColors
-static const uint8_t kColorSchemeObjs = 9;  // world.h kWorldObjDim
+static const uint8_t kColorSchemeDots = 7;      // world.h KWorldDotColors
+static const uint8_t kColorSchemeObjs = 9;      // world.h kWorldObjDim
 static const uint8_t kColorSchemeMapTiles = 18; // mapdefs.h kMapTileCount
 struct ColorScheme {
   uint8_t sky8;    // colour RAM, | 0x08: the sky, bit pair 11
@@ -69,7 +70,7 @@ struct ColorScheme {
   uint8_t grndobj; // $D023
   uint8_t cloud;
   uint8_t sun;
-  uint8_t fin;  // the tail fin in the back view
+  uint8_t fin;                   // the tail fin in the back view
   uint8_t dot[kColorSchemeDots]; // colour RAM, by WorldMapType
   uint8_t obj[kColorSchemeObjs]; // colour RAM, by object
   // The map view (map.cc), as mapdefs.h kMapTileColors: bit pair 10's colour
