@@ -99,7 +99,7 @@ kept beside it, which saves their 16 B.
 | `kColorBlack` (message) | [msg.cc](../c64o/msg.cc) `msg_render` |
 | `KWorldDotColors`, `kWorldObjColors` | [world.cc](../c64o/world.cc) dot and object draws |
 
-`gfx_project_and_draw`'s `color == kColorGround` test stays as it is. That
+`gfx_draw_projected`'s `color == kColorGround` test stays as it is. That
 value only marks a dot as a ground dot, which is drawn with the ground
 characters and so gets its colour from `$D022`; it never reaches colour RAM.
 Earth's `dot[MAP_DOT_GROUND]` must keep `kColorGround`, and so must every
@@ -178,7 +178,7 @@ All of §6 in one change. Where it differs from the plan:
 - **A build flag, not `__FPILOT__`.** `__ENABLE_COLOR_SCHEMES__` is set for
   ppilot.prg only. The demos and the host tests build without it, so they
   need no `color_scheme` of their own and still test the constant colours.
-- **The ground-dot marker moved to 8.** `gfx_project_and_draw()` recognised a
+- **The ground-dot marker moved to 8.** `gfx_draw_projected()` recognised a
   ground dot by `kColorGround`, green - and Night's cyan dots are green, so
   they would have been drawn as ground. The marker is now `kGfxDotGround`,
   8, which is no colour RAM colour (gfx.h), in both games. That is the whole

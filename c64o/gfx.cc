@@ -524,24 +524,21 @@ inline void gfx_wait_flip_window(void) {
     ;
 }
 
-void gfx_project_and_draw(uint8_t color) {
-  if (vec_project_viewport()) {
-    uint8_t py = (uint8_t)(kViewportHeightPixels / 2) - (uint8_t)vec_sy;
-    if (py < (uint8_t)kViewportHeightPixels) {
-      uint8_t hpx =
-          (uint8_t)((uint16_t)(kViewportWidthPixels / 2 - vec_sx) >> 1);
-      if (hpx < (uint8_t)(kViewportWidthPixels / 2)) {
-        uint8_t cx = hpx >> 2;
-        uint8_t cy = py >> 3;
-        uint8_t *p = mem_screen_row_ptrs[cy] + kViewportStartX + cx;
-        if (*p == kCharSolidGround) {
-          uint8_t off = (hpx & 0x03) + ((py & 0x06) << 1);
-          if (color == kGfxDotGround) {
-            *p = kGfxGroundPoints + off;
-          } else {
-            *p = kGfxColorPoints + off;
-            mem_color_row_ptrs[cy][cx] = 0x08 | color;
-          }
+void gfx_draw_projected(uint8_t color) {
+  uint8_t py = (uint8_t)(kViewportHeightPixels / 2) - (uint8_t)vec_sy;
+  if (py < (uint8_t)kViewportHeightPixels) {
+    uint8_t hpx = (uint8_t)((uint16_t)(kViewportWidthPixels / 2 - vec_sx) >> 1);
+    if (hpx < (uint8_t)(kViewportWidthPixels / 2)) {
+      uint8_t cx = hpx >> 2;
+      uint8_t cy = py >> 3;
+      uint8_t *p = mem_screen_row_ptrs[cy] + kViewportStartX + cx;
+      if (*p == kCharSolidGround) {
+        uint8_t off = (hpx & 0x03) + ((py & 0x06) << 1);
+        if (color == kGfxDotGround) {
+          *p = kGfxGroundPoints + off;
+        } else {
+          *p = kGfxColorPoints + off;
+          mem_color_row_ptrs[cy][cx] = 0x08 | color;
         }
       }
     }

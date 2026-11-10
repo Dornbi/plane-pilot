@@ -105,10 +105,17 @@ static inline void _world_draw_box_points(uint8_t start_idx, uint8_t num_points,
   uint8_t idx = start_idx & 0x0F;
   uint8_t color = WORLD_DOT_COLORS[map_type];
   for (uint8_t i = num_points;;) {
+    // A point behind the camera needs no y, and one off to the side no z.
     vec_v.x = _world_vec_v.x + _world_mitch_x[idx];
-    vec_v.y = _world_vec_v.y + _world_mitch_y[idx];
-    vec_v.z = _world_vec_v.z + _world_mitch_z[idx];
-    gfx_project_and_draw(color);
+    if (vec_viewport_ahead()) {
+      vec_v.y = _world_vec_v.y + _world_mitch_y[idx];
+      if (vec_viewport_beside()) {
+        vec_v.z = _world_vec_v.z + _world_mitch_z[idx];
+        if (vec_viewport_project()) {
+          gfx_draw_projected(color);
+        }
+      }
+    }
     if (--i == 0) {
       break;
     }

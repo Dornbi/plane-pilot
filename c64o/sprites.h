@@ -102,7 +102,7 @@ void sprites_stack_reset(void);
 // Offers one object to the stack.
 //
 // (x, y) is the object's *centre* in viewport screen pixels - the same space
-// gfx_project_and_draw() works in:
+// gfx_draw_projected() works in:
 //     x = kScreenWidthPixels / 2 - vec_sx
 //     y = kViewportEndYPixels / 2 - vec_sy
 // The pivot is the bitmap's own, in *sprite* pixels as spritedef.cc stores it;

@@ -406,15 +406,17 @@ inline bool vec_project() {
   return true;
 }
 
-inline bool vec_project_viewport() {
-  if (vec_v.x <= 8) {
-    return false;
-  }
+// vec_project_viewport() in its three steps, each needing one more component
+// of vec_v than the one before, so the grid adds y and z only for a point the
+// earlier steps let through.
+inline bool vec_viewport_ahead() { return vec_v.x > 8; }
 
+inline bool vec_viewport_beside() {
   project_mul_a = _abs16(vec_v.y);
-  if ((uint16_t)project_mul_a > (uint16_t)vec_v.x) {
-    return false;
-  }
+  return (uint16_t)project_mul_a <= (uint16_t)vec_v.x;
+}
+
+inline bool vec_viewport_project() {
   project_mul_b = _abs16(vec_v.z);
   if ((uint16_t)project_mul_b > ((uint16_t)vec_v.x >> 2)) {
     return false;

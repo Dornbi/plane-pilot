@@ -59,7 +59,7 @@ static const uint8_t kSpriteFlagAlignDither = 0x02;   // snap to the grid of §4
 void sprites_stack_reset(void);
 
 // Offer one object. Coordinates are viewport screen pixels, origin at the top
-// left of the viewport, i.e. the same space gfx_project_and_draw() works in:
+// left of the viewport, i.e. the same space gfx_draw_projected() works in:
 //   x = kScreenWidthPixels / 2 - vec_sx
 //   y = kViewportEndYPixels / 2 - vec_sy
 // and (x, y) is the object's *centre*, not its top left corner.

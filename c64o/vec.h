@@ -165,8 +165,14 @@ void vec_negate(vec3_t *v);
 // Returns true on success, false on failure.
 bool vec_project();
 // Same projection, with tighter vertical frustum bound (|z| <= x/4) that
-// covers the 320x112 viewport and guarantees |vec_sy| <= 64.
-bool vec_project_viewport();
+// covers the 320x112 viewport and guarantees |vec_sy| <= 64. In three steps,
+// to be called in this order, each only if the one before returned true:
+// vec_viewport_ahead() reads only vec_v.x, vec_viewport_beside() also
+// vec_v.y, and vec_viewport_project() all three, so the caller can leave a
+// component uncomputed until the point has passed the tests before it.
+bool vec_viewport_ahead();
+bool vec_viewport_beside();
+bool vec_viewport_project();
 // vec_project() out of line, for every caller but the per-point grid loop.
 bool vec_project_once();
 

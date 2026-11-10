@@ -50,11 +50,11 @@ void gfx_wait_flip_window(void);
 // it - it used to be kColorGround, green, which Night's dots use.
 static const uint8_t kGfxDotGround = 0x08;
 
-// Project and draw a single point using vec_project_viewport().
+// Draw a single point that vec_viewport_project() projected.
 // If color is kGfxDotGround, it uses kGfxGroundPoints; otherwise it uses
 // kGfxColorPoints and sets the color ram to color.
-// @param vec_v
-void gfx_project_and_draw(uint8_t color);
+// @param vec_sx, vec_sy
+void gfx_draw_projected(uint8_t color);
 
 // Update the heading bitmap on the instrument panel.
 // Skips the copy when the heading is unchanged since the last draw.

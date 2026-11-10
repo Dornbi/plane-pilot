@@ -186,7 +186,7 @@ size follows **distance** — 1:1, then X — and their sprite layout, 1 × 1 up
 **Vertical granularity mismatch — 2:1, and only vertically.** An earlier draft
 of this paragraph said the terrain dot characters put each plotted dot in a
 "4 × 4 screen-pixel quadrant, i.e. 4 raster lines tall". That is wrong by a
-factor of two on both axes. `gfx_project_and_draw()` selects the character with
+factor of two on both axes. `gfx_draw_projected()` selects the character with
 `((lpx & 0x06) >> 1) + ((lpy & 0x06) << 1)` — four sub-positions per axis
 across an 8 × 8 cell, so each is **2 × 2 screen pixels**; the 16 variants are a
 4 × 4 *arrangement*, not a 4 × 4 pixel. `tools/generate_gfx_chars.py` draws the
@@ -341,7 +341,7 @@ silhouette left to draw. That one block lives in `$D400` next to the cloud art
 ### 6.3. Projectiles — do not spend sprites on these
 
 Projectiles have no shape and want to be numerous, which is the opposite of
-what a sprite is good at. `gfx_project_and_draw()` already plots a coloured
+what a sprite is good at. `gfx_draw_projected()` already plots a coloured
 point into the character grid: cheaper per projectile, unbounded count, and it
 leaves all eight sprites for objects that need a silhouette.
 
