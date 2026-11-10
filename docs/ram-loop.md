@@ -185,6 +185,29 @@ These come from earlier work (see the auto-memory notes `fpilot-ram-survey`,
   fighters and the opponents' guns (rear gunners), the falling of downed
   aircraft, ground smoke and the hit flash, the ten-mission menu with
   ppilot's scrolling, and fpanel's simplified frames.
+- Not yet reviewed: drop the split's first raster interrupt, the one that
+  only writes `$D015 = 0` on raster 140, 22 lines above the panel. A worker
+  built this on 2026-11-10, on top of pass 127, but the reviewer call failed
+  (usage limit), so it has no log row and its diff is gone. Its case: on
+  that line the store can only stop a sprite whose Y is 140-161 from
+  starting (one already being fetched carries on), and no enabled sprite
+  has such a Y. `sprites_stack_add()` rejects every entry whose last sprite
+  would start below `kSpriteVisibleEndYPixels` (the same line), and the
+  orientation mark and the fin sit at fixed lines above it. Three slots
+  remain (`-DNUM_IRQS=3` in c64o/Makefile, tools/bench.sh and
+  tools/make_shots.sh),
+  with one 14 B RIRQCode stub, the panel top's, whose spin still absorbs
+  the entry's jitter. Measured: +53 B, -12,121 cycles (-0.86%), about 170
+  cycles a frame, all ten bench frames byte-identical and make_shots
+  pixel-identical apart from the menu and debug shots. The panel switch's
+  `sta $d018` still landed on raster 162, cycles 53-59, over 1,200 PAL
+  frames of scramble in x64sc, the same window as before. docs/clouds.md
+  1.8's "the cull alone: 234 px" row is not a counter-example: that build's
+  cull (43e6f14) let a sprite start on 141-144, and the later sweep in the
+  same section shows a start on 139 or above costs the switch nothing. The
+  section should say so if this lands. Comments in gfx.cc, mem.h,
+  sprites.cc, sprites.h and docs/clouds.md, memory_map.md and planes.md
+  need updating with it.
 
 ## Log
 
