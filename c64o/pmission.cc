@@ -303,7 +303,7 @@ const ColorScheme kColorSchemes[kColorSchemeCount] = {
      {0x00, 0xC0, 0xC0, 0xC0,
       0x00, 0xF0, 0x30, 0xE6, 0xD7,
       0x0C, 0x9C, 0xC9, 0x7F, 0xF7, 0xE6, 0xE6, 0x90, 0x90}},
-    // Dusk: a red sky over grey ground, a white sun, towns and cities lit.
+    // Dusk: a purple sky over grey ground, a white sun, towns and cities lit.
     {kColorPurple | 0x08, kColorYellow | 0x08, kColorLightRed, kColorDarkGray, kColorOrange,
      kColorWhite, kColorWhite, kColorMedGray,
      {kColorBlack, kGfxDotGround, kColorBlack, kColorWhite, kColorCyan, kColorBlue, kColorYellow},
@@ -314,12 +314,12 @@ const ColorScheme kColorSchemes[kColorSchemeCount] = {
      {0x00, 0xB0, 0xB0, 0xB0,
       0x00, 0x10, 0x30, 0xE6, 0xD7,
       0x0F, 0x8F, 0xF8, 0x7F, 0xF7, 0xE6, 0xE6, 0x87, 0x87}},
-    // Night: a black sky, a white moon, grey clouds over dark grey ground;
-    // the runway, towns and cities lit, yellow fields gone dark red.
+    // Night: a black sky, a white moon, grey clouds over brown ground;
+    // towns and cities lit, yellow fields gone dark red.
     {kColorBlack | 0x08, kColorRed | 0x08, kColorDarkGray, kColorBrown, kColorLightGray,
      kColorMedGray, kColorWhite, kColorMedGray,
      {kColorBlack, kGfxDotGround, kColorBlack, kColorWhite, kColorGreen, kColorBlue, kColorRed},
-     {kColorWhite, kColorBlack, kColorBlack, kColorRed, kColorRed,
+     {kColorBlack, kColorBlack, kColorBlack, kColorRed, kColorRed,
       kColorBlue, kColorBlue, kColorYellow, kColorYellow},
      // Map: as the view - cyan dots green, yellow ones and yellow fields red,
      // fields light grey, towns and cities lit - but the runway black with
