@@ -313,10 +313,26 @@ def _box_entries(data: Dict[str, Any]):
         yield entry if isinstance(entry, tuple) else (entry, False)
 
 
+def c64_mc_bytes(char_bytes: bytes) -> bytes:
+    """
+    A character's bytes as the C64 holds them: bit pairs 00 and 01 swapped.
+
+    The model (c64_converter.py) draws grad2 in 00 and the ground in 01, but
+    the C64 keeps the ground in $D021, pair 00, and grad2 in $D022, pair 01,
+    so that a hires cell - colour RAM bit 3 clear - has the ground behind its
+    ink. Swapping the two labels changes no pixel's colour, and it is a
+    byte-for-byte bijection, so equal bytes, vertical flips and the overlaps
+    in the stream all stay what they were. It is its own inverse.
+    """
+    # Bit 2i of the mask is set when the pair's high bit is clear.
+    return bytes(b ^ ((~b >> 1) & 0x55) for b in char_bytes)
+
+
 def build_c_charset(global_chars: Dict[bytes, Dict[str, Any]],
                     box_defs: Dict[str, Dict[str, Any]]):
     """
-    The characters chardefs.cc holds, each one once per vertical flip.
+    The characters chardefs.cc holds, each one once per vertical flip, in the
+    C64's bit pairs (c64_mc_bytes()).
 
     A multicolour character turned upside down is its eight bytes in reverse
     order, and box_prepare() copies characters into character RAM one at a
@@ -342,7 +358,8 @@ def build_c_charset(global_chars: Dict[bytes, Dict[str, Any]],
         char_map  global id -> (index into stored, flipped)
         stream    the bytes every stored character is a run of
     """
-    by_id = {info['id']: char_bytes for char_bytes, info in global_chars.items()}
+    by_id = {info['id']: c64_mc_bytes(char_bytes)
+             for char_bytes, info in global_chars.items()}
     referenced = sorted({char_id
                          for data in box_defs.values()
                          for char_id, _ in _box_entries(data)

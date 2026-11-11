@@ -65,8 +65,8 @@ static const uint8_t kColorSchemeMapTiles = 18; // mapdefs.h kMapTileCount
 struct ColorScheme {
   uint8_t sky8;    // colour RAM, | 0x08: the sky, bit pair 11
   uint8_t grad1_8; // colour RAM, | 0x08: the horizon band of the gradient
-  uint8_t grad2;   // $D021: the upper band of the gradient
-  uint8_t ground;  // $D022
+  uint8_t grad2;   // $D022: the upper band of the gradient
+  uint8_t ground;  // $D021, behind the hires cells' ink too
   uint8_t grndobj; // $D023
   uint8_t cloud;
   uint8_t sun;

@@ -262,8 +262,10 @@ inline void mem_set_mccm_mode(void) {
 
 __forceinline void mem_init_mccm(void) {
   vic.color_border = kColorBg;
-  vic.color_back = COLOR_GRAD2;
-  vic.color_back1 = COLOR_GROUND;
+  // The ground in $D021, pair 00, so that a hires cell (gfx.h kGfxQuad11) has
+  // it behind its ink; the gradient's upper band in $D022, pair 01.
+  vic.color_back = COLOR_GROUND;
+  vic.color_back1 = COLOR_GRAD2;
   vic.color_back2 = COLOR_GRNDOBJ;
   mem_set_mccm_mode();
 }

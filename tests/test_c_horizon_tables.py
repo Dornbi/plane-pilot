@@ -20,6 +20,7 @@ import re
 import unittest
 
 from lib import boxdefs, chardefs
+from lib.find_boxes import c64_mc_bytes
 from lib.verify_defs import parse_chardefs_c
 
 C64O = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -81,7 +82,9 @@ def _py_cells(model):
             cells.append(("solid", v))
             continue
         i = v - 3
-        cells.append((bytes(chardefs.ALL_CHARS[char_ids[i]]), i >= grad1_start))
+        # chardefs.cc holds them in the C64's bit pairs, the model in its own.
+        cells.append((c64_mc_bytes(bytes(chardefs.ALL_CHARS[char_ids[i]])),
+                      i >= grad1_start))
     return cells
 
 

@@ -89,7 +89,9 @@ def verify_boxdefs_c(box_defs: Dict[str, Dict[str, Any]],
         content = f.read()
 
     rows = parse_chardefs_c(chardefs_c_path)
-    by_id = {info['id']: char_bytes for char_bytes, info in global_chars.items()}
+    # chardefs.cc is in the C64's bit pairs, the global set in the model's.
+    by_id = {info['id']: find_boxes.c64_mc_bytes(char_bytes)
+             for char_bytes, info in global_chars.items()}
 
     for name, expected in box_defs.items():
         cname = name.lower()

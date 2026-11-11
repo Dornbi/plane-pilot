@@ -33,9 +33,9 @@ exists: its targets are the cities, which Night lights up.
 | Field | Where it goes | Earth | Desert | Dusk | Night |
 |---|---|---|---|---|---|
 | `sky8` | colour RAM, bit pair 11 (`| 0x08` stored) | 6 blue | 6 | 2 red | 0 black |
-| `grad2` | `$D021`, upper gradient band | 14 lt blue | 14 | 10 lt red | 9 brown |
+| `grad2` | `$D022`, upper gradient band | 14 lt blue | 14 | 10 lt red | 9 brown |
 | `grad1_8` | colour RAM, horizon band (`| 0x08` stored) | 3 cyan | 3 | 7 yellow | 2 red |
-| `ground` | `$D022` | 5 green | 8 orange | 12 grey | 11 dk grey |
+| `ground` | `$D021` | 5 green | 8 orange | 12 grey | 11 dk grey |
 | `grndobj` | `$D023`, the fields | 8 orange | 9 brown | 8 | 15 lt grey |
 | `cloud` | cloud sprites | 1 white | 1 | 1 | 12 grey |
 | `sun` | sun sprite (the moon at night) | 7 yellow | 7 | 1 white | 1 white |

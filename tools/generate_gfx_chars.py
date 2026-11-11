@@ -11,6 +11,12 @@ import sys
 # Repo root, so outputs land in the right place regardless of the
 # current working directory.
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO_ROOT)
+
+# The multicolour patterns below are written the way the horizon model draws:
+# ground in bit pair 01. The C64 keeps the ground in $D021, pair 00, so they
+# go through the same 00 <-> 01 swap as chardefs.cc on the way out.
+from lib.find_boxes import c64_mc_bytes  # noqa: E402
 
 # Main pixels 01 (green), alt pixels 10 (orange)
 _ALT_LINES_10 = [0x95, 0x65, 0x59, 0x56]
@@ -162,6 +168,29 @@ _QUAD_CHAR_11_DENSE = [
     0xDD, 0x77, 0xFD, 0x77,
 ]
 
+# kGfxQuad11 (gfx.h) is a hires group: the runway, the yellow fields and the
+# lake draw with colour RAM bit 3 clear, so each of its pixels is one hires
+# pixel, colour RAM (1) on the $D021 ground (0). The fill is one 8x8 tile,
+# a cell in size, so it repeats across cells without a seam, and each
+# quadrant shows its own quarter of it ('#' is ink):
+#
+#   ....#...    0x08
+#   .#.#..#.    0x52
+#   #.......    0x80
+#   ...#.#.#    0x15
+#   .#......    0x40
+#   ...##.#.    0x1A
+#   .......#    0x01
+#   #.#..#..    0xA4
+#
+# A quarter of it is ink, four pixels in every quadrant, so a polygon's tone
+# is the same all over. It is blue noise (void-and-cluster on the 8x8 torus,
+# sigma 1): the ink is spread evenly but on no lattice. The polygon's outline
+# can only step by whole 4x4 quadrants, and a regular tile - the first one
+# here was a 4x4 diagonal - reads as a flat tone that shows every step; an
+# irregular one breaks the steps up.
+_HIRES_QUAD_TILE = [0x08, 0x52, 0x80, 0x15, 0x40, 0x1A, 0x01, 0xA4]
+
 _QUAD_CHAR_MIXED_SPARSE = [
     0x55, 0x5D, 0x55, 0x95,
     0x55, 0x57, 0x55, 0x65,
@@ -204,6 +233,28 @@ def generate_quad_chars(quad_char: list[int]) -> bytearray:
             
     return data
 
+def generate_hires_quad_chars(tile: list[int]) -> bytearray:
+    """
+    The 16 quad characters of a hires group, as generate_quad_chars() numbers
+    them: bit 0 is the top left quadrant, 1 the top right, 2 the bottom left,
+    3 the bottom right. A quadrant that is set shows its part of the 8x8
+    tile, one that is not is all ground: bits 0, $D021.
+    """
+    data = bytearray()
+    for ch_idx in range(16):
+        for line_idx in range(8):
+            top = line_idx < 4
+            left = 0x01 if top else 0x04
+            right = 0x02 if top else 0x08
+            line_val = 0
+            if ch_idx & left:
+                line_val |= tile[line_idx] & 0xF0
+            if ch_idx & right:
+                line_val |= tile[line_idx] & 0x0F
+            data.append(line_val)
+    return data
+
+
 def main():
     # Paths anchored to the repo root, not the current working directory.
     output_dir = os.path.join(REPO_ROOT, "c64o")
@@ -217,8 +268,7 @@ def main():
 
     print("Generating quad 11 character data...")
     quad_11_sparse_data = generate_quad_chars(_QUAD_CHAR_11_SPARSE)
-    quad_11_data = generate_quad_chars(_QUAD_CHAR_11)
-    quad_11_dense_data = generate_quad_chars(_QUAD_CHAR_11)
+    quad_11_data = generate_hires_quad_chars(_HIRES_QUAD_TILE)
 
     print("Generating quad mixed character data...")
     quad_mixed_sparse_data = generate_quad_chars(_QUAD_CHAR_MIXED_SPARSE)
@@ -232,11 +282,14 @@ def main():
     point_11_data = generate_4x4_point_chars(_ALT_LINES_11)
 
     # Combine data
+    # The font is hires and quad_11_data is already in C64 terms; everything
+    # else is multicolour and gets the C64's bit pairs here.
     combined_data = (bytearray(_FONT_CHARS) +
-                     quad_10_sparse_data + quad_10_data +
-                     quad_11_sparse_data + quad_11_data +
-                     quad_mixed_sparse_data + quad_mixed_data +
-                     point_10_data + point_11_data)
+                     c64_mc_bytes(quad_10_sparse_data + quad_10_data +
+                                  quad_11_sparse_data) +
+                     quad_11_data +
+                     c64_mc_bytes(quad_mixed_sparse_data + quad_mixed_data +
+                                  point_10_data + point_11_data))
     total_bytes = len(combined_data)
     print(f"Total combined binary size: {total_bytes} bytes ({int(total_bytes/8)} characters).")
     

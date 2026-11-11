@@ -12,6 +12,9 @@ static const uint8_t kGfxCharStart = 32;
 static const uint8_t kGfxQuadGroundSparse = 128;
 static const uint8_t kGfxQuadGround = 144;
 static const uint8_t kGfxQuad11Sparse = 160;
+// Hires, unlike the other groups: poly_fill() clears colour RAM bit 3 for it,
+// and each pixel is one hires pixel of colour RAM on the $D021 ground
+// (tools/generate_gfx_chars.py).
 static const uint8_t kGfxQuad11 = 176;
 static const uint8_t kGfxQuadMixedSparse = 192;
 static const uint8_t kGfxQuadMixed = 208;
@@ -45,7 +48,8 @@ void gfx_wait_vsync(void);
 void gfx_wait_flip_window(void);
 
 // The dot colour that means "ground": the dot is drawn with kGfxGroundPoints,
-// in $D022, and colour RAM is left alone. Not a colour RAM colour (those are
+// in $D023, and colour RAM only gets bit 3, multicolour. Not a colour RAM
+// colour (those are
 // 0 to 7 in multicolour mode), so no scheme's dot colour can be mistaken for
 // it - it used to be kColorGround, green, which Night's dots use.
 static const uint8_t kGfxDotGround = 0x08;

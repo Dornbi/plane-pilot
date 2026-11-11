@@ -40,7 +40,8 @@ static __noinline void _start_mission(uint8_t selected_mission) {
   msg_clear();
   sim_time_steps = 1;
 #ifdef __ENABLE_COLOR_SCHEMES__
-  // Before mem_init_mccm(), which puts the ground colours in $D022/$D023, and
+  // Before mem_init_mccm(), which puts the ground and gradient colours in
+  // $D021-$D023, and
   // with the horizon boxes' colour caches dropped: they hold the old sky.
   memcpy(&color_scheme,
          (const uint8_t *)kColorSchemes + kMissionScheme[selected_mission],

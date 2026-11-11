@@ -5,6 +5,7 @@
 #include "benchmark.h"
 #include "chardefs.h"
 #include "fmath.h"
+#include "gfx.h"
 #include "mem.h"
 #include "vec.h"
 
@@ -428,9 +429,13 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
   bm_poly_end(710, "TRC:");
 
   // 2. Draw the scanlines directly to Screen RAM
+  // kGfxQuad11 is a hires group (gfx.h), so its cells get colour RAM bit 3
+  // clear. Black would then be 0, which is what tells the scan loop to write
+  // no colour at all, so 0x10 stands in for the clear bit: colour RAM keeps
+  // only the low nibble.
   uint8_t color_val = 0;
   if (color < 8) {
-    color_val = color | 8;
+    color_val = color | (fill_char_start_idx == kGfxQuad11 ? 0x10 : 0x08);
   }
   bm_poly_start();
   _poly_scan_lines2(fill_char_start_idx, color_val, py_start, py_end);

@@ -119,8 +119,8 @@ per character position from color RAM:
 
 | Bit pair | Register          | Color                                       |
 | -------- | ----------------- | ------------------------------------------- |
-| `00`     | `vic.color_back`  | light blue (`kColorGrad2`)                  |
-| `01`     | `vic.color_back1` | green (`kColorGround`)                      |
+| `00`     | `vic.color_back`  | green (`kColorGround`)                      |
+| `01`     | `vic.color_back1` | light blue (`kColorGrad2`)                  |
 | `10`     | `vic.color_back2` | orange (`kColorGrndObj`)                    |
 | `11`     | color RAM         | blue sky, cyan gradient, or an object color |
 

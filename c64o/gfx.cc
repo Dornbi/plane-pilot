@@ -181,7 +181,7 @@ static void _switch_to_panel_bottom() {
 
 static void _gfx_switch_to_terrain() {
   sprites_show_terrain_sprites();
-  vic.color_back = COLOR_GRAD2;
+  vic.color_back = COLOR_GROUND; // the panel's black back to the ground
   vic.ctrl1 = 0x1b; // Multicolor character mode
   vic_memptr = mem_using_alt_buffer ? 0xA8 : 0xB8;
 
@@ -534,12 +534,12 @@ void gfx_draw_projected(uint8_t color) {
       uint8_t *p = mem_screen_row_ptrs[cy] + kViewportStartX + cx;
       if (*p == kCharSolidGround) {
         uint8_t off = (hpx & 0x03) + ((py & 0x06) << 1);
-        if (color == kGfxDotGround) {
-          *p = kGfxGroundPoints + off;
-        } else {
-          *p = kGfxColorPoints + off;
-          mem_color_row_ptrs[cy][cx] = 0x08 | color;
-        }
+        *p = (color == kGfxDotGround ? kGfxGroundPoints : kGfxColorPoints) +
+             off;
+        // The ground dot's too, although it shows no colour RAM: the cell
+        // may still hold a hires runway's from an earlier frame (gfx.h
+        // kGfxQuad11), and the dot is multicolour. kGfxDotGround is 0x08.
+        mem_color_row_ptrs[cy][cx] = 0x08 | color;
       }
     }
   }

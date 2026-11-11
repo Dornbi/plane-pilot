@@ -67,14 +67,14 @@
 // mission 04, so they are in Earth's colours - what the screens/ pictures
 // have always shown - unless SHOT_SCHEME picks another
 // (docs/color_schemes.md). $D021 is rewritten every frame from the scheme
-// and the map sets its own; the two ground registers are set only at entry.
+// and the map sets its own; $D022 and $D023 are set only at entry.
 #ifndef SHOT_SCHEME
 #define SHOT_SCHEME 0
 #endif
 static void _shot_apply_scheme(void) {
   memcpy(&color_scheme, &kColorSchemes[SHOT_SCHEME], sizeof(ColorScheme));
   box_invalidate();
-  vic.color_back1 = COLOR_GROUND;
+  vic.color_back1 = COLOR_GRAD2;
   vic.color_back2 = COLOR_GRNDOBJ;
 }
 #endif

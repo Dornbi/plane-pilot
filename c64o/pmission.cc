@@ -270,12 +270,12 @@ ColorScheme color_scheme;
 // not give: Night's white (lit) runway, and Dusk's dark grey tail fin, which
 // in medium grey would vanish into its grey ground. Night's fin stays medium
 // grey, the same grey as its clouds. The message box stays black, as it is
-// for fpilot (msg.cc): its letters are $D021, grad2, so at night they are
-// brown on the black sky.
+// for fpilot (msg.cc): its letters are $D021, the ground, so at night they
+// are brown on the black sky.
 //
 // Every colour RAM field - sky8, grad1_8, dot and obj - is 0 to 7, the
 // only colours colour RAM has in multicolour mode. dot[MAP_DOT_GROUND] is
-// kGfxDotGround in all of them: those dots are ground, and drawn in $D022.
+// kGfxDotGround in all of them: those dots are ground, and drawn in $D023.
 //
 // The map's 18 tiles, each a pair of colours (mapdefs.h), are drawn on the
 // ground colour. Each scheme's follow its view: a tile in a colour of the
