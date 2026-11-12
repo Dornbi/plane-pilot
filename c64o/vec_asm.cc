@@ -544,6 +544,28 @@ int16_t vec_div8p8(int16_t a, int16_t b) {
         lda a + 1;
         ldy b + 1;
         jsr vec_frac_setup;
+
+        // |b| == 64: the quotient is |a| << 2, saturating from 8192 up just as
+        // the loop would, so no loop. It is the divisor of every vertex the
+        // near clip lifts onto its plane (vec_project_nocull()), which paid
+        // about 770 cycles here, twice a vertex.
+        lda frac_d0;
+        eor #64;
+        ora frac_d1;
+        bne L_any_dv;
+        lda frac_r1;
+        cmp #$20;
+        bcs L_sat_dv;
+        asl frac_r0;
+        rol;
+        asl frac_r0;
+        rol;
+        sta frac_q1;
+        lda frac_r0;
+        sta frac_q0;
+        bcc L_sign_dv;
+
+    L_any_dv:
         ldx #8;
 
         // |a| < |b|: a fraction, eight iterations.
@@ -620,16 +642,19 @@ int16_t vec_mulfrac(uint16_t t, int16_t d) {
 // point, about 480 cycles; only one outside it, which the table cannot take,
 // pays for the two exact divisions, about 1,230. The table is within 2 of
 // trunc(256 * y / x), half a sub-pixel once poly.cc quarters it.
-bool vec_project_nocull() {
-  if (vec_v.x < 8) {
-    return false;
-  }
+//
+// The vertices the near clip makes are always outside the cone, and sit at
+// x = 64 whenever the clip could lift them (poly.cc _clip_near_edge()): that
+// is the divisor vec_div8p8 answers with a shift, about 110 cycles a call.
+//
+// No test for x < 8: the near clip is the only source of these vertices and
+// passes nothing in front of its plane.
+void vec_project_nocull() {
   if (vec_project_once()) {
-    return true;
+    return;
   }
 
   vec_sx = vec_div8p8(vec_v.y, vec_v.x);
   vec_sy = vec_div8p8(vec_v.z, vec_v.x);
-  return true;
 }
 #pragma optimize(pop)

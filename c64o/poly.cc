@@ -598,29 +598,26 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
   uint8_t n = 0;
   for (uint8_t o = 0; o != end3; o += sizeof(vec3_t), ++n) {
     vec_v = *(const vec3_t *)((const uint8_t *)clip3_buf + o);
-    int16_t px, py;
-    if (vec_project_nocull()) {
-      // Rounded, not truncated toward zero: the bias is half a sub-pixel and
-      // it is signed, so the two ends of a polygon are pulled in opposite
-      // directions depending on which side of the screen centre they land.
-      //
-      // Spelled without the (vec_sx + 2) the rounding wants, because vec_sx
-      // reaches 32767: vec_div8p8 saturates there, and a vertex just past the
-      // near plane saturates it routinely. On the C64 int is 16 bits, so the
-      // + 2 wrapped to -32767 and put the vertex on the *opposite* side of
-      // the screen, which turned a polygon into the whole viewport. The host
-      // cannot see it - there int is 32 bits and the sum simply fits - so
-      // this one was caught in the emulator, not in test/poly_test.cc.
-      //
-      // Shifting right by 1 first halves the range to [-16384, 16383], so
-      // 80 - (vec_sx >> 1) cannot overflow 16 bits, and the second >> 1 folds
-      // bit 1 of vec_sx in as the round-half-up bias.
-      px = (80 - (vec_sx >> 1)) >> 1;
-      py = (28 - (vec_sy >> 1)) >> 1;
-    } else {
-      px = 40;
-      py = 14;
-    }
+    // _clip_near() left nothing in front of the near plane, so every vertex
+    // projects.
+    vec_project_nocull();
+    // Rounded, not truncated toward zero: the bias is half a sub-pixel and
+    // it is signed, so the two ends of a polygon are pulled in opposite
+    // directions depending on which side of the screen centre they land.
+    //
+    // Spelled without the (vec_sx + 2) the rounding wants, because vec_sx
+    // reaches 32767: vec_div8p8 saturates there, and a vertex just past the
+    // near plane saturates it routinely. On the C64 int is 16 bits, so the
+    // + 2 wrapped to -32767 and put the vertex on the *opposite* side of
+    // the screen, which turned a polygon into the whole viewport. The host
+    // cannot see it - there int is 32 bits and the sum simply fits - so
+    // this one was caught in the emulator, not in test/poly_test.cc.
+    //
+    // Shifting right by 1 first halves the range to [-16384, 16383], so
+    // 80 - (vec_sx >> 1) cannot overflow 16 bits, and the second >> 1 folds
+    // bit 1 of vec_sx in as the round-half-up bias.
+    int16_t px = (80 - (vec_sx >> 1)) >> 1;
+    int16_t py = (28 - (vec_sy >> 1)) >> 1;
     proj_buf[n].x = px;
     proj_buf[n].y = py;
     uint8_t out = 0;

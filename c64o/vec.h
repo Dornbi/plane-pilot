@@ -177,9 +177,10 @@ bool vec_viewport_project();
 bool vec_project_once();
 
 // Similar to vec_project, but does not cull based on the screen boundaries.
-// It will only return false if the point is behind the camera (x < 8). Inside
-// the view cone it is vec_project(), outside it exact vec_div8p8 divisions.
-bool vec_project_nocull();
+// The point must not be behind the near plane (x >= 8), which poly.cc's near
+// clip sees to. Inside the view cone it is vec_project(), outside it exact
+// vec_div8p8 divisions.
+void vec_project_nocull();
 
 // Normalizes vector with 8.8 fixed point arithmetic.
 void vec_normalize(vec3_t *v);

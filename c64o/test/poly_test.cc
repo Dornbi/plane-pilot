@@ -87,16 +87,12 @@ static bool _vec_project_table() {
   return true;
 }
 
-bool vec_project_nocull() {
-  if (vec_v.x < 8) {
-    return false;
-  }
+void vec_project_nocull() {
   if (_vec_project_table()) {
-    return true;
+    return;
   }
   vec_sx = vec_div8p8(vec_v.y, vec_v.x);
   vec_sy = vec_div8p8(vec_v.z, vec_v.x);
-  return true;
 }
 
 #include "../poly.cc"

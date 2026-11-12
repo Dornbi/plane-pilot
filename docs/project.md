@@ -294,10 +294,12 @@ workarounds elsewhere. `vec_lut.cc` also carries a reciprocal table used by
 
 `vec_project()` and `vec_project_nocull()` turn a camera-space vector into
 screen coordinates (`vec_sx`, `vec_sy`); the culling variant rejects anything
-outside the view cone, the other only rejects points behind the near plane
-(`x < 8`). Inside the cone both use the reciprocal table, about 480 cycles and
-within 2 of `trunc(256·y/x)`; outside it `vec_project_nocull()` falls back to
-two exact `vec_div8p8` calls, about 1,230. Only the grid loop inlines
+outside the view cone, the other rejects nothing and is only given points the
+near clip has passed (`x >= 8`). Inside the cone both use the reciprocal
+table, about 480 cycles and within 2 of `trunc(256·y/x)`; outside it
+`vec_project_nocull()` falls back to two exact `vec_div8p8` calls, about
+1,230, or about 220 for a vertex the near clip lifted to `x = 64`, a divisor
+`vec_div8p8` answers with a shift. Only the grid loop inlines
 projection, as `vec_viewport_ahead()`, `vec_viewport_beside()` and
 `vec_viewport_project()`: the cone tests one at a time, so the loop adds a
 dot's y only once it is ahead of the camera and its z only once it is inside

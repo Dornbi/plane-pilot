@@ -34,6 +34,7 @@
 //       reported as id 1000 + the case number
 //    7  planes.cc against lib/planes.py over a few hundred more frames, by
 //       checksum, reported as id 2000 + the case number
+//    8  vec_div8p8's shift for a divisor of 64 against its own loop
 
 #include <stdint.h>
 
@@ -267,6 +268,26 @@ static void test_planes_sweep(void) {
   }
 }
 
+// 8. vec_div8p8 answers a divisor of 64 or -64 with a shift instead of its
+// loop (the near clip's lifted vertices, poly.cc). 2a / 128 is the same
+// quotient and takes the loop, so the routine is its own reference; the
+// literals are the ends of the range and both sides of where it saturates.
+static void test_div_by_64(void) {
+  for (int16_t a = -16383; a <= 16383 - 109; a += 109) {
+    expect(8, vec_div8p8(a, 64), vec_div8p8((int16_t)(a << 1), 128));
+    expect(8, vec_div8p8(a, -64), vec_div8p8((int16_t)(a << 1), -128));
+  }
+  expect(8, vec_div8p8(0, 64), 0);
+  expect(8, vec_div8p8(63, 64), 252);
+  expect(8, vec_div8p8(-100, 64), -400);
+  expect(8, vec_div8p8(8191, 64), 32764);
+  expect(8, vec_div8p8(8192, 64), 32767);
+  expect(8, vec_div8p8(-8191, -64), 32764);
+  expect(8, vec_div8p8(-8192, 64), -32767);
+  expect(8, vec_div8p8(32767, -64), -32767);
+  expect(8, vec_div8p8(-32768, 64), -32767);
+}
+
 int main(void) {
   // The KERNAL's timer interrupt keeps its clock and keyboard state in the
   // zero page the region above hands out. Nothing here needs it.
@@ -281,6 +302,7 @@ int main(void) {
   test_mul_against_16bit_product();
   test_planes();
   test_planes_sweep();
+  test_div_by_64();
 
   // Something for vice_dump.sh's @spin to break on. Everything above has
   // landed in the globals by the time the loop is reached.
