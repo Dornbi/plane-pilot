@@ -54,9 +54,9 @@ MIN_CAM_X = 64             # 16 m, in quarter-metre units
 # diagonal.
 MAX_CAM_X = 32767
 
-# The last viewport line a hardware sprite may START on (mem.h). Sprite DMA is
-# switched off kSpritesOffLead = 22 lines above the panel split, and a sprite
-# that has already begun fetching carries on for 21 lines -- 42 if it is
+# The last viewport line a hardware sprite may START on (mem.h). No sprite may
+# start in the kSpritesOffLead = 22 lines above the panel split, because one
+# that has begun fetching carries on for 21 lines -- 42 if it is
 # Y-expanded, which is kSpritesOffLeadExpandY = 43. The sprite stack rejects an
 # entry whose last sprite would start below the line; this renderer slides the
 # bitmap inside the buffer instead (planes.md section 4).

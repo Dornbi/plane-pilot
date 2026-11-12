@@ -16,11 +16,11 @@
 
 #ifdef __OSCAR64__
 #include <c64/rasterirq.h>
-// The split uses four raster interrupts, slots 0-3 in gfx_init_raster_irqs(),
-// and the Makefile's -DNUM_IRQS=4 sizes the library's five tables for just
+// The split uses three raster interrupts, slots 0-2 in gfx_init_raster_irqs(),
+// and the Makefile's -DNUM_IRQS=3 sizes the library's five tables for just
 // those rather than its default sixteen. On the command line, not here:
 // oscar64 compiles rasterirq.c without this file's defines.
-static_assert(NUM_IRQS == 4, "gfx_init_raster_irqs() sets slots 0-3");
+static_assert(NUM_IRQS == 3, "gfx_init_raster_irqs() sets slots 0-2");
 #include <oscar.h>
 #else
 #define RIRQ_SIZE 2
@@ -320,12 +320,11 @@ static void _gfx_rirq_init(void) {
 
 #pragma optimize(pop)
 
-// The two handlers with a deadline, sprite DMA off and the panel's top, are
-// each one write or one call: rirq_build(ic, 1) writes code[0..12],
-// its RTS at 12, and rirq_write()/rirq_call() for write 0 touch only 1 and
-// 9-11 (c64/rasterirq.c). So 14 bytes each, not the library's RIRQCode,
-// whose 32 are sized for five writes; cast to it at the calls. The other two
-// have no RIRQCode at all, see kGfxRasterRows.
+// The one handler with a deadline, the panel's top, is one call:
+// rirq_build(ic, 1) writes code[0..12], its RTS at 12, and rirq_call() for
+// write 0 touches only 9-11 (c64/rasterirq.c). So 14 bytes, not the library's
+// RIRQCode, whose 32 are sized for five writes; cast to it at the calls. The
+// other two have no RIRQCode at all, see kGfxRasterRows.
 static const uint8_t kGfxRirqCode1 = 13;
 typedef struct {
   uint8_t size;
@@ -339,20 +338,28 @@ static_assert(RIRQ_ADDR_0 + 2 <= kGfxRirqCode1 && RIRQ_DATA_0 < kGfxRirqCode1,
 // In mem.h's irqcode region at $FFC0: built in full by
 // gfx_init_raster_irqs() before the interrupts start, so it needs no clear.
 #pragma bss(irqcode)
-static gfx_rirq1_t _rirq_buf[2];
+static gfx_rirq1_t _rirq_buf;
 #pragma bss(bss)
 
 #ifdef __OSCAR64__
-// The split's four raster lines, top to bottom: sprite DMA off, the panel's
-// top and bottom, and the terrain.
+// The split's three raster lines, top to bottom: the panel's top and bottom,
+// and the terrain.
+//
+// No interrupt above them switches sprite DMA off for the cycle-counted panel
+// top. A write of $d015 there could only stop a sprite from *starting* on the
+// lines between it and the split, never one already being fetched, and no
+// enabled sprite has a Y in that band: sprites_stack_add() rejects every
+// entry whose last sprite would start below kSpriteVisibleEndYPixels, and the
+// orientation mark and the tail fin sit on fixed lines above it (mem.h
+// kSpritesOffLead, docs/clouds.md 1.8).
 //
 // _gfx_isr arms a slot's interrupt on the line above its row, and a RIRQCode
 // then spins on $d012 until the line below its row starts: that spin is what
-// takes the entry's jitter out, and the first two slots, _rirq_buf[0] and
-// [1], have a deadline that needs it. The panel's bottom and the terrain have
-// none, so _gfx_isr calls their handlers directly, with no RIRQCode and no
-// spin, about 70 cycles less every time one runs. Their rows are lower to
-// make up for it, so that neither starts on a line it could show on:
+// takes the entry's jitter out, and the first slot, _rirq_buf, has a deadline
+// that needs it. The panel's bottom and the terrain have none, so _gfx_isr
+// calls their handlers directly, with no RIRQCode and no spin, about 70
+// cycles less every time one runs. Their rows are lower to make up for it, so
+// that neither starts on a line it could show on:
 //
 // - The panel's bottom, one lower. On a stock C64 the entry takes just over a
 //   raster line, so the handler starts on the line it always did, the one
@@ -363,13 +370,11 @@ static gfx_rirq1_t _rirq_buf[2];
 // - The terrain, two lower, because it rewrites $d011, $d018 and $d021 and so
 //   has to stay off the panel's last line on both machines: a SuperCPU starts
 //   it on the first border line, as before, and a stock C64 a line later.
-static const uint8_t kGfxRasterRows[4] = {
-    kRasterScreenYStart + kViewportEndYPixels - 1 - kSpritesOffLead,
+static const uint8_t kGfxRasterRows[3] = {
     kRasterScreenYStart + kViewportEndYPixels - 1,
     kRasterScreenYStart + kViewportEndYPixels + 24 + 1,
     kRasterScreenYStart + kScreenHeightPixels + 2};
-static_assert(kSpritesOffLead > 0 &&
-                  kViewportEndYPixels + 24 < kScreenHeightPixels &&
+static_assert(kViewportEndYPixels + 24 < kScreenHeightPixels &&
                   kRasterScreenYStart + kScreenHeightPixels + 2 < 0xff,
               "the slots' rows must ascend below 0xff");
 
@@ -386,20 +391,19 @@ static inline void _gfx_rirq_entry(uint8_t i, const void *entry) {
 // address; the library's rasterIRQRows and the sort itself (118 B) drop out.
 // The sort's write of $d012 is left out too: rirq_start() writes it next.
 //
-// The addresses are four spelt-out stores: read in the loop from a table of
+// The addresses are three spelt-out stores: read in the loop from a table of
 // pointers, oscar64 indexed every table with the pointer table's byte offset.
 static void _gfx_rirq_tables(void) {
-  uint8_t i = 4;
+  uint8_t i = 3;
   do {
     --i;
     rasterIRQIndex[i + 1] = i;
     rasterIRQNext[i] = kGfxRasterRows[i];
   } while (i != 0);
-  _gfx_rirq_entry(0, _rirq_buf[0].code);
-  _gfx_rirq_entry(1, _rirq_buf[1].code);
-  _gfx_rirq_entry(2, (const void *)_switch_to_panel_bottom);
-  _gfx_rirq_entry(3, (const void *)_gfx_switch_to_terrain);
-  rasterIRQNext[4] = 0xff;
+  _gfx_rirq_entry(0, _rirq_buf.code);
+  _gfx_rirq_entry(1, (const void *)_switch_to_panel_bottom);
+  _gfx_rirq_entry(2, (const void *)_gfx_switch_to_terrain);
+  rasterIRQNext[3] = 0xff;
   nextIRQ = 0;
 }
 #else
@@ -424,21 +428,12 @@ void gfx_init_raster_irqs(void) {
   // whatever the chip was left holding.
   sound_mark_dirty();
 
-  // Sprite DMA off, kSpritesOffLead lines above the split. This one is a bare
-  // write rather than a call: the raster IRQ executes it inline, so it costs
-  // no JSR and nothing here is cycle critical - it only has to land before the
-  // VIC fetches sprite data for the line _gfx_switch_to_panel_top() runs on.
-  //
-  // Without it that handler's nineteen NOPs are measuring a line whose length
-  // depends on how many sprites happen to be over the horizon, and the three
-  // writes at the end of it miss the blanking by up to nineteen cycles. The
-  // symptom is a band of terrain colour across the top of the panel that
-  // flickers as you fly. See mem.h and docs/clouds.md §1.8.
-  RIRQCode *sprites_off = (RIRQCode *)&_rirq_buf[0];
-  RIRQCode *panel_top = (RIRQCode *)&_rirq_buf[1];
-  rirq_build(sprites_off, 1);
-  rirq_write(sprites_off, 0, (void *)0xD015, 0);
-
+  // The panel top's NOPs are measured on lines with no sprite DMA. With a
+  // sprite's fetches on them the three writes at the end miss the blanking,
+  // and a band of terrain colour flickers across the top of the panel. The
+  // sprite stack's cull is what keeps those lines clear (kGfxRasterRows,
+  // mem.h kSpritesOffLead and docs/clouds.md §1.8).
+  RIRQCode *panel_top = (RIRQCode *)&_rirq_buf;
   rirq_build(panel_top, 1);
   // Which of the two padding counts this machine needs, from the boot probe.
   // cpu_step_shift is 0 on a stock C64 and 2 on a SuperCPU (docs/supercpu.md),

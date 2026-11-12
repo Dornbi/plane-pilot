@@ -384,14 +384,15 @@ bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
   // Vertically the test is on the *last* hardware sprite of the entry, not on
   // the entry's bottom edge, and the difference is the whole point.
   //
-  // The VIC only begins fetching a sprite on the line its Y matches, and
-  // clearing $D015 above the split (mem.h) stops any sprite that has not begun
-  // by then. A single sprite reaching the cut is therefore clipped, which is
-  // what we want. A 1 x 2 stack is not: its lower half is a separate hardware
-  // sprite whose Y is 21 lines further down, so if that line falls below the
-  // cut the lower half never starts at all and the cloud draws as a flat-topped
-  // half - the same symptom as the oscar64 miscompile of §3.4, from an
-  // unrelated cause. Rejecting the entry is better than drawing half of it.
+  // The VIC begins fetching a sprite on the line its Y matches and fetches
+  // for the 21 lines after it, and none of that may reach the cycle-counted
+  // panel split (mem.h kSpritesOffLead). This test is all that keeps the
+  // split's lines clear: no interrupt clears $D015 above it any more (gfx.cc
+  // kGfxRasterRows), so no hardware sprite may start below the cut. In a
+  // 1 x 2 stack the lower half is a separate hardware sprite whose Y is 21
+  // lines further down, and it is that one's line that counts. An entry
+  // whose lower half would start too low is rejected whole, which is better
+  // than drawing half of it.
   //
   // Both `last_sprite_top >= kSpriteVisibleEndYPixels` and `y + height <= 0`
   // bound `y + height - 1` to `[0, kSpriteVisibleEndYPixels + 20)`. A

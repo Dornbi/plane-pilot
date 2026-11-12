@@ -71,11 +71,11 @@
 // hardware vectors at $FFFA, which nothing else writes: the map's bitmap
 // stops at $FF3F. Like bss2, nothing in the .prg lands here and the startup
 // code does not clear it, so tenants must write every byte before reading it.
-// Tenant: gfx.cc's two generated raster IRQ handlers (_rirq_buf, 28 bytes),
+// Tenant: gfx.cc's one generated raster IRQ handler (_rirq_buf, 14 bytes),
 // which gfx_init_raster_irqs() builds in full before it starts the
-// interrupts; the other 28 bytes are free. The KERNAL ROM is never banked in
-// once mem_init() has run, so the CPU reads them from RAM. Both in page $FF,
-// so no handler's branch crosses a page.
+// interrupts; the other 42 bytes are free. The KERNAL ROM is never banked in
+// once mem_init() has run, so the CPU reads it from RAM. All of it is in page
+// $FF, so the handler's branch crosses no page.
 #pragma section(irqcode, 0, , , bss)
 #pragma region( irqcode, 0xFFC0, 0xFFF8, , , {irqcode} )
 #pragma section(data_box, 0, , , data)
@@ -239,8 +239,12 @@ static_assert(MEM_MAIN_END == 0xCFC0, "the dot is the block the main region gave
 #endif
 static const uint8_t kRasterScreenYStart = 50;
 
-// Sprites are switched off this many raster lines above the panel split, so
-// this is also the last line in the viewport a sprite may *start* on.
+// No sprite may *start* on the last this many raster lines above the panel
+// split: kSpriteVisibleEndYPixels is the first viewport line that is too low.
+// sprites_stack_add()'s cull is what enforces it. A raster interrupt on that
+// line once cleared $D015 as well, and the measurements below were made with
+// it. It is gone, because it could only do what the cull already does: stop a
+// sprite from starting in the band, never one already being fetched.
 //
 // The switch to the panel in gfx.cc is cycle counted - nineteen NOPs and then
 // three register writes that have to land in the blanking between raster 162

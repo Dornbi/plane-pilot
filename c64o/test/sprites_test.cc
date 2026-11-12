@@ -389,9 +389,9 @@ static void test_culls(void) {
 
   printf("  an object over the bottom edge is clipped, not hidden\n");
   // docs/clouds.md §1.8: the old sun path culled anything reaching past the
-  // bottom of the viewport. It is admitted and clipped instead - sprite DMA is
-  // switched off above the split, which is what keeps the raster timing
-  // stable, and the cull plays no part in that.
+  // bottom of the viewport. It is admitted instead, down to the last line a
+  // sprite may start on: the cull at kSpriteVisibleEndYPixels is what keeps
+  // sprite DMA off the split's lines and the raster timing stable.
   sprites_stack_reset();
   {
     const int16_t centre = (int16_t)kSpriteVisibleEndYPixels - 1 + kSunPivotY;

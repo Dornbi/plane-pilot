@@ -352,9 +352,21 @@ clipped rather than hidden whole. Where exactly it is clipped is §1.8.
 
 ### 1.8. Sprite DMA has to be off before the panel switch
 
-**`$D015` is cleared by its own raster IRQ, `kSpritesOffLead = 22` lines above
-the split**, so a sprite may not *start* below `kSpriteVisibleEndYPixels`
-rather than anywhere down to the bottom of the viewport.
+**No sprite may *start* in the last `kSpritesOffLead = 22` lines above the
+split**, that is below `kSpriteVisibleEndYPixels`, rather than anywhere down to
+the bottom of the viewport. `sprites_stack_add()`'s cull enforces it.
+
+*Since 2026-11-12 the cull does it alone.* Until then a fourth raster IRQ on
+that line also cleared `$D015`, and the history and measurements below were
+made with it. It is gone because, as this section itself found, the write only
+stops a sprite that has not started yet, and with the lead at 22 the cull lets
+none start below that line: the orientation mark and the tail fin sit on fixed
+lines above it, and every stack entry's last sprite starts on raster 139 or
+higher. The table's "the cull alone" row is not a counter-example: that build's
+cull (43e6f14, with the lead at 17) let a sprite start as low as 144, and the
+sweep shows that a start on 139 or above costs the switch nothing. Without the
+interrupt the `tools/make_shots.sh` flight and map screens are pixel-identical.
+It saves about 170 cycles a PAL frame and 53 B.
 
 `_gfx_switch_to_panel_top()` is cycle counted. It runs a measured run of NOPs
 and then writes `$D018`, `$D011` and `$D021`, and those three writes have to
@@ -465,9 +477,10 @@ start-line test and is what made clouds vanish near the horizon. The cost of
 the fix is the pop, not any clipping: an object whose top would land in the
 last 23 lines of the viewport is not drawn at all, and one that is drawn is
 drawn whole, down to raster 160 — two lines above the panel.
-The sprites-off handler is `_rirq_buf[0]` in `gfx.cc`, at `$FFC0` (mem.h's
-`irqcode` region, below the hardware vectors) with the panel top's: each is 14 bytes, the one write or call that `rirq_build(ic, 1)`
-lays out, not oscar64's 32-byte `RIRQCode`. The panel's bottom and the terrain
+The panel top's handler is `_rirq_buf` in `gfx.cc`, at `$FFC0` (mem.h's
+`irqcode` region, below the hardware vectors): 14 bytes, the one call that
+`rirq_build(ic, 1)` lays out, not oscar64's 32-byte `RIRQCode`. The panel's
+bottom and the terrain
 have no deadline and no `RIRQCode`: `_gfx_isr` calls them directly
 (`_gfx_rirq_entry()`).
 

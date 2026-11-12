@@ -229,9 +229,9 @@ PLANEDEMO_SRC = benchmark.h \
 
 CC = oscar64
 # -g is not optional here: it emits the .asm and .map that ZPCHECK reads.
-# NUM_IRQS sizes oscar64's raster IRQ tables for the split's four (gfx.cc).
+# NUM_IRQS sizes oscar64's raster IRQ tables for the split's three (gfx.cc).
 # tools/bench.sh and tools/make_shots.sh repeat these flags.
-CFLAGS = -ii=${OSCAR64_INCLUDE} -D__OSCAR64__ -DNUM_IRQS=4 -g -xz
+CFLAGS = -ii=${OSCAR64_INCLUDE} -D__OSCAR64__ -DNUM_IRQS=3 -g -xz
 # -Oo runs the outliner over everything; the per-frame render and math files
 # opt back out with #pragma optimize(nooutline), since there a JSR/RTS per
 # extracted sequence costs more than the bytes are worth.

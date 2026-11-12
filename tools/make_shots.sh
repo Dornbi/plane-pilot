@@ -105,7 +105,7 @@ done
 
 # Same flags as the ppilot.prg rule in c64o/Makefile: a scene has to be a
 # picture of the binary people actually run.
-CFLAGS="-ii=../include -D__OSCAR64__ -DNUM_IRQS=4 -g -xz -O2 -Op -Oa -Oi -Oz -Oo"
+CFLAGS="-ii=../include -D__OSCAR64__ -DNUM_IRQS=3 -g -xz -O2 -Op -Oa -Oi -Oz -Oo"
 CFLAGS="$CFLAGS -D__ENABLE_SOUND__ -D__ENABLE_DEBUG__ -D__ENABLE_CLOUDS__ -D__ENABLE_COLOR_SCHEMES__ -D__MAX_RAM__"
 # SHOT_CFLAGS adds to them, e.g. -DSHOT_SCHEME=3 for a posed scene in Night's
 # colours (tools/shot.cc).

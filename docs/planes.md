@@ -473,8 +473,8 @@ hysteresis carried over, finds `k` 90 two sprites at worst and 92 four
 
 ### The DMA cut: slide, don't reject
 
-Sprite DMA is switched off 22 lines above the panel split, and a sprite that
-has already begun fetching carries on for 21 lines — 42 if it is Y-expanded
+No sprite may be fetching on the lines of the panel split, and a sprite that
+has begun fetching carries on for 21 lines — 42 if it is Y-expanded
 (`mem.h`, `kSpritesOffLead` and `kSpritesOffLeadExpandY`). So the last viewport
 line a sprite may **start** on is 89, or **68** if it is Y-expanded.
 
