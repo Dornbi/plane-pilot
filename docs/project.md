@@ -215,6 +215,14 @@ level horizon, whole rows only, has a cheaper loop of its own. It deliberately
 leaves `kSkipLines` (4) rows either side of the horizon unfilled, because the
 tiles are about to overwrite them anyway — worth about 1000 cycles.
 
+A whole row of sky needs its characters every frame, but its 40 colours only
+when something has put another colour there. `render_sky_rows` counts the
+colour buffer's rows, from the top, that hold only the sky colour: the fill
+skips their colours and sets the count to this frame's unbroken run of sky
+rows, and `_draw_one_box()` lowers it to the top row of every box it draws.
+Polygons and dots colour only cells that hold ground characters, which a
+counted row has none of.
+
 ### `boxdefs.cc` / `box.cc` — tiles
 
 `boxdef_t` is the tile: width, height, the step vector to the next copy, its

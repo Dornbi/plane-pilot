@@ -179,15 +179,34 @@ static void _fill_line(uint8_t *dst, uint8_t val) {
   }
 }
 
-// The row _fill_span writes to, in the screen and in the colour buffer.
-static uint8_t *_row_dst, *_row_color;
+// How many rows of the colour buffer, from the top, hold nothing but the sky
+// colour, so that a row of sky among them needs only its characters: 40
+// stores a row, a frame, that changed nothing. Everything else that colours
+// the buffer is accounted for. The horizon's boxes lower the count to their
+// top row themselves (box.cc). Polygons and dots colour only cells that hold
+// ground characters, and a row counted here was all sky when it was filled
+// and has had no box over it since. The message's cells on row 0 are put
+// back by msg_restore_color() before every fill.
+uint8_t render_sky_rows;
+// This frame's rows of sky so far, counted from the top without a gap: the
+// next frame's render_sky_rows.
+static uint8_t _sky_rows;
 
-static void _fill_full_row(bool sky) {
+static_assert(kViewportStartX == 0 && kViewportStartY == 0,
+              "viewport row y is screen row y, from its first column");
+
+static void _fill_full_row(bool sky, uint8_t y) {
+  uint8_t *dst = mem_screen_row_ptrs[y];
   if (sky) {
-    _fill_line(_row_dst, kCharSolid11);
-    _fill_line(_row_color, COLOR_SKY8);
+    _fill_line(dst, kCharSolid11);
+    if (y >= render_sky_rows) {
+      _fill_line(mem_color_row_ptrs[y], COLOR_SKY8);
+    }
+    if (y == _sky_rows) {
+      ++_sky_rows;
+    }
   } else {
-    _fill_line(_row_dst, kCharSolidGround);
+    _fill_line(dst, kCharSolidGround);
   }
 }
 
@@ -213,9 +232,7 @@ static const int16_t kFull = kViewportWidth << 4;
 // writes the same cells.
 void render_fill_sky_ground() {
   bm_view_start();
-  _row_dst = (uint8_t *)(mem_screen_ram + kViewportStartX +
-                         kViewportStartY * kScreenWidth);
-  _row_color = (uint8_t *)(mem_color_buffer + kViewportStartY * kViewportWidth);
+  _sky_rows = 0;
 
   if (roll_dy == 0) {
     // Level: whole rows only. Rows above e are the left side's, rows from
@@ -236,12 +253,10 @@ void render_fill_sky_ground() {
     // cycles a row more, and level flight is the common case.
     for (uint8_t y = 0; y < kViewportHeight; ++y) {
       if (y < row_l) {
-        _fill_full_row(sky_left);
+        _fill_full_row(sky_left, y);
       } else if (y >= row_r) {
-        _fill_full_row(!sky_left);
+        _fill_full_row(!sky_left, y);
       }
-      _row_dst += kScreenWidth;
-      _row_color += kViewportWidth;
     }
   } else {
     bool sky_left = roll_dy < 0;
@@ -275,20 +290,23 @@ void render_fill_sky_ground() {
     for (uint8_t y = 0; y < kViewportHeight; ++y) {
       int16_t hi = lo + w;
       if (hi < 0x10) {
-        _fill_full_row(!sky_left);
+        _fill_full_row(!sky_left, y);
       } else if (lo >= kFull) {
-        _fill_full_row(sky_left);
+        _fill_full_row(sky_left, y);
       } else {
+        // The row's spans, in the screen and in the colour buffer.
+        uint8_t *const row_dst = mem_screen_row_ptrs[y];
+        uint8_t *const row_color = mem_color_row_ptrs[y];
         if (lo >= 0x10) {
           int8_t i = (int8_t)(lo >> 4) - 1;
           if (sky_left) {
             do {
-              _row_dst[i] = kCharSolid11;
-              _row_color[i] = COLOR_SKY8;
+              row_dst[i] = kCharSolid11;
+              row_color[i] = COLOR_SKY8;
             } while (--i >= 0);
           } else {
             do {
-              _row_dst[i] = kCharSolidGround;
+              row_dst[i] = kCharSolidGround;
             } while (--i >= 0);
           }
         }
@@ -296,21 +314,20 @@ void render_fill_sky_ground() {
           uint8_t i = (uint8_t)(hi >> 4);
           if (!sky_left) {
             do {
-              _row_dst[i] = kCharSolid11;
-              _row_color[i] = COLOR_SKY8;
+              row_dst[i] = kCharSolid11;
+              row_color[i] = COLOR_SKY8;
             } while (++i < kViewportWidth);
           } else {
             do {
-              _row_dst[i] = kCharSolidGround;
+              row_dst[i] = kCharSolidGround;
             } while (++i < kViewportWidth);
           }
         }
       }
-      _row_dst += kScreenWidth;
-      _row_color += kViewportWidth;
       lo += roll_dx_div_dy;
     }
   }
+  render_sky_rows = _sky_rows;
 
   bm_view_end(710, "BGR:");
 }

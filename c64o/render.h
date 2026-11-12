@@ -14,6 +14,9 @@ extern int8_t render_cy_chars;
 extern bool render_alt_box;
 extern int8_t render_alt_shift_x;
 extern int8_t render_alt_shift_y;
+// How many rows of the colour buffer, from the top, hold only the sky colour
+// (render.cc). Whatever writes another colour into row y lowers it to y.
+extern uint8_t render_sky_rows;
 
 // Snaps (cx, cy) to the nearest supported center (Main or Alt lattice).
 // Computes character coordinates and updates render_alt_box.

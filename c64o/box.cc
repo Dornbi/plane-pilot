@@ -227,6 +227,10 @@ static void _draw_one_box(int8_t cx, int8_t cy) {
   if (w <= 0) {
     return;
   }
+  // The box's colours go over rows that the fill may have counted as sky.
+  if ((uint8_t)cy < render_sky_rows) {
+    render_sky_rows = (uint8_t)cy;
+  }
 
   uint8_t *dst_chr = mem_screen_row_ptrs[cy] + cx + kViewportStartX;
   uint8_t *dst_col = mem_color_row_ptrs[cy] + cx;

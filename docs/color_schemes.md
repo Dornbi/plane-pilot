@@ -131,8 +131,10 @@ in fpilot and `color_scheme.dot` in ppilot.
 **Loading.** `_start_mission()` in [sim.cc](../c64o/sim.cc) copies
 `kColorSchemes[kMissionScheme[m]]` into `color_scheme` and calls
 `box_invalidate()`, so the horizon boxes' colour caches are rebuilt with the
-new colours. It already runs before `mem_init_mccm()` in
-`_enter_simulation()`, which sets `$D022` and `$D023`; returning from the map
+new colours. It also zeroes `render_sky_rows` ([render.cc](../c64o/render.cc)),
+the count of colour buffer rows the fill trusts to hold the sky colour
+already, so every row of sky is filled with the new one. It already runs
+before `mem_init_mccm()` in `_enter_simulation()`, which sets `$D022` and `$D023`; returning from the map
 calls `mem_init_mccm()` again ([screen.cc](../c64o/screen.cc)), so both stay
 right. R restarts the same mission, so its scheme does not change.
 

@@ -45,6 +45,7 @@
 
 #include "box.h"
 #include "mission.h"
+#include "render.h"
 #include "vic.h"
 #endif
 #include "vec.h"
@@ -74,6 +75,8 @@
 static void _shot_apply_scheme(void) {
   memcpy(&color_scheme, &kColorSchemes[SHOT_SCHEME], sizeof(ColorScheme));
   box_invalidate();
+  // As _start_mission() does: the colour buffer's sky is the old scheme's.
+  render_sky_rows = 0;
   vic.color_back1 = COLOR_GROUND;
   vic.color_back2 = COLOR_GRNDOBJ;
 }
