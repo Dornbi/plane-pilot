@@ -476,19 +476,24 @@ void vec_transform3_inv(const mat3_t *t, mat3_t *m) {
 
 #pragma optimize(pop)
 
+// Static input copy so u == res aliasing stays safe without burning static stack
+// (not reentrant; never called from an IRQ).
+static vec3_t _vec_transform_in;
+
 void vec_transform_inv(const mat3_t *mat, const vec3_t *u, vec3_t *res) {
-  const int16_t ux = u->x;
-  const int16_t uy = u->y;
-  const int16_t uz = u->z;
-  res->x = vec_fastmul8p8(mat->front.x, ux) +
-           vec_fastmul8p8(mat->front.y, uy) +
-           vec_fastmul8p8(mat->front.z, uz);
-  res->y = vec_fastmul8p8(mat->left.x, ux) +
-           vec_fastmul8p8(mat->left.y, uy) +
-           vec_fastmul8p8(mat->left.z, uz);
-  res->z = vec_fastmul8p8(mat->up.x, ux) +
-           vec_fastmul8p8(mat->up.y, uy) +
-           vec_fastmul8p8(mat->up.z, uz);
+  _vec_transform_in = *u;
+  const int16_t *rp = &mat->front.x;
+  const int16_t *up = &_vec_transform_in.x;
+  int16_t *dst = &res->x;
+  uint8_t k = 0;
+  for (uint8_t i = 0; i < 3; ++i) {
+    int16_t sum = 0;
+    for (uint8_t j = 0; j < 3; ++j) {
+      sum += vec_fastmul8p8(rp[k], up[j]);
+      ++k;
+    }
+    dst[i] = sum;
+  }
 }
 
 // Both components come from the values the vector arrived with, which is what

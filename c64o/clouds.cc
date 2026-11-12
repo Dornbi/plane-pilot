@@ -29,6 +29,12 @@ static inline int16_t _clouds_down_shift(uint32_t val) {
 #pragma bss(bss2)
 #endif
 static vec3_t _clouds_half_basis[3];
+// Every cloud group shares the same _clouds_dz within a frame, so each camera
+// axis's row->z * _clouds_dz contribution is computed at most once per frame on
+// first _clouds_dot_row(axis) use.
+static int16_t _clouds_z[3];
+static bool _clouds_z_valid[3];
+static int16_t _clouds_dz;
 
 // The basis only depends on the camera, so it is the same for every group in
 // a frame. It is also useless in the ~58% of frames where no group is in
@@ -37,6 +43,18 @@ static vec3_t _clouds_half_basis[3];
 static bool _clouds_basis_valid;
 static const int8_t *_clouds_pat;
 #pragma bss(bss)
+
+// Evaluates one row of vec_transform_inv(&world_cam, (vec_v.x, vec_v.y, _clouds_dz)):
+// axis 0 -> camera x (front), 1 -> y (left), 2 -> z (up).
+static __noinline int16_t _clouds_dot_row(uint8_t axis) {
+  const vec3_t *row = &world_cam.front + axis;
+  if (!_clouds_z_valid[axis]) {
+    _clouds_z_valid[axis] = true;
+    _clouds_z[axis] = vec_fastmul8p8(row->z, _clouds_dz);
+  }
+  return _clouds_z[axis] + vec_fastmul8p8(row->x, vec_v.x) +
+         vec_fastmul8p8(row->y, vec_v.y);
+}
 
 static void _clouds_build_basis(void) {
   // vec_transform_inv() is linear and carries no translation, so the image of
@@ -102,9 +120,7 @@ void clouds_add_candidates(void) {
 
   // The deck is flat, so every cloud in the world is at the same height and
   // the vertical offset is computed once (§2.6).
-  vec3_t delta;
-  delta.z = kCloudDeckU - _clouds_down_shift(flight_eye_z);
-  vec3_t centre;
+  _clouds_dz = kCloudDeckU - _clouds_down_shift(flight_eye_z);
 
   // Where the eye sits inside its own cell, negated. Every candidate's offset
   // from the eye is then this plus a whole number of cells plus the jitter -
@@ -118,6 +134,9 @@ void clouds_add_candidates(void) {
   const uint8_t start_cy = (uint8_t)(my >> kCloudCellShift) - kCloudScanRadius;
 
   _clouds_basis_valid = false;
+  _clouds_z_valid[0] = false;
+  _clouds_z_valid[1] = false;
+  _clouds_z_valid[2] = false;
 
   const uint8_t kScanSpanHi = (2 * kCloudScanRadius + 1)
                               << (kCloudCellShift - kCloudJitterShift);
@@ -160,14 +179,15 @@ void clouds_add_candidates(void) {
         continue;
       }
 
-      delta.x = (int16_t)(off_x - kCloudCullU);
-      delta.y = (int16_t)(off_y - kCloudCullU);
-
-      vec_transform_inv(&world_cam, &delta, &centre);
+      // vec_v is idle until blob projection below, so keeping dx/dy in its
+      // zeropage words avoids extra tscratch loads inside _clouds_dot_row().
+      vec_v.x = (int16_t)(off_x - kCloudCullU);
+      vec_v.y = (int16_t)(off_y - kCloudCullU);
 
       // Behind the camera, or past the ladder's reach. vec_project() would
       // reject the first anyway; testing it here skips the rung walk.
-      if (centre.x <= 8 || centre.x > kCloudRungDepth[0]) {
+      const int16_t cx_cam = _clouds_dot_row(0);
+      if (cx_cam <= 8 || cx_cam > kCloudRungDepth[0]) {
         continue;
       }
 
@@ -180,14 +200,16 @@ void clouds_add_candidates(void) {
       // vertically - plus 128 units of slack for the blob offsets (up to 54)
       // and a blob's own radius (48), so nothing that could draw is rejected.
       //
-      // centre.x is in (8, kCloudRungDepth[0]] here, so both bounds are
+      // cx_cam is in (8, kCloudRungDepth[0]] here, so both bounds are
       // positive and well inside _clouds_outside()'s range.
-      const int16_t vert = (centre.x >> 2) + 128;
-      if (_clouds_outside(centre.z, vert)) {
+      const int16_t vert = (cx_cam >> 2) + 128;
+      const int16_t cz_cam = _clouds_dot_row(2);
+      if (_clouds_outside(cz_cam, vert)) {
         continue;
       }
-      const int16_t lat = (centre.x >> 1) + (vert >> 1) + 64;
-      if (_clouds_outside(centre.y, lat)) {
+      const int16_t lat = (cx_cam >> 1) + (vert >> 1) + 64;
+      const int16_t cy_cam = _clouds_dot_row(1);
+      if (_clouds_outside(cy_cam, lat)) {
         continue;
       }
 
@@ -198,7 +220,7 @@ void clouds_add_candidates(void) {
       // kilometres, so three rungs would be the same answer three times.
       uint8_t rung = 0;
       while (rung < kCloudRungCount - 1 &&
-             centre.x <= kCloudRungDepth[rung + 1]) {
+             cx_cam <= kCloudRungDepth[rung + 1]) {
         ++rung;
       }
       // Far groups draw as a single blob (§3.5). Out here the three of them
@@ -238,7 +260,9 @@ void clouds_add_candidates(void) {
       const sprite_cloud_rung_t *meta = &kSpriteDefCloudRung[rung + collapsed];
 
       for (uint8_t b = 0; b < blobs; ++b) {
-        vec_v = centre;
+        vec_v.x = cx_cam;
+        vec_v.y = cy_cam;
+        vec_v.z = cz_cam;
         if (!collapsed) {
           _clouds_apply_offset();
           // The group centre is in front of the camera, but a blob is offset by
