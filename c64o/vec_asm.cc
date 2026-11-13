@@ -93,6 +93,12 @@ uint16_t vec_mul8x8(uint8_t a, uint8_t b) {
 // computed on |a| and |b| with the sign applied at the end, which matches
 // trunc((a * b) / 256) exactly, wrapping to 16 bits on overflow. Unlike
 // the old C quarter-square path this has no |a| + |b| < 4096 constraint.
+//
+// Partial products that are zero are not computed: none for an operand of 0
+// or +-256, two for another multiple of 256, and two for an |a| below 256,
+// or one when |b| is below 256 as well. The short operand, a camera row's
+// component or a byte of a fraction, is a in vec_dot(), vec_mulfrac() and
+// most other callers, so only a is tested.
 int16_t vec_fastmul8p8(int16_t a, int16_t b) {
   // clang-format off
   __asm {
@@ -131,6 +137,7 @@ int16_t vec_fastmul8p8(int16_t a, int16_t b) {
         lda a+1;
         bne L_a_hi_nonzero_fm;
         // a == 0
+    L_zero_fm:
         sta mul_res;
         sta mul_res+1;
         jmp L_done_fm;
@@ -168,12 +175,8 @@ int16_t vec_fastmul8p8(int16_t a, int16_t b) {
 
         // |b| is a multiple of 256.
         lda b+1;
-        bne L_b_hi_nonzero_fm;
         // b == 0
-        sta mul_res;
-        sta mul_res+1;
-        jmp L_done_fm;
-    L_b_hi_nonzero_fm:
+        beq L_zero_fm;
         cmp #1;
         bne L_b_hi_mul_fm;
         // |b| == 256: result = |a|
@@ -199,23 +202,28 @@ int16_t vec_fastmul8p8(int16_t a, int16_t b) {
         jmp L_sign_fm;
 
     L_b_lo_nonzero_fm:
-        lda b+1;
-        sta vec_mul8_b;
-        ora a+1;
+        ldx b+1;
+        lda a+1;
         bne L_full_fm;
-        // Both high bytes zero: result = al*bl >> 8.
-        lda b;
-        sta vec_mul8_b;
+        // |a| < 256, which a camera row's component or a fraction's byte is
+        // more often than not: ah's two products are 0. That leaves al*bh,
+        // itself 0 when |b| < 256 too, and al*bl's high byte below.
+        txa;
+        beq L_al_bh_fm;
+        stx vec_mul8_b;
         lda a;
         jsr vec_mul8;
-        sta mul_res;
-        lda #0;
+        ldx vec_mul8_lo;
+    L_al_bh_fm:
         sta mul_res+1;
-        jmp L_sign_fm;
+        stx mul_res;
+        lda b;
+        sta vec_mul8_b;
+        bne L_al_bl_fm;
 
     L_full_fm:
-        // ah*bh, low byte into the result high byte (vec_mul8_b = bh).
-        lda a+1;
+        // ah*bh, low byte into the result high byte (A = ah, X = bh).
+        stx vec_mul8_b;
         jsr vec_mul8;
         lda vec_mul8_lo;
         sta mul_res+1;
@@ -243,6 +251,7 @@ int16_t vec_fastmul8p8(int16_t a, int16_t b) {
         adc mul_res+1;
         sta mul_res+1;
         // al*bl, high byte only (vec_mul8_b still bl).
+    L_al_bl_fm:
         lda a;
         jsr vec_mul8;
         clc;

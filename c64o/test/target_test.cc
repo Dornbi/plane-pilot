@@ -35,6 +35,7 @@
 //    7  planes.cc against lib/planes.py over a few hundred more frames, by
 //       checksum, reported as id 2000 + the case number
 //    8  vec_div8p8's shift for a divisor of 64 against its own loop
+//    9  vec_fastmul8p8 with an operand below 256 against the 32-bit product
 
 #include <stdint.h>
 
@@ -288,6 +289,31 @@ static void test_div_by_64(void) {
   expect(8, vec_div8p8(-32768, 64), -32767);
 }
 
+// 9. vec_fastmul8p8 skips the high byte's two partial products when |a| is
+// below 256, and the third when |b| is too. The reference is the 32-bit
+// product, truncated toward zero as the routine truncates; with one operand
+// that short it always fits. Each pair goes in both orders, so the four
+// product path is held to the same answers.
+static const int16_t kShortA[] = {1, 3, 100, 128, 255, -1, -77, -255};
+
+static void _fastmul_short(int16_t a, int16_t b) {
+  const int16_t want = (int16_t)(((int32_t)a * b) / 256);
+  expect(9, vec_fastmul8p8(a, b), want);
+  expect(9, vec_fastmul8p8(b, a), want);
+}
+
+static void test_fastmul_short(void) {
+  for (uint8_t i = 0; i < sizeof(kShortA) / sizeof(kShortA[0]); ++i) {
+    const int16_t a = kShortA[i];
+    for (int32_t b = -32768; b <= 32767; b += 1021) {
+      _fastmul_short(a, (int16_t)b);
+    }
+    for (int16_t b = -255; b <= 255; b += 17) {
+      _fastmul_short(a, b);
+    }
+  }
+}
+
 int main(void) {
   // The KERNAL's timer interrupt keeps its clock and keyboard state in the
   // zero page the region above hands out. Nothing here needs it.
@@ -303,6 +329,7 @@ int main(void) {
   test_planes();
   test_planes_sweep();
   test_div_by_64();
+  test_fastmul_short();
 
   // Something for vice_dump.sh's @spin to break on. Everything above has
   // landed in the globals by the time the loop is reached.

@@ -288,7 +288,10 @@ The multiply is the interesting part. `vec_fastmul8p8` is hand-written assembly
 built on quarter-square tables (`x*y = T(x+y) − T(|x−y|)` with `T(i) = i²/4`),
 assembling the 16-bit result from four 8×8 partial products. Unlike the earlier
 C version it is exact for all `int16` inputs, which removed several precision
-workarounds elsewhere. `vec_lut.cc` also carries a reciprocal table used by
+workarounds elsewhere. It skips the products that are zero: an operand that
+is a multiple of 256 needs two at most, and a first operand below 256 in
+magnitude, which a camera row's component usually is, needs two as well, or
+one when the second is that short too. `vec_lut.cc` also carries a reciprocal table used by
 `vec_project()`. `vec_div8p8` is exact instead: a restoring division in
 `vec_asm.cc`, sharing its loop with `vec_fracn`.
 
