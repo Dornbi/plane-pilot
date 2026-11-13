@@ -36,6 +36,16 @@ static vec3_t _clouds_half_basis[3];
 // that wants it, and this flag stops the second from rebuilding it.
 static bool _clouds_basis_valid;
 static const int8_t *_clouds_pat;
+
+// The deck is flat, so every group in a frame is the same height off the eye,
+// _clouds_dz, and each camera row's share of it, row.z * _clouds_dz, is the
+// same for every group too. _clouds_dot() works it out for a row the first
+// time a group needs that row in a frame, and every later group adds the
+// cached term instead of a third multiply. Lazily, like the basis: most
+// frames reach a row with one group or none.
+static int16_t _clouds_dz;
+static int16_t _clouds_z[3];
+static bool _clouds_z_valid[3];
 #pragma bss(bss)
 
 static void _clouds_build_basis(void) {
@@ -53,6 +63,19 @@ static void _clouds_build_basis(void) {
     ++cam;
     ++dst;
   }
+}
+
+// One camera axis of the group at (vec_v.x, vec_v.y, _clouds_dz) from the eye:
+// 0 front, 1 left, 2 up, the rows of world_cam. vec_v is free until the blobs
+// are projected, and holding the offset there keeps it in zero page.
+static __noinline int16_t _clouds_dot(uint8_t axis) {
+  const vec3_t *row = &world_cam.front + axis;
+  if (!_clouds_z_valid[axis]) {
+    _clouds_z_valid[axis] = true;
+    _clouds_z[axis] = vec_fastmul8p8(row->z, _clouds_dz);
+  }
+  return _clouds_z[axis] + vec_fastmul8p8(row->x, vec_v.x) +
+         vec_fastmul8p8(row->y, vec_v.y);
 }
 
 // v outside [-r, r], as one unsigned compare instead of two signed ones: v + r
@@ -102,8 +125,7 @@ void clouds_add_candidates(void) {
 
   // The deck is flat, so every cloud in the world is at the same height and
   // the vertical offset is computed once (§2.6).
-  vec3_t delta;
-  delta.z = kCloudDeckU - _clouds_down_shift(flight_eye_z);
+  _clouds_dz = kCloudDeckU - _clouds_down_shift(flight_eye_z);
   vec3_t centre;
 
   // Where the eye sits inside its own cell, negated. Every candidate's offset
@@ -118,6 +140,9 @@ void clouds_add_candidates(void) {
   const uint8_t start_cy = (uint8_t)(my >> kCloudCellShift) - kCloudScanRadius;
 
   _clouds_basis_valid = false;
+  _clouds_z_valid[0] = false;
+  _clouds_z_valid[1] = false;
+  _clouds_z_valid[2] = false;
 
   const uint8_t kScanSpanHi = (2 * kCloudScanRadius + 1)
                               << (kCloudCellShift - kCloudJitterShift);
@@ -160,10 +185,10 @@ void clouds_add_candidates(void) {
         continue;
       }
 
-      delta.x = (int16_t)(off_x - kCloudCullU);
-      delta.y = (int16_t)(off_y - kCloudCullU);
+      vec_v.x = (int16_t)(off_x - kCloudCullU);
+      vec_v.y = (int16_t)(off_y - kCloudCullU);
 
-      centre.x = vec_dot(&world_cam.front, &delta);
+      centre.x = _clouds_dot(0);
 
       // Behind the camera, or past the ladder's reach. vec_project() would
       // reject the first anyway; testing it here skips the other two axes and
@@ -184,12 +209,12 @@ void clouds_add_candidates(void) {
       // centre.x is in (8, kCloudRungDepth[0]] here, so both bounds are
       // positive and well inside _clouds_outside()'s range.
       const int16_t vert = (centre.x >> 2) + 128;
-      centre.z = vec_dot(&world_cam.up, &delta);
+      centre.z = _clouds_dot(2);
       if (_clouds_outside(centre.z, vert)) {
         continue;
       }
       const int16_t lat = (centre.x >> 1) + (vert >> 1) + 64;
-      centre.y = vec_dot(&world_cam.left, &delta);
+      centre.y = _clouds_dot(1);
       if (_clouds_outside(centre.y, lat)) {
         continue;
       }
