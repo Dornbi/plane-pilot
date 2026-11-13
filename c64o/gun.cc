@@ -313,11 +313,8 @@ static void _gun_fire_from(uint8_t i) {
 // half the side of a box round the point in _gun_t. Tested at four points
 // along the step: a round moves up to 63 m a step with the aircraft's own
 // speed in it, and would jump a 20 m aircraft, while the points are at most
-// 16 m apart, inside the hit box's 20 m side.
-static __noinline bool _gun_hits(uint8_t r, bool player, int16_t box) {
-  if (_round_age[r] == 0 || (_round_owner[r] == kRoundPlayer) != player) {
-    return false;
-  }
+// 16 m apart, inside the hit box's 20 m side. Caller checks slot live/owner.
+static __noinline bool _gun_hits(uint8_t r, int16_t box) {
   uint8_t i = r;
   for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {
     int16_t d = _gun_t[c] - _round_p[i];
@@ -384,11 +381,14 @@ static void _gun_hit_opponents(void) {
     }
     bool calm = opponent_calm(i);
     for (uint8_t r = 0; r < kRoundMax; ++r) {
-      if (_gun_hits(r, true, kRoundHit)) {
+      if (_round_age[r] == 0 || _round_owner[r] != kRoundPlayer) {
+        continue;
+      }
+      if (_gun_hits(r, kRoundHit)) {
         _round_age[r] = 0;
         _gun_count(kGunTallyHits + kGunTallyDigits - 2);
         opponent_strike(i);
-      } else if (calm && _gun_hits(r, true, kRoundNear)) {
+      } else if (calm && _gun_hits(r, kRoundNear)) {
         opponent_provoke(i);
         calm = false;
       }
@@ -415,7 +415,8 @@ void gun_step(bool trigger) {
   // rounds' frame; then the player's into the opponents; and every round
   // left on a step.
   for (uint8_t r = 0; r < kRoundMax; ++r) {
-    if (_gun_hits(r, false, kRoundHit)) {
+    if (_round_age[r] != 0 && _round_owner[r] != kRoundPlayer &&
+        _gun_hits(r, kRoundHit)) {
       _round_age[r] = 0;
       damage_hit(++gun_player_hits);
     }
@@ -438,8 +439,8 @@ void gun_step(bool trigger) {
   // step: at a larger flight_step_shift the substeps only share its distance
   // out. The smoke's frames run down every call, which is one a frame.
   bool whole = (++_gun_substep & kFlightSubstepMask) == 0;
-  _gun_p[2] = 0;
-  int16_t ground = _gun_rel(2) ? _gun_t[2] : -32767;
+  int16_t ground = -32767;
+  bool have_ground = false;
   if (_gun_puff_t != 0) {
     --_gun_puff_t;
     // Counted down, as in _gun_fire_from(), and for the same reason.
@@ -452,6 +453,13 @@ void gun_step(bool trigger) {
   for (uint8_t r = 0; r < kRoundMax; ++r) {
     if (_round_age[r] == 0) {
       continue;
+    }
+    if (!have_ground) {
+      have_ground = true;
+      _gun_p[2] = 0;
+      if (_gun_rel(2)) {
+        ground = _gun_t[2];
+      }
     }
     uint8_t i = r;
     for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {

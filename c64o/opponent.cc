@@ -1631,26 +1631,23 @@ static __noinline uint8_t _opponent_cull(void) {
 // to two. Which is nearer goes by depth, and changes
 // only once the other is an eighth nearer, so that two at about the same
 // range do not trade sizes every frame; one in the far range is the farther.
-// Sets _opponent_capped.
-static __noinline void _opponent_cap(uint8_t seen) {
-  uint8_t capped = 0;
-  if (seen == 3) {
-    if (_opponent_far == 1 || _opponent_far == 2) {
-      _opponent_nearer = _opponent_far & 1;
-    } else {
-      uint8_t n = _opponent_nearer, o = n ^ 1;
-      uint16_t dn = (uint16_t)_opponent_cs[n].x;
-      if ((uint16_t)_opponent_cs[o].x < dn - (dn >> 3)) {
-        _opponent_nearer = o;
-      }
+// Sets _opponent_capped when both slots are in view.
+static __noinline void _opponent_cap(void) {
+  if (_opponent_far == 1 || _opponent_far == 2) {
+    _opponent_nearer = _opponent_far & 1;
+  } else {
+    uint8_t n = _opponent_nearer, o = n ^ 1;
+    uint16_t dn = (uint16_t)_opponent_cs[n].x;
+    if ((uint16_t)_opponent_cs[o].x < dn - (dn >> 3)) {
+      _opponent_nearer = o;
     }
-    uint8_t extra =
-        (uint8_t)(_opponent_smoke != kOpponentNoSmoke || gun_puff_up()) +
-        (uint8_t)gun_tracer_up();
-    capped = extra > (view_state == VIEW_BACK ? 0 : 1)
-                 ? 3
-                 : _opponent_bit(_opponent_nearer ^ 1);
   }
+  uint8_t extra =
+      (uint8_t)(_opponent_smoke != kOpponentNoSmoke || gun_puff_up()) +
+      (uint8_t)gun_tracer_up();
+  uint8_t capped = extra > (view_state == VIEW_BACK ? 0 : 1)
+                       ? 3
+                       : _opponent_bit(_opponent_nearer ^ 1);
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
     uint8_t bit = _opponent_bit(i);
     // Newly held to two with a layout of more than one sprite, on screen,
@@ -1718,29 +1715,36 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
     _opponent_pending &= (uint8_t)~bit;
     _opponent_latch_shown(i);
   }
-  if (busy) {
-    // What is on screen (just filled, or while the other slot redraws), where
-    // it is now.
-    planes_centre(&_opponent_view, &_opponent_c, &_opponent_f);
-  } else {
-    _opponent_axes(i);
-    planes_project(&_opponent_planes[i], &_opponent_view, &_opponent_c,
-                   &_opponent_axes_m, &_opponent_f);
-    if (_opponent_f.hidden != kPlaneShown ||
-        _opponent_f.level == kPlaneLevelDot) {
+  if (!planes_centre(&_opponent_view, &_opponent_c, &_opponent_f)) {
+    if (!busy) {
       _opponent_forget(i);
-    } else if (_opponent_f.cached) {
-      // The front set holds the state's silhouette - after a forget too,
-      // as the state has not been projected since it was filled.
-      _opponent_latch_shown(i);
+    }
+    return started;
+  }
+  // While `busy` is set (just filled, or another slot owns this frame's
+  // redraw), planes_centre() alone places what is already on screen where it
+  // is now.
+  if (!busy) {
+    if (!planes_begin(&_opponent_planes[i], &_opponent_f)) {
+      _opponent_forget(i);
+      planes_place(&_opponent_planes[i].lay, &_opponent_view, &_opponent_f);
     } else {
-      // A new silhouette, filled next frame; until then the old bitmap,
-      // or the dot if there is none.
-      _opponent_pending |= bit;
-      started = true;
+      _opponent_axes(i);
+      planes_project_axes(&_opponent_planes[i], &_opponent_view,
+                          &_opponent_axes_m, &_opponent_f);
+      if (_opponent_f.cached) {
+        // The front set holds the state's silhouette - after a forget too,
+        // as the state has not been projected since it was filled.
+        _opponent_latch_shown(i);
+      } else {
+        // A new silhouette, filled next frame; until then the old bitmap,
+        // or the dot if there is none.
+        _opponent_pending |= bit;
+        started = true;
+      }
     }
   }
-  if (_opponent_f.hidden == kPlaneShown && (busy || started)) {
+  if (busy || started) {
     planes_place(&_opponent_shown[i], &_opponent_view, &_opponent_f);
   }
   if (_opponent_f.hidden != kPlaneShown) {
@@ -1784,7 +1788,14 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
 
 void opponent_add_sprites(void) {
   _opponent_seen = _opponent_cull();
-  _opponent_cap(_opponent_seen);
+  if (_opponent_seen == 3) {
+    _opponent_cap();
+  } else {
+    _opponent_capped = 0;
+    if (_opponent_seen == 0) {
+      return;
+    }
+  }
 
   // One redraw at a time, across both slots: a slot may start one only on a
   // frame that fills nothing and has not started another, so that the frame

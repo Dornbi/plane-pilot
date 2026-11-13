@@ -5,7 +5,9 @@
 #include "color.h"
 #include "gfx.h"
 #include "mem.h"
+#include "music.h"
 #include "print.h"
+#include "sound.h"
 #include "sprites.h"
 #include "opponent.h"
 #include "vic.h"
@@ -75,10 +77,10 @@ void screen_enter_static_mccm(void) {
 static uint8_t _notice_frames;
 static uint8_t _notice_len;
 
-void screen_notice(const char *text) {
-  if (!text) {
-    return;
-  }
+void screen_notice_volume(void) {
+#ifdef __ENABLE_SOUND__
+  sound_cycle_volume();
+  const char *text = sound_volume_label();
   uint8_t len = (uint8_t)strlen(text);
   if (_notice_len > len) {
     memset(mem_screen_row_ptrs[kNoticeRow] + kNoticeCol, ' ', _notice_len);
@@ -86,12 +88,15 @@ void screen_notice(const char *text) {
   print_lines(kNoticeRow, kNoticeCol, text);
   _notice_len = len;
   _notice_frames = kNoticeFrames;
+#endif
 }
 
-void screen_notice_tick(void) {
+void screen_notice_frame(void) {
+  music_tick();
   if (_notice_frames != 0 && --_notice_frames == 0) {
     memset(mem_screen_row_ptrs[kNoticeRow] + kNoticeCol, ' ', _notice_len);
   }
+  gfx_wait_vsync();
 }
 
 void screen_begin_text_page(void) {

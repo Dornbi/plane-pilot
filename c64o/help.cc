@@ -2,11 +2,9 @@
 
 #include "gfx.h"
 #include "keys.h"
-#include "music.h"
 #include "opponent.h"
 #include "print.h"
 #include "screen.h"
-#include "sound.h"
 
 // The routines below only run on screen transitions (menu, help, map) or at
 // startup, never inside the per-frame simulation loop, so the outliner's
@@ -96,21 +94,16 @@ void help_run(void) {
       // where it is not and the flight driver is silenced. Both want the key
       // to work: the setting is what survives, and the next screen with sound
       // picks it up.
-      sound_cycle_volume();
-      screen_notice(sound_volume_label());
+      screen_notice_volume();
     }
 #else
     (void)prev_help_toggles;
 #endif
-    // Unconditional, and safe because music_tick() returns immediately unless
-    // music_playing is set. This function has two callers - menu.cc when H is
-    // pressed in the menu, and sim.cc when H is pressed in flight - and only
-    // the first one has a tune running. Without that guard, checking the
-    // controls mid-mission would start the title music.
-    // See ../docs/music.md section 3.
-    music_tick();
-    screen_notice_tick();
-    gfx_wait_vsync();
+    // screen_notice_frame() ticks music unconditionally (safe because
+    // music_tick() returns immediately unless music_playing is set - menu.cc
+    // has a tune running, sim.cc mid-mission does not). See ../docs/music.md
+    // section 3.
+    screen_notice_frame();
   }
   while (keys_scan(kHelpKeys, kHelpKeysExitCount)) {
     keys_poll();

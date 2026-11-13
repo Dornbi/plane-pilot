@@ -10,7 +10,6 @@
 #include "music.h"
 #include "print.h"
 #include "screen.h"
-#include "sound.h"
 #include "title.h"
 
 // The routines below only run on screen transitions (menu, help, map) or at
@@ -178,13 +177,10 @@ uint8_t menu_run() {
       // music_tick() reads sound_volume every frame and composes it with the
       // tune's per-bar ramp, so this is audible on the next tick without any
       // notification path of its own.
-      sound_cycle_volume();
-      screen_notice(sound_volume_label());
+      screen_notice_volume();
     }
 
-    music_tick();
-    screen_notice_tick();
-    gfx_wait_vsync();
+    screen_notice_frame();
   }
 }
 

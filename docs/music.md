@@ -361,11 +361,12 @@ player cannot change is worse than a blank corner.
 
 **It is a notice, not a readout**, on every screen. Flight routes it through
 `msg_show()`, which clears itself after `MSG_DEFAULT_DURATION`; the menu and
-help get the same behaviour from `screen_notice()` in `screen.cc`, which prints
-at row 24 column 29 — the same cell on both, so the value does not appear to
-move when the player crosses between them — and clears it after
-`kNoticeFrames`. Those two constants are 30 frames at the flight loop's ~10 Hz
-and 150 at the menu's true 50 Hz: the same three seconds by different routes.
+help get the same behaviour from `screen_notice_volume()` and
+`screen_notice_frame()` in `screen.cc`, which print at row 24 column 15 — the
+same cell on both, so the value does not appear to move when the player crosses
+between them — and clear it after `kNoticeFrames`. Those two constants are 30
+frames at the flight loop's ~10 Hz and 150 at the menu's true 50 Hz: the same
+three seconds by different routes.
 
 `msg.cc` could not be reused for this and that is worth stating, because it
 looks like the obvious answer. It writes row 0 of the *flight viewport*,

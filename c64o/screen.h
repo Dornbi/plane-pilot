@@ -75,13 +75,14 @@ static const uint8_t kNoticeCol = 15;
 // ~10 Hz - the same 3 seconds by a different route.
 static const uint8_t kNoticeFrames = 150;
 
-// Print the notice and start its countdown. Re-showing while one is up
-// restarts the clock, which is what repeated V presses should do.
-void screen_notice(const char *text);
+// Cycle sound volume, print its label as a notice, and start its countdown.
+// Re-showing while one is up restarts the clock, which is what repeated V
+// presses should do.
+void screen_notice_volume(void);
 
-// Call once per frame from a polling loop. Clears the notice when the
-// countdown expires; does nothing the rest of the time.
-void screen_notice_tick(void);
+// Call once per frame from a static text-page polling loop: ticks music,
+// expires any elapsed notice, and waits for vsync.
+void screen_notice_frame(void);
 
 #pragma compile("screen.cc")
 

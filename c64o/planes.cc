@@ -488,21 +488,23 @@ bool planes_centre(const planes_view_t *view, const vec3_t *c, planes_frame_t *f
   return true;
 }
 
-void planes_project(planes_state_t *state, const planes_view_t *view,
-                    const vec3_t *c, const mat3_t *axes, planes_frame_t *frame) {
-  if (!planes_centre(view, c, frame)) {
-    return;
-  }
-  uint16_t k = frame->k;
+bool planes_begin(planes_state_t *state, planes_frame_t *frame) {
   uint8_t level = _pick_level(state->lay.level, frame->d);
 
   if (level == kPlaneLevelDot) {
     state->lay.level = kPlaneLevelDot;
     state->lay.ys = state->lay.cols = state->lay.rows = 1;
     state->key_valid = false;
-    planes_place(&state->lay, view, frame);
-    return;
+    return false;
   }
+  frame->level = level;
+  return true;
+}
+
+void planes_project_axes(planes_state_t *state, const planes_view_t *view,
+                         const mat3_t *axes, planes_frame_t *frame) {
+  uint16_t k = frame->k;
+  uint8_t level = frame->level;
 
   // The scale and axes the last frame projected: the same silhouette, only
   // moved with the centre, and the same layout -- the hysteresis settles in
@@ -632,6 +634,17 @@ void planes_fill(const planes_state_t *state, uint8_t *back) {
     }
   }
   PROFILE_END(6, kProfFill);
+}
+
+void planes_project(planes_state_t *state, const planes_view_t *view,
+                    const vec3_t *c, const mat3_t *axes, planes_frame_t *frame) {
+  if (planes_centre(view, c, frame)) {
+    if (planes_begin(state, frame)) {
+      planes_project_axes(state, view, axes, frame);
+    } else {
+      planes_place(&state->lay, view, frame);
+    }
+  }
 }
 
 void planes_render(planes_state_t *state, const planes_view_t *view,

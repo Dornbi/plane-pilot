@@ -147,6 +147,14 @@ void planes_render(planes_state_t *state, const planes_view_t *view,
 // planes_project(), for the frames that only place.
 void planes_project(planes_state_t *state, const planes_view_t *view,
                     const vec3_t *c, const mat3_t *axes, planes_frame_t *frame);
+// Two-step form of planes_project(): after planes_centre() succeeds,
+// planes_begin() runs the dot-tier check, setting dot-tier layout state and
+// returning false on the dot tier (the caller then calls planes_place()), or
+// setting frame->level and returning true when the caller should build axes and
+// call planes_project_axes().
+bool planes_begin(planes_state_t *state, planes_frame_t *frame);
+void planes_project_axes(planes_state_t *state, const planes_view_t *view,
+                         const mat3_t *axes, planes_frame_t *frame);
 void planes_fill(const planes_state_t *state, uint8_t *back);
 bool planes_centre(const planes_view_t *view, const vec3_t *c, planes_frame_t *frame);
 // A bitmap of layout `lay` at frame->cx, cy: level, layout, top left and

@@ -276,7 +276,11 @@ static void frame(scene_t &sc, const where_t *w, const char *what) {
   // the cap can start a slot's latches afresh (_opponent_cap()), and the
   // reference has to draw from the latches the frame does. A second pass
   // changes nothing.
-  _opponent_cap(_opponent_cull());
+  if (_opponent_cull() == 3) {
+    _opponent_cap();
+  } else {
+    _opponent_capped = 0;
+  }
   for (int k = 0; k < sc.slots; ++k) latches[k] = _opponent_planes[k];
 
   uint8_t before = _opponent_pending;
@@ -1366,7 +1370,7 @@ static void test_missions(void) {
       _opponent_smoke = k.smoke ? 1 : kOpponentNoSmoke;
       _tracer_up = k.tracer;
       _opponent_nearer = 0;
-      _opponent_cap(3);
+      _opponent_cap();
       CHECK(_opponent_capped == k.capped, "budget: view %d smoke %d tracer %d holds %d, not %d",
             k.view, k.smoke, k.tracer, _opponent_capped, k.capped);
     }
