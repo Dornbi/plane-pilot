@@ -164,6 +164,18 @@ bool planes_centre(const planes_view_t *view, const vec3_t *c, planes_frame_t *f
 int16_t planes_place(const planes_layout_t *lay, const planes_view_t *view,
                      planes_frame_t *frame);
 
+// For a half-rate redraw's fill: moves the state's projection to the slide
+// frame->cx, cy needs, so that the bitmap filled now is cut only as much as
+// this frame's DMA cut needs. Slid for the projection's frame instead, a
+// plane that has risen since loses lines that are on screen now, and one
+// that has dropped is shown too high. The vertices move with the slide,
+// key_y alone; a Y-expanded bitmap's by whole lines, so its slide keeps its
+// parity, one line over at most. Unless `force`, only if the state's bitmap
+// is cut two lines or more deeper than this centre needs; returns whether
+// it moved. Not for the dot.
+bool planes_reslide(planes_state_t *state, const planes_view_t *view,
+                    planes_frame_t *frame, bool force);
+
 // The far tier's static bitmap: a 2 x 2 blob on the block's last two rows.
 void planes_dot_bitmap(uint8_t *block);
 

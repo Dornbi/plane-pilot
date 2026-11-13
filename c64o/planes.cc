@@ -596,6 +596,28 @@ void planes_project_axes(planes_state_t *state, const planes_view_t *view,
   frame->cached = cached;
 }
 
+bool planes_reslide(planes_state_t *state, const planes_view_t *view,
+                    planes_frame_t *frame, bool force) {
+  planes_layout_t *lay = &state->lay;
+  int16_t d = planes_place(lay, view, frame) - lay->slid;
+  if (!force && d > -2) {
+    return false;
+  }
+  // Even for a Y-expanded bitmap, so that y = (u + slid) >> 1 moves by half.
+  if (lay->ys == 2) {
+    d += d & 1;
+    lay->slid += d;
+    d >>= 1;
+  } else {
+    lay->slid += d;
+  }
+  for (uint8_t i = 0; i < state->key_count; ++i) {
+    state->key_y[i] += (uint8_t)d;
+  }
+  state->key_band = (uint8_t)((uint16_t)lay->slid >> 7);
+  return true;
+}
+
 void planes_fill(const planes_state_t *state, uint8_t *back) {
   // 13. fill into the back buffer. A slide of a whole buffer or more leaves
   // it empty, and y no longer fits a byte.

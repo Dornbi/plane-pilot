@@ -1542,6 +1542,19 @@ fill. The dot stands in for that one frame. `test/opponent_test.cc` holds every
 silhouette shown to one drawn within the last two frames, or four with two
 aircraft taking turns ("Two aircraft, on paths").*
 
+*The slide did not clamp "for that frame": the fill drew the projection's
+slide, worked out at the last frame's centre, and the bitmap stood in at the
+centres after it. A close aircraft bobbing at the bottom of the view lost
+the lines it had slid off once it rose again, as much as 42 of its 78 on the
+host - half of it gone in the middle of the screen. Since 2026-11-13
+`planes_reslide()` moves the projection to the fill frame's own slide first,
+key_y and all (a Y-expanded bitmap's slide keeps its parity, a line over at
+most), and a frame free for a redraw whose bitmap on screen is cut two lines
+or more too deep refills it re-slid instead of projecting. A fill costs what a
+projection does. `opponent_test` "bob" holds the loss to 2 lines; the cost is
+231 B of fpilot's main region. Still open: a plane that drops into the cut
+between fills is shown too high by the difference until the next fill.*
+
 ### At most two sprites
 
 Seven indices go round fast in combat — tracers and a hit flash want them as

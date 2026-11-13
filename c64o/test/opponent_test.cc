@@ -599,6 +599,88 @@ static void test_both_close(void) {
   view_state = VIEW_CENTER;
 }
 
+// --- 5b. Bobbing at the bottom of the view ------------------------------------
+//
+// Close, rolled so that it is tall, and moving up and down through the bottom
+// of the viewport, where the bitmap slides above the DMA cut. A bitmap slid
+// for an earlier frame's centre, shown after the aircraft has risen, has lost
+// lines that are on screen now: half of it, before the fill and an over-cut
+// refill were slid for their own frame. So the bottom of the ink shown is
+// held to the bottom of a fresh render's, give or take a Y-expanded line and
+// a moved shape.
+
+// Ink rows of an offer's or a render's blocks, in screen lines from its top.
+static int ink_bottom(const uint8_t *blocks[4], int cols, int rows, int ys, int *top) {
+  int y0 = 1 << 30, y1 = -1;
+  for (int b = 0; b < cols * rows; ++b) {
+    for (int row = 0; row < 21; ++row) {
+      const uint8_t *r = blocks[b] + row * 3;
+      if (r[0] | r[1] | r[2]) {
+        int y = (b / cols * 21 + row) * ys;
+        y0 = std::min(y0, y);
+        y1 = std::max(y1, y + ys - 1);
+      }
+    }
+  }
+  *top = y0;
+  return y1;
+}
+
+static void test_bob(void) {
+  static const int kPeriods[] = {7, 10, 13, 24};
+  int worst = 0, checked = 0;
+  for (int period : kPeriods) {
+    scene_t sc;
+    start(sc, camera(0, 0, 80));
+    for (int n = 0; n < 200; ++n) {
+      where_t w = {240, 0, (int)lround(50 * sin(2 * M_PI * n / period)) - 10, false};
+      place(0, w);
+      _opponent_capped = 0;
+      planes_state_t latch = _opponent_planes[0];
+      _offer[0].on = false;
+      opponent_add_sprites();
+      _opponent_camera(0);
+      vec3_t c = _opponent_c;
+      _opponent_set_view(false, false);
+      mat3_t axes;
+      _opponent_axes(0, &axes);
+      static uint8_t blk[4][kPlaneBlockStride];
+      latch.key_valid = false;
+      planes_frame_t f;
+      planes_render(&latch, &_opponent_view, &c, &axes, blk[0], &f);
+      const offer_t &o = _offer[0];
+      if (!o.on || o.bitmap == kOpponentBlockDot || f.hidden != kPlaneShown ||
+          f.level == kPlaneLevelDot) {
+        continue;
+      }
+      const uint8_t *rb[4] = {blk[0], blk[1], blk[2], blk[3]};
+      int rt, st;
+      int rbot = f.y + ink_bottom(rb, f.cols, f.rows, f.ys, &rt);
+      rt += f.y;
+      int cols = (o.flags & kSpriteFlagWide) ? 2 : 1;
+      const uint8_t *sb[4] = {_opponent_block(o.bitmap), _opponent_block((uint8_t)(o.bitmap + 1)),
+                              nullptr, nullptr};
+      int rows = 1;
+      if (o.bitmap2 != kSpriteNoBitmap) {
+        rows = 2;
+        sb[cols] = _opponent_block(o.bitmap2);
+        sb[cols + 1] = _opponent_block((uint8_t)(o.bitmap2 + 1));
+      }
+      int sbot = o.y + ink_bottom(sb, cols, rows, (o.flags & kSpriteFlagExpandY) ? 2 : 1, &st);
+      st += o.y;
+      // Lines lost off the bottom, beyond any the fresh render lost too.
+      int lost = (rbot - rt) - (sbot - st);
+      if (sbot < rbot && lost > 0) {
+        worst = std::max(worst, lost);
+        CHECK(lost <= 2, "bob, period %d: frame %d shows ink to line %d, a fresh render to %d",
+              period, n, sbot, rbot);
+      }
+      ++checked;
+    }
+  }
+  printf("  bob: %d frames, at most %d lines lost off the bottom\n", checked, worst);
+}
+
 // --- 6. The paths ---------------------------------------------------------------
 
 // Metres from a waypoint coordinate, 8.8 units, to a position, 24.8 half
@@ -1927,6 +2009,7 @@ int main() {
   test_random();
   test_two();
   test_both_close();
+  test_bob();
   test_paths();
   test_flight_model();
   test_missions();

@@ -1692,6 +1692,23 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
   // next (docs/planes.md §13, "The silhouette at half rate"), so neither
   // frame pays for both. The position is this frame's either way: the
   // bitmap on screen is placed at this frame's centre.
+  bool seen = planes_centre(&_opponent_view, &_opponent_c, &_opponent_f);
+  // A projection to fill, or a frame free for one and a bitmap on screen,
+  // which is the state's: either is slid for this frame's centre before it
+  // is filled. The bitmap on screen was slid for an earlier one, and if the
+  // plane has risen since it has lost lines that are on screen now - half
+  // of a close one, bobbing at the bottom of the view. So when it is cut two
+  // lines or more too deep it is filled again now, rather than projected: a
+  // fill costs what a projection does.
+  if (seen && ((_opponent_pending & bit) ||
+               (!busy && _opponent_shown[i].level != kPlaneLevelDot))) {
+    if (planes_reslide(&_opponent_planes[i & 1], &_opponent_view, &_opponent_f,
+                       (_opponent_pending & bit) != 0) &&
+        !busy) {
+      _opponent_pending |= bit;
+      started = true;
+    }
+  }
   if (_opponent_pending & bit) {
     _opponent_front ^= bit;
     busy = true;
@@ -1702,9 +1719,10 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
     front += kOpponentSetBlocks;
   }
   if (_opponent_pending & bit) {
-    // The fill the last frame projected. It writes under I/O; the raster
-    // handlers bank I/O in for themselves (gfx.cc _gfx_isr), and nothing
-    // in planes_fill() touches it. Then the new bitmap is the front one:
+    // The fill the last frame projected, or the refill above. It writes
+    // under I/O; the raster handlers bank I/O in for themselves (gfx.cc
+    // _gfx_isr), and nothing in planes_fill() touches it. Then the new
+    // bitmap is the front one:
     // it goes on screen with this frame's characters, at
     // mem_switch_buffer(), and by the time a later frame fills the other
     // set the raster handler has stopped showing it - mem_switch_buffer()
@@ -1715,7 +1733,7 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
     _opponent_pending &= (uint8_t)~bit;
     _opponent_latch_shown(i);
   }
-  if (!planes_centre(&_opponent_view, &_opponent_c, &_opponent_f)) {
+  if (!seen) {
     if (!busy) {
       _opponent_forget(i);
     }
