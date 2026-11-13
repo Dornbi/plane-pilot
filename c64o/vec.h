@@ -88,6 +88,13 @@ uint16_t vec_mul8x8(uint8_t a, uint8_t b);
 // the low byte in vec_mul8_lo. Clobbers X, Y. JSR to it; not callable from C.
 extern uint8_t vec_mul8_b, vec_mul8_lo;
 void vec_mul8(void);
+#ifdef __OSCAR64__
+// Shared projection state for vec_asm.cc and world.cc's grid dot loop.
+extern const uint8_t vec_recip_lut[];
+extern uint8_t vec_proj_tmp1, vec_proj_recip;
+extern int16_t vec_proj_mul_a, vec_proj_mul_b;
+void vec_project_mul(void);
+#endif
 #endif
 
 // Squares a 16-bit signed integer and returns a 16-bit unsigned integer.

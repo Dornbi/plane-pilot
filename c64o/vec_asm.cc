@@ -22,10 +22,14 @@ __zeropage int16_t vec_sy;
 // These are used for temporary storage. vec_fastmul8p8 reuses tmp1, tmp2 and
 // vec_mul8's two; they are never live across calls (single-threaded, the
 // raster IRQs do no vector math).
-static __zeropage uint8_t tmp1, tmp2;
+__zeropage uint8_t vec_proj_tmp1, vec_proj_recip;
 __zeropage uint8_t vec_mul8_b, vec_mul8_lo;
-static __zeropage int16_t project_mul_a;
-static __zeropage int16_t project_mul_b;
+__zeropage int16_t vec_proj_mul_a;
+__zeropage int16_t vec_proj_mul_b;
+#define tmp1 vec_proj_tmp1
+#define tmp2 vec_proj_recip
+#define project_mul_a vec_proj_mul_a
+#define project_mul_b vec_proj_mul_b
 static __zeropage int16_t mul_res;
 
 // Unsigned 8 x 8 -> 16 multiply on the quarter-square tables, for assembly:
