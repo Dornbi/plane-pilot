@@ -409,6 +409,14 @@ inline bool vec_project() {
 // vec_project_viewport() in its three steps, each needing one more component
 // of vec_v than the one before, so the grid adds y and z only for a point the
 // earlier steps let through.
+//
+// The last step also narrows the sides to |y| <= x - x / 4, the viewport's
+// 320 pixels rather than the cone's 512: every point it turns away would
+// project to |vec_sx| >= 190, past the plot's (-160, 160] (checked for every
+// x from 9 up against vec_recip_lut), and a projection is about 400 cycles.
+// It is here and not in vec_viewport_beside() because it needs x / 4, which
+// the vertical test has to compute anyway: tested there, it cost every point
+// ahead of the camera more than it saved.
 inline bool vec_viewport_ahead() { return vec_v.x > 8; }
 
 inline bool vec_viewport_beside() {
@@ -418,7 +426,12 @@ inline bool vec_viewport_beside() {
 
 inline bool vec_viewport_project() {
   project_mul_b = _abs16(vec_v.z);
-  if ((uint16_t)project_mul_b > ((uint16_t)vec_v.x >> 2)) {
+  const uint16_t x = (uint16_t)vec_v.x;
+  const uint16_t q = x >> 2;
+  if ((uint16_t)project_mul_b > q) {
+    return false;
+  }
+  if ((uint16_t)project_mul_a > (uint16_t)(x - q)) {
     return false;
   }
 

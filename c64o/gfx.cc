@@ -519,7 +519,10 @@ inline void gfx_wait_flip_window(void) {
     ;
 }
 
-void gfx_draw_projected(uint8_t color) {
+// Inline in the grid's dot loop, its one caller, and not outlined: a call
+// and an outlined row pointer load are 30 cycles a dot.
+#pragma optimize(push, nooutline)
+inline void gfx_draw_projected(uint8_t color) {
   uint8_t py = (uint8_t)(kViewportHeightPixels / 2) - (uint8_t)vec_sy;
   if (py < (uint8_t)kViewportHeightPixels) {
     uint8_t hpx = (uint8_t)((uint16_t)(kViewportWidthPixels / 2 - vec_sx) >> 1);
@@ -539,6 +542,7 @@ void gfx_draw_projected(uint8_t color) {
     }
   }
 }
+#pragma optimize(pop)
 
 static const char *const kGfxHeadingBitmaps[] = {
     (const char *const)0xF120,

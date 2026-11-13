@@ -303,7 +303,10 @@ table, about 480 cycles and within 2 of `trunc(256·y/x)`; outside it
 projection, as `vec_viewport_ahead()`, `vec_viewport_beside()` and
 `vec_viewport_project()`: the cone tests one at a time, so the loop adds a
 dot's y only once it is ahead of the camera and its z only once it is inside
-the cone's sides. Everything else shares the out-of-line `vec_project_once()`.
+the cone's sides. The last step narrows the cone to the viewport before it
+projects, `|z| <= x/4` and `|y| <= x - x/4`: a dot either test turns away
+would have projected off screen. Everything else shares the out-of-line
+`vec_project_once()`.
 
 `vec_frac16` and `vec_mulfrac` are the clipping pair, and they exist because
 8.8 is not enough for a clip parameter — see the clipping notes under
@@ -331,7 +334,7 @@ Mitchell's-best-candidate distribution, precombined once per frame into
 `_mitch_x/y/z` so each dot costs three additions and a projection. Iteration
 breaks out early once cells fall behind the camera.
 
-Dots are drawn by `gfx_draw_projected()`, which only writes if the target
+Dots are drawn by `gfx_draw_projected()`, inline in the grid loop, which only writes if the target
 character is still solid ground — so dots never land on the sky or on a
 polygon.
 
