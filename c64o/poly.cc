@@ -332,6 +332,86 @@ static inline void _poly_scan_lines2(uint8_t fill_char_start_idx,
     // jump over it here. overlap_start is guaranteed >= min_px; when there is
     // no core overlap_start is set to kViewportWidth, so the skip never
     // triggers and the whole span is treated as fringe.
+#ifdef __OSCAR64__
+    uint8_t max_px_p1 = max_px + 1;
+    // clang-format off
+    __asm {
+        ldy min_px;
+    L_fr_loop:
+        cpy overlap_start;
+        bne L_fr_chk;
+        ldy overlap_stop;
+        cpy max_px_p1;
+        bcs L_fr_end;
+    L_fr_chk:
+        lda (row), y;
+        bpl L_fr_next;
+        tya;
+        asl;
+        ldx #0;
+
+        // Top sub-row [t_min, t_max] -> bits 0 (sx_left) and 1 (sx_left+1).
+        cmp t_max;
+        beq L_t_eq;
+        bcs L_t_done;
+        cmp t_min;
+        bcc L_t_chk_r;
+        ldx #3;
+        bne L_t_done;
+    L_t_eq:
+        cmp t_min;
+        bcc L_t_done;
+        ldx #1;
+        bcs L_t_done;
+    L_t_chk_r:
+        ora #1;
+        cmp t_min;
+        bcc L_t_restore;
+        ldx #2;
+    L_t_restore:
+        and #$fe;
+    L_t_done:
+
+        // Bottom sub-row [b_min, b_max] -> bits 2 and 3.
+        cmp b_max;
+        beq L_b_eq;
+        bcs L_b_chk_zero;
+        cmp b_min;
+        bcc L_b_chk_r;
+        txa;
+        ora #12;
+        bne L_draw;
+    L_b_eq:
+        cmp b_min;
+        bcc L_b_chk_zero;
+        txa;
+        ora #4;
+        bne L_draw;
+    L_b_chk_r:
+        ora #1;
+        cmp b_min;
+        bcc L_b_chk_zero;
+        txa;
+        ora #8;
+        bne L_draw;
+    L_b_chk_zero:
+        txa;
+        beq L_fr_next;
+    L_draw:
+        clc;
+        adc fill_char_start_idx;
+        sta (row), y;
+        lda color;
+        beq L_fr_next;
+        sta (color_row), y;
+    L_fr_next:
+        iny;
+        cpy max_px_p1;
+        bcc L_fr_loop;
+    L_fr_end:
+    }
+    // clang-format on
+#else
     for (uint8_t px = min_px; px <= max_px; ++px) {
       if (px == overlap_start) {
         px = overlap_stop - 1; // skip the solid core; ++px lands just past it
@@ -364,6 +444,7 @@ static inline void _poly_scan_lines2(uint8_t fill_char_start_idx,
         }
       }
     }
+#endif
 #ifdef __DEBUG_POLY__
     if (false && py >= 6 && py < 14) {
       uint8_t y = py - 6;
