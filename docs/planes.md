@@ -1549,11 +1549,24 @@ the lines it had slid off once it rose again, as much as 42 of its 78 on the
 host - half of it gone in the middle of the screen. Since 2026-11-13
 `planes_reslide()` moves the projection to the fill frame's own slide first,
 key_y and all (a Y-expanded bitmap's slide keeps its parity, a line over at
-most), and a frame free for a redraw whose bitmap on screen is cut two lines
-or more too deep refills it re-slid instead of projecting. A fill costs what a
-projection does. `opponent_test` "bob" holds the loss to 2 lines; the cost is
-231 B of fpilot's main region. Still open: a plane that drops into the cut
-between fills is shown too high by the difference until the next fill.*
+most), and a frame free for a redraw whose bitmap on screen is slid two lines
+or more off refills it re-slid instead of projecting. A fill costs what a
+projection does, but each refill puts the next shape off a frame. Cut too
+deep, the bitmap gets as many refills as it needs; too high - a plane that
+dropped into the cut since - at most three in a row, as refilling every drop
+starved the projection outright while a plane moved up and down in the cut.
+Measured on the host over 14,364 frames of a close plane moving up and down
+through the cut, with a steady camera and one rocking 8 degrees in roll:*
+
+| | Cut too deep | Too high | Shape age, mean / max |
+| :--- | ---: | ---: | ---: |
+| Before | 22% of frames, ≤ 48 lines | 25%, ≤ 48 | 0.93-1.43 / 2 frames |
+| Fill re-slid, refills for too deep | none | 11%, ≤ 30 | 1.20-1.82 / 8 |
+| ... and up to three for too high | none | 1.7%, ≤ 11 | 1.45-2.25 / 9 |
+
+*`opponent_test` "bob" holds the loss off the bottom to 2 lines, and the
+frames shown too high to one in twenty, by 12 lines at most. The cost is
+274 B of fpilot's main region.*
 
 ### At most two sprites
 

@@ -649,6 +649,9 @@ static planes_layout_t _opponent_shown[kOpponentMax];
 // drawn under kViewTwo this frame.
 static uint8_t _opponent_nearer;
 static uint8_t _opponent_capped;
+// How many of slot i's frames free for a redraw have gone to refills in a
+// row (_opponent_draw()).
+static uint8_t _opponent_refills[kOpponentMax];
 #pragma bss(tscratch)
 // The aircraft being culled or drawn, in camera space and eighth metres,
 // and each slot's once it is in view. Statics
@@ -1695,17 +1698,28 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
   bool seen = planes_centre(&_opponent_view, &_opponent_c, &_opponent_f);
   // A projection to fill, or a frame free for one and a bitmap on screen,
   // which is the state's: either is slid for this frame's centre before it
-  // is filled. The bitmap on screen was slid for an earlier one, and if the
-  // plane has risen since it has lost lines that are on screen now - half
-  // of a close one, bobbing at the bottom of the view. So when it is cut two
-  // lines or more too deep it is filled again now, rather than projected: a
-  // fill costs what a projection does.
+  // is filled. The bitmap on screen was slid for an earlier one: if the plane
+  // has risen since, it has lost lines that are on screen now - half of a
+  // close one, bobbing at the bottom of the view - and if it has dropped, it
+  // is shown too high, by as much. So when its slide is two lines or more off
+  // it is filled again now, rather than projected: a fill costs what a
+  // projection does. Each refill puts the next shape off by a frame, so one
+  // that is too high, which a drop through the cut keeps making, gets at most
+  // three in a row; one cut too deep gets as many as it needs - a plane can
+  // rise only so far through the cut. Measured on the host, a close plane
+  // moving up and down through it: too high on 1.7% of frames, by 10 lines at
+  // worst, rather than 11% and 29, and the shape a quarter to nearly half a
+  // frame older on average.
   if (seen && ((_opponent_pending & bit) ||
                (!busy && _opponent_shown[i].level != kPlaneLevelDot))) {
+    uint8_t when = (_opponent_pending & bit)  ? kPlaneReslideAlways
+                   : _opponent_refills[i] < 3 ? kPlaneReslideOff
+                                              : kPlaneReslideDeep;
     if (planes_reslide(&_opponent_planes[i & 1], &_opponent_view, &_opponent_f,
-                       (_opponent_pending & bit) != 0) &&
+                       when) &&
         !busy) {
       _opponent_pending |= bit;
+      ++_opponent_refills[i];
       started = true;
     }
   }
@@ -1743,6 +1757,7 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
   // redraw), planes_centre() alone places what is already on screen where it
   // is now.
   if (!busy) {
+    _opponent_refills[i] = 0;
     if (!planes_begin(&_opponent_planes[i], &_opponent_f)) {
       _opponent_forget(i);
       planes_place(&_opponent_planes[i].lay, &_opponent_view, &_opponent_f);

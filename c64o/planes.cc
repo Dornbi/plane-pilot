@@ -597,10 +597,10 @@ void planes_project_axes(planes_state_t *state, const planes_view_t *view,
 }
 
 bool planes_reslide(planes_state_t *state, const planes_view_t *view,
-                    planes_frame_t *frame, bool force) {
+                    planes_frame_t *frame, uint8_t when) {
   planes_layout_t *lay = &state->lay;
   int16_t d = planes_place(lay, view, frame) - lay->slid;
-  if (!force && d > -2) {
+  if (when != kPlaneReslideAlways && d > -2 && (when == kPlaneReslideDeep || d < 2)) {
     return false;
   }
   // Even for a Y-expanded bitmap, so that y = (u + slid) >> 1 moves by half.

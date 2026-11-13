@@ -606,8 +606,10 @@ static void test_both_close(void) {
 // for an earlier frame's centre, shown after the aircraft has risen, has lost
 // lines that are on screen now: half of it, before the fill and an over-cut
 // refill were slid for their own frame. So the bottom of the ink shown is
-// held to the bottom of a fresh render's, give or take a Y-expanded line and
-// a moved shape.
+// held to the bottom of a fresh render's, give or take a Y-expanded line. One
+// slid for a centre above, shown after it has dropped, is placed too high by
+// the difference instead; refills for that are rationed, three in a row, so
+// it is held to a few frames and a few lines rather than none.
 
 // Ink rows of an offer's or a render's blocks, in screen lines from its top.
 static int ink_bottom(const uint8_t *blocks[4], int cols, int rows, int ys, int *top) {
@@ -628,7 +630,7 @@ static int ink_bottom(const uint8_t *blocks[4], int cols, int rows, int ys, int 
 
 static void test_bob(void) {
   static const int kPeriods[] = {7, 10, 13, 24};
-  int worst = 0, checked = 0;
+  int worst = 0, checked = 0, high = 0, highest = 0;
   for (int period : kPeriods) {
     scene_t sc;
     start(sc, camera(0, 0, 80));
@@ -675,10 +677,19 @@ static void test_bob(void) {
         CHECK(lost <= 2, "bob, period %d: frame %d shows ink to line %d, a fresh render to %d",
               period, n, sbot, rbot);
       }
+      // Lines too high: the shown ink starts above a fresh render's.
+      if (rt - st >= 2) {
+        ++high;
+        highest = std::max(highest, rt - st);
+      }
       ++checked;
     }
   }
-  printf("  bob: %d frames, at most %d lines lost off the bottom\n", checked, worst);
+  CHECK(high * 20 <= checked && highest <= 12,
+        "bob: %d of %d frames shown too high, by up to %d lines", high, checked, highest);
+  printf("  bob: %d frames, at most %d lines lost off the bottom, %d shown too high, by up to "
+         "%d\n",
+         checked, worst, high, highest);
 }
 
 // --- 6. The paths ---------------------------------------------------------------

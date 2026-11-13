@@ -170,11 +170,15 @@ int16_t planes_place(const planes_layout_t *lay, const planes_view_t *view,
 // plane that has risen since loses lines that are on screen now, and one
 // that has dropped is shown too high. The vertices move with the slide,
 // key_y alone; a Y-expanded bitmap's by whole lines, so its slide keeps its
-// parity, one line over at most. Unless `force`, only if the state's bitmap
-// is cut two lines or more deeper than this centre needs; returns whether
-// it moved. Not for the dot.
+// parity, one line over at most. kPlaneReslideAlways moves it whatever the
+// difference; kPlaneReslideDeep only if the state's slide is two lines or
+// more deeper than this centre needs, and kPlaneReslideOff two lines or
+// more either way. Returns whether it moved. Not for the dot.
+static const uint8_t kPlaneReslideDeep = 0;
+static const uint8_t kPlaneReslideOff = 1;
+static const uint8_t kPlaneReslideAlways = 2;
 bool planes_reslide(planes_state_t *state, const planes_view_t *view,
-                    planes_frame_t *frame, bool force);
+                    planes_frame_t *frame, uint8_t when);
 
 // The far tier's static bitmap: a 2 x 2 blob on the block's last two rows.
 void planes_dot_bitmap(uint8_t *block);
