@@ -243,7 +243,11 @@ __noinline void world_render_grid() {
   bm_model_start();
   _world_init_start_dx_dy();
 
-  // If the current vec_v.x falls below this value, we can abort.
+  // If the current vec_v.x falls below this value, we can abort. The tests
+  // below subtract and look at the sign rather than compare: x is at most the
+  // grid's reach plus the altitude, far inside int16, and bailout is -512 at
+  // the least, so the difference cannot overflow, and oscar64's signed
+  // 16-bit compare is twice the code.
   int16_t bailout = -_max16(_abs16(_world_dx4[0].x), _abs16(_world_dy4[0].x));
   uint8_t cx = _world_start_cx;
   for (int8_t x = -(int8_t)_world_grid_radius;;) {
@@ -261,23 +265,25 @@ __noinline void world_render_grid() {
         uint8_t num_points = _num_points_per_radius[_max8(abs_x, _abs8(y))];
         _world_draw_box_points(start_idx, num_points, map_type);
       }
-      if (++y > (int8_t)_world_grid_radius) {
+      if (y == (int8_t)_world_grid_radius) {
         break;
       }
+      ++y;
       cy += _world_step_y;
       //  Step along Y axis
       vec_add(&_world_vec_v, &_world_dy_vec);
-      if (_world_vec_v.x < bailout) {
+      if ((int16_t)(_world_vec_v.x - bailout) < 0) {
         break;
       }
     }
-    if (++x > (int8_t)_world_grid_radius) {
+    if (x == (int8_t)_world_grid_radius) {
       break;
     }
+    ++x;
     cx += _world_step_x;
     // Step along X axis
     vec_add(&_world_p_start, &_world_dx_vec);
-    if (_world_p_start.x < bailout) {
+    if ((int16_t)(_world_p_start.x - bailout) < 0) {
       break;
     }
   }
