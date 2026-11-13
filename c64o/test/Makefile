@@ -112,7 +112,15 @@ SPRITES_TEST_HDRS = ../sprites.h ../sprites.cc ../spritedef.h ../vic.h \
 # unused-function warning is for _poly_trace_edge_dda, which poly.cc keeps as
 # the alternative to the bresenham tracer.
 POLY_TEST_SRC = poly_test.cc ../vec.cc ../vec_lut.cc ../fmath.cc
-POLY_TEST_HDRS = ../poly.h ../poly.cc ../vec.h ../mem.h ../chardefs.h
+POLY_TEST_HDRS = ../poly.h ../poly.cc ../poly_asm.h ../vec.h ../mem.h ../chardefs.h
+
+# asm_c_test holds the host C counterparts of world_asm (_world_draw_box_points)
+# and render_asm (_render_snap_center_asm, _render_flush_span) in world.cc and
+# render.cc.
+ASM_C_TEST_SRC = asm_c_test.cc ../world.cc ../world_map.cc ../render.cc \
+		../roll.cc ../spritedef.cc ../vec.cc ../vec_lut.cc ../fmath.cc
+ASM_C_TEST_HDRS = ../world.h ../world_asm.h ../render.h ../render_asm.h \
+		../roll.h ../vec.h ../mem.h ../chardefs.h ../gfx.h ../color.h
 
 CPU_TEST_SRC = cpu_test.cc
 CPU_TEST_HDRS = ../cpu.h ../cpu.cc ../cia.h
@@ -218,6 +226,9 @@ gun_test: $(GUN_TEST_SRC) $(GUN_TEST_HDRS)
 mission_test: $(MISSION_TEST_SRC) $(MISSION_TEST_HDRS)
 	$(HOST_CC) $(FPILOT_CFLAGS) -o mission_test $(MISSION_TEST_SRC)
 
+asm_c_test: $(ASM_C_TEST_SRC) $(ASM_C_TEST_HDRS)
+	$(HOST_CC) $(HOST_CFLAGS) -Wno-unused-function -D__striped= -o asm_c_test $(ASM_C_TEST_SRC)
+
 # Every suite's sources, for the syntax-only narrowing pass. Kept as one list
 # rather than reusing the per-suite variables because the pass does not link and
 # does not care which binary a file belongs to - only that it is compiled once
@@ -241,8 +252,10 @@ planes_target_cases.h: ../../tools/generate_planes.py ../../lib/planes.py
 
 target_test.prg: target_test.cc int16.h ../vec.h ../vec.cc ../vec_lut.cc \
 		../planes.h ../planes.cc ../planes_asm.h ../planes_asm.cc ../planedef.h \
+		../poly_asm.h ../poly_asm.cc ../world_asm.h ../world_asm.cc \
+		../render_asm.h ../render_asm.cc \
 		planes_target_cases.h
-	$(OSCAR64) $(TARGET_CFLAGS) -o=target_test.prg target_test.cc
+	$(OSCAR64) $(TARGET_CFLAGS) -D__TARGET_TEST__ -o=target_test.prg target_test.cc
 
 target-test:
 	@if ! command -v $(OSCAR64) >/dev/null 2>&1; then \
@@ -266,8 +279,8 @@ narrowing-update:
 	fi
 	@{ $(narrow_scan) ; } | $(NARROW_CHECK) --update $(NARROW_BASELINE)
 
-test: flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test planes_test planes_edge_test opponent_test gun_test fpilot_test mission_test narrowing $(TARGET_TEST)
-	@./flight_test > output.txt && ./msg_test >> output.txt && ./map_test >> output.txt && ./sound_test >> output.txt && ./music_test >> output.txt && ./mul_test >> output.txt && ./sprites_test >> output.txt && ./cpu_test >> output.txt && ./poly_test >> output.txt && ./planes_test >> output.txt && ./planes_edge_test >> output.txt && ./opponent_test >> output.txt && ./gun_test >> output.txt && ./fpilot_test >> output.txt && ./mission_test >> output.txt && echo "ALL TESTS PASSED (flight_test, msg_test, map_test, sound_test, music_test, mul_test, sprites_test, cpu_test, poly_test, planes_test, planes_edge_test, opponent_test, gun_test, fpilot_test, mission_test) -> test/output.txt"
+test: flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test planes_test planes_edge_test opponent_test gun_test fpilot_test mission_test asm_c_test narrowing $(TARGET_TEST)
+	@./flight_test > output.txt && ./msg_test >> output.txt && ./map_test >> output.txt && ./sound_test >> output.txt && ./music_test >> output.txt && ./mul_test >> output.txt && ./sprites_test >> output.txt && ./cpu_test >> output.txt && ./poly_test >> output.txt && ./planes_test >> output.txt && ./planes_edge_test >> output.txt && ./opponent_test >> output.txt && ./gun_test >> output.txt && ./fpilot_test >> output.txt && ./mission_test >> output.txt && ./asm_c_test >> output.txt && echo "ALL TESTS PASSED (flight_test, msg_test, map_test, sound_test, music_test, mul_test, sprites_test, cpu_test, poly_test, planes_test, planes_edge_test, opponent_test, gun_test, fpilot_test, mission_test, asm_c_test) -> test/output.txt"
 
 # Both models, from clean, because the object files are not model-tagged.
 test-both:
@@ -275,7 +288,7 @@ test-both:
 	$(MAKE) clean && $(MAKE) test FLIGHT_AOA=1
 
 clean:
-	rm -rf flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test planes_test planes_edge_test opponent_test gun_test fpilot_test mission_test planes_cases.h planes_target_cases.h output.txt *.dSYM
+	rm -rf flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test planes_test planes_edge_test opponent_test gun_test fpilot_test mission_test asm_c_test planes_cases.h planes_target_cases.h output.txt *.dSYM
 	rm -f target_test.prg target_test.asm target_test.lbl target_test.map target_test.int target_test.dbj
 
-.PHONY: all test test-both narrowing narrowing-update target-test flight_test msg_test map_test sound_test music_test mul_test sprites_test poly_test clean
+.PHONY: all test test-both narrowing narrowing-update target-test flight_test msg_test map_test sound_test music_test mul_test sprites_test poly_test asm_c_test clean

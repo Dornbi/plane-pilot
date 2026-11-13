@@ -36,6 +36,11 @@
 //       checksum, reported as id 2000 + the case number
 //    8  vec_div8p8's shift for a divisor of 64 against its own loop
 //    9  vec_fastmul8p8 with an operand below 256 against the 32-bit product
+//   10  poly_asm.cc _poly_frustum_all_out against 16-bit C reference
+//   11  poly_asm.cc _poly_scan_lines2 against byte-for-byte C reference
+//   12  world_asm.cc _world_draw_box_points against byte-for-byte C reference
+//   13  render_asm.cc _render_snap_center_asm against C roll_get_dist reference
+//   14  render_asm.cc _render_flush_span main/alt $E800/$EC00 sled & color RAM
 
 #include <stdint.h>
 
@@ -44,14 +49,18 @@
 // stack rather than 4.
 #pragma heapsize(0)
 #pragma stacksize(0x400)
-#pragma region(main, 0x0880, 0xA000, , , {code, data, bss, heap, stack})
+#pragma region(main, 0x0880, 0xA000, , , {code, data, bss})
+#pragma region(stackregion, 0xC000, 0xC400, , , {heap, stack})
 // And the zero page the programs under test get from -xz: vec_asm.cc's
 // routines keep their operands there.
 #pragma region(zeropage, 0x80, 0x100, , , {zeropage})
 
 #include "../planedef.h"
 #include "../planes.h"
+#include "../poly_asm.h"
+#include "../render_asm.h"
 #include "../vec.h"
+#include "../world_asm.h"
 #include "planes_target_cases.h"
 
 // If this ever fails the file is being built for something that is not the
@@ -314,6 +323,422 @@ static void test_fastmul_short(void) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Backing arrays and C references for poly_asm.cc, world_asm.cc, render_asm.cc
+// ---------------------------------------------------------------------------
+// Place test scratch/reference screens in the free 4 KB RAM block at $C000
+// ($C000-$C3FF holds stack/heap; $C400-$CF2F holds the test buffers cleanly).
+static uint8_t *const test_scr = (uint8_t *)0xC400;
+static uint8_t *const test_clr = (uint8_t *)0xC800;
+static uint8_t *const ref_scr = (uint8_t *)0xCA80;
+static uint8_t *const ref_clr = (uint8_t *)0xCD00;
+
+__striped uint8_t *mem_screen_row_ptrs[kScreenHeight];
+__striped uint8_t *const mem_color_row_ptrs[kViewportHeight] = {
+    (uint8_t *)0xC800 + 0 * 40,  (uint8_t *)0xC800 + 1 * 40,
+    (uint8_t *)0xC800 + 2 * 40,  (uint8_t *)0xC800 + 3 * 40,
+    (uint8_t *)0xC800 + 4 * 40,  (uint8_t *)0xC800 + 5 * 40,
+    (uint8_t *)0xC800 + 6 * 40,  (uint8_t *)0xC800 + 7 * 40,
+    (uint8_t *)0xC800 + 8 * 40,  (uint8_t *)0xC800 + 9 * 40,
+    (uint8_t *)0xC800 + 10 * 40, (uint8_t *)0xC800 + 11 * 40,
+    (uint8_t *)0xC800 + 12 * 40, (uint8_t *)0xC800 + 13 * 40};
+bool mem_using_alt_buffer;
+
+vec3_t _poly_clip3_buf[10];
+uint8_t _poly_min_x[2 * kViewportHeight];
+uint8_t _poly_max_x[2 * kViewportHeight];
+
+__striped int16_t _world_mitch_x[16];
+__striped int16_t _world_mitch_y[16];
+__striped int16_t _world_mitch_z[16];
+__zeropage vec3_t _world_vec_v;
+
+uint8_t _render_sky_rows;
+int8_t render_cx_chars;
+int8_t render_cy_chars;
+bool render_alt_box;
+int8_t render_alt_shift_x;
+int8_t render_alt_shift_y;
+uint8_t render_sky_rows;
+int8_t roll_dx;
+int8_t roll_dy;
+uint8_t roll_period;
+bool roll_x_is_major;
+int8_t roll_ex_dy[8];
+int8_t roll_ey_dx[8];
+
+static void _init_row_ptrs(void) {
+  for (uint8_t r = 0; r < kScreenHeight; ++r) {
+    mem_screen_row_ptrs[r] = test_scr + r * 40;
+  }
+}
+
+static void _clear_test_screens(uint8_t scr_val, uint8_t clr_val) {
+  for (uint16_t i = 0; i < kScreenHeight * 40; ++i) {
+    test_scr[i] = scr_val;
+  }
+  for (uint16_t i = 0; i < kViewportHeight * 40; ++i) {
+    test_clr[i] = clr_val;
+    ref_scr[i] = scr_val;
+    ref_clr[i] = clr_val;
+  }
+}
+
+// 10. poly_asm.cc _poly_frustum_all_out against 16-bit C reference.
+static bool _ref_frustum_all_out(uint8_t end3) {
+  uint8_t out3 = 0x0f;
+  for (uint8_t o = 0; o != end3; o += sizeof(vec3_t)) {
+    const vec3_t *v = (const vec3_t *)((const uint8_t *)_poly_clip3_buf + o);
+    uint16_t ux = (uint16_t)v->x;
+    uint16_t zx = ux >> 2;
+    int16_t vy = v->y;
+    int16_t vz = v->z;
+    uint8_t c = 0;
+    if ((uint16_t)_abs16(vy) > ux) {
+      c = vy < 0 ? 2 : 1;
+    }
+    if ((uint16_t)_abs16(vz) > zx) {
+      c |= vz < 0 ? 8 : 4;
+    }
+    out3 &= c;
+    if (out3 == 0) {
+      break;
+    }
+  }
+  return out3 != 0;
+}
+
+static void test_poly_frustum_asm(void) {
+  static const int16_t kCases[][3][3] = {
+      {{100, 101, 0}, {200, 205, 0}, {50, 51, 0}},     // all y > x
+      {{100, -101, 0}, {200, -205, 0}, {50, -51, 0}},  // all y < -x
+      {{100, 0, 26}, {200, 0, 51}, {40, 0, 11}},       // all z > x>>2
+      {{100, 0, -26}, {200, 0, -51}, {40, 0, -11}},    // all z < -(x>>2)
+      {{100, 0, 25}, {200, 0, 51}, {40, 0, 11}},       // z == x>>2 boundary
+      {{100, 120, 0}, {100, -120, 0}, {100, 5, 0}},    // straddling x/y
+      {{20000, 25000, 0}, {22000, 26000, 0}, {18000, 20000, 0}}, // > 16k
+  };
+  for (uint8_t c = 0; c < sizeof(kCases) / sizeof(kCases[0]); ++c) {
+    for (uint8_t i = 0; i < 3; ++i) {
+      _poly_clip3_buf[i] =
+          make_vector(kCases[c][i][0], kCases[c][i][1], kCases[c][i][2]);
+    }
+    expect(10, _poly_frustum_all_out(3 * sizeof(vec3_t)) ? 1 : 0,
+           _ref_frustum_all_out(3 * sizeof(vec3_t)) ? 1 : 0);
+  }
+}
+
+// 11. poly_asm.cc _poly_scan_lines2 against C reference byte-for-byte.
+static void _ref_scan_lines2(uint8_t fill_char_start_idx, uint8_t color,
+                             uint8_t py_start, uint8_t py_end) {
+  for (uint8_t py = py_start; py <= py_end; ++py) {
+    uint8_t sy = py << 1;
+    uint8_t t_min = _poly_min_x[sy];
+    uint8_t b_min = _poly_min_x[sy + 1];
+    uint8_t min_x = _min8(t_min, b_min);
+    if (min_x == kScreenWidth * 2) {
+      continue;
+    }
+    uint8_t t_max = _poly_max_x[sy];
+    uint8_t b_max = _poly_max_x[sy + 1];
+    uint8_t *row = ref_scr + py * 40;
+    uint8_t *color_row = ref_clr + py * 40;
+    uint8_t min_px = min_x >> 1;
+    uint8_t max_px = _max8(t_max, b_max) >> 1;
+    uint8_t overlap_start = (uint8_t)(_max8(t_min, b_min) + 1) >> 1;
+    uint8_t overlap_stop = (uint8_t)(_min8(t_max, b_max) + 1) >> 1;
+    if (overlap_stop > overlap_start) {
+      uint8_t cnt = overlap_stop - overlap_start;
+      if (color) {
+        _poly_set_color_line(row + overlap_start, fill_char_start_idx | 0xF,
+                             color_row + overlap_start, color, cnt);
+      } else {
+        _poly_set_line(row + overlap_start, fill_char_start_idx | 0xF, cnt);
+      }
+    } else {
+      overlap_start = kViewportWidth;
+    }
+    for (uint8_t px = min_px; px <= max_px; ++px) {
+      if (px == overlap_start) {
+        px = overlap_stop - 1;
+        continue;
+      }
+      if (row[px] < kCharSolidGround) {
+        continue;
+      }
+      uint8_t mask = 0;
+      uint8_t sx_left = px << 1;
+      uint8_t sx_right = sx_left + 1;
+      if (sx_left >= t_min && sx_left <= t_max) {
+        mask |= 1;
+      }
+      if (sx_right >= t_min && sx_right <= t_max) {
+        mask |= 2;
+      }
+      if (sx_left >= b_min && sx_left <= b_max) {
+        mask |= 4;
+      }
+      if (sx_right >= b_min && sx_right <= b_max) {
+        mask |= 8;
+      }
+      if (mask) {
+        row[px] = fill_char_start_idx + mask;
+        if (color) {
+          color_row[px] = color;
+        }
+      }
+    }
+  }
+}
+
+static void test_poly_scan_lines2_asm(void) {
+  _init_row_ptrs();
+  for (uint8_t color_pass = 0; color_pass < 2; ++color_pass) {
+    uint8_t col = color_pass ? 0x0B : 0;
+    uint8_t base_ch = color_pass ? 160 : 176;
+    _clear_test_screens(kCharSolidGround, 0x55);
+    for (uint8_t i = 0; i < 2 * kViewportHeight; ++i) {
+      _poly_min_x[i] = kScreenWidth * 2;
+      _poly_max_x[i] = 0;
+    }
+    // Row 2: wide core + both fringes, plus non-ground guard cell inside core.
+    _poly_min_x[4] = 5;
+    _poly_max_x[4] = 16;
+    _poly_min_x[5] = 7;
+    _poly_max_x[5] = 15;
+    test_scr[2 * 40 + 7] = 42;
+    ref_scr[2 * 40 + 7] = 42;
+    // Row 3: left empty (gap row), Row 4: narrow single-subrow sliver (no core).
+    _poly_min_x[8] = 10;
+    _poly_max_x[8] = 11;
+    // Row 5: single pixel dot in bottom subrow only.
+    _poly_min_x[11] = 21;
+    _poly_max_x[11] = 21;
+
+    _poly_scan_lines2(base_ch, col, 2, 5);
+    _ref_scan_lines2(base_ch, col, 2, 5);
+
+    for (uint16_t i = 0; i < kViewportHeight * 40; ++i) {
+      expect(11, test_scr[i], ref_scr[i]);
+      expect(11, test_clr[i], ref_clr[i]);
+    }
+  }
+}
+
+// 12. world_asm.cc _world_draw_box_points against C reference.
+static void _ref_world_draw_box_points(uint8_t start_idx, uint8_t num_points,
+                                       uint8_t color) {
+  uint8_t idx = start_idx & 0x0F;
+  for (uint8_t i = num_points;;) {
+    vec_v.x = _world_vec_v.x + _world_mitch_x[idx];
+    if (vec_viewport_ahead()) {
+      vec_v.y = _world_vec_v.y + _world_mitch_y[idx];
+      if (vec_viewport_beside()) {
+        vec_v.z = _world_vec_v.z + _world_mitch_z[idx];
+        if (vec_viewport_project()) {
+          int16_t px = 160 - vec_sx;
+          int16_t py = 56 - vec_sy;
+          if ((uint16_t)px < 320 && (uint16_t)py < 112) {
+            uint8_t row = (uint8_t)(py >> 3);
+            uint8_t col = (uint8_t)(px >> 3);
+            uint16_t off = (uint16_t)row * 40 + col;
+            if (ref_scr[off] == kCharSolidGround) {
+              uint8_t bits =
+                  (uint8_t)((px >> 1) & 3) | (uint8_t)((py & 6) << 1);
+              if (color == kGfxDotGround) {
+                ref_scr[off] = 224 + bits;
+              } else {
+                ref_scr[off] = 240 + bits;
+                ref_clr[off] = (uint8_t)(0x08 | color);
+              }
+            }
+          }
+        }
+      }
+    }
+    if (--i == 0) {
+      break;
+    }
+    idx = (idx + 1) & 0x0F;
+  }
+}
+
+static void test_world_draw_box_points_asm(void) {
+  _init_row_ptrs();
+  for (uint8_t i = 0; i < 16; ++i) {
+    _world_mitch_x[i] = 0;
+    _world_mitch_y[i] = 0;
+    _world_mitch_z[i] = 0;
+  }
+  _world_vec_v = make_vector(0, 0, 0);
+  // Cover: behind (x<9), lateral tighten fail, vertical cone fail, large
+  // x (>255 shr loop), small x (<128 shl loop), negative coords, wraparound.
+  _world_mitch_x[14] = 8;
+  _world_mitch_x[15] = 200;
+  _world_mitch_y[15] = 160;
+  _world_mitch_x[0] = 200;
+  _world_mitch_z[0] = 51;
+  _world_mitch_x[1] = 256;
+  _world_mitch_x[2] = 512;
+  _world_mitch_y[2] = -128;
+  _world_mitch_z[2] = 32;
+  _world_mitch_x[3] = 64;
+  _world_mitch_y[3] = 20;
+  _world_mitch_z[3] = -8;
+
+  for (uint8_t pass = 0; pass < 2; ++pass) {
+    uint8_t col = pass ? 3 : kGfxDotGround;
+    _clear_test_screens(kCharSolidGround, 0x55);
+    test_scr[7 * 40 + 20] = (pass == 0) ? kCharSolidGround : 42;
+    ref_scr[7 * 40 + 20] = test_scr[7 * 40 + 20];
+
+    _world_draw_box_points(14, 6, col);
+    _ref_world_draw_box_points(14, 6, col);
+
+    for (uint16_t i = 0; i < kViewportHeight * 40; ++i) {
+      expect(12, test_scr[i], ref_scr[i]);
+      expect(12, test_clr[i], ref_clr[i]);
+    }
+  }
+}
+
+// 13. render_asm.cc _render_snap_center_asm against C reference.
+static uint8_t _ref_roll_get_dist(int8_t px, int8_t py) {
+  int8_t d = roll_ex_dy[(px + 4) & 7] - roll_ey_dx[(py + 4) & 7];
+  return (uint8_t)(d < 0 ? -d : d);
+}
+
+static void _ref_snap_center(int16_t px, int16_t py, int8_t *out_cx,
+                             int8_t *out_cy, bool *out_alt, int8_t *out_sx,
+                             int8_t *out_sy) {
+  int16_t best_px = px;
+  int16_t best_py = py;
+  *out_alt = false;
+  if (roll_period == 1) {
+    if (roll_x_is_major) {
+      *out_sx = 0;
+      *out_sy = 4;
+    } else {
+      *out_sx = 4;
+      *out_sy = 0;
+    }
+    uint8_t min_d = _ref_roll_get_dist((int8_t)px, (int8_t)py);
+    int16_t ax = px - (uint8_t)*out_sx;
+    int16_t ay = py - (uint8_t)*out_sy;
+    if (_ref_roll_get_dist((int8_t)ax, (int8_t)ay) < min_d) {
+      best_px = ax;
+      best_py = ay;
+      *out_alt = true;
+    }
+  } else {
+    uint8_t min_d = 0xff;
+    for (uint8_t i = 0; i < roll_period; ++i) {
+      uint8_t d = _ref_roll_get_dist((int8_t)px, (int8_t)py);
+      if (d < min_d) {
+        min_d = d;
+        best_px = px;
+        best_py = py;
+      }
+      px += roll_dx;
+      py += roll_dy;
+    }
+  }
+  *out_cx = (int8_t)((best_px + 4) >> 3);
+  *out_cy = (int8_t)((best_py + 4) >> 3);
+}
+
+static void test_render_snap_center_asm(void) {
+  struct SnapCase {
+    uint8_t period;
+    bool x_major;
+    int8_t dx, dy;
+    int16_t px, py;
+  };
+  static const SnapCase kSnapCases[] = {
+      {1, true, 16, 0, 8, 8},     // main wins
+      {1, true, 16, 0, 8, 12},    // alt wins (y shift 4)
+      {1, false, 0, -16, 12, 8},  // alt wins (x shift 4)
+      {2, true, 8, 2, 160, 56},
+      {4, false, -4, 8, 155, 61},
+      {8, true, -10, -3, -20, 15},
+  };
+  for (uint8_t c = 0; c < sizeof(kSnapCases) / sizeof(kSnapCases[0]); ++c) {
+    roll_period = kSnapCases[c].period;
+    roll_x_is_major = kSnapCases[c].x_major;
+    roll_dx = kSnapCases[c].dx;
+    roll_dy = kSnapCases[c].dy;
+    for (uint8_t e = 0; e < 8; ++e) {
+      int8_t off = (int8_t)e - 4;
+      roll_ex_dy[e] = (int8_t)(roll_dy * off);
+      roll_ey_dx[e] = (int8_t)(roll_dx * off);
+    }
+    vec_proj_mul_a = kSnapCases[c].px;
+    vec_proj_mul_b = kSnapCases[c].py;
+    render_alt_shift_x = 0;
+    render_alt_shift_y = 0;
+    _render_snap_center_asm();
+
+    int8_t r_cx = 0, r_cy = 0, r_sx = 0, r_sy = 0;
+    bool r_alt = false;
+    _ref_snap_center(kSnapCases[c].px, kSnapCases[c].py, &r_cx, &r_cy, &r_alt,
+                     &r_sx, &r_sy);
+    expect(13, render_cx_chars, r_cx);
+    expect(13, render_cy_chars, r_cy);
+    expect(13, render_alt_box ? 1 : 0, r_alt ? 1 : 0);
+    if (roll_period == 1) {
+      expect(13, render_alt_shift_x, r_sx);
+      expect(13, render_alt_shift_y, r_sy);
+    }
+  }
+}
+
+// 14. render_asm.cc _render_flush_span on $E800 (main) and $EC00 (alt).
+static void test_render_flush_span_asm(void) {
+  volatile uint8_t *const main_ram = (volatile uint8_t *)0xE800;
+  volatile uint8_t *const alt_ram = (volatile uint8_t *)0xEC00;
+  uint8_t saved_p01 = *(volatile uint8_t *)0x01;
+
+  for (uint16_t i = 0; i < kViewportHeight * 40; ++i) {
+    main_ram[i] = 0xAA;
+    alt_ram[i] = 0xAA;
+    test_clr[i] = 0x55;
+  }
+
+  // No-op paths: odd char, inverted/empty range.
+  mem_using_alt_buffer = false;
+  _render_sky_rows = 0;
+  render_sky_rows = 2;
+  _render_flush_span(1, 0, 14);
+  _render_flush_span(kCharSolid11, 5, 5);
+  _render_flush_span(kCharSolid11, 8, 4);
+
+  // Main buffer: sky [0, 5) + ground [11, 20->14).
+  _render_flush_span(kCharSolid11, 0, 5);
+  expect(14, _render_sky_rows, 5);
+  _render_flush_span(128, 11, 20);
+
+  // Alt buffer: single-row sky [7, 8) and [9, 12).
+  mem_using_alt_buffer = true;
+  _render_flush_span(kCharSolid11, 7, 8);
+  expect(14, _render_sky_rows, 5); // gap: should not advance _render_sky_rows
+  _render_flush_span(128, 9, 12);
+
+  // Switch ROM off temporarily so reads from $E800/$EC00 inspect underlying RAM.
+  *(volatile uint8_t *)0x01 = 0x35;
+  for (uint8_t y = 0; y < kViewportHeight; ++y) {
+    uint8_t want_main = (y < 5) ? kCharSolid11 : (y >= 11 ? 128 : 0xAA);
+    uint8_t want_alt = (y == 7) ? kCharSolid11 : ((y >= 9 && y < 12) ? 128 : 0xAA);
+    uint8_t want_clr = ((y >= 2 && y < 5) || y == 7) ? (0x08 | 6) : 0x55;
+    for (uint8_t x = 0; x < 40; ++x) {
+      uint16_t off = (uint16_t)y * 40 + x;
+      expect(14, main_ram[off], want_main);
+      expect(14, alt_ram[off], want_alt);
+      expect(14, test_clr[off], want_clr);
+    }
+  }
+  *(volatile uint8_t *)0x01 = saved_p01;
+}
+
 int main(void) {
   // The KERNAL's timer interrupt keeps its clock and keyboard state in the
   // zero page the region above hands out. Nothing here needs it.
@@ -330,6 +755,11 @@ int main(void) {
   test_planes_sweep();
   test_div_by_64();
   test_fastmul_short();
+  test_poly_frustum_asm();
+  test_poly_scan_lines2_asm();
+  test_world_draw_box_points_asm();
+  test_render_snap_center_asm();
+  test_render_flush_span_asm();
 
   // Something for vice_dump.sh's @spin to break on. Everything above has
   // landed in the globals by the time the loop is reached.

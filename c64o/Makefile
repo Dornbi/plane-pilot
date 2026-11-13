@@ -91,8 +91,12 @@ PPILOT_SRC = \
 		ppilot.cc \
 		poly.h \
 		poly.cc \
+		poly_asm.h \
+		poly_asm.cc \
 		render.h \
 		render.cc \
+		render_asm.h \
+		render_asm.cc \
 		roll.h \
 		roll.cc \
 		roll_asm.cc \
@@ -124,6 +128,8 @@ PPILOT_SRC = \
 		view.cc \
 		world.h \
 		world.cc \
+		world_asm.h \
+		world_asm.cc \
 		world_map.cc
 
 # Other aircraft (docs/planes.md): fpilot only, see opponent.h.
@@ -165,6 +171,8 @@ POLYDEMO_SRC = \
 		print.cc \
 		poly.h \
 		poly.cc \
+		poly_asm.h \
+		poly_asm.cc \
 		polydemo.cc \
 		sid.h \
 		sound.h \
@@ -174,6 +182,8 @@ POLYDEMO_SRC = \
 		vec_lut.cc \
 		world.h \
 		world.cc \
+		world_asm.h \
+		world_asm.cc \
 		world_map.cc
 
 VECDEMO_PROGRAM = vecdemo

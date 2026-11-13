@@ -8,6 +8,7 @@
 #include "color.h"
 #include "fmath.h"
 #include "mem.h"
+#include "render_asm.h"
 #include "roll.h"
 #include "vec.h"
 
@@ -104,6 +105,7 @@ static void _pull_to_center() {
 #endif
 }
 
+#ifndef __OSCAR64__
 static inline void _render_set_alt_shift() {
   if (roll_x_is_major) {
     render_alt_shift_x = 0;
@@ -114,186 +116,8 @@ static inline void _render_set_alt_shift() {
   }
 }
 
-// Distance to line from nearest character.
-// Optimized to avoid large multiplications by using (px, py) as anchor.
-// dist = |roll_dy * (px - mx*8) - roll_dx * (py - my*8)|
-// PERF: roll_get_dist() -> cycles: -120 bytes: -100
-static uint16_t _unused_get_dist(int8_t px, int8_t py) {
-  int8_t ex = px - ((px + 4) & 0xF8);
-  int8_t ey = py - ((py + 4) & 0xF8);
-  int16_t dist = (int16_t)roll_dy * ex - (int16_t)roll_dx * ey;
-  if (dist < 0) {
-    dist = -dist;
-  }
-  return dist;
-}
-
-void render_snap_center_chars() {
-  bm_view_start();
-  _pull_to_center();
-
-#ifdef __OSCAR64__
-  // Reuse ZP projection scratch across this snap step (nothing is live across
-  // render_snap_center_chars) so oscar64 cannot fold or alias C locals.
-  //   vec_proj_mul_a  = best_px      vec_proj_mul_b = best_py
-  //   vec_v.x         = px           vec_v.y        = py
-  //   vec_proj_tmp1   = min_dist     vec_proj_recip = loop counter / shift tmp
-  //   vec_mul8_lo     = L_dist temp
-  // clang-format off
-  __asm {
-        lda #0;
-        sta render_alt_box;
-
-        lda roll_period;
-        cmp #1;
-        bne L_multi;
-
-        ldx #0;
-        ldy #4;
-        lda roll_x_is_major;
-        bne L_alt_set;
-        ldx #4;
-        ldy #0;
-    L_alt_set:
-        stx render_alt_shift_x;
-        sty render_alt_shift_y;
-        lda vec_proj_mul_a + 0;
-        ldy vec_proj_mul_b + 0;
-        jsr L_dist;
-        sta vec_proj_tmp1;
-
-        lda vec_proj_mul_a + 0;
-        sec;
-        sbc render_alt_shift_x;
-        tax;
-        lda vec_proj_mul_b + 0;
-        sec;
-        sbc render_alt_shift_y;
-        tay;
-        txa;
-        jsr L_dist;
-        cmp vec_proj_tmp1;
-        bcs L_snap;
-        inc render_alt_box;
-        sec;
-        lda vec_proj_mul_a + 0;
-        sbc render_alt_shift_x;
-        sta vec_proj_mul_a + 0;
-        bcs L_sub_y;
-        dec vec_proj_mul_a + 1;
-    L_sub_y:
-        sec;
-        lda vec_proj_mul_b + 0;
-        sbc render_alt_shift_y;
-        sta vec_proj_mul_b + 0;
-        bcs L_snap;
-        dec vec_proj_mul_b + 1;
-        jmp L_snap;
-
-    L_multi:
-        // roll.cc guarantees roll_period is 1, 2, 4, or 8 (never 0).
-        sta vec_proj_recip;
-        lda vec_proj_mul_a + 0;
-        sta vec_v + 0;
-        lda vec_proj_mul_a + 1;
-        sta vec_v + 1;
-        lda vec_proj_mul_b + 0;
-        sta vec_v + 2;
-        lda vec_proj_mul_b + 1;
-        sta vec_v + 3;
-        lda #$ff;
-        sta vec_proj_tmp1;
-    L_loop:
-        lda vec_v + 0;
-        ldy vec_v + 2;
-        jsr L_dist;
-        cmp vec_proj_tmp1;
-        bcs L_next;
-        sta vec_proj_tmp1;
-        lda vec_v + 0;
-        sta vec_proj_mul_a + 0;
-        lda vec_v + 1;
-        sta vec_proj_mul_a + 1;
-        lda vec_v + 2;
-        sta vec_proj_mul_b + 0;
-        lda vec_v + 3;
-        sta vec_proj_mul_b + 1;
-    L_next:
-        lda roll_dx;
-        bpl L_dx_pos;
-        dec vec_v + 1;
-    L_dx_pos:
-        clc;
-        adc vec_v + 0;
-        sta vec_v + 0;
-        bcc L_dy_step;
-        inc vec_v + 1;
-    L_dy_step:
-        lda roll_dy;
-        bpl L_dy_pos;
-        dec vec_v + 3;
-    L_dy_pos:
-        clc;
-        adc vec_v + 2;
-        sta vec_v + 2;
-        bcc L_iter_done;
-        inc vec_v + 3;
-    L_iter_done:
-        dec vec_proj_recip;
-        bne L_loop;
-
-    L_snap:
-        lda vec_proj_mul_a + 0;
-        ldy vec_proj_mul_a + 1;
-        jsr L_div8;
-        sta render_cx_chars;
-        lda vec_proj_mul_b + 0;
-        ldy vec_proj_mul_b + 1;
-        jsr L_div8;
-        sta render_cy_chars;
-        jmp L_snap_done;
-
-    L_div8:
-        clc;
-        adc #4;
-        bcc L_div8_nc;
-        iny;
-    L_div8_nc:
-        sty vec_proj_recip;
-        lsr vec_proj_recip;
-        ror;
-        lsr vec_proj_recip;
-        ror;
-        lsr vec_proj_recip;
-        ror;
-        rts;
-
-    L_dist:
-        clc;
-        adc #4;
-        and #7;
-        tax;
-        lda roll_ex_dy, x;
-        sta vec_mul8_lo;
-        tya;
-        clc;
-        adc #4;
-        and #7;
-        tax;
-        lda vec_mul8_lo;
-        sec;
-        sbc roll_ey_dx, x;
-        bpl L_d_pos;
-        eor #$ff;
-        clc;
-        adc #1;
-    L_d_pos:
-        rts;
-
-    L_snap_done:
-  }
-  // clang-format on
-#else
+// Host C counterpart of render_asm.cc's _render_snap_center_asm().
+void _render_snap_center_asm(void) {
   int16_t px = render_px_pixels;
   int16_t py = render_py_pixels;
   int16_t best_px = px;
@@ -327,7 +151,27 @@ void render_snap_center_chars() {
   }
   render_cx_chars = (int8_t)((best_px + 4) >> 3);
   render_cy_chars = (int8_t)((best_py + 4) >> 3);
-#endif
+}
+#endif // !__OSCAR64__
+
+// Distance to line from nearest character.
+// Optimized to avoid large multiplications by using (px, py) as anchor.
+// dist = |roll_dy * (px - mx*8) - roll_dx * (py - my*8)|
+// PERF: roll_get_dist() -> cycles: -120 bytes: -100
+static uint16_t _unused_get_dist(int8_t px, int8_t py) {
+  int8_t ex = px - ((px + 4) & 0xF8);
+  int8_t ey = py - ((py + 4) & 0xF8);
+  int16_t dist = (int16_t)roll_dy * ex - (int16_t)roll_dx * ey;
+  if (dist < 0) {
+    dist = -dist;
+  }
+  return dist;
+}
+
+void render_snap_center_chars() {
+  bm_view_start();
+  _pull_to_center();
+  _render_snap_center_asm();
   bm_view_end(670, "SNP:");
 }
 
@@ -344,157 +188,23 @@ void render_snap_center_chars() {
 uint8_t render_sky_rows;
 // This frame's rows of sky so far, counted from the top without a gap: the
 // next frame's render_sky_rows.
-static uint8_t _sky_rows;
+uint8_t _render_sky_rows;
 
 static_assert(kViewportStartX == 0 && kViewportStartY == 0,
               "viewport row y is screen row y, from its first column");
 
-// 46-byte self-modifying STA abs,x screen-RAM sled ($E800 main, toggled to $EC00
-// alt in place via EOR #$04 on each high byte). Patching `dex; bpl rel; rts` at
-// end_row runs X = 39..0 once across [start_row, end_row). ch == 1 is a no-op.
-static __noinline void _flush_span(uint8_t ch, uint8_t start_row,
-                                   uint8_t end_row) {
+#ifndef __OSCAR64__
+// Host C counterpart of render_asm.cc's _render_flush_span().
+void _render_flush_span(uint8_t ch, uint8_t start_row, uint8_t end_row) {
   if (end_row > kViewportHeight) {
     end_row = kViewportHeight;
   }
   if ((ch & 1) || start_row >= end_row) {
     return;
   }
-#ifdef __OSCAR64__
-  uint8_t sky_col = COLOR_SKY8;
-  // clang-format off
-  __asm {
-        lda ch;
-        bne L_scr;
-        lda start_row;
-        cmp _sky_rows;
-        bne L_srows_done;
-        ldx end_row;
-        stx _sky_rows;
-    L_srows_done:
-        cmp render_sky_rows;
-        bcs L_clr_chk;
-        lda render_sky_rows;
-    L_clr_chk:
-        cmp end_row;
-        bcs L_scr;
-        tax;
-    L_clr_row:
-        lda mem_color_row_ptrs, x;
-        sta L_cs0 + 1;
-        clc;
-        adc #20;
-        sta L_cs1 + 1;
-        lda mem_color_row_ptrs + 14, x;
-        sta L_cs0 + 2;
-        adc #0;
-        sta L_cs1 + 2;
-        lda sky_col;
-        ldy #19;
-    L_cs0:
-        sta $d800, y;
-    L_cs1:
-        sta $d814, y;
-        dey;
-        bpl L_cs0;
-        inx;
-        cpx end_row;
-        bcc L_clr_row;
-
-    L_scr:
-        lda mem_using_alt_buffer;
-        asl;
-        asl;
-        eor L_sled + 2;
-        and #4;
-        beq L_tog_done;
-        ldx #39;
-    L_tog:
-        lda L_sled + 2, x;
-        eor #4;
-        sta L_sled + 2, x;
-        dex;
-        dex;
-        dex;
-        bpl L_tog;
-    L_tog_done:
-
-        lda end_row;
-        asl;
-        adc end_row;
-        tay;
-        sty end_row;
-        lda start_row;
-        asl;
-        adc start_row;
-        tax;
-        sec;
-        sbc end_row;
-        sbc #2;
-        sta end_row;
-        txa;
-        clc;
-        adc #<L_sled;
-        sta L_call + 1;
-        lda #>L_sled;
-        adc #0;
-        sta L_call + 2;
-
-        ldx #4;
-    L_sv:
-        lda L_sled, y;
-        pha;
-        iny;
-        dex;
-        bne L_sv;
-
-        lda #$ca;
-        sta L_sled - 4, y;
-        lda #$10;
-        sta L_sled - 3, y;
-        lda end_row;
-        sta L_sled - 2, y;
-        lda #$60;
-        sta L_sled - 1, y;
-
-        lda ch;
-        ldx #39;
-    L_call:
-        jsr L_sled;
-
-        ldx #4;
-    L_rs:
-        dey;
-        pla;
-        sta L_sled, y;
-        dex;
-        bne L_rs;
-        rts;
-
-    L_sled:
-        sta $e800, x;
-        sta $e828, x;
-        sta $e850, x;
-        sta $e878, x;
-        sta $e8a0, x;
-        sta $e8c8, x;
-        sta $e8f0, x;
-        sta $e918, x;
-        sta $e940, x;
-        sta $e968, x;
-        sta $e990, x;
-        sta $e9b8, x;
-        sta $e9e0, x;
-        sta $ea08, x;
-        dex;
-        bpl L_sled;
-        rts;
-  }
-  // clang-format on
-#else
   if (ch == kCharSolid11) {
-    if (start_row == _sky_rows) {
-      _sky_rows = end_row;
+    if (start_row == _render_sky_rows) {
+      _render_sky_rows = end_row;
     }
     for (uint8_t y = start_row > render_sky_rows ? start_row : render_sky_rows;
          y < end_row; ++y) {
@@ -510,8 +220,8 @@ static __noinline void _flush_span(uint8_t ch, uint8_t start_row,
       dst[x] = ch;
     }
   }
-#endif
 }
+#endif // !__OSCAR64__
 #pragma optimize(pop)
 
 static inline uint8_t _clamp_pos(int8_t row) {
@@ -536,7 +246,7 @@ static const int16_t kFull = kViewportWidth << 4;
 // writes the same cells.
 void render_fill_sky_ground() {
   bm_view_start();
-  _sky_rows = 0;
+  _render_sky_rows = 0;
 
   if (roll_dy == 0) {
     // Level: whole rows only. Rows above e are the left side's, rows from
@@ -557,8 +267,8 @@ void render_fill_sky_ground() {
       }
     }
     uint8_t ch0 = sky_left ? kCharSolid11 : kCharSolidGround;
-    _flush_span(ch0, 0, top);
-    _flush_span((uint8_t)(ch0 ^ kCharSolidGround), bot, kViewportHeight);
+    _render_flush_span(ch0, 0, top);
+    _render_flush_span((uint8_t)(ch0 ^ kCharSolidGround), bot, kViewportHeight);
   } else {
     bool sky_left = roll_dy < 0;
     // 12.4 fixpoint representation of the divider x between sky and ground.
@@ -597,13 +307,13 @@ void render_fill_sky_ground() {
         uint8_t ch =
             ((hi < 0x10) != sky_left) ? kCharSolid11 : kCharSolidGround;
         if (ch != run_ch) {
-          _flush_span(run_ch, run_start, y);
+          _render_flush_span(run_ch, run_start, y);
           run_ch = ch;
           run_start = y;
         }
       } else {
         if (run_ch != 1) {
-          _flush_span(run_ch, run_start, y);
+          _render_flush_span(run_ch, run_start, y);
           run_ch = 1;
         }
         // The row's spans, in the screen and in the colour buffer.
@@ -638,9 +348,9 @@ void render_fill_sky_ground() {
       }
       lo += roll_dx_div_dy;
     }
-    _flush_span(run_ch, run_start, kViewportHeight);
+    _render_flush_span(run_ch, run_start, kViewportHeight);
   }
-  render_sky_rows = _sky_rows;
+  render_sky_rows = _render_sky_rows;
 
   bm_view_end(710, "BGR:");
 }

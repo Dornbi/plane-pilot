@@ -6,6 +6,7 @@
 #include "chardefs.h"
 #include "fmath.h"
 #include "mem.h"
+#include "poly_asm.h"
 #include "vec.h"
 
 // Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
@@ -25,14 +26,14 @@ struct vertex16_t {
 #endif
 
 // Buffers to store the left-most and right-most X bounds for each scanline
-static uint8_t _min_x[2 * kViewportHeight];
-static uint8_t _max_x[2 * kViewportHeight];
+uint8_t _poly_min_x[2 * kViewportHeight];
+uint8_t _poly_max_x[2 * kViewportHeight];
 
 // Initialize the scanline buffers for the sub-rows in [start, end].
 static inline void _poly_clear_buffers(uint8_t start, uint8_t end) {
   for (uint8_t i = start; i <= end; i++) {
-    _min_x[i] = kScreenWidth * 2; // Set to out-of-bounds max
-    _max_x[i] = 0;                // Set to out-of-bounds min
+    _poly_min_x[i] = kScreenWidth * 2; // Set to out-of-bounds max
+    _poly_max_x[i] = 0;                // Set to out-of-bounds min
   }
 }
 
@@ -78,24 +79,24 @@ static void _poly_trace_edge_dda(int8_t xa, uint8_t ya, int8_t xb, uint8_t yb) {
     }
 
     // Update scanline bounds
-    if (start_x < _min_x[y]) {
-      _min_x[y] = start_x;
+    if (start_x < _poly_min_x[y]) {
+      _poly_min_x[y] = start_x;
     }
-    if (start_x > _max_x[y]) {
-      _max_x[y] = start_x;
+    if (start_x > _poly_max_x[y]) {
+      _poly_max_x[y] = start_x;
     }
-    if (end_x < _min_x[y]) {
-      _min_x[y] = end_x;
+    if (end_x < _poly_min_x[y]) {
+      _poly_min_x[y] = end_x;
     }
-    if (end_x > _max_x[y]) {
-      _max_x[y] = end_x;
+    if (end_x > _poly_max_x[y]) {
+      _poly_max_x[y] = end_x;
     }
     x_fp += dx_fp;
   }
 }
 
-static void _poly_trace_edge_bresenham(int8_t xa, uint8_t ya, int8_t xb,
-                                       uint8_t yb) {
+static inline void _poly_trace_edge_bresenham(int8_t xa, uint8_t ya, int8_t xb,
+                                              uint8_t yb) {
   if (ya == yb) {
     return; // Skip horizontal edges
   }
@@ -144,11 +145,11 @@ static void _poly_trace_edge_bresenham(int8_t xa, uint8_t ya, int8_t xb,
           x++;
           err -= dy;
         }
-        if (start_x < _min_x[y]) {
-          _min_x[y] = start_x;
+        if (start_x < _poly_min_x[y]) {
+          _poly_min_x[y] = start_x;
         }
-        if (x > _max_x[y]) {
-          _max_x[y] = x;
+        if (x > _poly_max_x[y]) {
+          _poly_max_x[y] = x;
         }
       }
     } else {
@@ -160,22 +161,22 @@ static void _poly_trace_edge_bresenham(int8_t xa, uint8_t ya, int8_t xb,
           x--;
           err -= dy;
         }
-        if (x < _min_x[y]) {
-          _min_x[y] = x;
+        if (x < _poly_min_x[y]) {
+          _poly_min_x[y] = x;
         }
-        if (start_x > _max_x[y]) {
-          _max_x[y] = start_x;
+        if (start_x > _poly_max_x[y]) {
+          _poly_max_x[y] = start_x;
         }
       }
     }
   } else {
     const int8_t step = rising ? 1 : -1;
     for (uint8_t y = y1; y < y2; y++) {
-      if (x < _min_x[y]) {
-        _min_x[y] = x;
+      if (x < _poly_min_x[y]) {
+        _poly_min_x[y] = x;
       }
-      if (x > _max_x[y]) {
-        _max_x[y] = x;
+      if (x > _poly_max_x[y]) {
+        _poly_max_x[y] = x;
       }
 
       err += dx;
@@ -185,11 +186,11 @@ static void _poly_trace_edge_bresenham(int8_t xa, uint8_t ya, int8_t xb,
       }
     }
   }
-  if (x < _min_x[y2]) {
-    _min_x[y2] = x;
+  if (x < _poly_min_x[y2]) {
+    _poly_min_x[y2] = x;
   }
-  if (x > _max_x[y2]) {
-    _max_x[y2] = x;
+  if (x > _poly_max_x[y2]) {
+    _poly_max_x[y2] = x;
   }
 }
 
@@ -201,8 +202,8 @@ static inline void _poly_set_char(uint8_t *dst, uint8_t fill_char_start_idx,
 // This implementation is simpler and faster for small filled polygons.
 static inline void _poly_scan_lines(uint8_t fill_char_start_idx) {
   for (uint8_t sy = 0; sy < 2 * kViewportHeight; ++sy) {
-    uint8_t min_x = _min_x[sy];
-    uint8_t max_x = _max_x[sy];
+    uint8_t min_x = _poly_min_x[sy];
+    uint8_t max_x = _poly_max_x[sy];
 
     if (max_x < min_x) {
       continue;
@@ -247,53 +248,27 @@ static inline void _poly_scan_lines(uint8_t fill_char_start_idx) {
   }
 }
 
-static inline void _poly_set_line(uint8_t *dst, uint8_t val, int8_t cnt) {
-  for (int8_t i = cnt - 1; i >= 0; --i) {
-    if (dst[i] < kCharSolidGround) {
-      continue;
-    }
-    dst[i] = val;
-  }
-}
-
-static inline void _poly_set_color_line(uint8_t *dst, uint8_t val,
-                                        uint8_t *color_dst, uint8_t color,
-                                        int8_t cnt) {
-  for (int8_t i = cnt - 1; i >= 0; --i) {
-    if (dst[i] < kCharSolidGround) {
-      continue;
-    }
-    dst[i] = val;
-    color_dst[i] = color;
-  }
-}
-
+#ifndef __OSCAR64__
 // This version does not take the previous value into account.
 static inline void _poly_set_char2(uint8_t *dst, uint8_t fill_char_start_idx,
                                    uint8_t val) {
   dst[0] = fill_char_start_idx + val;
 }
 
-// About 250 bytes more code, faster for large polygons.
+// Host C counterpart of poly_asm.cc's _poly_scan_lines2().
 // Only processes char rows in [py_start, py_end] (inclusive).
-//
-// Inline: poly_fill's one call site. Marking it also tips oscar64 into
-// inlining _poly_trace_edge_bresenham into poly_fill's edge loop, which is
-// safe only because that function picks its end points instead of swapping
-// them (see there).
-static inline void _poly_scan_lines2(uint8_t fill_char_start_idx,
-                                     uint8_t color, uint8_t py_start,
-                                     uint8_t py_end) {
+void _poly_scan_lines2(uint8_t fill_char_start_idx, uint8_t color,
+                       uint8_t py_start, uint8_t py_end) {
   for (uint8_t py = py_start; py <= py_end; ++py) {
     uint8_t sy = py << 1;
-    uint8_t t_min = _min_x[sy];
-    uint8_t b_min = _min_x[sy + 1];
+    uint8_t t_min = _poly_min_x[sy];
+    uint8_t b_min = _poly_min_x[sy + 1];
     uint8_t min_x = _min8(t_min, b_min);
     if (min_x == kScreenWidth * 2) {
       continue;
     }
-    uint8_t t_max = _max_x[sy];
-    uint8_t b_max = _max_x[sy + 1];
+    uint8_t t_max = _poly_max_x[sy];
+    uint8_t b_max = _poly_max_x[sy + 1];
 
     uint8_t *row = mem_screen_row_ptrs[py];
     uint8_t *color_row = mem_color_row_ptrs[py];
@@ -332,86 +307,6 @@ static inline void _poly_scan_lines2(uint8_t fill_char_start_idx,
     // jump over it here. overlap_start is guaranteed >= min_px; when there is
     // no core overlap_start is set to kViewportWidth, so the skip never
     // triggers and the whole span is treated as fringe.
-#ifdef __OSCAR64__
-    uint8_t max_px_p1 = max_px + 1;
-    // clang-format off
-    __asm {
-        ldy min_px;
-    L_fr_loop:
-        cpy overlap_start;
-        bne L_fr_chk;
-        ldy overlap_stop;
-        cpy max_px_p1;
-        bcs L_fr_end;
-    L_fr_chk:
-        lda (row), y;
-        bpl L_fr_next;
-        tya;
-        asl;
-        ldx #0;
-
-        // Top sub-row [t_min, t_max] -> bits 0 (sx_left) and 1 (sx_left+1).
-        cmp t_max;
-        beq L_t_eq;
-        bcs L_t_done;
-        cmp t_min;
-        bcc L_t_chk_r;
-        ldx #3;
-        bne L_t_done;
-    L_t_eq:
-        cmp t_min;
-        bcc L_t_done;
-        ldx #1;
-        bcs L_t_done;
-    L_t_chk_r:
-        ora #1;
-        cmp t_min;
-        bcc L_t_restore;
-        ldx #2;
-    L_t_restore:
-        and #$fe;
-    L_t_done:
-
-        // Bottom sub-row [b_min, b_max] -> bits 2 and 3.
-        cmp b_max;
-        beq L_b_eq;
-        bcs L_b_chk_zero;
-        cmp b_min;
-        bcc L_b_chk_r;
-        txa;
-        ora #12;
-        bne L_draw;
-    L_b_eq:
-        cmp b_min;
-        bcc L_b_chk_zero;
-        txa;
-        ora #4;
-        bne L_draw;
-    L_b_chk_r:
-        ora #1;
-        cmp b_min;
-        bcc L_b_chk_zero;
-        txa;
-        ora #8;
-        bne L_draw;
-    L_b_chk_zero:
-        txa;
-        beq L_fr_next;
-    L_draw:
-        clc;
-        adc fill_char_start_idx;
-        sta (row), y;
-        lda color;
-        beq L_fr_next;
-        sta (color_row), y;
-    L_fr_next:
-        iny;
-        cpy max_px_p1;
-        bcc L_fr_loop;
-    L_fr_end:
-    }
-    // clang-format on
-#else
     for (uint8_t px = min_px; px <= max_px; ++px) {
       if (px == overlap_start) {
         px = overlap_stop - 1; // skip the solid core; ++px lands just past it
@@ -444,7 +339,6 @@ static inline void _poly_scan_lines2(uint8_t fill_char_start_idx,
         }
       }
     }
-#endif
 #ifdef __DEBUG_POLY__
     if (false && py >= 6 && py < 14) {
       uint8_t y = py - 6;
@@ -456,6 +350,7 @@ static inline void _poly_scan_lines2(uint8_t fill_char_start_idx,
 #endif
   }
 }
+#endif // !__OSCAR64__
 
 // Fill the polygon using the traced edges
 void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
@@ -659,124 +554,46 @@ static uint8_t _clip_2d(const vertex16_t *in, uint8_t num_in, vertex16_t *out,
   return num_out;
 }
 
-// Working buffer for _clip_near() in _project_vertices(); file-scope so the
-// __asm fast frustum reject can index it directly.
-static vec3_t _clip3_buf[kPolyMaxVertices + 4];
+// Working buffer for _clip_near() in _project_vertices(); file-scope so
+// poly_asm.cc's fast frustum reject can index it directly.
+vec3_t _poly_clip3_buf[kPolyMaxVertices + 4];
+
+#ifndef __OSCAR64__
+// Host C counterpart of poly_asm.cc's _poly_frustum_all_out().
+bool _poly_frustum_all_out(uint8_t end3) {
+  uint8_t out3 = 0x0f;
+  for (uint8_t o = 0; o != end3; o += sizeof(vec3_t)) {
+    const vec3_t *v = (const vec3_t *)((const uint8_t *)_poly_clip3_buf + o);
+    uint16_t ux = (uint16_t)v->x;
+    uint16_t zx = ux >> 2;
+    int16_t vy = v->y;
+    int16_t vz = v->z;
+    uint8_t c = 0;
+    if ((uint16_t)_abs16(vy) > ux) {
+      c = vy < 0 ? 2 : 1;
+    }
+    if ((uint16_t)_abs16(vz) > zx) {
+      c |= vz < 0 ? 8 : 4;
+    }
+    out3 &= c;
+    if (out3 == 0) {
+      break;
+    }
+  }
+  return out3 != 0;
+}
+#endif
 
 // Projects 3d vertices to 2d.
 static uint8_t _project_vertices(const vec3_t *vertices_3d,
                                  uint8_t num_vertices, vertex_t *vertices_2d) {
-  uint8_t end3 = _clip_near(vertices_3d, num_vertices, _clip3_buf);
+  uint8_t end3 = _clip_near(vertices_3d, num_vertices, _poly_clip3_buf);
   if (end3 < 3 * sizeof(vec3_t)) {
     return 0;
   }
-  // 3D frustum early-reject before vec_project_nocull(): every _clip3_buf
-  // vertex has x >= 8. Screen x in [0, 79] requires vec_sx in [-160, 162]
-  // (|y|/x <= ~0.633 < 1) and screen y in [0, 27] requires vec_sy in [-56, 58]
-  // (|z|/x <= ~0.227 < 0.25). Any polygon with all vertices past the same edge
-  // cannot intersect the viewport.
-#ifdef __OSCAR64__
-  // clang-format off
-  vec_v.x = (int16_t)end3; // low byte at vec_v+0 holds end3
-  __asm {
-        lda #$0f;
-        sta vec_v+2;        // vec_v+2 = out3
-        ldy #$00;
-    L_out3_loop:
-        lda _clip3_buf+1, y;
-        lsr;
-        sta vec_sx+1;
-        lda _clip3_buf+0, y;
-        ror;
-        lsr vec_sx+1;
-        ror;
-        sta vec_sx+0;       // vec_sx = zx = ux >> 2
-
-        ldx #$00;
-        lda _clip3_buf+3, y;
-        bmi L_y_neg;
-        sec;
-        lda _clip3_buf+0, y;
-        sbc _clip3_buf+2, y;
-        lda _clip3_buf+1, y;
-        sbc _clip3_buf+3, y;
-        bcs L_chk_z;
-        ldx #$01;
-        bne L_chk_z;
-    L_y_neg:
-        clc;
-        lda _clip3_buf+0, y;
-        adc _clip3_buf+2, y;
-        lda _clip3_buf+1, y;
-        adc _clip3_buf+3, y;
-        bcs L_chk_z;
-        ldx #$02;
-    L_chk_z:
-        lda _clip3_buf+5, y;
-        bmi L_z_neg;
-        sec;
-        lda vec_sx+0;
-        sbc _clip3_buf+4, y;
-        lda vec_sx+1;
-        sbc _clip3_buf+5, y;
-        bcs L_next_v;
-        txa;
-        ora #$04;
-        tax;
-        bne L_next_v;
-    L_z_neg:
-        clc;
-        lda vec_sx+0;
-        adc _clip3_buf+4, y;
-        lda vec_sx+1;
-        adc _clip3_buf+5, y;
-        bcs L_next_v;
-        txa;
-        ora #$08;
-        tax;
-    L_next_v:
-        txa;
-        and vec_v+2;
-        sta vec_v+2;
-        beq L_out3_done;
-        tya;
-        clc;
-        adc #$06;
-        tay;
-        cmp vec_v+0;
-        bne L_out3_loop;
-    L_out3_done:
-  }
-  // clang-format on
-  if ((uint8_t)vec_v.y != 0) {
+  if (_poly_frustum_all_out(end3)) {
     return 0;
   }
-#else
-  {
-    uint8_t out3 = 0x0f;
-    for (uint8_t o = 0; o != end3; o += sizeof(vec3_t)) {
-      const vec3_t *v = (const vec3_t *)((const uint8_t *)_clip3_buf + o);
-      uint16_t ux = (uint16_t)v->x;
-      uint16_t zx = ux >> 2;
-      int16_t vy = v->y;
-      int16_t vz = v->z;
-      uint8_t c = 0;
-      if ((uint16_t)_abs16(vy) > ux) {
-        c = vy < 0 ? 2 : 1;
-      }
-      if ((uint16_t)_abs16(vz) > zx) {
-        c |= vz < 0 ? 8 : 4;
-      }
-      out3 &= c;
-      if (out3 == 0) {
-        break;
-      }
-    }
-    if (out3 != 0) {
-      return 0;
-    }
-  }
-#endif
   static vertex16_t proj_buf[kPolyMaxVertices + 4];
   // 4-bit Cohen-Sutherland outcodes, bit e for edge e in the order
   // min x, max x, min y, max y: all_out rejects when every vertex sits past
@@ -787,7 +604,7 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
   // n counts the vertices for proj_buf and the 2D clips below.
   uint8_t n = 0;
   for (uint8_t o = 0; o != end3; o += sizeof(vec3_t), ++n) {
-    vec_v = *(const vec3_t *)((const uint8_t *)_clip3_buf + o);
+    vec_v = *(const vec3_t *)((const uint8_t *)_poly_clip3_buf + o);
     // _clip_near() left nothing in front of the near plane, so every vertex
     // projects.
     vec_project_nocull();

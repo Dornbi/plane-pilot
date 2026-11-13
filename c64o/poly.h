@@ -25,5 +25,6 @@ void poly_draw_3d(const vec3_t *vertices, uint8_t num_vertices,
                   uint8_t fill_char_start_idx, uint8_t color);
 
 #pragma compile("poly.cc")
+#pragma compile("poly_asm.cc")
 
 #endif

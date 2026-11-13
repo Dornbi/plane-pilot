@@ -40,5 +40,6 @@ void render_snap_center_chars();
 void render_fill_sky_ground();
 
 #pragma compile("render.cc")
+#pragma compile("render_asm.cc")
 
 #endif // RENDER_H

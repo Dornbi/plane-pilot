@@ -91,7 +91,8 @@ OFF_BUDGET = [
 DESCRIPTIONS = {
     'Horizon Graphics': {
         'Code': 'viewport horizon rendering, cell filling, box generation, '
-                'slot drawing (`render.cc`, `box.cc`, `roll.cc`, `roll_asm.cc`)',
+                'slot drawing (`render.cc`, `render_asm.cc`, `box.cc`, `roll.cc`, '
+                '`roll_asm.cc`)',
         'Data': 'box definitions (`boxdefs`), character definitions '
                 '(`chardefs`), roll multiply and slope tables, compressed '
                 'charset (`kGfxCharsCompressed`)',
@@ -107,8 +108,8 @@ DESCRIPTIONS = {
     },
     'Polygon Graphics': {
         'Code': 'polygon pipeline, edge scan conversion, near and screen '
-                'clipping, fixed-point vector math (`poly.cc`, `vec.cc`, '
-                '`vec_asm.cc`, `fmath.cc`)',
+                'clipping, fixed-point vector math (`poly.cc`, `poly_asm.cc`, '
+                '`vec.cc`, `vec_asm.cc`, `fmath.cc`)',
         'Data': 'sine and cosine tables, inverse-Z LUT, the quarter-square '
                 'multiply tables (`vec_sqr_lo`, `vec_sqr_hi`)',
         'BSS': 'scratch vertex buffers (`poly_verts`, `clip3_buf`, `proj_buf`, '
@@ -119,8 +120,9 @@ DESCRIPTIONS = {
     'World Model': {
         'Code': 'flight dynamics, physics integration, waypoint checking, '
                 'terrain grid rendering, clouds, opponents and guns (`flight.cc`, '
-                '`world.cc`, `sim.cc`, `world_map.cc`, `clouds.cc`, `opponent.cc`, '
-                '`planes.cc`, `planes_asm.cc`, `gun.cc`)',
+                '`world.cc`, `world_asm.cc`, `sim.cc`, `world_map.cc`, '
+                '`clouds.cc`, `opponent.cc`, `planes.cc`, `planes_asm.cc`, '
+                '`gun.cc`)',
         'Data': 'orientation matrices (`mat3_rot`), the world '
                 'map, cloud hash and ladder tables, 3D aircraft models and paths',
         'BSS': 'flight path history (`flight_path_px/py`), delta transform '

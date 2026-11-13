@@ -582,8 +582,88 @@ static void test_high_altitude_sweep() {
   printf("  PASS\n\n");
 }
 
+static void test_poly_asm_c_fallbacks() {
+  printf("Test 7: C fallbacks for poly_asm (_poly_frustum_all_out & _poly_scan_lines2)...\n");
+
+  // _poly_frustum_all_out: 4 planes and mixed/in-cone cases.
+  _poly_clip3_buf[0] = {100, 101, 0};
+  _poly_clip3_buf[1] = {200, 205, 0};
+  _poly_clip3_buf[2] = {50, 51, 0};
+  assert(_poly_frustum_all_out(3 * sizeof(vec3_t)));
+
+  _poly_clip3_buf[0] = {100, -101, 0};
+  _poly_clip3_buf[1] = {200, -205, 0};
+  _poly_clip3_buf[2] = {50, -51, 0};
+  assert(_poly_frustum_all_out(3 * sizeof(vec3_t)));
+
+  _poly_clip3_buf[0] = {100, 0, 26};
+  _poly_clip3_buf[1] = {200, 0, 51};
+  _poly_clip3_buf[2] = {40, 0, 11};
+  assert(_poly_frustum_all_out(3 * sizeof(vec3_t)));
+
+  _poly_clip3_buf[0] = {100, 0, -26};
+  _poly_clip3_buf[1] = {200, 0, -51};
+  _poly_clip3_buf[2] = {40, 0, -11};
+  assert(_poly_frustum_all_out(3 * sizeof(vec3_t)));
+
+  // Exact z == x >> 2 sits on the boundary (not rejected).
+  _poly_clip3_buf[0] = {100, 0, 25};
+  assert(!_poly_frustum_all_out(3 * sizeof(vec3_t)));
+
+  // Opposite-side vertices cannot be rejected by one plane.
+  _poly_clip3_buf[0] = {100, 120, 0};
+  _poly_clip3_buf[1] = {100, -120, 0};
+  _poly_clip3_buf[2] = {100, 5, 0};
+  assert(!_poly_frustum_all_out(3 * sizeof(vec3_t)));
+
+  // _poly_scan_lines2: solid core + odd/even fringe + non-ground preserve.
+  for (int i = 0; i < kScreenHeight * kScreenWidth; ++i) {
+    fake_screen[i] = kCharSolidGround;
+    fake_color[i] = 0x55;
+  }
+  for (int i = 0; i < 2 * kViewportHeight; ++i) {
+    _poly_min_x[i] = kScreenWidth * 2;
+    _poly_max_x[i] = 0;
+  }
+  _poly_min_x[4] = 5;
+  _poly_max_x[4] = 16;
+  _poly_min_x[5] = 7;
+  _poly_max_x[5] = 15;
+  fake_screen[2 * 40 + 7] = 42; // non-ground (<128) must be preserved
+  _poly_scan_lines2(160, 0x0B, 2, 3);
+
+  assert(fake_screen[2 * 40 + 1] == kCharSolidGround);
+  assert(fake_screen[2 * 40 + 2] == 160 + 2);  // sx=5 (top right bit)
+  assert(fake_screen[2 * 40 + 3] == 160 + 11); // sx=6,7 top + sx=7 bot -> 1+2+8
+  for (int px = 4; px <= 7; ++px) {
+    if (px == 7) {
+      assert(fake_screen[2 * 40 + px] == 42);
+      assert(fake_color[2 * 40 + px] == 0x55);
+    } else {
+      assert(fake_screen[2 * 40 + px] == (160 | 0x0F));
+      assert(fake_color[2 * 40 + px] == 0x0B);
+    }
+  }
+  assert(fake_screen[2 * 40 + 8] == 160 + 1); // sx=16 (top left bit)
+  assert(fake_color[2 * 40 + 8] == 0x0B);
+  assert(fake_screen[2 * 40 + 9] == kCharSolidGround);
+
+  // Coreless narrow pixel with color == 0 leaves fake_color untouched.
+  for (int i = 0; i < 2 * kViewportHeight; ++i) {
+    _poly_min_x[i] = kScreenWidth * 2;
+    _poly_max_x[i] = 0;
+  }
+  _poly_min_x[6] = 10;
+  _poly_max_x[6] = 10;
+  _poly_scan_lines2(176, 0, 2, 4);
+  assert(fake_screen[3 * 40 + 5] == 176 + 1);
+  assert(fake_color[3 * 40 + 5] == 0x55);
+
+  printf("  PASS\n\n");
+}
+
 int main() {
-  printf("\n=== POLYGON PROJECTION SUITE (6 TESTS) ===\n\n");
+  printf("\n=== POLYGON PROJECTION SUITE (7 TESTS) ===\n\n");
   for (uint8_t i = 0; i < kScreenHeight; ++i) {
     mem_screen_row_ptrs[i] = fake_screen + i * kScreenWidth;
   }
@@ -594,7 +674,8 @@ int main() {
   test_low_sweep_has_no_gross_errors();
   test_distant_polygons_stay_accurate();
   test_high_altitude_sweep();
+  test_poly_asm_c_fallbacks();
 
-  printf("ALL 6 TESTS PASSED SUCCESSFULLY!\n");
+  printf("ALL 7 TESTS PASSED SUCCESSFULLY!\n");
   return 0;
 }
