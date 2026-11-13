@@ -94,6 +94,5 @@ static_assert(kColorSchemeObjs == kWorldObjDim, "color.h ColorScheme::obj");
 
 #pragma compile("world.cc")
 #pragma compile("world_map.cc")
-#pragma compile("world_asm.cc")
 
 #endif

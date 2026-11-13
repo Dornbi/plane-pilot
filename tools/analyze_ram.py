@@ -108,7 +108,7 @@ DESCRIPTIONS = {
     },
     'Polygon Graphics': {
         'Code': 'polygon pipeline, edge scan conversion, near and screen '
-                'clipping, fixed-point vector math (`poly.cc`, `poly_asm.cc`, '
+                'clipping, fixed-point vector math (`poly.cc`, `poly_asm.h`, '
                 '`vec.cc`, `vec_asm.cc`, `fmath.cc`)',
         'Data': 'sine and cosine tables, inverse-Z LUT, the quarter-square '
                 'multiply tables (`vec_sqr_lo`, `vec_sqr_hi`)',
@@ -120,7 +120,7 @@ DESCRIPTIONS = {
     'World Model': {
         'Code': 'flight dynamics, physics integration, waypoint checking, '
                 'terrain grid rendering, clouds, opponents and guns (`flight.cc`, '
-                '`world.cc`, `world_asm.cc`, `sim.cc`, `world_map.cc`, '
+                '`world.cc`, `world_asm.h`, `sim.cc`, `world_map.cc`, '
                 '`clouds.cc`, `opponent.cc`, `planes.cc`, `planes_asm.cc`, '
                 '`gun.cc`)',
         'Data': 'orientation matrices (`mat3_rot`), the world '

@@ -252,7 +252,7 @@ planes_target_cases.h: ../../tools/generate_planes.py ../../lib/planes.py
 
 target_test.prg: target_test.cc int16.h ../vec.h ../vec.cc ../vec_lut.cc \
 		../planes.h ../planes.cc ../planes_asm.h ../planes_asm.cc ../planedef.h \
-		../poly_asm.h ../poly_asm.cc ../world_asm.h ../world_asm.cc \
+		../poly_asm.h ../world_asm.h \
 		../render_asm.h ../render_asm.cc \
 		planes_target_cases.h
 	$(OSCAR64) $(TARGET_CFLAGS) -D__TARGET_TEST__ -o=target_test.prg target_test.cc
