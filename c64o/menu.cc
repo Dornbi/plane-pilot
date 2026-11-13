@@ -43,7 +43,7 @@ static void _menu_render_items(uint8_t scroll_offset) {
 
   for (uint8_t v = 0; v < visible_count; ++v) {
     uint8_t i = scroll_offset + v;
-    print_str(row, 2, kMissionTitles[i], strlen(kMissionTitles[i]));
+    print_lines(row, 2, kMissionTitles[i]);
     print_lines(row + 1, 4, kMissionDesc[i]);
     // A check mark a level of completion (mission.h), right-aligned. The
     // second only where there are two levels, which folds away in ppilot.
@@ -63,19 +63,28 @@ static void _menu_render_items(uint8_t scroll_offset) {
   }
 }
 
-static void _menu_enter(uint8_t scroll_offset) {
+static __noinline void _menu_draw_mission_cursor(uint8_t selected_mission,
+                                                 uint8_t scroll_offset,
+                                                 bool draw) {
+  uint8_t visible_slot = selected_mission - scroll_offset;
+  mem_screen_row_ptrs[kMissionRowStart + visible_slot * kMissionRowStep][0] =
+      draw ? '>' : ' ';
+}
+
+static void _menu_enter(uint8_t selected_mission, uint8_t scroll_offset) {
   screen_begin_text_page();
 
 #ifdef __FPILOT__
-  print_str(0, 13, STRL("FIGHTER PILOT"));
+  print_lines(0, 13, "FIGHTER PILOT");
 #else
-  print_str(0, 14, STRL("PLANE PILOT"));
+  print_lines(0, 14, "PLANE PILOT");
 #endif
-  print_str(3, 12, STRL("SELECT MISSION:"));
+  print_lines(3, 12, "SELECT MISSION:");
 
   _menu_render_items(scroll_offset);
+  _menu_draw_mission_cursor(selected_mission, scroll_offset, true);
 
-  print_str(23, 11, STRL("PRESS H FOR HELP"));
+  print_lines(23, 11, "PRESS H FOR HELP");
   // No volume readout in the initial paint. It is a notice now, not a status
   // line: it appears when V is pressed and clears itself three seconds later.
 
@@ -85,13 +94,6 @@ static void _menu_enter(uint8_t scroll_offset) {
   // flyby on the way back from the help screen, which paints over the same
   // page and disables the sprites doing it.
   title_arm();
-}
-
-static inline void _menu_draw_mission_cursor(uint8_t selected_mission,
-                                      uint8_t scroll_offset, bool draw) {
-  uint8_t visible_slot = selected_mission - scroll_offset;
-  mem_screen_row_ptrs[kMissionRowStart + visible_slot * kMissionRowStep][0] =
-      draw ? '>' : ' ';
 }
 
 static const uint8_t kMenuKeys[] = {
@@ -106,8 +108,7 @@ uint8_t menu_run() {
   uint8_t selected_mission = 0;
   uint8_t scroll_offset = 0;
 
-  _menu_enter(scroll_offset);
-  _menu_draw_mission_cursor(selected_mission, scroll_offset, true);
+  _menu_enter(selected_mission, scroll_offset);
 
   // The menu owns the SID from here. _enter_menu() reached
   // gfx_stop_raster_irqs() a moment ago, which silenced the flight driver and
@@ -141,31 +142,18 @@ uint8_t menu_run() {
       uint8_t old_scroll = scroll_offset;
 
       if (menu_edges & kMenuKeyI) {
-        if (selected_mission > 0) {
-          selected_mission--;
-          if (selected_mission < scroll_offset) {
-            scroll_offset = selected_mission;
-          }
-        } else {
-          selected_mission = kMissionCount - 1;
-          if (kMissionCount > kVisibleMissions) {
-            scroll_offset = kMissionCount - kVisibleMissions;
-          } else {
-            scroll_offset = 0;
-          }
-        }
+        selected_mission = (selected_mission > 0) ? (selected_mission - 1)
+                                                  : (kMissionCount - 1);
       }
-
       if (menu_edges & kMenuKeyK) {
-        if (selected_mission < kMissionCount - 1) {
-          selected_mission++;
-          if (selected_mission >= scroll_offset + kVisibleMissions) {
-            scroll_offset = selected_mission - kVisibleMissions + 1;
-          }
-        } else {
-          selected_mission = 0;
-          scroll_offset = 0;
-        }
+        selected_mission = (selected_mission < kMissionCount - 1)
+                               ? (selected_mission + 1)
+                               : 0;
+      }
+      if (selected_mission < scroll_offset) {
+        scroll_offset = selected_mission;
+      } else if (selected_mission >= scroll_offset + kVisibleMissions) {
+        scroll_offset = selected_mission - kVisibleMissions + 1;
       }
 
       if (scroll_offset != old_scroll) {
@@ -184,8 +172,7 @@ uint8_t menu_run() {
       // Not bracketed by stop/start. help_run() has its own vsync loop and
       // ticks whatever is already playing, so the tune carries across.
       help_run();
-      _menu_enter(scroll_offset);
-      _menu_draw_mission_cursor(selected_mission, scroll_offset, true);
+      _menu_enter(selected_mission, scroll_offset);
     }
     if (menu_edges & kMenuKeyV) {
       // music_tick() reads sound_volume every frame and composes it with the

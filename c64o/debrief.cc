@@ -89,21 +89,26 @@ static uint8_t _debrief_aircraft(void) {
   return (uint8_t)(h - damage_armour) <= 2 ? 2 : 3;
 }
 
-// An answer, right-aligned on its row.
-static __noinline void _debrief_answer(uint8_t row, const char *text) {
-  print_lines(row, (uint8_t)(kDebriefRight - strlen(text)), text);
+// Prints text either centered on the 40-column screen or right-aligned to
+// kDebriefRight on `row`.
+static __noinline void _debrief_align(uint8_t row, const char *text,
+                                      bool center) {
+  const uint8_t len = (uint8_t)strlen(text);
+  print_lines(row, center ? (uint8_t)((40 - len) >> 1)
+                          : (uint8_t)(kDebriefRight - len),
+              text);
 }
 
 void debrief_run(void) {
   screen_begin_text_page();
 
   print_lines(0, kDebriefCol, kDebriefText);
-  // The mission's title, centred under the heading.
-  const char *title = kMissionTitles[flight_active_mission_idx];
-  print_lines(kDebriefRowTitle, (uint8_t)((40 - strlen(title)) >> 1), title);
-  _debrief_answer(kDebriefRowGoals, kDebriefAnswers[flight_current_wp]);
-  _debrief_answer(kDebriefRowAircraft,
-                  kDebriefAnswers[kDebriefAircraft + _debrief_aircraft()]);
+  _debrief_align(kDebriefRowTitle, kMissionTitles[flight_active_mission_idx],
+                 true);
+  _debrief_align(kDebriefRowGoals, kDebriefAnswers[flight_current_wp], false);
+  _debrief_align(kDebriefRowAircraft,
+                 kDebriefAnswers[kDebriefAircraft + _debrief_aircraft()],
+                 false);
 
   // The tallies, a row each, right-aligned: leading zeros stay blank, but
   // never the last digit.

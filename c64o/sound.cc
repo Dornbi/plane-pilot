@@ -619,6 +619,29 @@ void sound_silence(void) {
   _sound_write_through();
 }
 
+static const uint8_t kSoundV3Ev[] = {
+    FLIGHT_EV_TOUCHDOWN, FLIGHT_EV_HIT, FLIGHT_EV_GUN, FLIGHT_EV_GEAR,
+    FLIGHT_EV_FLAP};
+static const uint8_t kSoundV3Id[] = {
+    V3_TOUCHDOWN, V3_HIT, V3_GUN, V3_GEAR, V3_FLAP};
+static const uint8_t kSoundV3Dur[] = {
+    kSoundTouchdownFrames, kSoundHitFrames, kSoundGunFrames, kSoundGearFrames,
+    kSoundFlapFrames};
+
+static bool _sound_pick_v3(uint8_t events, uint8_t from, uint8_t to) {
+  if (events == 0) {
+    return false;
+  }
+  for (uint8_t i = from; i < to; ++i) {
+    if (events & kSoundV3Ev[i]) {
+      _sound_v3_effect = kSoundV3Id[i];
+      _sound_v3_frames = kSoundV3Dur[i];
+      return true;
+    }
+  }
+  return false;
+}
+
 void sound_update(void) {
   // Both of these run whether or not anything is audible. The sweep, so that
   // unpausing does not restart the timbre from the same point every time; the
@@ -751,18 +774,8 @@ void sound_update(void) {
     // Out of fuel, or wrecked with the crash burst already finished.
     _sound_v3_effect = V3_NONE;
     _sound_v3_frames = 0;
-  } else if (events & FLIGHT_EV_TOUCHDOWN) {
-    // Outranks everything, including a stall in progress. It is a single
-    // unmissable event, it is over in a fraction of a second, and by
-    // definition the aircraft is on the ground - where the stall warning is
-    // already off on the very next step.
-    _sound_v3_effect = V3_TOUCHDOWN;
-    _sound_v3_frames = kSoundTouchdownFrames;
-    retrigger = true;
-  } else if (events & FLIGHT_EV_HIT) {
-    // Above a one-shot in progress, which while firing is the gun's.
-    _sound_v3_effect = V3_HIT;
-    _sound_v3_frames = kSoundHitFrames;
+  } else if (_sound_pick_v3(events, 0, 2)) {
+    // Touchdown outranks stall/one-shots; hit outranks any active one-shot.
     retrigger = true;
   } else if (_sound_v3_frames != 0 && _sound_v3_effect != V3_STALL) {
     // A one-shot still running. Left alone.
@@ -781,19 +794,8 @@ void sound_update(void) {
     if (++_sound_stall_phase >= kSoundStallPeriodFrames) {
       _sound_stall_phase = 0;
     }
-  } else if (events & FLIGHT_EV_GUN) {
-    // Under the stall, which is the warning: firing through one, the warble
-    // goes on and the rounds are silent.
-    _sound_v3_effect = V3_GUN;
-    _sound_v3_frames = kSoundGunFrames;
-    retrigger = true;
-  } else if (events & FLIGHT_EV_GEAR) {
-    _sound_v3_effect = V3_GEAR;
-    _sound_v3_frames = kSoundGearFrames;
-    retrigger = true;
-  } else if (events & FLIGHT_EV_FLAP) {
-    _sound_v3_effect = V3_FLAP;
-    _sound_v3_frames = kSoundFlapFrames;
+  } else if (_sound_pick_v3(events, 2, 5)) {
+    // Gun, gear, flap sit under stall.
     retrigger = true;
   } else if (_sound_v3_frames == 0) {
     _sound_v3_effect = V3_NONE;

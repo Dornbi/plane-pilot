@@ -74,9 +74,9 @@ static const uint8_t kHelpKeyCol = 2;
 void help_run(void) {
   screen_begin_text_page();
 
-  print_str(0, 11, STRL("KEYBOARD CONTROLS"));
+  print_lines(0, 11, "KEYBOARD CONTROLS");
   const uint8_t rows = print_lines(kHelpRowStart, kHelpKeyCol, kHelpText);
-  print_str(kHelpRowStart + rows + 2, 7, STRL("RETURN OR SPACE TO GO BACK"));
+  print_lines(kHelpRowStart + rows + 2, 7, "RETURN OR SPACE TO GO BACK");
 
   keys_wait_release(KSCAN_H);
 

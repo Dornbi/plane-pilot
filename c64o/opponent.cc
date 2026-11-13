@@ -687,7 +687,7 @@ static_assert(kOpponentMax == 2, "slot i's mask bit is i + 1");
 
 static inline uint8_t _opponent_bit(uint8_t i) { return (uint8_t)(i + 1); }
 
-static inline bool _opponent_live(uint8_t i) {
+static __noinline bool _opponent_live(uint8_t i) {
   return _opponent_on[i] && !(_opponent_down & _opponent_bit(i));
 }
 
@@ -826,14 +826,9 @@ static __noinline void _opponent_send(void) {
   _opponent_attack = 0;
   _opponent_pullup = 0;
   _opponent_firing = 0;
-  // Counted up a row at a time, in both tables: indexed, the paths' rows
-  // took oscar64's multiply tables when they were 24 B.
-  const opponent_path_t *p = &kOpponentPaths[0][0];
-  const opponent_pair_t *q = kOpponentPairs;
-  for (w &= kOpponentRowMask; w != 0; --w) {
-    p += kOpponentMax;
-    ++q;
-  }
+  w &= kOpponentRowMask;
+  const opponent_path_t *p = &kOpponentPaths[w][0];
+  const opponent_pair_t *q = &kOpponentPairs[w];
   _opponent_pair = q;
   uint8_t k = (uint8_t)sizeof(_opponent_fresh);
   do {

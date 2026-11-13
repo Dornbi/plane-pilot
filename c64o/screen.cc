@@ -83,7 +83,7 @@ void screen_notice(const char *text) {
   if (_notice_len > len) {
     memset(mem_screen_row_ptrs[kNoticeRow] + kNoticeCol, ' ', _notice_len);
   }
-  print_str(kNoticeRow, kNoticeCol, text, len);
+  print_lines(kNoticeRow, kNoticeCol, text);
   _notice_len = len;
   _notice_frames = kNoticeFrames;
 }

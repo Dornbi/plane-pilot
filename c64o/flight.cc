@@ -1309,12 +1309,13 @@ void flight_advance() {
     // Scaled once for all three drag terms below, and halved first so the
     // signed step shift sees a positive value: the shifts below are one less.
     const uint16_t drag = _flight_step_s(speed_sqr >> 1);
+    const uint16_t extra = drag >> 11;
     flight_speed -= drag >> 9;
     if (flight_gear) {
-      flight_speed -= drag >> 11;
+      flight_speed -= extra;
     }
     if (flight_flap) {
-      flight_speed -= drag >> 11;
+      flight_speed -= extra;
     }
     if (!model_on_ground) {
       flight_speed -= _flight_step_s(vec_fastsqr8p8(flight_cam.left.z)) >> 5;

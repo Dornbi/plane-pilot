@@ -578,15 +578,124 @@ static uint8_t _clip_2d(const vertex16_t *in, uint8_t num_in, vertex16_t *out,
   return num_out;
 }
 
+// Working buffer for _clip_near() in _project_vertices(); file-scope so the
+// __asm fast frustum reject can index it directly.
+static vec3_t _clip3_buf[kPolyMaxVertices + 4];
+
 // Projects 3d vertices to 2d.
 static uint8_t _project_vertices(const vec3_t *vertices_3d,
                                  uint8_t num_vertices, vertex_t *vertices_2d) {
-  static vec3_t clip3_buf[kPolyMaxVertices +
-                          4]; // max 7 vertices after 1 plane clip, 10 is safe
-  uint8_t end3 = _clip_near(vertices_3d, num_vertices, clip3_buf);
+  uint8_t end3 = _clip_near(vertices_3d, num_vertices, _clip3_buf);
   if (end3 < 3 * sizeof(vec3_t)) {
     return 0;
   }
+  // 3D frustum early-reject before vec_project_nocull(): every _clip3_buf
+  // vertex has x >= 8. Screen x in [0, 79] requires vec_sx in [-160, 162]
+  // (|y|/x <= ~0.633 < 1) and screen y in [0, 27] requires vec_sy in [-56, 58]
+  // (|z|/x <= ~0.227 < 0.25). Any polygon with all vertices past the same edge
+  // cannot intersect the viewport.
+#ifdef __OSCAR64__
+  // clang-format off
+  vec_v.x = (int16_t)end3; // low byte at vec_v+0 holds end3
+  __asm {
+        lda #$0f;
+        sta vec_v+2;        // vec_v+2 = out3
+        ldy #$00;
+    L_out3_loop:
+        lda _clip3_buf+1, y;
+        lsr;
+        sta vec_sx+1;
+        lda _clip3_buf+0, y;
+        ror;
+        lsr vec_sx+1;
+        ror;
+        sta vec_sx+0;       // vec_sx = zx = ux >> 2
+
+        ldx #$00;
+        lda _clip3_buf+3, y;
+        bmi L_y_neg;
+        sec;
+        lda _clip3_buf+0, y;
+        sbc _clip3_buf+2, y;
+        lda _clip3_buf+1, y;
+        sbc _clip3_buf+3, y;
+        bcs L_chk_z;
+        ldx #$01;
+        bne L_chk_z;
+    L_y_neg:
+        clc;
+        lda _clip3_buf+0, y;
+        adc _clip3_buf+2, y;
+        lda _clip3_buf+1, y;
+        adc _clip3_buf+3, y;
+        bcs L_chk_z;
+        ldx #$02;
+    L_chk_z:
+        lda _clip3_buf+5, y;
+        bmi L_z_neg;
+        sec;
+        lda vec_sx+0;
+        sbc _clip3_buf+4, y;
+        lda vec_sx+1;
+        sbc _clip3_buf+5, y;
+        bcs L_next_v;
+        txa;
+        ora #$04;
+        tax;
+        bne L_next_v;
+    L_z_neg:
+        clc;
+        lda vec_sx+0;
+        adc _clip3_buf+4, y;
+        lda vec_sx+1;
+        adc _clip3_buf+5, y;
+        bcs L_next_v;
+        txa;
+        ora #$08;
+        tax;
+    L_next_v:
+        txa;
+        and vec_v+2;
+        sta vec_v+2;
+        beq L_out3_done;
+        tya;
+        clc;
+        adc #$06;
+        tay;
+        cmp vec_v+0;
+        bne L_out3_loop;
+    L_out3_done:
+  }
+  // clang-format on
+  if ((uint8_t)vec_v.y != 0) {
+    return 0;
+  }
+#else
+  {
+    uint8_t out3 = 0x0f;
+    for (uint8_t o = 0; o != end3; o += sizeof(vec3_t)) {
+      const vec3_t *v = (const vec3_t *)((const uint8_t *)_clip3_buf + o);
+      uint16_t ux = (uint16_t)v->x;
+      uint16_t zx = ux >> 2;
+      int16_t vy = v->y;
+      int16_t vz = v->z;
+      uint8_t c = 0;
+      if ((uint16_t)_abs16(vy) > ux) {
+        c = vy < 0 ? 2 : 1;
+      }
+      if ((uint16_t)_abs16(vz) > zx) {
+        c |= vz < 0 ? 8 : 4;
+      }
+      out3 &= c;
+      if (out3 == 0) {
+        break;
+      }
+    }
+    if (out3 != 0) {
+      return 0;
+    }
+  }
+#endif
   static vertex16_t proj_buf[kPolyMaxVertices + 4];
   // 4-bit Cohen-Sutherland outcodes, bit e for edge e in the order
   // min x, max x, min y, max y: all_out rejects when every vertex sits past
@@ -597,7 +706,7 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
   // n counts the vertices for proj_buf and the 2D clips below.
   uint8_t n = 0;
   for (uint8_t o = 0; o != end3; o += sizeof(vec3_t), ++n) {
-    vec_v = *(const vec3_t *)((const uint8_t *)clip3_buf + o);
+    vec_v = *(const vec3_t *)((const uint8_t *)_clip3_buf + o);
     // _clip_near() left nothing in front of the near plane, so every vertex
     // projects.
     vec_project_nocull();

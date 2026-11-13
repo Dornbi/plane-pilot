@@ -281,43 +281,36 @@ static __noinline uint8_t _map_tile_at(uint8_t row, uint8_t col) {
 //
 //   screen_row = 15 - map_row      screen_col = 31 - map_col
 //
-// Pass A -- the object layer. I/O is banked in, so color RAM is writable and
-// the bitmap at $E000 is plain RAM either way.
-static inline void _map_draw_object_layer(void) {
+// Pass A (screen == false) -- the object layer: I/O is banked in, so color RAM
+// is writable and the bitmap at $E000 is plain RAM either way.
+// Pass B (screen == true) -- the screen-RAM nibbles under I/O (after map_enter
+// banks out I/O).
+static void _map_draw_layer(bool screen) {
   uint8_t *bm = kMapBitmap + kMapCharOffset * 8;
-  uint8_t *cr = kColorRam + kMapCharOffset;
+  uint8_t *cr = (screen ? kMapScreenRam : kColorRam) + kMapCharOffset;
   for (uint8_t row = kWorldMapHeight; row-- != 0;) {
     for (uint8_t col = kWorldMapWidth; col-- != 0;) {
       const uint8_t idx = _map_tile_at(row, col);
-      // The tile's 8 rows are consecutive in the overlapped pool.
-      uint8_t t = kMapTileStart[idx];
-      uint8_t r = 0;
-      do {
-        bm[r] = kMapTilePool[t];
-        ++t;
-      } while (++r < 8);
-      bm += 8;
-      // Bit pair 11's color is the low nibble; color RAM drops the high one.
-      *cr++ = MAP_TILE_COLORS[idx];
+      const uint8_t color = MAP_TILE_COLORS[idx];
+      if (screen) {
+        *cr++ = (kColorWhite << 4) | (color >> 4);
+      } else {
+        // The tile's 8 rows are consecutive in the overlapped pool.
+        uint8_t t = kMapTileStart[idx];
+        uint8_t r = 0;
+        do {
+          bm[r] = kMapTilePool[t];
+          ++t;
+        } while (++r < 8);
+        bm += 8;
+        // Bit pair 11's color is the low nibble; color RAM drops the high one.
+        *cr++ = color;
+      }
     }
-    bm += kMapCharGap * 8;
+    if (!screen) {
+      bm += kMapCharGap * 8;
+    }
     cr += kMapCharGap;
-  }
-}
-
-// Pass B -- the screen RAM layer, with I/O banked out so $D000 is RAM. The
-// tile index is recomputed rather than carried over from pass A: there is no
-// 512-byte scratch buffer to spare in main, and this runs once per
-// map_enter(), not per frame. Folding it into pass A, banking I/O out per
-// cell, lost the map's bottom row.
-static void _map_draw_screen_layer(void) {
-  uint8_t *sm = kMapScreenRam + kMapCharOffset;
-  for (uint8_t row = kWorldMapHeight; row-- != 0;) {
-    for (uint8_t col = kWorldMapWidth; col-- != 0;) {
-      const uint8_t idx = _map_tile_at(row, col);
-      *sm++ = (kColorWhite << 4) | (MAP_TILE_COLORS[idx] >> 4);
-    }
-    sm += kMapCharGap;
   }
 }
 
@@ -367,7 +360,7 @@ void map_enter() {
   // computing the non-contiguous border.
   memset(kMapBitmap, 0xFF, kMapBitmapSize);
   memset(kColorRam, kColorBlack, kMapScreenSize);
-  _map_draw_object_layer();
+  _map_draw_layer(false);
   // Overlay, on top of the object art. Path first: a digit clears its own
   // cell's overlay before stencilling, so drawing it last keeps the trail
   // from filling in the glyph's counters.
@@ -413,7 +406,7 @@ void map_enter() {
   // disabled.
   mmap_set(MMAP_RAM);
   memset(kMapScreenRam, kMapScreenSurround, kMapScreenSize);
-  _map_draw_screen_layer();
+  _map_draw_layer(true);
   kMapScreenRam[kMapSprPtrOffset + kMapSprBody] = body_bitmap;
   kMapScreenRam[kMapSprPtrOffset + kMapSprWing] = wing_bitmap;
   mmap_set(MMAP_NO_ROM);
