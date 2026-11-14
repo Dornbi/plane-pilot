@@ -1,14 +1,14 @@
-# Plane Pilot
+# Plane Pilot & Fighter Pilot
 
-Plane Pilot is a 3D flight simulator for the C64.
+Plane Pilot and Fighter Pilot are 3D flight simulators for the C64.
 
 <video src="https://github.com/user-attachments/assets/e85f4543-5fa7-4eb5-80d9-686f8cf2a00d" controls="controls" style="max-width: 100%;"></video>
 
 ## History and motivation
 
-Plane Pilot is an attempt to show how modern compilers and AI tools can
+Plane Pilot and Fighter Pilot show how modern compilers and AI tools can
 be used in to create something retro in 2026. It is also an attempt
-to push the boundaries of C64 in a somewhat non-typical genre -
+to push the boundaries of the machine in a somewhat non-typical genre -
 3D simulations - something the C64 was absolutely not designed to do.
 
 ## Credits
@@ -38,6 +38,10 @@ Click the web icon and paste the URL:
 https://github.com/Dornbi/plane-pilot/raw/refs/heads/main/bin/ppilot.prg
 ```
 
+```
+https://github.com/Dornbi/plane-pilot/raw/refs/heads/main/bin/ppilot.prg
+```
+
 Alternatively, download the binary and upload it to any of the online or offline emulators:
 
 - [ppilot.prg](bin/ppilot.prg) — the whole game: sound effects, music, the arcade flight model, and the debug view behind `D`
@@ -53,24 +57,26 @@ Emulators:
 
 What you can do in Plane Pilot:
 
-- Select and play from 10 distinct flight missions with waypoint objectives
+- Select and play from 10 distinct peaceful missions with waypoint objectives
 - Interactive main menu and mission selection
-- Take off, navigate, flare, land, and taxi on runways
+- Take off, navigate, land, and taxi on runways
 - Dynamic flight model: speed, altitude, pitch/roll/yaw, stall recovery, flap lift/drag, gear drag, and fuel consumption
 - SID sound effects: engine roar, stall alarm, touchdown squeal, flap/gear clicks, crash sound effects
-- Full-screen 128x128 map view (`M`) displaying world terrain, numbered mission waypoints, aircraft location marker, and real-time flight path tracking trail
-- Dashboard instrument panel with working indicator lamps (flaps, gear, stall warning, nav points)
-- Look forward, left, right, and back over the tail — the back view drops the dashboard
-  entirely and shows the vertical stabilizer standing in the middle of the view
-- Toggle the HUD debug view with per-stage cycle counters (`D`)
-- On-screen HUD notifications, approach warnings, and crash diagnostics
-- Wheel braking (`B`) and ground nose-wheel steering
-- Maintain ~10 frames per second on standard C64 hardware
+- Full-screen map view (`M`) showing the terrain, mission waypoints, aircraft location
+- Instrument panel
+- Look forward, left, right, and back over the tail
+- Maintain almost 10 frames per second on standard C64 hardware
+
+Fighter Pilot is the combat version using the same engine:
+
+- Fly 10 combat missions
+- Dogfight enemy fighters
+- Shoot at enemy bombers that shoot back
+- Cause and sustain damage
 
 What you cannot do:
 
 - No joystick support (keyboard controls only)
-- No combat / dogfighting opponents
 
 Instrument panel:
 
@@ -88,7 +94,7 @@ To fly the plane you can use the following keys:
 | `F`             | Toggle flaps                          |
 | `G`             | Toggle landing gear                   |
 | `B`             | Wheel brakes (on ground)              |
-| `Space`         | Fire (fpilot)                         |
+| `Space`         | Fire (Fighter pilot only)             |
 | `1` `2` `3` `4` | Look left, forward, right, back       |
 | `N`             | Toggle Nav point 1 / 2 (runways)      |
 | `M`             | Toggle map view                       |
@@ -108,7 +114,7 @@ See [docs/development.md](docs/development.md) for more details.
 
 ## Updates
 
-### 2026-11-08
+### 2026-11-14
 
 Fighter Pilot (`fpilot.prg`), new:
 
