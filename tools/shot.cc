@@ -49,6 +49,12 @@
 #include "vic.h"
 #endif
 #include "vec.h"
+#if __SHOT__ >= 18 && __SHOT__ <= 21
+#include "gun.h"
+#include "opponent.h"
+#include "roll.h"
+#include "world.h"
+#endif
 
 // Script entries: hold `key` for `polls` polls of whichever loop is running.
 // `key` is a KeyScanCode, or one of the pseudo-keys below.
@@ -62,6 +68,15 @@
 #define SHOT_STRIKE 0xfc
 // Puts SHOT_SCHEME's colours in place of the mission's; see below.
 #define SHOT_RECOLOR 0xfb
+#if __SHOT__ >= 18 && __SHOT__ <= 21
+#define SHOT_TURN_WEST 0xfa
+#define SHOT_TURN_BANK 0xf9
+#define SHOT_WAIT_APPROACH 0xf8
+#define SHOT_WAIT_TURN_COMBAT 0xf7
+#define SHOT_WAIT_TRACER 0xf6
+#define SHOT_PASSIVE_TURN_COMBAT 0xf5
+#define SHOT_DEBRIEF_FIGHT 0xf4
+#endif
 
 #ifdef __ENABLE_COLOR_SCHEMES__
 // A posed scene is a picture of a place, and the map one of the map, not of
@@ -70,7 +85,15 @@
 // (docs/color_schemes.md). $D021 is rewritten every frame from the scheme
 // and the map sets its own; the two ground registers are set only at entry.
 #ifndef SHOT_SCHEME
+#if __SHOT__ == 14
+#define SHOT_SCHEME 1
+#elif __SHOT__ == 15
+#define SHOT_SCHEME 2
+#elif __SHOT__ == 16 || __SHOT__ == 17
+#define SHOT_SCHEME 3
+#else
 #define SHOT_SCHEME 0
+#endif
 #endif
 static void _shot_apply_scheme(void) {
   memcpy(&color_scheme, &kColorSchemes[SHOT_SCHEME], sizeof(ColorScheme));
@@ -96,6 +119,155 @@ struct shot_step_t {
 #include "shot_baked.h"
 #endif
 
+#if __SHOT__ >= 18 && __SHOT__ <= 21
+static vec3_t _shot_v;
+static int32_t _shot_p[3];
+static bool _turn_pull_tick;
+#endif
+#if __SHOT__ == 19
+static int16_t _prev_x[kOpponentMax];
+static int16_t _prev_y[kOpponentMax];
+static bool _prev_valid[kOpponentMax];
+#endif
+
+#if __SHOT__ == 18 || __SHOT__ == 20
+// Maintain an upright bank using world roll_angle (VIEW_CENTER: 4..5 is ~27 deg
+// right bank; VIEW_BACK: 55..56 is mirrored ~27 deg bank).
+static void _shot_maintain_right_bank(uint8_t min_ra, uint8_t max_ra,
+                                      int8_t target_fz) {
+  if (flight_cam.up.z < 170) {
+    if (flight_cam.left.z >= 0) {
+      keyb_matrix[KSCAN_J >> 3] &= ~kBit[KSCAN_J & 7];
+    } else {
+      keyb_matrix[KSCAN_L >> 3] &= ~kBit[KSCAN_L & 7];
+    }
+  } else if (roll_angle >= 30) {
+    if (min_ra >= 45) {
+      if (roll_angle > max_ra) {
+        keyb_matrix[KSCAN_J >> 3] &= ~kBit[KSCAN_J & 7];
+      } else if (roll_angle < min_ra) {
+        keyb_matrix[KSCAN_L >> 3] &= ~kBit[KSCAN_L & 7];
+      }
+    } else {
+      keyb_matrix[KSCAN_L >> 3] &= ~kBit[KSCAN_L & 7];
+    }
+  } else {
+    if (min_ra >= 45) {
+      // Wrap directly 0 -> 59 -> ... instead of crossing through 15..45.
+      keyb_matrix[KSCAN_J >> 3] &= ~kBit[KSCAN_J & 7];
+    } else if (roll_angle < min_ra) {
+      keyb_matrix[KSCAN_L >> 3] &= ~kBit[KSCAN_L & 7];
+    } else if (roll_angle > max_ra) {
+      keyb_matrix[KSCAN_J >> 3] &= ~kBit[KSCAN_J & 7];
+    }
+  }
+  _turn_pull_tick = !_turn_pull_tick;
+  if (_turn_pull_tick) {
+    if (flight_cam.front.z < target_fz - 6) {
+      keyb_matrix[KSCAN_K >> 3] &= ~kBit[KSCAN_K & 7];
+    } else if (flight_cam.front.z > target_fz + 12) {
+      keyb_matrix[KSCAN_I >> 3] &= ~kBit[KSCAN_I & 7];
+    }
+  }
+}
+#endif
+
+#if __SHOT__ == 19
+// In VIEW_RIGHT, world_cam.left == flight_cam.front, so pitch tilts the
+// horizon diagonally (roll_angle 4..5 == ~24..30 deg) while slight left bank
+// raises the view above the horizon.
+static void _shot_maintain_side_tilt(uint8_t min_ra, uint8_t max_ra) {
+  if (flight_cam.left.z > -25) {
+    keyb_matrix[KSCAN_J >> 3] &= ~kBit[KSCAN_J & 7];
+  } else if (flight_cam.left.z < -55) {
+    keyb_matrix[KSCAN_L >> 3] &= ~kBit[KSCAN_L & 7];
+  }
+  if (roll_angle >= 30 || roll_angle < min_ra) {
+    if (flight_cam.front.z < 140) {
+      keyb_matrix[KSCAN_K >> 3] &= ~kBit[KSCAN_K & 7];
+    }
+  } else if (roll_angle > max_ra) {
+    keyb_matrix[KSCAN_I >> 3] &= ~kBit[KSCAN_I & 7];
+  }
+}
+#endif
+
+#if __SHOT__ >= 18 && __SHOT__ <= 20
+static bool _shot_enemy_in_view(int16_t min_dist, int16_t max_dist,
+                                bool want_profile, bool tight) {
+  bool found = false;
+  for (uint8_t i = 0; i < kOpponentMax; ++i) {
+    if (!opponent_target(i, _shot_p)) {
+#if __SHOT__ == 19
+      _prev_valid[i] = false;
+#endif
+      continue;
+    }
+#if __SHOT__ == 19
+    int16_t wx = (int16_t)(_shot_p[0] >> 8);
+    int16_t wy = (int16_t)(_shot_p[1] >> 8);
+    int16_t vx = _prev_valid[i] ? (wx - _prev_x[i]) : 0;
+    int16_t vy = _prev_valid[i] ? (wy - _prev_y[i]) : 0;
+    _prev_x[i] = wx;
+    _prev_y[i] = wy;
+    bool had_prev = _prev_valid[i];
+    _prev_valid[i] = true;
+#endif
+
+    int32_t dx = (_shot_p[0] - flight_eye_x) >> 8;
+    int32_t dy = (_shot_p[1] - flight_eye_y) >> 8;
+    int32_t dz = (_shot_p[2] - flight_eye_z) >> 8;
+    if (dx > 1600 || dx < -1600 || dy > 1600 || dy < -1600 ||
+        dz > 1600 || dz < -1600) {
+      continue;
+    }
+    _shot_v.x = (int16_t)dx;
+    _shot_v.y = (int16_t)dy;
+    _shot_v.z = (int16_t)dz;
+    vec_transform_inv(&world_cam, &_shot_v, &_shot_v);
+    int16_t cx = _shot_v.x;
+    if (cx < min_dist || cx > max_dist) {
+      continue;
+    }
+    int16_t cy = _shot_v.y < 0 ? -_shot_v.y : _shot_v.y;
+    int16_t cz = _shot_v.z < 0 ? -_shot_v.z : _shot_v.z;
+    int16_t maxy = tight ? (cx >> 2) + (cx >> 4) : (cx >> 1);
+    int16_t maxz = tight ? (cx >> 3) + (cx >> 4)
+                         : ((__SHOT__ == 20) ? ((cx >> 3) + (cx >> 4))
+                                             : (cx >> 2));
+    if (cy >= maxy || cz >= maxz) {
+      continue;
+    }
+#if __SHOT__ == 18
+    if (_shot_v.z < -(cx >> 5) || _shot_v.z > (cx >> 3)) {
+      continue;
+    }
+#elif __SHOT__ == 20
+    if (cy < (cx >> 4)) {
+      continue;
+    }
+#endif
+#if __SHOT__ == 19
+    if (want_profile && had_prev && (vx != 0 || vy != 0)) {
+      _shot_v.x = vx;
+      _shot_v.y = vy;
+      _shot_v.z = 0;
+      vec_transform_inv(&world_cam, &_shot_v, &_shot_v);
+      int16_t vcx = _shot_v.x < 0 ? -_shot_v.x : _shot_v.x;
+      int16_t vcy = _shot_v.y < 0 ? -_shot_v.y : _shot_v.y;
+      if ((vcy << 1) <= vcx) {
+        continue;
+      }
+    }
+#else
+    (void)want_profile;
+#endif
+    found = true;
+  }
+  return found;
+}
+#endif
+
 #if __SHOT__ == 1
 // The menu, with the title flyby running. Nothing to press.
 static const shot_step_t kShotScript[] = {
@@ -107,7 +279,7 @@ static const shot_step_t kShotScript[] = {
     {100, SHOT_IDLE},
     {1, KSCAN_H},
 };
-#elif __SHOT__ == 5
+#elif __SHOT__ == 5 || __SHOT__ == 17
 // The map. This one does fly: the breadcrumb trail is the point of the
 // picture and there is no way to fake one, so it takes mission 04 - the only
 // start that is already airborne at cruise - flies it unattended for a minute
@@ -214,6 +386,75 @@ static const shot_step_t kShotScript[] = {
     {1, KSCAN_K},      {6, SHOT_IDLE},
     {1, KSCAN_RETURN},
 };
+#elif __SHOT__ == 18
+// fpilot 05 HEAD ON: bank right early as hunters close inside ~700m so we are
+// in an upright ~27 deg right turn as they cross above the crosshair, then fire.
+static const shot_step_t kShotScript[] = {
+    {100, SHOT_IDLE},
+    {1, KSCAN_K}, {6, SHOT_IDLE},
+    {1, KSCAN_K}, {6, SHOT_IDLE},
+    {1, KSCAN_K}, {6, SHOT_IDLE},
+    {1, KSCAN_K}, {6, SHOT_IDLE},
+    {1, KSCAN_RETURN},
+    {180, SHOT_WAIT_APPROACH},
+    {4, KSCAN_A},
+    {10, SHOT_TURN_BANK},
+    {220, SHOT_WAIT_TURN_COMBAT},
+    {16, SHOT_WAIT_TRACER},
+    {1, SHOT_FREEZE},
+};
+#elif __SHOT__ == 19
+// fpilot 05 HEAD ON: break left, switch to VIEW_RIGHT (3) tilted 24..30 deg,
+// capture an enemy fighter banking dynamically in profile.
+static const shot_step_t kShotScript[] = {
+    {100, SHOT_IDLE},
+    {1, KSCAN_K}, {6, SHOT_IDLE},
+    {1, KSCAN_K}, {6, SHOT_IDLE},
+    {1, KSCAN_K}, {6, SHOT_IDLE},
+    {1, KSCAN_K}, {6, SHOT_IDLE},
+    {1, KSCAN_RETURN},
+    {220, SHOT_WAIT_APPROACH},
+    {34, SHOT_TURN_WEST},
+    {1, KSCAN_3},
+    {300, SHOT_PASSIVE_TURN_COMBAT},
+    {1, SHOT_FREEZE},
+};
+#elif __SHOT__ == 20
+// fpilot 10 COMBAT PATROL: drop flaps so hunters close behind VIEW_BACK (4),
+// then roll into an upright ~27 deg turn (mirrored roll_angle 55..56).
+static const shot_step_t kShotScript[] = {
+    {100, SHOT_IDLE},
+    {1, KSCAN_K}, {6, SHOT_IDLE},
+    {1, KSCAN_K}, {6, SHOT_IDLE},
+    {1, KSCAN_K}, {6, SHOT_IDLE},
+    {1, KSCAN_K}, {6, SHOT_IDLE},
+    {1, KSCAN_K}, {6, SHOT_IDLE},
+    {1, KSCAN_K}, {6, SHOT_IDLE},
+    {1, KSCAN_K}, {6, SHOT_IDLE},
+    {1, KSCAN_K}, {6, SHOT_IDLE},
+    {1, KSCAN_K}, {6, SHOT_IDLE},
+    {1, KSCAN_RETURN},
+    {1, KSCAN_F},
+    {1, KSCAN_4},
+    {280, SHOT_WAIT_APPROACH},
+    {14, SHOT_TURN_BANK},
+    {220, SHOT_PASSIVE_TURN_COMBAT},
+    {1, SHOT_FREEZE},
+};
+#elif __SHOT__ == 21
+// fpilot 03 AMBUSH: drop flaps for slow strafe pass, shoot both parked
+// aircraft down until GOALS: COMPLETED, then Q to MISSION DEBRIEF.
+static const shot_step_t kShotScript[] = {
+    {100, SHOT_IDLE},
+    {1, KSCAN_K}, {6, SHOT_IDLE},
+    {1, KSCAN_K}, {6, SHOT_IDLE},
+    {1, KSCAN_RETURN},
+    {1, KSCAN_F},
+    {1200, SHOT_DEBRIEF_FIGHT},
+    {20, SHOT_IDLE},
+    {1, KSCAN_Q},
+    {100, SHOT_IDLE},
+};
 #elif defined(SHOT_POSED)
 
 // --- The posed scenes ------------------------------------------------------
@@ -317,6 +558,145 @@ void shot_poll(void) {
 #if __SHOT__ == 10
   } else if (key == SHOT_STRIKE) {
     opponent_strike(0);
+#endif
+#if __SHOT__ == 18 || __SHOT__ == 19 || __SHOT__ == 20
+  } else if (key == SHOT_WAIT_APPROACH) {
+#if __SHOT__ == 20
+    if (_shot_enemy_in_view(120, 460, false, false)) {
+      shot_left = 1;
+    }
+#else
+    int16_t max_d = (__SHOT__ == 18) ? 1400 : 620;
+    if (_shot_enemy_in_view(120, max_d, false, false)) {
+      shot_left = 1;
+    }
+#endif
+#endif
+#if __SHOT__ == 19
+  } else if (key == SHOT_TURN_WEST) {
+    _shot_maintain_side_tilt(4, 5);
+    if (flight_cam.front.y >= 175) {
+      shot_left = 1;
+    } else {
+      keyb_matrix[KSCAN_A >> 3] &= ~kBit[KSCAN_A & 7];
+    }
+#endif
+#if __SHOT__ == 18 || __SHOT__ == 20
+  } else if (key == SHOT_TURN_BANK) {
+#if __SHOT__ == 20
+    _shot_maintain_right_bank(55, 56, -4);
+#else
+    _shot_maintain_right_bank(4, 5, -4);
+#endif
+#endif
+#if __SHOT__ == 18
+  } else if (key == SHOT_WAIT_TURN_COMBAT) {
+    _shot_maintain_right_bank(4, 5, -4);
+    bool fallback = (shot_left <= 40);
+    if (roll_angle >= 3 && roll_angle <= 6 &&
+        _shot_enemy_in_view(75, fallback ? 480 : 340, false, !fallback)) {
+      shot_left = 1;
+    }
+  } else if (key == SHOT_WAIT_TRACER) {
+    _shot_maintain_right_bank(4, 5, -4);
+    keyb_matrix[KSCAN_SPACE >> 3] &= ~kBit[KSCAN_SPACE & 7];
+    if (gun_tracer_up()) {
+      flight_paused = true;
+      shot_idx = kShotSteps;
+      return;
+    }
+#endif
+#if __SHOT__ == 19 || __SHOT__ == 20
+  } else if (key == SHOT_PASSIVE_TURN_COMBAT) {
+#if __SHOT__ == 19
+    _shot_maintain_side_tilt(4, 5);
+    bool ok_tilt =
+        (roll_angle >= 3 && roll_angle <= 7 && flight_cam.up.z >= 170);
+    if (ok_tilt &&
+        ((gun_tracer_up() && _shot_enemy_in_view(75, 480, true, false)) ||
+         (shot_left <= 180 && _shot_enemy_in_view(75, 480, true, false)) ||
+         (shot_left <= 80 && _shot_enemy_in_view(65, 620, false, false)))) {
+      flight_paused = true;
+      shot_idx = kShotSteps;
+      return;
+    }
+#else
+    _shot_maintain_right_bank(55, 56, -4);
+    bool ok_tilt = (roll_angle >= 53 && roll_angle <= 58);
+    if (ok_tilt &&
+        ((gun_tracer_up() && _shot_enemy_in_view(55, 220, false, false)) ||
+         (shot_left <= 180 && _shot_enemy_in_view(55, 150, false, false)) ||
+         (shot_left <= 60 && _shot_enemy_in_view(55, 340, false, false)))) {
+      flight_paused = true;
+      shot_idx = kShotSteps;
+      return;
+    }
+#endif
+#endif
+#if __SHOT__ == 21
+  } else if (key == SHOT_DEBRIEF_FIGHT) {
+    if (flight_current_wp > 0) {
+      shot_left = 1;
+    } else {
+      bool has_tgt = opponent_target(0, _shot_p);
+      if (!has_tgt) {
+        has_tgt = opponent_target(1, _shot_p);
+      }
+      if (has_tgt) {
+        int32_t dx = (_shot_p[0] - flight_eye_x) >> 8;
+        int32_t dy = (_shot_p[1] - flight_eye_y) >> 8;
+        int32_t dz = (_shot_p[2] - flight_eye_z) >> 8;
+        if (dx <= 1600 && dx >= -1600 && dy <= 1600 && dy >= -1600 &&
+            dz <= 1600 && dz >= -1600) {
+          _shot_v.x = (int16_t)dx;
+          _shot_v.y = (int16_t)dy;
+          _shot_v.z = (int16_t)dz;
+          vec_transform_inv(&flight_cam, &_shot_v, &_shot_v);
+          _turn_pull_tick = !_turn_pull_tick;
+          if (_shot_v.x <= 60) {
+            if (flight_eye_z < 0x030000L || flight_cam.front.z < 12) {
+              keyb_matrix[KSCAN_K >> 3] &= ~kBit[KSCAN_K & 7];
+            }
+            keyb_matrix[KSCAN_A >> 3] &= ~kBit[KSCAN_A & 7];
+            if (flight_cam.up.z < 170) {
+              keyb_matrix[(flight_cam.left.z >= 0 ? KSCAN_J : KSCAN_L) >> 3] &=
+                  ~kBit[(flight_cam.left.z >= 0 ? KSCAN_J : KSCAN_L) & 7];
+            } else if (roll_angle < 4 || roll_angle >= 30) {
+              keyb_matrix[KSCAN_L >> 3] &= ~kBit[KSCAN_L & 7];
+            } else if (roll_angle > 5) {
+              keyb_matrix[KSCAN_J >> 3] &= ~kBit[KSCAN_J & 7];
+            }
+          } else {
+            if (flight_cam.left.z > 12) {
+              keyb_matrix[KSCAN_J >> 3] &= ~kBit[KSCAN_J & 7];
+            } else if (flight_cam.left.z < -12) {
+              keyb_matrix[KSCAN_L >> 3] &= ~kBit[KSCAN_L & 7];
+            }
+            if (_shot_v.y > 10 || (_shot_v.y > 2 && _turn_pull_tick)) {
+              keyb_matrix[KSCAN_A >> 3] &= ~kBit[KSCAN_A & 7];
+            } else if (_shot_v.y < -10 || (_shot_v.y < -2 && _turn_pull_tick)) {
+              keyb_matrix[KSCAN_S >> 3] &= ~kBit[KSCAN_S & 7];
+            }
+            if (flight_eye_z < 0x008000L || _shot_v.z > 10 ||
+                (_shot_v.z > 2 && _turn_pull_tick)) {
+              keyb_matrix[KSCAN_K >> 3] &= ~kBit[KSCAN_K & 7];
+            } else if (_shot_v.z < -10 || (_shot_v.z < -2 && _turn_pull_tick)) {
+              keyb_matrix[KSCAN_I >> 3] &= ~kBit[KSCAN_I & 7];
+            }
+            int16_t cy = _shot_v.y < 0 ? -_shot_v.y : _shot_v.y;
+            int16_t cz = _shot_v.z < 0 ? -_shot_v.z : _shot_v.z;
+            int16_t cone = (_shot_v.x >> 4) + 8;
+            if (_shot_v.x < 950 && cy <= cone && cz <= cone) {
+              keyb_matrix[KSCAN_SPACE >> 3] &= ~kBit[KSCAN_SPACE & 7];
+            }
+          }
+        } else if (flight_eye_z < 0x018000L && flight_cam.front.z < 12) {
+          keyb_matrix[KSCAN_K >> 3] &= ~kBit[KSCAN_K & 7];
+        }
+      } else if (flight_cam.front.z < 0) {
+        keyb_matrix[KSCAN_K >> 3] &= ~kBit[KSCAN_K & 7];
+      }
+    }
 #endif
   }
 

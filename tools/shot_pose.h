@@ -58,7 +58,8 @@ struct shot_cam_t {
 #define SHOT_CRUISE 0x0900, 0x14, false, false
 #define SHOT_APPROACH 0x0480, 0x06, true, true
 
-#if __SHOT__ == 3 || __SHOT__ == 4 || __SHOT__ == 6 || __SHOT__ == 7
+#if __SHOT__ == 3 || __SHOT__ == 4 || __SHOT__ == 6 || __SHOT__ == 7 ||           \
+    __SHOT__ == 14 || __SHOT__ == 15 || __SHOT__ == 16
 #define SHOT_POSED
 #endif
 
@@ -105,6 +106,21 @@ static const shot_pose_t kShotPose = {0x6000, 0x9800, 0x0140, 0,    -4,
 // way to the approach shot above.
 static const shot_pose_t kShotPose = {0x5000, 0x1000, 0x0100, 0,    -4,
                                       9,      SHOT_CRUISE};
+#elif __SHOT__ == 14
+// Desert fields (SHOT_SCHEME=1): orange ground, brown fields, cyan gradient,
+// yellow sun and white cloud.
+static const shot_pose_t kShotPose = {0x4200, 0x4A00, 0x0180, 0x40, 1,
+                                      -12,    SHOT_CRUISE};
+#elif __SHOT__ == 15
+// Dusk town (SHOT_SCHEME=2): purple sky, light-red/yellow horizon, white sun,
+// dark grey ground and yellow-lit town.
+static const shot_pose_t kShotPose = {0x6800, 0x8400, 0x0220, 0x40, 2,
+                                      -14,    SHOT_CRUISE};
+#elif __SHOT__ == 16
+// Night city (SHOT_SCHEME=3): black sky, dark-grey/red horizon, white moon,
+// brown ground and yellow-lit city.
+static const shot_pose_t kShotPose = {0x1800, 0x5C00, 0x0200, 0x48, 2,
+                                      10,     SHOT_CRUISE};
 #endif
 
 #if defined(SHOT_POSED) && !defined(__SHOT_BAKED__)

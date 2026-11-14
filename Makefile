@@ -25,7 +25,7 @@ FPANEL_FLAGS = $(PANEL_FLAGS) --pin-slots 1,12,15@18,6-8
 # c64o/ (build output, gitignored) to bin/ (checked in, what README links to).
 PROGRAMS = ppilot fpilot polydemo vecdemo vectest
 
-.PHONY: help data chardefs gfx-chars sprites clouds planes map-tiles map-tiles-draft panel ppanel fpanel music map-preview cloud-preview render demo prg pram fram release test clean
+.PHONY: help data chardefs gfx-chars sprites clouds planes map-tiles map-tiles-draft panel ppanel fpanel music map-preview cloud-preview render demo shots prg pram fram release test clean
 
 help:
 	@echo "Data generation:"
@@ -47,6 +47,7 @@ help:
 	@echo "  make map-preview - render out/map_preview.png from the current map tiles"
 	@echo "  make render      - render all roll angles to out/rendered_frames"
 	@echo "  make demo        - interactive roll/pitch demo (needs pygame)"
+	@echo "  make shots       - regenerate screenshots in screens/ via tools/make_shots.sh"
 	@echo "  make prg         - build the C64 binaries via c64o/Makefile (needs oscar64),"
 	@echo "                     then report the ppilot.prg and fpilot.prg sizes"
 	@echo "  make pram        - report RAM usage breakdown by feature from c64o/ppilot.map"
@@ -144,6 +145,9 @@ render:
 
 demo:
 	$(PYTHON) tools/flight_demo.py
+
+shots:
+	./tools/make_shots.sh
 
 prg:
 	$(MAKE) -C c64o

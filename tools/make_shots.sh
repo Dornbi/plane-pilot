@@ -38,21 +38,30 @@ BUILD="${SHOT_BUILD_DIR:-/tmp/ppilot-shots}"
 OSCAR64_INCLUDE="${OSCAR64_INCLUDE:-$REPO/../../oscar64-main/include}"
 
 # The scenes. Each line is: name, the -D__SHOT__ number of its script in
-# tools/shot.cc, the emulated cycle count at which the frame is grabbed, and
-# the file it lands in. One second of C64 time is 985,248 cycles.
+# tools/shot.cc, the emulated cycle count at which the frame is grabbed, the
+# file it lands in, and the program variant (ppilot or fpilot). One second of
+# C64 time is 985,248 cycles.
 #
 # The capture point only has to fall inside the stretch of the script that
 # holds the screen being photographed - every scene either freezes the model or
 # ends on a modal screen, so there is a wide window and these numbers are not
 # delicate. The exception is the menu, where the title flyby is still moving.
 SCENES='
-menu   1   18000000  screen04_crt.png
-help   2   10000000  screen03_crt.png
-final  3   12000000  screen01_crt.png
-bank   4   12000000  screen02_crt.png
-map    5  110000000  screen05_crt.png
-debug  6   18000000  debug_crt.png
-lake   7   12000000  screen06_crt.png
+menu      1   18000000  screen04_crt.png  ppilot
+help      2   10000000  screen03_crt.png  ppilot
+final     3   12000000  screen01_crt.png  ppilot
+bank      4   12000000  screen02_crt.png  ppilot
+map       5  110000000  screen05_crt.png  ppilot
+debug     6   18000000  debug_crt.png     ppilot
+lake      7   12000000  screen06_crt.png  ppilot
+desert   14   12000000  screen07_crt.png  ppilot
+dusk     15   12000000  screen08_crt.png  ppilot
+night    16   12000000  screen09_crt.png  ppilot
+nightmap 17  110000000  screen10_crt.png  ppilot
+ffront   18  240000000  screen11_crt.png  fpilot
+fside    19  140000000  screen12_crt.png  fpilot
+frear    20  240000000  screen13_crt.png  fpilot
+fdebrief 21  240000000  screen14_crt.png  fpilot
 '
 
 # Cropping the border and building the tube - scanlines, bleed, bloom - is
@@ -103,21 +112,26 @@ done
 
 # --- The scenes ------------------------------------------------------------
 
-# Same flags as the ppilot.prg rule in c64o/Makefile: a scene has to be a
-# picture of the binary people actually run.
-CFLAGS="-ii=../include -D__OSCAR64__ -DNUM_IRQS=3 -g -xz -O2 -Op -Oa -Oi -Oz -Oo"
-CFLAGS="$CFLAGS -D__ENABLE_SOUND__ -D__ENABLE_DEBUG__ -D__ENABLE_CLOUDS__ -D__ENABLE_COLOR_SCHEMES__ -D__MAX_RAM__"
+# Same flags as c64o/Makefile: a scene has to be a picture of the binary
+# people actually run. fpilot leaves ~1.3 KB free, so omitting sound (which
+# screenshots do not capture) makes room for tools/shot.cc's combat steering.
 # SHOT_CFLAGS adds to them, e.g. -DSHOT_SCHEME=3 for a posed scene in Night's
 # colours (tools/shot.cc).
-CFLAGS="$CFLAGS ${SHOT_CFLAGS:-}"
+BASE_CFLAGS="-ii=../include -D__OSCAR64__ -DNUM_IRQS=3 -g -xz -O2 -Op -Oa -Oi -Oz -Oo -D__ENABLE_CLOUDS__ -D__MAX_RAM__"
+PPILOT_CFLAGS="$BASE_CFLAGS -D__ENABLE_SOUND__ -D__ENABLE_DEBUG__ -D__ENABLE_COLOR_SCHEMES__"
+FPILOT_CFLAGS="$BASE_CFLAGS -D__FPILOT__"
 
 wanted="${*:-}"
-echo "$SCENES" | while read -r name shot cycles out; do
+echo "$SCENES" | while read -r name shot cycles out prog; do
   [ -n "${name:-}" ] || continue
   if [ -n "$wanted" ]; then
     case " $wanted " in *" $name "*) ;; *) continue ;; esac
   fi
 
+  case "$prog" in
+    fpilot) CFLAGS="$FPILOT_CFLAGS ${SHOT_CFLAGS:-}" ;;
+    *)      CFLAGS="$PPILOT_CFLAGS ${SHOT_CFLAGS:-}" ;;
+  esac
   ( cd "$BUILD/src" && oscar64 $CFLAGS -D__SHOT__="$shot" -o="$BUILD/$name.prg" ppilot.cc ) >/dev/null
 
   # VICE's autostart occasionally does not take, and what lands in the file
