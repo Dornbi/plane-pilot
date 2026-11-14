@@ -659,6 +659,24 @@ static void test_poly_asm_c_fallbacks() {
   assert(fake_screen[3 * 40 + 5] == 176 + 1);
   assert(fake_color[3 * 40 + 5] == 0x55);
 
+  // _poly_bounds_and_clear + _poly_trace_edges + poly_fill end-to-end.
+  for (int i = 0; i < kScreenHeight * kScreenWidth; ++i) {
+    fake_screen[i] = kCharSolidGround;
+    fake_color[i] = 0x44;
+  }
+  const vertex_t quad[4] = {{36, 3}, {44, 3}, {70, 17}, {10, 17}};
+  uint8_t ps = 99, pe = 99;
+  _poly_bounds_and_clear((const int8_t *)quad, 4, &ps, &pe);
+  assert(ps == 1 && pe == 8);
+  assert(_poly_min_x[2] == 80 && _poly_max_x[2] == 0);
+  assert(_poly_min_x[17] == 80 && _poly_max_x[17] == 0);
+  _poly_trace_edges((const int8_t *)quad, 4);
+  assert(_poly_min_x[3] == 34 && _poly_max_x[3] == 46);
+  assert(_poly_min_x[17] == 10 && _poly_max_x[17] == 70);
+  poly_fill(quad, 4, 160, 5);
+  assert(fake_screen[5 * 40 + 20] == (160 | 0x0F));
+  assert(fake_color[5 * 40 + 20] == (8 | 5));
+
   printf("  PASS\n\n");
 }
 

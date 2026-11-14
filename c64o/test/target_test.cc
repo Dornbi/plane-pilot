@@ -41,16 +41,18 @@
 //   12  world_asm.cc _world_draw_box_points against byte-for-byte C reference
 //   13  render_asm.cc _render_snap_center_asm against C roll_get_dist reference
 //   14  render_asm.cc _render_flush_span main/alt $E800/$EC00 sled & color RAM
+//   15  poly_asm.h _poly_bounds_and_clear & _poly_trace_edges against C ref
 
 #include <stdint.h>
 
-// Test 7's cases need more room than oscar64's default layout leaves: one
-// region up to the BASIC ROM, no heap (nothing here allocates) and a 1 KB
-// stack rather than 4.
+// Test 7's cases need more room than oscar64's default layout leaves: code and
+// data up to $A000, bss in $0400-$07FF (vice_dump jumps straight to $080D and
+// never reads screen RAM), and stack + test buffers in $C000-$CFFF.
 #pragma heapsize(0)
-#pragma stacksize(0x400)
-#pragma region(main, 0x0880, 0xA000, , , {code, data, bss})
-#pragma region(stackregion, 0xC000, 0xC400, , , {heap, stack})
+#pragma stacksize(0x200)
+#pragma region(main, 0x0880, 0xA000, , , {code, data})
+#pragma region(bssregion, 0x0400, 0x0800, , , {bss})
+#pragma region(stackregion, 0xC000, 0xC200, , , {heap, stack})
 // And the zero page the programs under test get from -xz: vec_asm.cc's
 // routines keep their operands there.
 #pragma region(zeropage, 0x80, 0x100, , , {zeropage})
@@ -156,7 +158,8 @@ static void test_mul_against_16bit_product(void) {
 // (bugs/). So a few dozen cases run here too, with every expected byte from
 // the reference, rendered through a front and a back buffer as a program
 // would and compared byte for byte.
-static uint8_t _planes_sets[2][4][kPlaneBlockStride];
+static uint8_t (*const _planes_sets)[4][kPlaneBlockStride] =
+    (uint8_t (*)[4][kPlaneBlockStride])0xC200;
 static uint8_t _planes_dot[kPlaneBlockBytes];
 
 static void test_planes(void) {
@@ -739,6 +742,169 @@ static void test_render_flush_span_asm(void) {
   *(volatile uint8_t *)0x01 = saved_p01;
 }
 
+// 15. poly_asm.h _poly_bounds_and_clear + _poly_trace_edges against C Bresenham.
+static uint8_t *const _ref_min_x = (uint8_t *)0xCF40;
+static uint8_t *const _ref_max_x = (uint8_t *)0xCF60;
+
+static void _ref_trace_edge(int8_t xa, uint8_t ya, int8_t xb, uint8_t yb) {
+  if (ya == yb) {
+    return;
+  }
+  int8_t x1, x2;
+  uint8_t y1, y2;
+  if (ya > yb) {
+    x1 = xb;
+    y1 = yb;
+    x2 = xa;
+    y2 = ya;
+  } else {
+    x1 = xa;
+    y1 = ya;
+    x2 = xb;
+    y2 = yb;
+  }
+  uint8_t dy = y2 - y1;
+  uint8_t err = dy >> 1;
+  bool rising = x2 > x1;
+  uint8_t dx = rising ? (uint8_t)(x2 - x1) : (uint8_t)(x1 - x2);
+  uint8_t x = (uint8_t)x1;
+  if (dx > dy) {
+    uint8_t q = 0, r = dx;
+    do {
+      r -= dy;
+      ++q;
+    } while (r >= dy);
+    if (rising) {
+      for (uint8_t y = y1; y < y2; ++y) {
+        uint8_t sx = x;
+        x += q;
+        err += r;
+        if (err >= dy) {
+          ++x;
+          err -= dy;
+        }
+        if (sx < _ref_min_x[y]) {
+          _ref_min_x[y] = sx;
+        }
+        if (x > _ref_max_x[y]) {
+          _ref_max_x[y] = x;
+        }
+      }
+    } else {
+      for (uint8_t y = y1; y < y2; ++y) {
+        uint8_t sx = x;
+        x -= q;
+        err += r;
+        if (err >= dy) {
+          --x;
+          err -= dy;
+        }
+        if (x < _ref_min_x[y]) {
+          _ref_min_x[y] = x;
+        }
+        if (sx > _ref_max_x[y]) {
+          _ref_max_x[y] = sx;
+        }
+      }
+    }
+  } else {
+    int8_t step = rising ? 1 : -1;
+    for (uint8_t y = y1; y < y2; ++y) {
+      if (x < _ref_min_x[y]) {
+        _ref_min_x[y] = x;
+      }
+      if (x > _ref_max_x[y]) {
+        _ref_max_x[y] = x;
+      }
+      err += dx;
+      if (err >= dy) {
+        x = (uint8_t)(x + step);
+        err -= dy;
+      }
+    }
+  }
+  if (x < _ref_min_x[y2]) {
+    _ref_min_x[y2] = x;
+  }
+  if (x > _ref_max_x[y2]) {
+    _ref_max_x[y2] = x;
+  }
+}
+
+#pragma optimize(push, nooutline)
+static void test_poly_trace_edges_asm(void) {
+  struct PolyCase {
+    uint8_t n;
+    int8_t v[12];
+  };
+  static const PolyCase kPolys[] = {
+      // Wide X-major rising/falling with horizontal top & carries.
+      {4, {36, 3, 44, 3, 70, 17, 10, 17, 0, 0, 0, 0}},
+      // Asymmetric X-major + Y-major quadrilateral.
+      {4, {20, 2, 75, 7, 22, 25, 3, 19, 0, 0, 0, 0}},
+      // Full-viewport rectangle with vertical & horizontal edges [0..79]x[0..27].
+      {4, {0, 0, 79, 0, 79, 27, 0, 27, 0, 0, 0, 0}},
+      // Hexagon mixing steep Y-major, dx == dy diagonal, and X-major edges.
+      {6, {30, 1, 52, 5, 58, 14, 35, 22, 12, 18, 8, 6}},
+      // Narrow 1-subrow-tall / steep triangle on odd sub-rows.
+      {3, {41, 11, 43, 21, 39, 17, 0, 0, 0, 0, 0, 0}},
+  };
+  _init_row_ptrs();
+  for (uint8_t c = 0; c < sizeof(kPolys) / sizeof(kPolys[0]); ++c) {
+    const uint8_t n = kPolys[c].n;
+    const int8_t *v = kPolys[c].v;
+    for (uint8_t i = 0; i < 2 * kViewportHeight; ++i) {
+      _poly_min_x[i] = 0xAA;
+      _poly_max_x[i] = 0x55;
+      _ref_min_x[i] = 0xAA;
+      _ref_max_x[i] = 0x55;
+    }
+    uint8_t min_y = (uint8_t)v[1], max_y = (uint8_t)v[1];
+    for (uint8_t i = 1; i < n; ++i) {
+      uint8_t vy = (uint8_t)v[2 * i + 1];
+      if (vy < min_y) {
+        min_y = vy;
+      }
+      if (vy > max_y) {
+        max_y = vy;
+      }
+    }
+    uint8_t want_s = min_y >> 1, want_e = max_y >> 1;
+    for (uint8_t sy = (uint8_t)(want_s << 1); sy <= (uint8_t)((want_e << 1) | 1);
+         ++sy) {
+      _ref_min_x[sy] = kScreenWidth * 2;
+      _ref_max_x[sy] = 0;
+    }
+    for (uint8_t i = 0; i < n; ++i) {
+      uint8_t nx = (i + 1 == n) ? 0 : (uint8_t)(i + 1);
+      _ref_trace_edge(v[2 * i], (uint8_t)v[2 * i + 1], v[2 * nx],
+                      (uint8_t)v[2 * nx + 1]);
+    }
+
+    uint8_t got_s = 99, got_e = 99;
+    _poly_bounds_and_clear(v, n, &got_s, &got_e);
+    expect(15, (int16_t)(((uint16_t)got_e << 8) | got_s),
+           (int16_t)(((uint16_t)want_e << 8) | want_s));
+    _poly_trace_edges(v, n);
+
+    for (uint8_t i = 0; i < 2 * kViewportHeight; ++i) {
+      expect(15, _poly_min_x[i], _ref_min_x[i]);
+      expect(15, _poly_max_x[i], _ref_max_x[i]);
+    }
+
+    // Also verify end-to-end _poly_scan_lines2 output on the traced spans.
+    _clear_test_screens(kCharSolidGround, 0x33);
+    uint8_t col = (c & 1) ? 0x0D : 0;
+    _poly_scan_lines2(160, col, want_s, want_e);
+    _ref_scan_lines2(160, col, want_s, want_e);
+    for (uint16_t i = 0; i < kViewportHeight * 40; ++i) {
+      expect(15, test_scr[i], ref_scr[i]);
+      expect(15, test_clr[i], ref_clr[i]);
+    }
+  }
+}
+#pragma optimize(pop)
+
 int main(void) {
   // The KERNAL's timer interrupt keeps its clock and keyboard state in the
   // zero page the region above hands out. Nothing here needs it.
@@ -760,6 +926,7 @@ int main(void) {
   test_world_draw_box_points_asm();
   test_render_snap_center_asm();
   test_render_flush_span_asm();
+  test_poly_trace_edges_asm();
 
   // Something for vice_dump.sh's @spin to break on. Everything above has
   // landed in the globals by the time the loop is reached.
