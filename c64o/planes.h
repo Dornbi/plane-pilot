@@ -40,7 +40,7 @@ static const uint8_t kPlaneBlockStride = 64;
 struct planes_view_t {
   int16_t cx0, cy0;
   int16_t cut1, cut2;
-  uint16_t kmax;
+  uint8_t kmax;
   uint8_t kn;
 };
 
@@ -51,7 +51,7 @@ static const uint8_t kPlaneKnModel = 64;
 // of every attitude in 2.5 degree steps, hysteresis carried from one attitude
 // to the next: two hold up to 90, about 45 m, and 92 needs four. Two below
 // that for margin, which freezes the size at about 47 m.
-static const uint16_t kPlaneKMaxTwoSprites = 88;
+static const uint8_t kPlaneKMaxTwoSprites = 88;
 
 // The most vertices a frame has: the flat surfaces, the fuselage outline and
 // the end-on disc.
@@ -63,7 +63,8 @@ static const uint8_t kPlaneVertMax = 30;
 // frame's centre than the one it was projected in (planes_place()).
 struct planes_layout_t {
   uint8_t level, ys, cols, rows;
-  int16_t ox, oy, slid;
+  int8_t ox, oy;
+  int16_t slid;
 };
 
 // Everything that persists between frames: the hysteresis latches and the
@@ -86,7 +87,7 @@ struct planes_state_t {
   // What they were projected from -- the scale, and the screen components
   // (y, z) of the front, left and up axes. The same scale and axes project
   // the same silhouette again, moved with the centre.
-  uint16_t k;
+  uint8_t k;
   int16_t axes[6];
 };
 
@@ -106,7 +107,7 @@ struct planes_frame_t {
   uint8_t slid;         // lines moved up to clear the DMA cut
   bool clamped;         // apparent size held by the size cap
   bool cached;          // nothing drawn: the last bitmap still stands
-  uint16_t k;           // perspective scale, after the cap
+  uint8_t k;            // perspective scale, after the cap
   uint8_t d;            // unforeshortened diameter, pixels
   int16_t cx, cy;       // the centre, viewport pixels
 };

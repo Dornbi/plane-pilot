@@ -42,15 +42,16 @@
 //   13  render_asm.cc _render_snap_center_asm against C roll_get_dist reference
 //   14  render_asm.cc _render_flush_span main/alt $E800/$EC00 sled & color RAM
 //   15  poly_asm.h _poly_bounds_and_clear & _poly_trace_edges against C ref
+//   16  planes_asm.cc split project/reslide/fill, place cuts & slid-out clear
 
 #include <stdint.h>
 
-// Test 7's cases need more room than oscar64's default layout leaves: code and
-// data up to $A000, bss in $0400-$07FF (vice_dump jumps straight to $080D and
-// never reads screen RAM), and stack + test buffers in $C000-$CFFF.
+// Test 7's cases + asm suites need more room than oscar64's default layout
+// leaves: code and data up to $C000 (main() banks out BASIC ROM at entry), bss
+// in $0400-$07FF, and stack + test buffers in $C000-$CFFF.
 #pragma heapsize(0)
 #pragma stacksize(0x200)
-#pragma region(main, 0x0880, 0xA000, , , {code, data})
+#pragma region(main, 0x0880, 0xC000, , , {code, data})
 #pragma region(bssregion, 0x0400, 0x0800, , , {bss})
 #pragma region(stackregion, 0xC000, 0xC200, , , {heap, stack})
 // And the zero page the programs under test get from -xz: vec_asm.cc's
@@ -903,12 +904,89 @@ static void test_poly_trace_edges_asm(void) {
     }
   }
 }
+
+// 16. Split planes_project + planes_reslide + planes_fill, planes_place cut
+// boundaries, and full-buffer-slide empty fill on the 6502 routines.
+static void test_planes_split_reslide_asm(void) {
+  const planes_view_t view = {kTargetCx0, kTargetCy0, kTargetCut1, kTargetCut2,
+                              kPlaneKMax, kPlaneKnModel};
+  mat3_t axes;
+  axes.front = make_vector(-170, 170, 88);
+  axes.left = make_vector(-170, -170, 88);
+  axes.up = make_vector(88, 0, 241);
+
+  // Project high up (no slide), then drop near the bottom so reslide moves the
+  // cached vertices into the slid band before planes_fill runs; must match a
+  // direct planes_render from the same prior layout latches.
+  static const int16_t kDist[2] = {600, 260}; // ys=1 and ys=2 silhouettes
+  for (uint8_t t = 0; t < 2; ++t) {
+    planes_state_t s_split, s_direct;
+    planes_state_init(&s_split);
+    planes_state_init(&s_direct);
+    vec3_t c0 = make_vector(kDist[t], 20, 40);
+    vec3_t c1 = make_vector(kDist[t], 20, -140);
+    planes_frame_t f_split, f_direct;
+
+    planes_project(&s_split, &view, &c0, &axes, &f_split);
+    planes_project(&s_direct, &view, &c0, &axes, &f_direct);
+
+    bool ok = planes_centre(&view, &c1, &f_split);
+    expect(16, ok ? 1 : 0, 1);
+    bool moved = planes_reslide(&s_split, &view, &f_split, kPlaneReslideAlways);
+    expect(16, moved ? 1 : 0, 1);
+    planes_fill(&s_split, _planes_sets[0][0]);
+
+    planes_render(&s_direct, &view, &c1, &axes, _planes_sets[1][0], &f_direct);
+    expect(16, f_split.x, f_direct.x);
+    // For ys == 2 an odd reslide rounds up by 1 line, matching lay.slid.
+    expect(16, f_split.slid, (uint8_t)s_split.lay.slid);
+    if (s_split.lay.slid == s_direct.lay.slid) {
+      for (uint8_t b = 0; b < f_direct.cols * f_direct.rows; ++b) {
+        for (uint8_t i = 0; i < kPlaneBlockBytes; ++i) {
+          expect(16, _planes_sets[0][b][i], _planes_sets[1][b][i]);
+        }
+      }
+    }
+
+    // Slide >= buffer height must clear all blocks and draw nothing.
+    s_split.lay.slid = 200;
+    for (uint8_t b = 0; b < 4; ++b) {
+      for (uint8_t i = 0; i < kPlaneBlockStride; ++i) {
+        _planes_sets[0][b][i] = 0xAA;
+      }
+    }
+    planes_fill(&s_split, _planes_sets[0][0]);
+    uint8_t blocks = (uint8_t)(s_split.lay.cols * s_split.lay.rows);
+    for (uint8_t b = 0; b < blocks; ++b) {
+      for (uint8_t i = 0; i < kPlaneBlockStride; ++i) {
+        expect(16, _planes_sets[0][b][i], 0);
+      }
+    }
+  }
+
+  // Dot-tier exact cut1 boundary: y == cut1 is shown, y == cut1 + 1 is hidden.
+  planes_layout_t dot_lay = {kPlaneLevelDot, 1, 1, 1, 0, 0, 0};
+  planes_frame_t df;
+  df.hidden = kPlaneShown;
+  df.cx = 160;
+  df.cy = (int16_t)(kTargetCut1 + kPlaneDotY);
+  expect(16, planes_place(&dot_lay, &view, &df), 0);
+  expect(16, df.hidden, kPlaneShown);
+  df.cy = (int16_t)(kTargetCut1 + kPlaneDotY + 1);
+  expect(16, planes_place(&dot_lay, &view, &df), 0);
+  expect(16, df.hidden, kPlaneBelowCut);
+}
 #pragma optimize(pop)
 
 int main(void) {
   // The KERNAL's timer interrupt keeps its clock and keyboard state in the
-  // zero page the region above hands out. Nothing here needs it.
-  __asm { sei }
+  // zero page the region above hands out, and main extends past $A000 under
+  // BASIC ROM. Bank BASIC out ($01 = $36) and disable IRQs.
+  __asm {
+    sei;
+    lda #$36;
+    sta $01;
+  }
   g_failures = 0;
   g_first_fail = 0;
   g_cases = 0;
@@ -927,6 +1005,7 @@ int main(void) {
   test_render_snap_center_asm();
   test_render_flush_span_asm();
   test_poly_trace_edges_asm();
+  test_planes_split_reslide_asm();
 
   // Something for vice_dump.sh's @spin to break on. Everything above has
   // landed in the globals by the time the loop is reached.

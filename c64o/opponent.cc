@@ -71,7 +71,7 @@ static planes_view_t _opponent_view = {kScreenWidthPixels / 2,
                                        kSpriteVisibleEndYPixels - 1,
                                        kViewportEndYPixels -
                                            kSpritesOffLeadExpandY - 1,
-                                       kPlaneKMax,
+                                       (uint8_t)kPlaneKMax,
                                        kOpponentKn};
 static_assert(kSpriteVisibleEndYPixels - 1 == 89 &&
                   kViewportEndYPixels - kSpritesOffLeadExpandY - 1 == 68,
@@ -93,7 +93,7 @@ static_assert(kSpriteVisibleEndYPixels - 1 == 89 &&
 // the same picture - the dot, or a silhouette the size of one. The dot needs
 // no cap; two sprites' is the safe one.
 static inline void _opponent_set_view(bool far, bool two) {
-  _opponent_view.kmax = far || two ? kPlaneKMaxTwoSprites : kPlaneKMax;
+  _opponent_view.kmax = far || two ? kPlaneKMaxTwoSprites : (uint8_t)kPlaneKMax;
   _opponent_view.kn = far ? kOpponentKn / 4 : kOpponentKn;
 }
 

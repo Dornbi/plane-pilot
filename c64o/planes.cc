@@ -18,11 +18,13 @@
 static const char kProfCentre[] = SCREEN_STR("centre ");
 static const char kProfLayout[] = SCREEN_STR("layout ");
 static const char kProfKey[] = SCREEN_STR("key ");
-static const char kProfFill[] = SCREEN_STR("fill ");
 static const char kProfMags[] = SCREEN_STR("mags ");
 static const char kProfPairs[] = SCREEN_STR("pairs ");
 static const char kProfVerts[] = SCREEN_STR("verts ");
 static const char kProfBody[] = SCREEN_STR("body ");
+#ifndef __OSCAR64__
+static const char kProfFill[] = SCREEN_STR("fill ");
+#endif
 #else
 #define PROFILE_START()
 #define PROFILE_END(row, label)
@@ -42,16 +44,15 @@ static const char kProfBody[] = SCREEN_STR("body ");
 //   and fills without clipping to the buffer's sides.
 // - A frame with the last one's scale and axes skips the projection.
 //
-// On the C64 the axis products and the fill are assembly, in planes_asm.cc;
-// the C for them here is the host's (planes_asm.h).
+// On the C64 the inner projection, layout, placement and fill steps are
+// assembly, in planes_asm.cc; the C for them here is the host's (planes_asm.h).
 
+#ifndef __OSCAR64__
 static const uint8_t kCols = 24;
 static const uint8_t kRows = 21;
-
-// The model's vertices relative to the centre, in screen pixels and offset by
-// 128, so that they are unsigned bytes and compare as such: wing, tailplane
-// and fin, then the fuselage outline, then the end-on disc.
 static const uint8_t kBias = 128;
+#endif
+
 // fpilot keeps the per-call arrays in the screen's dead rows, over the
 // terrain's own scratch (mem.h tscratch): written before they are read, every
 // call, and dead between calls.
@@ -62,10 +63,9 @@ uint8_t _planes_vx[kPlaneVertMax], _planes_vy[kPlaneVertMax];
 // The fuselage's stations: centre and radius (planes_asm.h).
 uint8_t _planes_sx[kPlaneBodyCount], _planes_sy[kPlaneBodyCount];
 uint8_t _planes_sr[kPlaneBodyCount];
-static uint8_t _vert_count;
+uint8_t _planes_vert_count;
 // planes_asm.h's: the pairs' products.
 int8_t _planes_tx[32], _planes_ty[32];
-static int8_t _planes_off[8];
 #ifdef __FPILOT__
 #pragma bss(bss)
 #endif
@@ -78,7 +78,7 @@ static int8_t _planes_off[8];
 #pragma bss(bss2)
 #endif
 uint8_t _planes_px[kPlaneMagCount];
-static uint16_t _px_k;
+static uint8_t _px_k;
 uint8_t _planes_pv[16];
 #ifdef __FPILOT__
 #pragma bss(bss)
@@ -92,16 +92,18 @@ uint8_t _planes_pv[16];
 static __noinline int16_t _abs16(int16_t a) { return a < 0 ? (int16_t)-a : a; }
 
 #ifndef __OSCAR64__
+// ---------------------------------------------------------------------------
+// planes_asm.h + planes_place + planes_fill in C, for the host: what
+// planes_asm.cc does on the C64, step for step.
+
 // lib/planes.py smul(u, r) for a unit component u (|u| <= 256) and 0 <= r < 256:
 // u * r / 256 rounded, as the reference forms it from trunc(2|u| r / 256).
-// The host's; planes_asm.cc has it inline in the fuselage.
 static int8_t _smul(int16_t u, uint8_t r) {
   uint16_t m = (uint16_t)_abs16(u);
   uint16_t p = m >= 256 ? (uint16_t)(r << 8) : vec_mul8x8((uint8_t)m, r);
   int8_t q = (int8_t)(((p >> 7) + 1) >> 1);
   return u < 0 ? (int8_t)-q : q;
 }
-#endif
 
 // |(x, y)| within ~3%: max(hi, 7/8 hi + 1/2 lo).
 static uint8_t _norm2(int8_t x, int8_t y) {
@@ -110,11 +112,6 @@ static uint8_t _norm2(int8_t x, int8_t y) {
   uint8_t n = (uint8_t)(hi - (hi >> 3) + (lo >> 1));
   return n > hi ? n : hi;
 }
-
-#ifndef __OSCAR64__
-// ---------------------------------------------------------------------------
-// planes_asm.h in C, for the host: what planes_asm.cc does on the C64, step
-// for step.
 
 void _planes_flat(void) {
   for (uint8_t i = 0; i < kPlaneVertCount; ++i) {
@@ -125,6 +122,8 @@ void _planes_flat(void) {
 }
 
 uint8_t _planes_box_x0, _planes_box_x1, _planes_box_y0, _planes_box_y1;
+uint8_t _planes_lbx, _planes_lby, _planes_lxs, _planes_lys;
+bool _planes_lcached;
 
 void _planes_box(uint8_t count) {
   uint8_t minx = _planes_vx[0], maxx = _planes_vx[0], miny = _planes_vy[0], maxy = _planes_vy[0];
@@ -140,8 +139,11 @@ void _planes_box(uint8_t count) {
   _planes_box_y1 = maxy;
 }
 
-bool _planes_key(uint8_t *key, uint8_t count, uint8_t bx, uint8_t by, uint16_t s9,
-                 uint8_t xs, uint8_t ys) {
+bool _planes_key(uint8_t *key, uint16_t slid) {
+  uint16_t s9 = slid & 0x1FF;
+  uint8_t count = _planes_vert_count;
+  uint8_t bx = _planes_lbx, by = _planes_lby;
+  uint8_t xs = _planes_lxs, ys = _planes_lys;
   bool differ = false;
   for (uint8_t i = 0; i < count; ++i) {
     uint8_t x = (uint8_t)(_planes_vx[i] - bx);
@@ -175,6 +177,125 @@ void _planes_tube(int16_t ux, int16_t uy, uint8_t at) {
   }
 }
 
+void _planes_fuselage(void) {
+  _planes_vert_count = kPlaneVertCount;
+  uint8_t *sx = _planes_sx, *sy = _planes_sy, *sr = _planes_sr;
+  uint8_t widest = 0;
+  for (uint8_t i = 0; i < kPlaneBodyCount; ++i) {
+    sx[i] = (uint8_t)(kBias + _planes_tx[kPlaneBodyFore[i]]);
+    sy[i] = (uint8_t)(kBias + _planes_ty[kPlaneBodyFore[i]]);
+    sr[i] = _planes_px[kPlaneBodyRadius[i]];
+    if (sr[i] > sr[widest]) {
+      widest = i;
+    }
+  }
+  int8_t fx = (int8_t)(sx[0] - sx[kPlaneBodyCount - 1]);
+  int8_t fy = (int8_t)(sy[0] - sy[kPlaneBodyCount - 1]);
+  uint8_t n = _norm2(fx, fy);
+  if (n > 0) {
+    _planes_tube(vec_div8p8((int16_t)-fy, n), vec_div8p8(fx, n), _planes_vert_count);
+    _planes_vert_count += 2 * kPlaneBodyCount;
+  }
+  if (n < (uint16_t)(sr[widest] << 2)) {
+    int8_t r = (int8_t)(sr[widest] > 1 ? sr[widest] : 1);
+    int8_t h = (int8_t)((vec_mul8x8((uint8_t)r, 106) + 255) >> 8);
+    int8_t off[8] = {r, h, (int8_t)-h, (int8_t)-r, (int8_t)-r, (int8_t)-h, h, r};
+    uint8_t x = sx[widest], y = sy[widest];
+    for (uint8_t i = 0; i < 8; ++i) {
+      _planes_vx[_planes_vert_count] = (uint8_t)(x + off[i]);
+      _planes_vy[_planes_vert_count] = (uint8_t)(y + off[(i + 6) & 7]);
+      ++_planes_vert_count;
+    }
+  }
+}
+
+void _planes_layout(planes_state_t *state, uint8_t level) {
+  _planes_box(_planes_vert_count);
+  uint8_t minx = _planes_box_x0, maxx = _planes_box_x1;
+  uint8_t miny = _planes_box_y0, maxy = _planes_box_y1;
+  uint8_t bw = (uint8_t)(maxx - minx), bh = (uint8_t)(maxy - miny);
+
+  uint8_t xs = level == kPlaneLevel1x ? 1 : 2;
+  uint8_t ys = 1;
+  if (level == kPlaneLevelX &&
+      bh > (state->lay.level == kPlaneLevelX && state->lay.ys == 2 ? kPlaneYHold : kPlaneYLimit)) {
+    ys = 2;
+  }
+  bool same = state->lay.level == level && state->lay.ys == ys;
+  uint8_t wlim = same && state->lay.cols == 2 ? kPlaneColsHold : (kCols - 1);
+  if (xs == 2) {
+    wlim <<= 1;
+  }
+  uint8_t cols = bw > wlim ? 2 : 1;
+  uint8_t hlim = same && state->lay.rows == 2 ? kPlaneRowsHold : (kRows - 1);
+  if (ys == 2) {
+    hlim <<= 1;
+  }
+  uint8_t rows = bh > hlim ? 2 : 1;
+  _planes_lcached = state->key_valid && same && state->lay.cols == cols &&
+                    state->lay.rows == rows && state->key_count == _planes_vert_count;
+
+  uint8_t hw = xs == 2 ? kCols : (kCols >> 1);
+  if (cols == 2) {
+    hw <<= 1;
+  }
+  uint8_t hh = (rows & ys) == 2   ? (kRows << 1)
+               : (rows | ys) == 1 ? (kRows >> 1)
+                                  : kRows;
+  uint8_t bx = (uint8_t)(((minx + maxx + 1) >> 1) - hw);
+  uint8_t by = (uint8_t)(((miny + maxy + 1) >> 1) - hh);
+
+  _planes_lbx = bx;
+  _planes_lby = by;
+  _planes_lxs = xs;
+  _planes_lys = ys;
+
+  state->lay.level = level;
+  state->lay.ys = ys;
+  state->lay.cols = cols;
+  state->lay.rows = rows;
+  state->lay.ox = (int8_t)(bx ^ kBias);
+  state->lay.oy = (int8_t)(by ^ kBias);
+  state->lay.slid = 0;
+}
+
+static int16_t _slide(const planes_view_t *view, int16_t oy, uint8_t ys, uint8_t rows) {
+  int16_t cut = ys == 2 ? view->cut2 : view->cut1;
+  int16_t over = (int16_t)(oy - cut);
+  if (rows == 2) {
+    over = (int16_t)(over + (ys == 2 ? (kRows << 1) : kRows));
+  }
+  return over > 0 ? over : 0;
+}
+
+int16_t planes_place(const planes_layout_t *lay, const planes_view_t *view,
+                     planes_frame_t *frame) {
+  uint8_t level = lay->level;
+  frame->level = level;
+  if (level == kPlaneLevelDot) {
+    frame->xs = frame->ys = frame->cols = frame->rows = 1;
+    frame->x = (int16_t)(frame->cx - kPlaneDotX);
+    frame->y = (int16_t)(frame->cy - kPlaneDotY);
+    frame->slid = 0;
+    if (frame->y > view->cut1) {
+      frame->hidden = kPlaneBelowCut;
+    }
+    return 0;
+  }
+  uint8_t ys = lay->ys, rows = lay->rows;
+  frame->xs = level == kPlaneLevel1x ? 1 : 2;
+  frame->ys = ys;
+  frame->cols = lay->cols;
+  frame->rows = rows;
+  frame->x = (int16_t)(frame->cx + lay->ox);
+  int16_t top = (int16_t)(frame->cy + lay->oy);
+  int16_t need = _slide(view, top, ys, rows);
+  int16_t slid = need > lay->slid ? need : lay->slid;
+  frame->y = (int16_t)(top - slid);
+  frame->slid = (uint8_t)slid;
+  return need;
+}
+
 void _planes_mags(uint8_t k) {
   for (uint8_t m = 0; m < kPlaneMagCount; ++m) {
     // magnitude * k / 256 rounded, as trunc(2 * magnitude * k / 256)
@@ -206,7 +327,7 @@ static uint8_t _buf_h, _buf_w1;     // height, and width - 1
 static uint8_t _bottom;             // offset of the lower row of blocks
 static uint8_t _lo[2 * kRows], _hi[2 * kRows];
 
-void _planes_fill_begin(uint8_t *back, uint8_t cols, uint8_t height) {
+static void _planes_fill_begin(uint8_t *back, uint8_t cols, uint8_t height) {
   _blk = back;
   _buf_h = height;
   _buf_w1 = (uint8_t)((kCols << (cols - 1)) - 1);
@@ -239,7 +360,7 @@ static void _fill_span(uint8_t y, uint8_t a, uint8_t b) {
   _blk[base + kPlaneByteOffset[jb]] |= rm;
 }
 
-void _planes_fill_poly(uint8_t s, uint8_t n) {
+static void _planes_fill_poly(uint8_t s, uint8_t n) {
   uint8_t min_y = 255, max_y = 0;
   for (uint8_t i = 0; i < n; ++i) {
     uint8_t y = _planes_ly[s + i];
@@ -290,23 +411,51 @@ void _planes_fill_poly(uint8_t s, uint8_t n) {
     }
   }
 }
+
+void planes_fill(const planes_state_t *state, uint8_t *back) {
+  PROFILE_START();
+  uint8_t cols = state->lay.cols, rows = state->lay.rows;
+  uint8_t blocks = cols == 2 ? (uint8_t)(rows << 1) : rows;
+  memset(back, 0, (uint16_t)blocks << 6);
+  uint8_t height = rows == 2 ? (kRows << 1) : kRows;
+  uint16_t slid = (uint16_t)state->lay.slid;
+  if (state->lay.ys == 2) {
+    slid >>= 1;
+  }
+  if (slid < height) {
+    uint8_t n = state->key_count;
+    const uint8_t *key = state->key_x;
+    for (uint8_t i = 0; i < n; ++i) {
+      _planes_lx[i] = key[i];
+      _planes_ly[i] = key[kPlaneVertMax + i];
+    }
+    _planes_fill_begin(back, cols, height);
+    for (uint8_t p = 0; p < 3; ++p) {
+      uint8_t first = kPlanePolyStart[p];
+      _planes_fill_poly(first, (uint8_t)(kPlanePolyStart[p + 1] - first));
+    }
+    uint8_t first = kPlanePolyStart[3];
+    if (n == kPlaneVertMax) {
+      _planes_fill_poly(first, 2 * kPlaneBodyCount);
+      first += 2 * kPlaneBodyCount;
+    }
+    if (n > first) {
+      _planes_fill_poly(first, (uint8_t)(n - first));
+    }
+  }
+  PROFILE_END(6, kProfFill);
+}
 #endif
 
 // ---------------------------------------------------------------------------
 // Projection.
 
-static void _add_vertex(uint8_t x, uint8_t y) {
-  _planes_vx[_vert_count] = x;
-  _planes_vy[_vert_count] = y;
-  ++_vert_count;
-}
-
 // lib/planes.py project_model(), with the products shared, relative to the
 // centre.
-static void _project(uint16_t k, const mat3_t *axes) {
+static void _project(uint8_t k, const mat3_t *axes) {
   PROFILE_START();
   if (k != _px_k) {
-    _planes_mags((uint8_t)k);
+    _planes_mags(k);
     _px_k = k;
   }
   PROFILE_END(8, kProfMags);
@@ -315,47 +464,9 @@ static void _project(uint16_t k, const mat3_t *axes) {
   PROFILE_END(9, kProfPairs);
   PROFILE_START();
   _planes_flat();
-  _vert_count = kPlaneVertCount;
   PROFILE_END(10, kProfVerts);
   PROFILE_START();
-  // The fuselage: each station offset along the normal to the projected axis.
-  uint8_t *sx = _planes_sx, *sy = _planes_sy, *sr = _planes_sr;
-  uint8_t widest = 0;
-  for (uint8_t i = 0; i < kPlaneBodyCount; ++i) {
-    sx[i] = (uint8_t)(kBias + _planes_tx[kPlaneBodyFore[i]]);
-    sy[i] = (uint8_t)(kBias + _planes_ty[kPlaneBodyFore[i]]);
-    sr[i] = _planes_px[kPlaneBodyRadius[i]];
-    if (sr[i] > sr[widest]) {
-      widest = i;
-    }
-  }
-  int8_t fx = (int8_t)(sx[0] - sx[kPlaneBodyCount - 1]);
-  int8_t fy = (int8_t)(sy[0] - sy[kPlaneBodyCount - 1]);
-  uint8_t n = _norm2(fx, fy);
-  if (n > 0) {
-    _planes_tube(vec_div8p8((int16_t)-fy, n), vec_div8p8(fx, n), _vert_count);
-    _vert_count += 2 * kPlaneBodyCount;
-  }
-  // End-on: the cross-section at the widest station, an octagon of radius r
-  // whose short offset is r * 106 / 256 rounded up. Its x offsets go round
-  // as r, h, -h, -r, -r, -h, h, r, and each y is the x two corners on.
-  //
-  // A table and a loop rather than eight calls spelt out: those were smaller
-  // only in the source, and oscar64 -O2 lost r there -- it doubled it in place
-  // for the product and then used what was left as x + r.
-  if (n < (uint16_t)(sr[widest] << 2)) {
-    int8_t r = (int8_t)(sr[widest] > 1 ? sr[widest] : 1);
-    int8_t h = (int8_t)((vec_mul8x8((uint8_t)r, 106) + 255) >> 8);
-    _planes_off[0] = _planes_off[7] = r;
-    _planes_off[1] = _planes_off[6] = h;
-    _planes_off[2] = _planes_off[5] = (int8_t)-h;
-    _planes_off[3] = _planes_off[4] = (int8_t)-r;
-    uint8_t x = sx[widest], y = sy[widest];
-    for (uint8_t i = 0; i < 8; ++i) {
-      _add_vertex((uint8_t)(x + _planes_off[i]),
-                  (uint8_t)(y + _planes_off[(i + 6) & 7]));
-    }
-  }
+  _planes_fuselage();
   PROFILE_END(11, kProfBody);
 }
 
@@ -400,53 +511,11 @@ static bool _new_axes(int16_t *last, const mat3_t *axes) {
   return moved;
 }
 
-// 11. slide, don't reject: how far a buffer whose top is on line oy has to
-// move up for its last sprite row to start on or above the DMA cut.
-static int16_t _slide(const planes_view_t *view, int16_t oy, uint8_t ys, uint8_t rows) {
-  int16_t cut = ys == 2 ? view->cut2 : view->cut1;
-  int16_t over = oy - cut;
-  if (rows == 2) {
-    over += ys == 2 ? (kRows << 1) : kRows;
-  }
-  return over > 0 ? over : 0;
-}
-
 void planes_dot_bitmap(uint8_t *block) {
   memset(block, 0, kPlaneBlockBytes);
   // Columns 12 and 13 are bits 3 and 2 of the row's middle byte.
   block[3 * kPlaneDotY + 1] = 0x0C;
   block[3 * (kPlaneDotY + 1) + 1] = 0x0C;
-}
-
-// A bitmap is drawn slid by lay->slid, so it lands in place at that slide;
-// when this centre needs more, it goes higher by the difference, a few lines
-// out of place rather than a sprite starting below the DMA cut.
-int16_t planes_place(const planes_layout_t *lay, const planes_view_t *view,
-                     planes_frame_t *frame) {
-  uint8_t level = lay->level;
-  frame->level = level;
-  if (level == kPlaneLevelDot) {
-    frame->xs = frame->ys = frame->cols = frame->rows = 1;
-    frame->x = (int16_t)(frame->cx - kPlaneDotX);
-    frame->y = (int16_t)(frame->cy - kPlaneDotY);
-    frame->slid = 0;
-    if (frame->y > view->cut1) {
-      frame->hidden = kPlaneBelowCut;
-    }
-    return 0;
-  }
-  uint8_t ys = lay->ys, rows = lay->rows;
-  frame->xs = level == kPlaneLevel1x ? 1 : 2;
-  frame->ys = ys;
-  frame->cols = lay->cols;
-  frame->rows = rows;
-  frame->x = (int16_t)(frame->cx + lay->ox);
-  int16_t top = (int16_t)(frame->cy + lay->oy);
-  int16_t need = _slide(view, top, ys, rows);
-  int16_t slid = need > lay->slid ? need : lay->slid;
-  frame->y = (int16_t)(top - slid);
-  frame->slid = (uint8_t)slid;
-  return need;
 }
 
 // Steps 1-7 for the frame alone: what is hidden, the centre, the scale and
@@ -480,11 +549,12 @@ bool planes_centre(const planes_view_t *view, const vec3_t *c, planes_frame_t *f
   if (frame->clamped) {
     k = view->kmax;
   }
-  frame->k = k;
+  uint8_t kb = (uint8_t)k;
+  frame->k = kb;
   PROFILE_END(2, kProfCentre);
 
   // 7. pixel size, from distance alone: R * k / 128, as trunc(2R * k / 256)
-  frame->d = (uint8_t)(vec_mul8x8(kPlaneMaxRadius << 1, (uint8_t)k) >> 8);
+  frame->d = (uint8_t)(vec_mul8x8(kPlaneMaxRadius << 1, kb) >> 8);
   return true;
 }
 
@@ -503,8 +573,7 @@ bool planes_begin(planes_state_t *state, planes_frame_t *frame) {
 
 void planes_project_axes(planes_state_t *state, const planes_view_t *view,
                          const mat3_t *axes, planes_frame_t *frame) {
-  uint16_t k = frame->k;
-  uint8_t level = frame->level;
+  uint8_t k = frame->k;
 
   // The scale and axes the last frame projected: the same silhouette, only
   // moved with the centre, and the same layout -- the hysteresis settles in
@@ -521,60 +590,11 @@ void planes_project_axes(planes_state_t *state, const planes_view_t *view,
   // 8. body axes are the caller's, 9. the polygons in screen pixels
   _project(k, axes);
   PROFILE_START();
-  _planes_box(_vert_count);
-  uint8_t minx = _planes_box_x0, maxx = _planes_box_x1;
-  uint8_t miny = _planes_box_y0, maxy = _planes_box_y1;
-  uint8_t bw = (uint8_t)(maxx - minx), bh = (uint8_t)(maxy - miny);
-
-  // 10. Y-expansion and layout
-  uint8_t xs = level == kPlaneLevel1x ? 1 : 2;
-  uint8_t ys = 1;
-  if (level == kPlaneLevelX &&
-      bh > (state->lay.level == kPlaneLevelX && state->lay.ys == 2 ? kPlaneYHold : kPlaneYLimit)) {
-    ys = 2;
-  }
-  bool same = state->lay.level == level && state->lay.ys == ys;
-  uint8_t wlim = same && state->lay.cols == 2 ? kPlaneColsHold : (kCols - 1);
-  if (xs == 2) {
-    wlim <<= 1;
-  }
-  uint8_t cols = bw > wlim ? 2 : 1;
-  uint8_t hlim = same && state->lay.rows == 2 ? kPlaneRowsHold : (kRows - 1);
-  if (ys == 2) {
-    hlim <<= 1;
-  }
-  uint8_t rows = bh > hlim ? 2 : 1;
-  // The latches are the cached vertices' layout until they change here.
-  bool cached = state->key_valid && same && state->lay.cols == cols && state->lay.rows == rows &&
-                state->key_count == _vert_count;
-
-  // the centring anchor: the bounding box's centre. The buffer's top left,
-  // relative to the centre, is ox and oy; bx and by are the same with the
-  // vertices' offset, which is what a vertex is measured from.
-  uint8_t hw = xs == 2 ? kCols : (kCols >> 1);
-  if (cols == 2) {
-    hw <<= 1;
-  }
-  uint8_t hh = (rows & ys) == 2   ? (kRows << 1)
-               : (rows | ys) == 1 ? (kRows >> 1)
-                                  : kRows;
-  uint8_t bx = (uint8_t)(((minx + maxx + 1) >> 1) - hw);
-  uint8_t by = (uint8_t)(((miny + maxy + 1) >> 1) - hh);
-
-  // 11. slide, don't reject
-  state->lay.level = level;
-  state->lay.ys = ys;
-  state->lay.cols = cols;
-  state->lay.rows = rows;
-  state->lay.ox = (int16_t)bx - kBias;
-  state->lay.oy = (int16_t)by - kBias;
-  state->lay.slid = 0;
+  // 10. bounding box, Y-expansion and layout; 11. slide, don't reject
+  _planes_layout(state, frame->level);
   int16_t slid = planes_place(&state->lay, view, frame);
   state->lay.slid = slid;
-
-  // what the next frame needs to tell whether it can skip all of this
   state->k = k;
-
   PROFILE_END(4, kProfLayout);
 
   // local coordinates, flooring onto expanded pixels; 12. the vertex cache
@@ -582,14 +602,15 @@ void planes_project_axes(planes_state_t *state, const planes_view_t *view,
   // vertex that matches is already stored. y is (u + slid) >> (ys - 1) with u
   // the pixel's line in the unslid buffer, modulo 256 (planes.h).
   PROFILE_START();
+  bool cached = _planes_lcached;
   uint8_t band = (uint8_t)((uint16_t)slid >> 7);
   if (state->key_band != band) {
     cached = false;
   }
-  if (_planes_key(state->key_x, _vert_count, bx, by, (uint16_t)slid & 0x1FF, xs, ys)) {
+  if (_planes_key(state->key_x, (uint16_t)slid)) {
     cached = false;
   }
-  state->key_count = _vert_count;
+  state->key_count = _planes_vert_count;
   state->key_band = band;
   state->key_valid = true;
   PROFILE_END(5, kProfKey);
@@ -599,63 +620,27 @@ void planes_project_axes(planes_state_t *state, const planes_view_t *view,
 bool planes_reslide(planes_state_t *state, const planes_view_t *view,
                     planes_frame_t *frame, uint8_t when) {
   planes_layout_t *lay = &state->lay;
-  int16_t d = planes_place(lay, view, frame) - lay->slid;
+  int16_t d = (int16_t)(planes_place(lay, view, frame) - lay->slid);
   if (when != kPlaneReslideAlways && d > -2 && (when == kPlaneReslideDeep || d < 2)) {
     return false;
   }
   // Even for a Y-expanded bitmap, so that y = (u + slid) >> 1 moves by half.
   if (lay->ys == 2) {
-    d += d & 1;
-    lay->slid += d;
+    d = (int16_t)(d + (d & 1));
+    lay->slid = (int16_t)(lay->slid + d);
     d >>= 1;
   } else {
-    lay->slid += d;
+    lay->slid = (int16_t)(lay->slid + d);
   }
-  for (uint8_t i = 0; i < state->key_count; ++i) {
-    state->key_y[i] += (uint8_t)d;
+  uint8_t *ky = state->key_y;
+  uint8_t n = state->key_count, dy = (uint8_t)d;
+  while (n != 0) {
+    *ky = (uint8_t)(*ky + dy);
+    ++ky;
+    --n;
   }
   state->key_band = (uint8_t)((uint16_t)lay->slid >> 7);
   return true;
-}
-
-void planes_fill(const planes_state_t *state, uint8_t *back) {
-  // 13. fill into the back buffer. A slide of a whole buffer or more leaves
-  // it empty, and y no longer fits a byte.
-  PROFILE_START();
-  uint8_t cols = state->lay.cols, rows = state->lay.rows;
-  uint8_t blocks = cols == 2 ? (uint8_t)(rows << 1) : rows;
-  memset(back, 0, (uint16_t)blocks << 6);
-  uint8_t height = rows == 2 ? (kRows << 1) : kRows;
-  uint16_t slid = (uint16_t)state->lay.slid;
-  if (state->lay.ys == 2) {
-    slid >>= 1;
-  }
-  if (slid < height) {
-    // The vertices are the cache's key, copied into the projection's
-    // arrays (planes_asm.h): whatever was projected last is dead by now.
-    uint8_t n = state->key_count;
-    const uint8_t *key = state->key_x;
-    for (uint8_t i = 0; i < n; ++i) {
-      _planes_lx[i] = key[i];
-      _planes_ly[i] = key[kPlaneVertMax + i];
-    }
-    _planes_fill_begin(back, cols, height);
-    // The wing, tailplane and fin, then the fuselage if there is one, then
-    // the end-on disc if there is one: the last polygon ends at n.
-    for (uint8_t p = 0; p < 3; ++p) {
-      uint8_t first = kPlanePolyStart[p];
-      _planes_fill_poly(first, (uint8_t)(kPlanePolyStart[p + 1] - first));
-    }
-    uint8_t first = kPlanePolyStart[3];
-    if (n == kPlaneVertMax) {
-      _planes_fill_poly(first, 2 * kPlaneBodyCount);
-      first += 2 * kPlaneBodyCount;
-    }
-    if (n > first) {
-      _planes_fill_poly(first, (uint8_t)(n - first));
-    }
-  }
-  PROFILE_END(6, kProfFill);
 }
 
 void planes_project(planes_state_t *state, const planes_view_t *view,
@@ -677,6 +662,5 @@ void planes_render(planes_state_t *state, const planes_view_t *view,
     planes_fill(state, back);
   }
 }
-
 
 #pragma optimize(pop)
