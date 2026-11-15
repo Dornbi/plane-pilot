@@ -144,14 +144,14 @@ PLANES_EDGE_TEST_HDRS = ../planes.h ../planes_asm.h ../planedef.h ../vec.h
 # stubs out the functions opponent.cc defines.
 OPPONENT_TEST_SRC = opponent_test.cc ../fmission.cc ../planes.cc ../vec.cc ../vec_lut.cc \
 		../fmath.cc
-OPPONENT_TEST_HDRS = ../opponent.cc ../opponent.h ../planes.h ../planes_asm.h \
+OPPONENT_TEST_HDRS = ../opponent.cc ../opponent.h ../opponent_asm.h ../planes.h ../planes_asm.h \
 		../planedef.h ../vec.h ../flight.h ../mission.h ../sprites.h ../world.h \
 		../mem.h ../color.h
 
 # gun_test #includes ../gun.cc, for its statics, and fakes what it asks of
 # opponent.cc and the sprite stack. fpilot's, so __FPILOT__.
 GUN_TEST_SRC = gun_test.cc ../vec.cc ../vec_lut.cc ../fmath.cc ../spritedef.cc
-GUN_TEST_HDRS = ../gun.cc ../gun.h ../damage.h ../opponent.h ../vec.h ../flight.h ../sprites.h \
+GUN_TEST_HDRS = ../gun.cc ../gun.h ../gun_asm.h ../damage.h ../opponent.h ../vec.h ../flight.h ../sprites.h \
 		../spritedef.h ../world.h ../mem.h ../color.h
 
 # fpilot follows FLIGHT_AOA as ppilot does (../Makefile).
@@ -171,7 +171,8 @@ FPILOT_TEST_HDRS = ../flight.h ../mission.h ../opponent.h ../vec.h ../fmath.h ..
 # for their statics; their drawing and messages are stubbed.
 MISSION_TEST_SRC = mission_test.cc host_vec.cc ../flight.cc ../fmission.cc ../world_map.cc \
 		../planes.cc ../vec.cc ../vec_lut.cc ../fmath.cc ../spritedef.cc ../damage.cc
-MISSION_TEST_HDRS = ../flight.h ../mission.h ../opponent.h ../opponent.cc ../gun.h ../gun.cc \
+MISSION_TEST_HDRS = ../flight.h ../mission.h ../opponent.h ../opponent.cc ../opponent_asm.h \
+		../gun.h ../gun.cc ../gun_asm.h \
 		../damage.h \
 		../planes.h \
 		../vec.h ../fmath.h ../msg.h
@@ -252,7 +253,7 @@ planes_target_cases.h: ../../tools/generate_planes.py ../../lib/planes.py
 
 target_test.prg: target_test.cc int16.h ../vec.h ../vec.cc ../vec_lut.cc \
 		../planes.h ../planes.cc ../planes_asm.h ../planes_asm.cc ../planedef.h \
-		../poly_asm.h ../world_asm.h \
+		../poly_asm.h ../world_asm.h ../opponent_asm.h ../gun_asm.h \
 		../render_asm.h ../render_asm.cc \
 		planes_target_cases.h
 	$(OSCAR64) $(TARGET_CFLAGS) -D__TARGET_TEST__ -o=target_test.prg target_test.cc

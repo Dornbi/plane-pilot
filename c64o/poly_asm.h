@@ -22,11 +22,14 @@ extern __striped uint8_t *const mem_color_row_ptrs[kViewportHeight];
 #endif
 #endif
 
-// The assembly half of poly.cc: Pass 134's 3D frustum early rejection
-// (_poly_frustum_all_out) and Pass 137's quad-cell scanline pass
-// (_poly_scan_lines2). Both are static inline under __OSCAR64__ so poly.cc
-// inlines them directly with zero cross-TU call overhead; poly.cc holds the
-// pure C equivalents (#ifndef __OSCAR64__) for the host and host tests.
+// The assembly half of poly.cc:
+//   - _poly_frustum_all_out: 3D frustum early rejection (Pass 134)
+//   - _poly_bounds_and_clear: vertical sub-row extent + buffer clear (Pass 140)
+//   - _poly_trace_edges: polygon edge walk + Bresenham span trace (Pass 140)
+//   - _poly_scan_lines2: full quad-cell scanline rasteriser (Passes 137 & 140)
+// All four are static inline under __OSCAR64__ so poly.cc inlines them with
+// zero cross-TU call overhead; poly.cc holds the pure C equivalents
+// (#ifndef __OSCAR64__) for the host and host tests.
 
 // Working buffers defined in poly.cc (in scratch/bss2).
 extern vec3_t _poly_clip3_buf[];
@@ -73,8 +76,9 @@ static inline bool _poly_frustum_all_out(uint8_t end3) {
   // (|z|/x <= ~0.227 < 0.25). Any polygon with all vertices past the same edge
   // cannot intersect the viewport.
   // clang-format off
-  vec_v.x = (int16_t)end3; // low byte at vec_v+0 holds end3
   __asm {
+        lda end3;
+        sta vec_v+0;        // vec_v+0 = end3
         lda #$0f;
         sta vec_v+2;        // vec_v+2 = out3
         ldy #$00;
@@ -147,130 +151,465 @@ static inline bool _poly_frustum_all_out(uint8_t end3) {
   return (uint8_t)vec_v.y != 0;
 }
 
+// Scans vertices[0 .. num_vertices - 1] (num_vertices >= 3, packed {x, y}
+// byte pairs) for [min_y, max_y] and clears _poly_min_x/_poly_max_x across the
+// spanned whole character rows [*py_start, *py_end].
+static inline void _poly_bounds_and_clear(const int8_t *verts,
+                                          uint8_t num_vertices,
+                                          uint8_t *py_start, uint8_t *py_end) {
+  // clang-format off
+  __asm {
+        lda verts;
+        sta vec_proj_mul_a+0;
+        lda verts+1;
+        sta vec_proj_mul_a+1;
+        lda num_vertices;
+        asl;
+        sta vec_proj_tmp1;
+
+        ldy #$01;
+        lda (vec_proj_mul_a), y;
+        sta vec_v+0;
+        sta vec_v+2;
+        ldy #$03;
+    L_pb_loop:
+        lda (vec_proj_mul_a), y;
+        cmp vec_v+0;
+        bcs L_pb_chk_max;
+        sta vec_v+0;
+        bcc L_pb_next;
+    L_pb_chk_max:
+        cmp vec_v+2;
+        bcc L_pb_next;
+        sta vec_v+2;
+    L_pb_next:
+        iny;
+        iny;
+        cpy vec_proj_tmp1;
+        bcc L_pb_loop;
+
+        lda vec_v+0;
+        and #$fe;
+        tay;
+        lsr;
+        sta vec_v+0;
+        lda vec_v+2;
+        ora #$01;
+        tax;
+        lsr;
+        sta vec_v+2;
+        inx;
+        stx vec_proj_tmp1;
+        ldx #$00;
+    L_pb_clr:
+        lda #$50;
+        sta _poly_min_x, y;
+        txa;
+        sta _poly_max_x, y;
+        iny;
+        cpy vec_proj_tmp1;
+        bcc L_pb_clr;
+  }
+  // clang-format on
+  *py_start = (uint8_t)vec_v.x;
+  *py_end = (uint8_t)vec_v.y;
+}
+
+// Traces all edges of vertices[0 .. num_vertices - 1] (packed {x, y} byte
+// pairs with x in [0, 79] and y in [0, 27]) into _poly_min_x/_poly_max_x.
+static inline void _poly_trace_edges(const int8_t *verts,
+                                     uint8_t num_vertices) {
+  // clang-format off
+  __asm {
+        lda verts;
+        sta vec_proj_mul_a+0;
+        lda verts+1;
+        sta vec_proj_mul_a+1;
+        lda num_vertices;
+        asl;
+        sta vec_mul8_b;
+
+        ldy #$00;
+        sty vec_mul8_lo;
+    L_te_edge:
+        lda (vec_proj_mul_a), y;
+        sta vec_v+0;
+        iny;
+        lda (vec_proj_mul_a), y;
+        sta vec_v+1;
+        iny;
+        cpy vec_mul8_b;
+        bcc L_te_load_b;
+        ldy #$00;
+    L_te_load_b:
+        lda (vec_proj_mul_a), y;
+        sta vec_v+2;
+        iny;
+        lda (vec_proj_mul_a), y;
+        cmp vec_v+1;
+        beq L_te_skip;
+        bcc L_te_swap;
+        sta vec_v+3;
+        bcs L_te_ordered;
+    L_te_skip:
+        jmp L_te_next;
+    L_te_swap:
+        ldx vec_v+1;
+        stx vec_v+3;
+        sta vec_v+1;
+        ldx vec_v+0;
+        lda vec_v+2;
+        sta vec_v+0;
+        stx vec_v+2;
+    L_te_ordered:
+        lda vec_v+3;
+        sec;
+        sbc vec_v+1;
+        sta vec_v+4;
+        lsr;
+        sta vec_v+5;
+
+        ldx vec_v+0;
+        lda vec_v+2;
+        sec;
+        sbc vec_v+0;
+        bcs L_te_rise_dx;
+        txa;
+        sec;
+        sbc vec_v+2;
+        ldy #$80;
+        bmi L_te_chk_maj;
+    L_te_rise_dx:
+        ldy #$00;
+    L_te_chk_maj:
+        sta vec_sx+0;
+        sty vec_sx+1;
+        lda vec_v+4;
+        cmp vec_sx+0;
+        bcc L_xm_start;
+
+        // Y-major (dx <= dy): step y in [y1, y2).
+        ldy vec_v+1;
+    L_ym_loop:
+        txa;
+        cmp _poly_min_x, y;
+        bcs L_ym_nomin;
+        sta _poly_min_x, y;
+    L_ym_nomin:
+        cmp _poly_max_x, y;
+        bcc L_ym_nomax;
+        sta _poly_max_x, y;
+    L_ym_nomax:
+        lda vec_v+5;
+        clc;
+        adc vec_sx+0;
+        cmp vec_v+4;
+        bcc L_ym_nostep;
+        sbc vec_v+4;
+        bit vec_sx+1;
+        bmi L_ym_dec;
+        inx;
+        bpl L_ym_nostep;
+    L_ym_dec:
+        dex;
+    L_ym_nostep:
+        sta vec_v+5;
+        iny;
+        cpy vec_v+3;
+        bcc L_ym_loop;
+        jmp L_te_endpt;
+
+    L_xm_start:
+        // X-major (dx > dy): dx = quot * dy + rem, then carry-folded row step.
+        lda vec_sx+0;
+        ldy #$00;
+        sec;
+    L_xm_div:
+        sbc vec_v+4;
+        iny;
+        cmp vec_v+4;
+        bcs L_xm_div;
+        sta vec_sx+0;
+        lda vec_sx+1;
+        sty vec_sx+1;
+        ldy vec_v+1;
+        asl;
+        bcs L_xm_fall;
+
+    L_xm_rise:
+        txa;
+        cmp _poly_min_x, y;
+        bcs L_xmr_nomin;
+        sta _poly_min_x, y;
+    L_xmr_nomin:
+        lda vec_v+5;
+        clc;
+        adc vec_sx+0;
+        cmp vec_v+4;
+        bcc L_xmr_nostep;
+        sbc vec_v+4;
+    L_xmr_nostep:
+        sta vec_v+5;
+        txa;
+        adc vec_sx+1;
+        tax;
+        cmp _poly_max_x, y;
+        bcc L_xmr_nomax;
+        sta _poly_max_x, y;
+    L_xmr_nomax:
+        iny;
+        cpy vec_v+3;
+        bcc L_xm_rise;
+        bcs L_te_endpt;
+
+    L_xm_fall:
+        txa;
+        cmp _poly_max_x, y;
+        bcc L_xmf_nomax;
+        sta _poly_max_x, y;
+    L_xmf_nomax:
+        lda vec_v+5;
+        clc;
+        adc vec_sx+0;
+        cmp vec_v+4;
+        bcc L_xmf_nostep;
+        sbc vec_v+4;
+        clc;
+        bcc L_xmf_sub;
+    L_xmf_nostep:
+        sec;
+    L_xmf_sub:
+        sta vec_v+5;
+        txa;
+        sbc vec_sx+1;
+        tax;
+        cmp _poly_min_x, y;
+        bcs L_xmf_nomin;
+        sta _poly_min_x, y;
+    L_xmf_nomin:
+        iny;
+        cpy vec_v+3;
+        bcc L_xm_fall;
+
+    L_te_endpt:
+        txa;
+        cmp _poly_min_x, y;
+        bcs L_te_end_nomin;
+        sta _poly_min_x, y;
+    L_te_end_nomin:
+        cmp _poly_max_x, y;
+        bcc L_te_next;
+        sta _poly_max_x, y;
+    L_te_next:
+        lda vec_mul8_lo;
+        clc;
+        adc #$02;
+        sta vec_mul8_lo;
+        tay;
+        cmp vec_mul8_b;
+        beq L_te_done;
+        jmp L_te_edge;
+    L_te_done:
+  }
+  // clang-format on
+}
+
 // Rasterises polygon scanlines in character rows [py_start, py_end] (inclusive)
 // from _poly_min_x/_poly_max_x.
 static inline void _poly_scan_lines2(uint8_t fill_char_start_idx,
                                      uint8_t color, uint8_t py_start,
                                      uint8_t py_end) {
-  for (uint8_t py = py_start; py <= py_end; ++py) {
-    uint8_t sy = py << 1;
-    uint8_t t_min = _poly_min_x[sy];
-    uint8_t b_min = _poly_min_x[sy + 1];
-    uint8_t min_x = _min8(t_min, b_min);
-    if (min_x == kScreenWidth * 2) {
-      continue;
-    }
-    uint8_t t_max = _poly_max_x[sy];
-    uint8_t b_max = _poly_max_x[sy + 1];
+  if (py_start > py_end) {
+    return;
+  }
+  // clang-format off
+  __asm {
+        lda fill_char_start_idx;
+        sta vec_mul8_b;
+        lda color;
+        sta vec_proj_recip;
+        lda py_start;
+        sta vec_sx+0;
+        ldx py_end;
+        inx;
+        stx vec_sx+1;
+    L_sl_row:
+        lda vec_sx+0;
+        asl;
+        tax;
+        lda _poly_min_x, x;
+        sta vec_v+0;
+        ldy _poly_min_x+1, x;
+        sty vec_v+1;
+        cpy vec_v+0;
+        bcs L_sl_min_ok;
+        ldy vec_v+0;
+        lda vec_v+1;
+    L_sl_min_ok:
+        cmp #$50;
+        bne L_sl_active;
+        jmp L_sl_next_row;
+    L_sl_active:
+        lsr;
+        sta vec_mul8_lo;
+        iny;
+        tya;
+        lsr;
+        sta vec_v+4;
 
-    uint8_t *row = mem_screen_row_ptrs[py];
-    uint8_t *color_row = mem_color_row_ptrs[py];
+        lda _poly_max_x, x;
+        sta vec_v+2;
+        ldy _poly_max_x+1, x;
+        sty vec_v+3;
+        cpy vec_v+2;
+        bcs L_sl_max_ok;
+        ldy vec_v+2;
+        lda vec_v+3;
+    L_sl_max_ok:
+        clc;
+        adc #$01;
+        lsr;
+        sta vec_v+5;
+        tya;
+        lsr;
+        tay;
+        iny;
+        sty vec_proj_tmp1;
 
-    // 1. Find the absolute left and right bounds (in pixels) for this row.
-    uint8_t min_px = min_x >> 1;
-    uint8_t max_px = _max8(t_max, b_max) >> 1;
+        ldx vec_sx+0;
+        lda mem_screen_row_ptrs, x;
+        sta vec_proj_mul_a+0;
+        lda mem_screen_row_ptrs+25, x;
+        sta vec_proj_mul_a+1;
+        lda mem_color_row_ptrs, x;
+        sta vec_proj_mul_b+0;
+        lda mem_color_row_ptrs+14, x;
+        sta vec_proj_mul_b+1;
 
-    // 2. Calculate the "Solid Core" [overlap_start, overlap_stop) where both
-    // top and bottom are fully covered.
-    uint8_t overlap_start = (uint8_t)(_max8(t_min, b_min) + 1) >> 1;
-    uint8_t overlap_stop = (uint8_t)(_min8(t_max, b_max) + 1) >> 1;
+        // Solid core [overlap_start, overlap_stop).
+        ldy vec_v+4;
+        cpy vec_v+5;
+        bcc L_sl_has_core;
+        lda #$28;
+        sta vec_v+4;
+        bne L_fr_start;
+    L_sl_has_core:
+        lda vec_mul8_b;
+        ora #$0f;
+        tax;
+        lda vec_proj_recip;
+        beq L_core_nocolor;
+    L_core_color:
+        lda (vec_proj_mul_a), y;
+        bpl L_cc_skip;
+        txa;
+        sta (vec_proj_mul_a), y;
+        lda vec_proj_recip;
+        sta (vec_proj_mul_b), y;
+    L_cc_skip:
+        iny;
+        cpy vec_v+5;
+        bcc L_core_color;
+        bcs L_fr_start;
+    L_core_nocolor:
+        lda (vec_proj_mul_a), y;
+        bpl L_cn_skip;
+        txa;
+        sta (vec_proj_mul_a), y;
+    L_cn_skip:
+        iny;
+        cpy vec_v+5;
+        bcc L_core_nocolor;
 
-    // 3. Fast path: Memset the Solid Core (No read-modify-write!)
-    if (overlap_stop > overlap_start) {
-      uint8_t cnt = overlap_stop - overlap_start;
-      if (color) {
-        _poly_set_color_line(row + overlap_start, fill_char_start_idx | 0xF,
-                             color_row + overlap_start, color, cnt);
-      } else {
-        _poly_set_line(row + overlap_start, fill_char_start_idx | 0xF, cnt);
-      }
-    } else {
-      overlap_start = kViewportWidth;
-    }
-
-    // 4. Process the fringe (every pixel outside the solid core).
-    uint8_t max_px_p1 = max_px + 1;
-    // clang-format off
-    __asm {
-        ldy min_px;
+        // Fringe pixels outside [overlap_start, overlap_stop).
+    L_fr_start:
+        ldy vec_mul8_lo;
     L_fr_loop:
-        cpy overlap_start;
+        cpy vec_v+4;
         bne L_fr_chk;
-        ldy overlap_stop;
-        cpy max_px_p1;
-        bcs L_fr_end;
+        ldy vec_v+5;
+        cpy vec_proj_tmp1;
+        bcs L_sl_next_row;
     L_fr_chk:
-        lda (row), y;
+        lda (vec_proj_mul_a), y;
         bpl L_fr_next;
         tya;
         asl;
-        ldx #0;
+        ldx #$00;
 
         // Top sub-row [t_min, t_max] -> bits 0 (sx_left) and 1 (sx_left+1).
-        cmp t_max;
+        cmp vec_v+2;
         beq L_t_eq;
         bcs L_t_done;
-        cmp t_min;
+        cmp vec_v+0;
         bcc L_t_chk_r;
-        ldx #3;
+        ldx #$03;
         bne L_t_done;
     L_t_eq:
-        cmp t_min;
+        cmp vec_v+0;
         bcc L_t_done;
-        ldx #1;
+        ldx #$01;
         bcs L_t_done;
     L_t_chk_r:
-        ora #1;
-        cmp t_min;
+        ora #$01;
+        cmp vec_v+0;
         bcc L_t_restore;
-        ldx #2;
+        ldx #$02;
     L_t_restore:
         and #$fe;
     L_t_done:
 
         // Bottom sub-row [b_min, b_max] -> bits 2 and 3.
-        cmp b_max;
+        cmp vec_v+3;
         beq L_b_eq;
         bcs L_b_chk_zero;
-        cmp b_min;
+        cmp vec_v+1;
         bcc L_b_chk_r;
         txa;
-        ora #12;
+        ora #$0c;
         bne L_draw;
     L_b_eq:
-        cmp b_min;
+        cmp vec_v+1;
         bcc L_b_chk_zero;
         txa;
-        ora #4;
+        ora #$04;
         bne L_draw;
     L_b_chk_r:
-        ora #1;
-        cmp b_min;
+        ora #$01;
+        cmp vec_v+1;
         bcc L_b_chk_zero;
         txa;
-        ora #8;
+        ora #$08;
         bne L_draw;
     L_b_chk_zero:
         txa;
         beq L_fr_next;
     L_draw:
         clc;
-        adc fill_char_start_idx;
-        sta (row), y;
-        lda color;
+        adc vec_mul8_b;
+        sta (vec_proj_mul_a), y;
+        lda vec_proj_recip;
         beq L_fr_next;
-        sta (color_row), y;
+        sta (vec_proj_mul_b), y;
     L_fr_next:
         iny;
-        cpy max_px_p1;
+        cpy vec_proj_tmp1;
         bcc L_fr_loop;
-    L_fr_end:
-    }
-    // clang-format on
+    L_sl_next_row:
+        inc vec_sx+0;
+        lda vec_sx+0;
+        cmp vec_sx+1;
+        beq L_sl_done;
+        jmp L_sl_row;
+    L_sl_done:
   }
+  // clang-format on
 }
 #else
 bool _poly_frustum_all_out(uint8_t end3);
+void _poly_bounds_and_clear(const int8_t *verts, uint8_t num_vertices,
+                            uint8_t *py_start, uint8_t *py_end);
+void _poly_trace_edges(const int8_t *verts, uint8_t num_vertices);
 void _poly_scan_lines2(uint8_t fill_char_start_idx, uint8_t color,
                        uint8_t py_start, uint8_t py_end);
 #endif // __OSCAR64__

@@ -139,8 +139,10 @@ OPPONENT_SRC = \
 		planes_asm.cc \
 		opponent.h \
 		opponent.cc \
+		opponent_asm.h \
 		gun.h \
 		gun.cc \
+		gun_asm.h \
 		damage.h \
 		damage.cc \
 		debrief.h \

@@ -326,7 +326,8 @@ the crash, so a stall still sounds while firing.
     byte offset there instead. So the y axis read the eye's z, and the
     rounds' eye jumped half a unit, 64 m, sideways for good. The tracers
     were drawn from the same eye and so still looked right. `_gun_track()`
-    is now called once an axis with the eye spelled out.
+    was called once an axis with the eye spelled out (now stepped across all
+    three axes via `kFlightEye` by `_gun_track_all()` in `gun_asm.h`).
   - `gun_test` now starts the eye half a unit into y, as missions do, and
     checks the rounds' eye keeps up on every axis.
   - A VICE run with a target placed dead ahead confirms it: smoke, "TARGET

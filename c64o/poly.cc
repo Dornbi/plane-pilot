@@ -249,16 +249,51 @@ static inline void _poly_scan_lines(uint8_t fill_char_start_idx) {
 }
 
 #ifndef __OSCAR64__
+// Host C counterparts of poly_asm.h's _poly_bounds_and_clear(),
+// _poly_trace_edges(), and _poly_scan_lines2().
+
+void _poly_bounds_and_clear(const int8_t *verts, uint8_t num_vertices,
+                            uint8_t *py_start, uint8_t *py_end) {
+  uint8_t min_y = (uint8_t)verts[1];
+  uint8_t max_y = min_y;
+  for (uint8_t i = 1; i < num_vertices; i++) {
+    uint8_t vy = (uint8_t)verts[2 * i + 1];
+    if (vy < min_y) {
+      min_y = vy;
+    } else if (vy > max_y) {
+      max_y = vy;
+    }
+  }
+  uint8_t ps = min_y >> 1;
+  uint8_t pe = max_y >> 1;
+  _poly_clear_buffers((uint8_t)(ps << 1), (uint8_t)((pe << 1) + 1));
+  *py_start = ps;
+  *py_end = pe;
+}
+
+void _poly_trace_edges(const int8_t *verts, uint8_t num_vertices) {
+  for (uint8_t i = 0; i < num_vertices; i++) {
+    uint8_t next = (uint8_t)(i + 1);
+    if (next == num_vertices) {
+      next = 0;
+    }
+    _poly_trace_edge_bresenham(verts[2 * i], (uint8_t)verts[2 * i + 1],
+                               verts[2 * next], (uint8_t)verts[2 * next + 1]);
+  }
+}
+
 // This version does not take the previous value into account.
 static inline void _poly_set_char2(uint8_t *dst, uint8_t fill_char_start_idx,
                                    uint8_t val) {
   dst[0] = fill_char_start_idx + val;
 }
 
-// Host C counterpart of poly_asm.cc's _poly_scan_lines2().
 // Only processes char rows in [py_start, py_end] (inclusive).
 void _poly_scan_lines2(uint8_t fill_char_start_idx, uint8_t color,
                        uint8_t py_start, uint8_t py_end) {
+  if (py_start > py_end) {
+    return;
+  }
   for (uint8_t py = py_start; py <= py_end; ++py) {
     uint8_t sy = py << 1;
     uint8_t t_min = _poly_min_x[sy];
@@ -352,6 +387,8 @@ void _poly_scan_lines2(uint8_t fill_char_start_idx, uint8_t color,
 }
 #endif // !__OSCAR64__
 
+static_assert(sizeof(vertex_t) == 2, "poly_asm expects packed {x, y} vertex_t");
+
 // Fill the polygon using the traced edges
 void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
                uint8_t fill_char_start_idx, uint8_t color) {
@@ -368,39 +405,17 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
   }
 #endif
 
-  // Find the polygon's vertical extent (in sub-rows) so we only clear and
-  // scan the rows the polygon actually touches. Vertex y values are sub-row
-  // indices in [0, 2 * kViewportHeight - 1].
-  uint8_t min_y = vertices[0].y;
-  uint8_t max_y = vertices[0].y;
-  for (uint8_t i = 1; i < num_vertices; i++) {
-    uint8_t vy = vertices[i].y;
-    if (vy < min_y) {
-      min_y = vy;
-    }
-    if (vy > max_y) {
-      max_y = vy;
-    }
-  }
-  // Snap to whole char rows so the clear and scan ranges stay aligned: each
-  // char row py covers sub-rows 2*py and 2*py+1, both read by _scan_lines2.
-  uint8_t py_start = min_y >> 1;
-  uint8_t py_end = max_y >> 1;
-
+  // Find the polygon's vertical extent (snapped to whole char rows) and clear
+  // only the touched sub-row span buffers.
   bm_poly_start();
-  _poly_clear_buffers(py_start << 1, (py_end << 1) + 1);
+  uint8_t py_start, py_end;
+  _poly_bounds_and_clear((const int8_t *)vertices, num_vertices, &py_start,
+                         &py_end);
   bm_poly_end(670, "CLR:");
 
   // 1. Trace all edges
   bm_poly_start();
-  for (uint8_t i = 0; i < num_vertices; i++) {
-    uint8_t next = (i + 1);
-    if (next == num_vertices) {
-      next = 0; // Wrap around to the first vertex
-    }
-    _poly_trace_edge_bresenham(vertices[i].x, vertices[i].y, vertices[next].x,
-                               vertices[next].y);
-  }
+  _poly_trace_edges((const int8_t *)vertices, num_vertices);
   bm_poly_end(710, "TRC:");
 
   // 2. Draw the scanlines directly to Screen RAM

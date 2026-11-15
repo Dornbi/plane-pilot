@@ -1,15 +1,68 @@
 #include "planes_asm.h"
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "planedef.h"
 
-// The assembly half of planes.cc (planes_asm.h): the axis products and the
-// polygon fill. Both multiply through vec_mul8, the quarter-square step
-// vec_fastmul8p8 is built from.
+// The assembly half of planes.cc (planes_asm.h): axis products, fuselage
+// stations/tube/octagon, bounding box, layout hysteresis, placement, vertex
+// cache key, and polygon fill. Multiplies go through vec_mul8, the
+// quarter-square step vec_fastmul8p8 is built from.
 
 // Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
 #pragma optimize(push, nooutline)
+
+#ifdef __PLANES_PROFILE__
+#include "benchmark.h"
+static const char kProfFill[] = SCREEN_STR("fill ");
+#endif
+
+// Struct-field and constant assertions for the assembly routines below.
+static_assert(kPlaneLevelDot == 0 && kPlaneLevel1x == 1 && kPlaneLevelX == 2,
+              "planes_asm level constants");
+static_assert(kPlaneBelowCut == 3 && kPlaneDotX == 12 && kPlaneDotY == 19,
+              "planes_asm dot constants");
+static_assert(kPlaneYLimit == 41 && kPlaneYHold == 35 &&
+                  kPlaneColsHold == 20 && kPlaneRowsHold == 17,
+              "planes_asm layout thresholds");
+// kPlanePolyStart is {0, 6, 12, 16} (wing 6, tailplane 6, fin 4, body 6, oct 8).
+static_assert(kPlaneVertCount == 16 && kPlaneBodyCount == 3 &&
+                  kPlaneVertMax == 30,
+              "planes_asm polygon counts");
+static_assert(offsetof(planes_layout_t, level) == 0 &&
+                  offsetof(planes_layout_t, ys) == 1 &&
+                  offsetof(planes_layout_t, cols) == 2 &&
+                  offsetof(planes_layout_t, rows) == 3 &&
+                  offsetof(planes_layout_t, ox) == 4 &&
+                  offsetof(planes_layout_t, oy) == 5 &&
+                  offsetof(planes_layout_t, slid) == 6 &&
+                  sizeof(planes_layout_t) == 8,
+              "planes_layout_t layout changed");
+static_assert(offsetof(planes_state_t, lay) == 0 &&
+                  offsetof(planes_state_t, key_valid) == 8 &&
+                  offsetof(planes_state_t, key_count) == 9 &&
+                  offsetof(planes_state_t, key_band) == 10 &&
+                  offsetof(planes_state_t, key_x) == 11 &&
+                  offsetof(planes_state_t, key_y) == 41 &&
+                  offsetof(planes_state_t, k) == 71 &&
+                  offsetof(planes_state_t, axes) == 72,
+              "planes_state_t layout changed");
+static_assert(offsetof(planes_view_t, cut1) == 4 &&
+                  offsetof(planes_view_t, cut2) == 6,
+              "planes_view_t layout changed");
+static_assert(offsetof(planes_frame_t, hidden) == 0 &&
+                  offsetof(planes_frame_t, level) == 1 &&
+                  offsetof(planes_frame_t, xs) == 2 &&
+                  offsetof(planes_frame_t, ys) == 3 &&
+                  offsetof(planes_frame_t, cols) == 4 &&
+                  offsetof(planes_frame_t, rows) == 5 &&
+                  offsetof(planes_frame_t, x) == 6 &&
+                  offsetof(planes_frame_t, y) == 8 &&
+                  offsetof(planes_frame_t, slid) == 10 &&
+                  offsetof(planes_frame_t, cx) == 15 &&
+                  offsetof(planes_frame_t, cy) == 17,
+              "planes_frame_t layout changed");
 
 // ---------------------------------------------------------------------------
 // Products.
@@ -24,6 +77,10 @@
 #endif
 static uint8_t _ap, _ap_end;
 static uint8_t _ay_lo, _ay_hi, _ay_m, _az_lo, _az_hi, _az_m;
+static uint8_t _mi;
+#ifdef __FPILOT__
+#pragma bss(bss)
+#endif
 
 // For p in _ap .. _ap_end - 1, with v = _planes_pv[p]: r = hi(lo * v), plus v
 // if the component reached 256, is trunc(|c| * v / 256), and s = (r ^ m) - m
@@ -84,11 +141,6 @@ static_assert(kPlaneMagCount == 16, "planes_asm.h sizes _planes_px by hand");
 // _planes_mags(): sixteen products on vec_mul8, k in vec_mul8_b throughout,
 // which vec_mul8 only reads. A magnitude doubled still fits a byte (the
 // largest is 66), and (hi + 1) >> 1 takes the carry into bit 7 for hi 255.
-static uint8_t _mi;
-#ifdef __FPILOT__
-#pragma bss(bss)
-#endif
-
 static void _mags(void) {
   // clang-format off
   __asm {
@@ -160,10 +212,10 @@ void _planes_flat(void) {
   // clang-format on
 }
 
-uint8_t _planes_box_x0, _planes_box_x1, _planes_box_y0, _planes_box_y1;
 #ifdef __FPILOT__
 #pragma bss(tscratch)
 #endif
+uint8_t _planes_box_x0, _planes_box_x1, _planes_box_y0, _planes_box_y1;
 static uint8_t _bn;
 #ifdef __FPILOT__
 #pragma bss(bss)
@@ -210,130 +262,7 @@ void _planes_box(uint8_t count) {
 }
 
 // ---------------------------------------------------------------------------
-// The vertex cache's key.
-
-static_assert(kPlaneVertMax == 30, "_key() finds key_y 30 bytes after key_x");
-
-#ifdef __FPILOT__
-#pragma bss(tscratch)
-#endif
-static uint8_t _kkl, _kkh, _kn, _kbx, _kby, _ks9l, _kxs, _kys, _ks9h, _kdiff;
-#ifdef __FPILOT__
-#pragma bss(bss)
-#endif
-
-// Self-modifying: the call's constants are written into the loop before it
-// runs - the key's two addresses, bx, by and the slide's low byte as
-// operands, and the expansions as opcodes - so that a vertex costs its
-// loads, stores and compares and nothing else. Y-expanded, y is bits 1-8 of
-// the nine-bit (v - by) + s9: ror brings the sum's carry in as bit 7, and
-// eor flips it when the slide's own bit 8 is set.
-static void _key(void) {
-  // clang-format off
-  __asm {
-        lda _kkl;
-        sta L_cx + 1;
-        sta L_sx + 1;
-        clc;
-        adc #30;
-        sta L_cy + 1;
-        sta L_sy + 1;
-        lda _kkh;
-        sta L_cx + 2;
-        sta L_sx + 2;
-        adc #0;
-        sta L_cy + 2;
-        sta L_sy + 2;
-        lda _kbx;
-        sta L_bx + 1;
-        lda _kby;
-        sta L_by + 1;
-        lda _ks9l;
-        sta L_s9 + 1;
-        lda _kn;
-        sta L_n + 1;
-
-        lda #$ea;               // nop
-        ldx _kxs;
-        cpx #2;
-        bne L_x_one;
-        lda #$4a;               // lsr a
-    L_x_one:
-        sta L_xsh;
-        lda #$ea;
-        ldx #0;
-        ldy _kys;
-        cpy #2;
-        bne L_y_one;
-        lda #$6a;               // ror a
-        ldy _ks9h;
-        beq L_y_one;
-        ldx #$80;
-    L_y_one:
-        sta L_ysh;
-        stx L_yeor + 1;
-
-        lda #0;
-        sta _kdiff;
-        ldy #0;
-    L_vert:
-        lda _planes_vx, y;
-        sec;
-    L_bx:
-        sbc #0;
-    L_xsh:
-        nop;
-    L_cx:
-        cmp $1234, y;
-        beq L_x_same;
-        inc _kdiff;
-    L_x_same:
-    L_sx:
-        sta $1234, y;
-
-        lda _planes_vy, y;
-        sec;
-    L_by:
-        sbc #0;
-        clc;
-    L_s9:
-        adc #0;
-    L_ysh:
-        nop;
-    L_yeor:
-        eor #0;
-    L_cy:
-        cmp $1234, y;
-        beq L_y_same;
-        inc _kdiff;
-    L_y_same:
-    L_sy:
-        sta $1234, y;
-        iny;
-    L_n:
-        cpy #0;
-        bne L_vert;
-  }
-  // clang-format on
-}
-
-bool _planes_key(uint8_t *key, uint8_t count, uint8_t bx, uint8_t by, uint16_t s9,
-                 uint8_t xs, uint8_t ys) {
-  _kkl = (uint8_t)(uint16_t)key;
-  _kkh = (uint8_t)((uint16_t)key >> 8);
-  _kn = count;
-  _kbx = bx;
-  _kby = by;
-  _ks9l = (uint8_t)s9;
-  _ks9h = (uint8_t)(s9 >> 8);
-  _kxs = xs;
-  _kys = ys;
-  _key();
-  return _kdiff != 0;
-}
-
-// ---------------------------------------------------------------------------
-// The fuselage outline.
+// The fuselage stations, tube outline, and end-on octagon.
 
 static_assert(kPlaneBodyCount == 3, "_tube() walks three stations");
 
@@ -344,6 +273,16 @@ static_assert(kPlaneBodyCount == 3, "_tube() walks three stations");
 // |ux| and |uy| and their signs share _ay_* and _az_* above.
 static int8_t _tox[3], _toy[3];
 static uint8_t _ti, _tat;
+static uint8_t _fwidest, _fmaxr, _fnorm;
+static int8_t _ffx, _ffy;
+// Shared 10-byte per-step scratch: holds the octagon's 10 corner offsets in
+// _planes_fuselage(), then internal temporaries in _planes_layout() and
+// planes_place() (which never overlap).
+static uint8_t _foff[10];
+uint8_t _planes_lbx, _planes_lby, _planes_lxs, _planes_lys;
+bool _planes_lcached;
+static uint8_t _kdiff;
+static int16_t _place_need;
 #ifdef __FPILOT__
 #pragma bss(bss)
 #endif
@@ -427,16 +366,48 @@ static void _tube(void) {
   // clang-format on
 }
 
-static __noinline int16_t _planes_abs(int16_t v) { return v < 0 ? -v : v; }
-
 static __noinline void _unpack_yz(int16_t y, int16_t z) {
-  _ay_m = y < 0 ? 0xFF : 0x00;
-  _az_m = z < 0 ? 0xFF : 0x00;
-  uint16_t my = (uint16_t)_planes_abs(y), mz = (uint16_t)_planes_abs(z);
-  _ay_lo = (uint8_t)my;
-  _ay_hi = (uint8_t)(my >> 8);
-  _az_lo = (uint8_t)mz;
-  _az_hi = (uint8_t)(mz >> 8);
+  // clang-format off
+  __asm {
+        ldy #0;
+        lda y;
+        ldx y + 1;
+        bpl L_yz_yp;
+        dey;
+        eor #$ff;
+        clc;
+        adc #1;
+        pha;
+        txa;
+        eor #$ff;
+        adc #0;
+        tax;
+        pla;
+    L_yz_yp:
+        sty _ay_m;
+        sta _ay_lo;
+        stx _ay_hi;
+
+        ldy #0;
+        lda z;
+        ldx z + 1;
+        bpl L_yz_zp;
+        dey;
+        eor #$ff;
+        clc;
+        adc #1;
+        pha;
+        txa;
+        eor #$ff;
+        adc #0;
+        tax;
+        pla;
+    L_yz_zp:
+        sty _az_m;
+        sta _az_lo;
+        stx _az_hi;
+  }
+  // clang-format on
 }
 
 void _planes_tube(int16_t ux, int16_t uy, uint8_t at) {
@@ -457,10 +428,699 @@ void _planes_axis_products(const mat3_t *axes) {
   }
 }
 
+void _planes_fuselage(void) {
+  // clang-format off
+  __asm {
+        lda #16;
+        sta _planes_vert_count;
+        ldx #0;
+        stx _fwidest;
+        stx _fmaxr;
+    L_fus_st:
+        ldy kPlaneBodyFore, x;
+        lda _planes_tx, y;
+        eor #$80;
+        sta _planes_sx, x;
+        lda _planes_ty, y;
+        eor #$80;
+        sta _planes_sy, x;
+        ldy kPlaneBodyRadius, x;
+        lda _planes_px, y;
+        sta _planes_sr, x;
+        cmp _fmaxr;
+        bcc L_fus_nw;
+        beq L_fus_nw;
+        sta _fmaxr;
+        stx _fwidest;
+    L_fus_nw:
+        inx;
+        cpx #3;
+        bne L_fus_st;
+
+        // fx = sx[0] - sx[2], fy = sy[0] - sy[2], _fnorm = _norm2(fx, fy).
+        lda _planes_sx;
+        sec;
+        sbc _planes_sx + 2;
+        sta _ffx;
+        bpl L_fus_fxp;
+        eor #$ff;
+        clc;
+        adc #1;
+    L_fus_fxp:
+        sta _foff;              // hi
+
+        lda _planes_sy;
+        sec;
+        sbc _planes_sy + 2;
+        sta _ffy;
+        bpl L_fus_fyp;
+        eor #$ff;
+        clc;
+        adc #1;
+    L_fus_fyp:
+        cmp _foff;
+        bcc L_fus_hi;
+        ldx _foff;
+        sta _foff;
+        txa;
+    L_fus_hi:
+        lsr;
+        sta _foff + 1;          // lo >> 1
+        lda _foff;
+        lsr;
+        lsr;
+        lsr;
+        sta _foff + 2;          // hi >> 3
+        lda _foff;
+        sec;
+        sbc _foff + 2;
+        clc;
+        adc _foff + 1;
+        cmp _foff;
+        bcs L_fus_nrm;
+        lda _foff;
+    L_fus_nrm:
+        sta _fnorm;
+  }
+  // clang-format on
+
+  if (_fnorm != 0) {
+    _planes_tube(vec_div8p8((int16_t)-_ffy, _fnorm), vec_div8p8(_ffx, _fnorm),
+                 kPlaneVertCount);
+    _planes_vert_count = kPlaneVertCount + 2 * kPlaneBodyCount;
+  }
+
+  // End-on octagon when _fnorm < (_fmaxr << 2).
+  // clang-format off
+  __asm {
+        lda _fmaxr;
+        cmp #64;
+        bcs L_fus_do_oct;
+        asl;
+        asl;
+        cmp _fnorm;
+        beq L_fus_oct_done;
+        bcc L_fus_oct_done;
+    L_fus_do_oct:
+        lda _fmaxr;
+        bne L_fus_r_ok;
+        lda #1;
+        sta _fmaxr;
+    L_fus_r_ok:
+        ldx #106;
+        stx vec_mul8_b;
+        jsr vec_mul8;
+        ldx vec_mul8_lo;
+        beq L_fus_h_ok;
+        clc;
+        adc #1;
+    L_fus_h_ok:
+        // _foff[0..9] = { +h, +r, +r, +h, -h, -r, -r, -h, +h, +r }, so corner
+        // i = 0..7 has dx = _foff[i + 2] and dy = _foff[i].
+        sta _foff + 0;
+        sta _foff + 3;
+        sta _foff + 8;
+        eor #$ff;
+        clc;
+        adc #1;
+        sta _foff + 4;
+        sta _foff + 7;
+        lda _fmaxr;
+        sta _foff + 1;
+        sta _foff + 2;
+        sta _foff + 9;
+        eor #$ff;
+        clc;
+        adc #1;
+        sta _foff + 5;
+        sta _foff + 6;
+
+        ldy _fwidest;
+        lda _planes_sx, y;
+        sta _ffx;
+        lda _planes_sy, y;
+        sta _ffy;
+
+        ldx _planes_vert_count;
+        ldy #0;
+    L_fus_oct:
+        lda _ffx;
+        clc;
+        adc _foff + 2, y;
+        sta _planes_vx, x;
+        lda _ffy;
+        clc;
+        adc _foff, y;
+        sta _planes_vy, x;
+        inx;
+        iny;
+        cpy #8;
+        bne L_fus_oct;
+        stx _planes_vert_count;
+    L_fus_oct_done:
+  }
+  // clang-format on
+}
+
+// ---------------------------------------------------------------------------
+// Layout hysteresis, centring anchor, and placement.
+
+void _planes_layout(planes_state_t *state, uint8_t level) {
+  _planes_box(_planes_vert_count);
+  // _foff[0..6] = bw, bh, level, same, cols, rows, hw/hh.
+  // clang-format off
+  __asm {
+        lda state;
+        sta vec_proj_mul_a;
+        lda state + 1;
+        sta vec_proj_mul_a + 1;
+        lda level;
+        sta _foff + 2;
+
+        lda _planes_box_x1;
+        sec;
+        sbc _planes_box_x0;
+        sta _foff;              // bw
+        lda _planes_box_y1;
+        sec;
+        sbc _planes_box_y0;
+        sta _foff + 1;          // bh
+
+        ldx #1;
+        lda _foff + 2;
+        cmp #1;                 // kPlaneLevel1x
+        beq L_lay_xs;
+        inx;
+    L_lay_xs:
+        stx _planes_lxs;
+
+        lda #1;
+        sta _planes_lys;
+        lda _foff + 2;
+        cmp #2;                 // kPlaneLevelX
+        bne L_lay_ys_done;
+        ldx #41;                // kPlaneYLimit
+        ldy #0;                 // lay.level
+        lda (vec_proj_mul_a), y;
+        cmp #2;
+        bne L_lay_ys_cmp;
+        iny;                    // lay.ys
+        lda (vec_proj_mul_a), y;
+        cmp #2;
+        bne L_lay_ys_cmp;
+        ldx #35;                // kPlaneYHold
+    L_lay_ys_cmp:
+        txa;
+        cmp _foff + 1;          // C=0 iff lim < bh (bh > lim)
+        bcs L_lay_ys_done;
+        inc _planes_lys;
+    L_lay_ys_done:
+
+        lda #0;
+        sta _foff + 3;          // same
+        ldy #0;
+        lda (vec_proj_mul_a), y;
+        cmp _foff + 2;
+        bne L_lay_same_done;
+        iny;                    // lay.ys
+        lda (vec_proj_mul_a), y;
+        cmp _planes_lys;
+        bne L_lay_same_done;
+        inc _foff + 3;
+    L_lay_same_done:
+
+        ldx #23;                // kCols - 1
+        lda _foff + 3;
+        beq L_lay_wlim;
+        ldy #2;                 // lay.cols
+        lda (vec_proj_mul_a), y;
+        cmp #2;
+        bne L_lay_wlim;
+        ldx #20;                // kPlaneColsHold
+    L_lay_wlim:
+        txa;
+        ldx _planes_lxs;
+        cpx #2;
+        bne L_lay_wcmp;
+        asl;
+    L_lay_wcmp:
+        ldx #1;
+        cmp _foff;              // C=0 iff wlim < bw (bw > wlim)
+        bcs L_lay_cols;
+        inx;
+    L_lay_cols:
+        stx _foff + 4;          // cols
+
+        ldx #20;                // kRows - 1
+        lda _foff + 3;
+        beq L_lay_hlim;
+        ldy #3;                 // lay.rows
+        lda (vec_proj_mul_a), y;
+        cmp #2;
+        bne L_lay_hlim;
+        ldx #17;                // kPlaneRowsHold
+    L_lay_hlim:
+        txa;
+        ldx _planes_lys;
+        cpx #2;
+        bne L_lay_hcmp;
+        asl;
+    L_lay_hcmp:
+        ldx #1;
+        cmp _foff + 1;          // C=0 iff hlim < bh (bh > hlim)
+        bcs L_lay_rows;
+        inx;
+    L_lay_rows:
+        stx _foff + 5;          // rows
+
+        lda #0;
+        sta _planes_lcached;
+        lda _foff + 3;
+        beq L_lay_cache_done;
+        ldy #8;                 // key_valid
+        lda (vec_proj_mul_a), y;
+        beq L_lay_cache_done;
+        iny;                    // key_count == 9
+        lda (vec_proj_mul_a), y;
+        cmp _planes_vert_count;
+        bne L_lay_cache_done;
+        ldy #2;                 // lay.cols
+        lda (vec_proj_mul_a), y;
+        cmp _foff + 4;
+        bne L_lay_cache_done;
+        iny;                    // lay.rows == 3
+        lda (vec_proj_mul_a), y;
+        cmp _foff + 5;
+        bne L_lay_cache_done;
+        inc _planes_lcached;
+    L_lay_cache_done:
+
+        lda #48;
+        ldx _planes_lxs;
+        cpx #2;
+        beq L_lay_hwc;
+        lsr;
+    L_lay_hwc:
+        ldx _foff + 4;
+        cpx #2;
+        beq L_lay_hw;
+        lsr;
+    L_lay_hw:
+        sta _foff + 6;
+        sec;
+        lda _planes_box_x0;
+        adc _planes_box_x1;
+        ror;
+        sec;
+        sbc _foff + 6;
+        sta _planes_lbx;
+
+        lda #42;
+        ldx _planes_lys;
+        cpx #2;
+        beq L_lay_hhr;
+        lsr;
+    L_lay_hhr:
+        ldx _foff + 5;
+        cpx #2;
+        beq L_lay_hh;
+        lsr;
+    L_lay_hh:
+        sta _foff + 6;
+        sec;
+        lda _planes_box_y0;
+        adc _planes_box_y1;
+        ror;
+        sec;
+        sbc _foff + 6;
+        sta _planes_lby;
+
+        ldy #0;
+        lda _foff + 2;
+        sta (vec_proj_mul_a), y;
+        iny;
+        lda _planes_lys;
+        sta (vec_proj_mul_a), y;
+        iny;
+        lda _foff + 4;
+        sta (vec_proj_mul_a), y;
+        iny;
+        lda _foff + 5;
+        sta (vec_proj_mul_a), y;
+        iny;
+        lda _planes_lbx;
+        eor #$80;
+        sta (vec_proj_mul_a), y;
+        iny;
+        lda _planes_lby;
+        eor #$80;
+        sta (vec_proj_mul_a), y;
+        iny;
+        lda #0;
+        sta (vec_proj_mul_a), y;
+        iny;
+        sta (vec_proj_mul_a), y;
+  }
+  // clang-format on
+}
+
+static __zeropage uint8_t *_blk;    // frame pointer in planes_place, back buffer in planes_fill
+
+int16_t planes_place(const planes_layout_t *lay, const planes_view_t *view,
+                     planes_frame_t *frame) {
+  // _foff[0..5] = topl, toph, slidl, slidh, ys, rows.
+  // clang-format off
+  __asm {
+        lda lay;
+        sta vec_proj_mul_a;
+        lda lay + 1;
+        sta vec_proj_mul_a + 1;
+        lda view;
+        sta vec_proj_mul_b;
+        lda view + 1;
+        sta vec_proj_mul_b + 1;
+        lda frame;
+        sta _blk;
+        lda frame + 1;
+        sta _blk + 1;
+
+        ldy #0;                 // lay->level
+        lda (vec_proj_mul_a), y;
+        tax;
+        ldy #1;                 // frame->level
+        sta (_blk), y;
+        txa;
+        bne L_plc_sil;
+
+        // Dot tier: xs = ys = cols = rows = 1, x = cx - 12, y = cy - 19, slid = 0.
+        lda #1;
+        iny;                    // frame->xs == 2
+        sta (_blk), y;
+        iny;                    // frame->ys == 3
+        sta (_blk), y;
+        iny;                    // frame->cols == 4
+        sta (_blk), y;
+        iny;                    // frame->rows == 5
+        sta (_blk), y;
+
+        ldy #15;                // frame->cx
+        lda (_blk), y;
+        sec;
+        sbc #12;                // kPlaneDotX
+        pha;
+        iny;
+        lda (_blk), y;
+        sbc #0;
+        ldy #7;                 // frame->x + 1
+        sta (_blk), y;
+        dey;                    // frame->x == 6
+        pla;
+        sta (_blk), y;
+
+        ldy #17;                // frame->cy
+        lda (_blk), y;
+        sec;
+        sbc #19;                // kPlaneDotY
+        sta _foff;
+        iny;
+        lda (_blk), y;
+        sbc #0;
+        sta _foff + 1;
+        ldy #8;                 // frame->y
+        lda _foff;
+        sta (_blk), y;
+        iny;                    // frame->y + 1 == 9
+        lda _foff + 1;
+        sta (_blk), y;
+        iny;                    // frame->slid == 10
+        lda #0;
+        sta (_blk), y;
+        sta _place_need;
+        sta _place_need + 1;
+
+        // if (frame->y > view->cut1) -> view->cut1 < frame->y (signed 16-bit).
+        ldy #4;                 // view->cut1
+        lda (vec_proj_mul_b), y;
+        cmp _foff;
+        iny;
+        lda (vec_proj_mul_b), y;
+        sbc _foff + 1;
+        bvc L_plc_dot_vc;
+        eor #$80;
+    L_plc_dot_vc:
+        bpl L_plc_done_jmp;
+        ldy #0;                 // frame->hidden
+        lda #3;                 // kPlaneBelowCut
+        sta (_blk), y;
+    L_plc_done_jmp:
+        jmp L_plc_done;
+
+    L_plc_sil:
+        // X holds level (1 or 2). xs = (level == 1) ? 1 : 2.
+        ldy #1;
+        cpx #1;
+        beq L_plc_xs;
+        iny;
+    L_plc_xs:
+        tya;
+        ldy #2;                 // frame->xs
+        sta (_blk), y;
+
+        ldy #1;                 // lay->ys
+        lda (vec_proj_mul_a), y;
+        sta _foff + 4;
+        ldy #3;                 // frame->ys
+        sta (_blk), y;
+
+        ldy #2;                 // lay->cols
+        lda (vec_proj_mul_a), y;
+        ldy #4;                 // frame->cols
+        sta (_blk), y;
+
+        ldy #3;                 // lay->rows
+        lda (vec_proj_mul_a), y;
+        sta _foff + 5;
+        ldy #5;                 // frame->rows
+        sta (_blk), y;
+
+        // frame->x = frame->cx + (int8_t)lay->ox.
+        ldx #0;
+        ldy #4;                 // lay->ox
+        lda (vec_proj_mul_a), y;
+        bpl L_plc_oxp;
+        dex;
+    L_plc_oxp:
+        ldy #15;                // frame->cx
+        clc;
+        adc (_blk), y;
+        pha;
+        iny;
+        txa;
+        adc (_blk), y;
+        ldy #7;                 // frame->x + 1
+        sta (_blk), y;
+        dey;                    // frame->x == 6
+        pla;
+        sta (_blk), y;
+
+        // top = frame->cy + (int8_t)lay->oy -> _foff[0..1].
+        ldx #0;
+        ldy #5;                 // lay->oy
+        lda (vec_proj_mul_a), y;
+        bpl L_plc_oyp;
+        dex;
+    L_plc_oyp:
+        ldy #17;                // frame->cy
+        clc;
+        adc (_blk), y;
+        sta _foff;
+        iny;
+        txa;
+        adc (_blk), y;
+        sta _foff + 1;
+
+        // over = top - (ys == 2 ? view->cut2 : view->cut1).
+        ldy #4;                 // view->cut1
+        lda _foff + 4;          // ys
+        cmp #2;
+        bne L_plc_cut;
+        ldy #6;                 // view->cut2
+    L_plc_cut:
+        lda _foff;
+        sec;
+        sbc (vec_proj_mul_b), y;
+        sta _place_need;
+        iny;
+        lda _foff + 1;
+        sbc (vec_proj_mul_b), y;
+        sta _place_need + 1;
+
+        lda _foff + 5;          // rows
+        cmp #2;
+        bne L_plc_over_chk;
+        lda #21;                // kRows
+        ldx _foff + 4;          // ys
+        cpx #2;
+        bne L_plc_add_r;
+        asl;                    // 42
+    L_plc_add_r:
+        clc;
+        adc _place_need;
+        sta _place_need;
+        bcc L_plc_over_chk;
+        inc _place_need + 1;
+    L_plc_over_chk:
+        lda _place_need + 1;
+        bpl L_plc_need_pos;
+        lda #0;
+        sta _place_need;
+        sta _place_need + 1;
+    L_plc_need_pos:
+
+        // slid = (lay->slid < need) ? need : lay->slid.
+        lda _place_need;
+        sta _foff + 2;
+        lda _place_need + 1;
+        sta _foff + 3;
+        ldy #6;                 // lay->slid
+        lda (vec_proj_mul_a), y;
+        tax;
+        cmp _place_need;
+        iny;
+        lda (vec_proj_mul_a), y;
+        sbc _place_need + 1;
+        bvc L_plc_slid_vc;
+        eor #$80;
+    L_plc_slid_vc:
+        bmi L_plc_slid_ok;      // lay->slid < need -> keep need
+        stx _foff + 2;
+        lda (vec_proj_mul_a), y;
+        sta _foff + 3;
+    L_plc_slid_ok:
+        lda _foff;
+        sec;
+        sbc _foff + 2;
+        ldy #8;                 // frame->y
+        sta (_blk), y;
+        lda _foff + 1;
+        sbc _foff + 3;
+        iny;                    // frame->y + 1 == 9
+        sta (_blk), y;
+        iny;                    // frame->slid == 10
+        lda _foff + 2;
+        sta (_blk), y;
+    L_plc_done:
+  }
+  // clang-format on
+  return _place_need;
+}
+
+// ---------------------------------------------------------------------------
+// The vertex cache's key.
+
+static_assert(kPlaneVertMax == 30, "_planes_key() finds key_y 30 bytes after key_x");
+
+// Self-modifying: the call's constants are written into the loop before it
+// runs - the key's two addresses, bx, by and the slide's low byte as
+// operands, and the expansions as opcodes - so that a vertex costs its
+// loads, stores and compares and nothing else. Y-expanded, y is bits 1-8 of
+// the nine-bit (v - by) + s9: ror brings the sum's carry in as bit 7, and
+// eor flips it when the slide's own bit 8 is set.
+bool _planes_key(uint8_t *key, uint16_t slid) {
+  // clang-format off
+  __asm {
+        lda key;
+        sta L_cx + 1;
+        sta L_sx + 1;
+        clc;
+        adc #30;
+        sta L_cy + 1;
+        sta L_sy + 1;
+        lda key + 1;
+        sta L_cx + 2;
+        sta L_sx + 2;
+        adc #0;
+        sta L_cy + 2;
+        sta L_sy + 2;
+        lda _planes_lbx;
+        sta L_bx + 1;
+        lda _planes_lby;
+        sta L_by + 1;
+        lda slid;
+        sta L_s9 + 1;
+        lda _planes_vert_count;
+        sta L_n + 1;
+
+        lda #$ea;               // nop
+        ldx _planes_lxs;
+        cpx #2;
+        bne L_x_one;
+        lda #$4a;               // lsr a
+    L_x_one:
+        sta L_xsh;
+        lda #$ea;
+        ldx #0;
+        ldy _planes_lys;
+        cpy #2;
+        bne L_y_one;
+        lda slid + 1;
+        and #1;
+        beq L_y_s9_0;
+        ldx #$80;
+    L_y_s9_0:
+        lda #$6a;               // ror a
+    L_y_one:
+        sta L_ysh;
+        stx L_yeor + 1;
+
+        lda #0;
+        sta _kdiff;
+        ldy #0;
+    L_vert:
+        lda _planes_vx, y;
+        sec;
+    L_bx:
+        sbc #0;
+    L_xsh:
+        nop;
+    L_cx:
+        cmp $1234, y;
+        beq L_x_same;
+        inc _kdiff;
+    L_x_same:
+    L_sx:
+        sta $1234, y;
+
+        lda _planes_vy, y;
+        sec;
+    L_by:
+        sbc #0;
+        clc;
+    L_s9:
+        adc #0;
+    L_ysh:
+        nop;
+    L_yeor:
+        eor #0;
+    L_cy:
+        cmp $1234, y;
+        beq L_y_same;
+        inc _kdiff;
+    L_y_same:
+    L_sy:
+        sta $1234, y;
+        iny;
+    L_n:
+        cpy #0;
+        bne L_vert;
+  }
+  // clang-format on
+  return _kdiff != 0;
+}
+
 // ---------------------------------------------------------------------------
 // The fill: convex polygons into up to four sprite blocks 64 bytes apart.
 
-static __zeropage uint8_t *_blk;    // the back buffer's first block
 #ifdef __FPILOT__
 #pragma bss(tscratch)
 #endif
@@ -483,10 +1143,166 @@ static uint8_t _pb, _t, _base, _jb;
 static_assert(kPlaneRecipCount == 39 && kPlaneRecipFirst == 3,
               "update kPlaneRecip + 36 and - 3 in the fill");
 
-// _planes_fill_poly() on _fs and _fn.
-static void _fill_poly(void) {
+void planes_fill(const planes_state_t *state, uint8_t *back) {
+#ifdef __PLANES_PROFILE__
+  bm_start();
+#endif
   // clang-format off
   __asm {
+        lda state;
+        sta vec_proj_mul_a;
+        lda state + 1;
+        sta vec_proj_mul_a + 1;
+        lda back;
+        sta _blk;
+        lda back + 1;
+        sta _blk + 1;
+
+        // cols (1 or 2) and rows (1 or 2) -> height, w1, bottom_adj, and
+        // blocks << 6 bytes cleared at (_blk) (64, 128, or 256 via Y = 0).
+        ldx #23;
+        ldy #0;
+        sty _bottom_adj;
+        ldy #2;                 // lay.cols
+        lda (vec_proj_mul_a), y;
+        sta _t;
+        cmp #2;
+        bne L_fl_cols1;
+        ldx #47;
+        lda #64;
+        sta _bottom_adj;
+    L_fl_cols1:
+        stx _buf_w1;
+
+        ldy #3;                 // lay.rows
+        lda (vec_proj_mul_a), y;
+        ldx #21;
+        cmp #2;
+        bne L_fl_rows1;
+        ldx #42;
+    L_fl_rows1:
+        stx _buf_h;
+
+        ldx _t;                 // cols
+        cpx #2;
+        bne L_fl_blks;
+        asl;                    // blocks = rows << 1
+    L_fl_blks:
+        // blocks in {1, 2, 4} -> Y in {64, 128, 0 (= 256)}, a multiple of 4.
+        lsr;
+        ror;
+        ror;
+        tay;
+        lda #0;
+    L_fl_clr:
+        dey;
+        sta (_blk), y;
+        dey;
+        sta (_blk), y;
+        dey;
+        sta (_blk), y;
+        dey;
+        sta (_blk), y;
+        bne L_fl_clr;
+
+        // Skip fill when ((uint16_t)lay.slid >> (ys == 2)) >= _buf_h.
+        ldy #6;                 // lay.slid
+        lda (vec_proj_mul_a), y;
+        sta _t;
+        iny;                    // lay.slid + 1
+        lda (vec_proj_mul_a), y;
+        tax;
+        ldy #1;                 // lay.ys
+        lda (vec_proj_mul_a), y;
+        cmp #2;
+        bne L_fl_slid_chk;
+        txa;
+        lsr;
+        tax;
+        ror _t;
+    L_fl_slid_chk:
+        txa;
+        bne L_fl_exit_jmp;
+        lda _t;
+        cmp _buf_h;
+        bcs L_fl_exit_jmp;
+
+        ldy #9;                 // key_count
+        lda (vec_proj_mul_a), y;
+        bne L_fl_has_verts;
+    L_fl_exit_jmp:
+        jmp L_fl_exit;
+
+    L_fl_has_verts:
+        sta _bn;
+        lda vec_proj_mul_a;
+        clc;
+        adc #11;                // offsetof(planes_state_t, key_x)
+        sta vec_proj_mul_a;
+        tax;
+        lda vec_proj_mul_a + 1;
+        adc #0;
+        sta vec_proj_mul_a + 1;
+        sta vec_proj_mul_b + 1;
+        txa;
+        clc;
+        adc #30;                // kPlaneVertMax -> key_y
+        sta vec_proj_mul_b;
+        bcc L_fl_ky_ok;
+        inc vec_proj_mul_b + 1;
+    L_fl_ky_ok:
+        ldy _bn;
+        dey;
+    L_fl_copy:
+        lda (vec_proj_mul_a), y;
+        sta _planes_lx, y;
+        lda (vec_proj_mul_b), y;
+        sta _planes_ly, y;
+        dey;
+        bpl L_fl_copy;
+
+        // Wing (0, 6), tailplane (6, 6), fin (12, 4), then fuselage/octagon.
+        lda #0;
+        sta _fs;
+        lda #6;
+        sta _fn;
+        jsr L_fill_poly;
+
+        lda #6;
+        sta _fs;
+        lda #6;
+        sta _fn;
+        jsr L_fill_poly;
+
+        lda #12;
+        sta _fs;
+        lda #4;
+        sta _fn;
+        jsr L_fill_poly;
+
+        lda #16;
+        sta _fs;
+        lda _bn;
+        cmp #30;                // kPlaneVertMax
+        bne L_fl_last_poly;
+        lda #6;                 // 2 * kPlaneBodyCount
+        sta _fn;
+        jsr L_fill_poly;
+        lda #22;
+        sta _fs;
+    L_fl_last_poly:
+        lda _bn;
+        sec;
+        sbc _fs;
+        beq L_fl_skip_last;
+        bcc L_fl_skip_last;
+        sta _fn;
+        jsr L_fill_poly;
+    L_fl_skip_last:
+        jmp L_fl_exit;
+
+        // Convex polygon fill on _fs and _fn.
+    L_fill_poly:
         // The polygon's rows, y0 .. y1; none if it starts below the buffer.
         ldx _fs;
         lda #$ff;
@@ -611,7 +1427,7 @@ static void _fill_poly(void) {
     L_dx_pos:
         sta _t;
         ldy _dy;
-        lda kPlaneRecip + 36, y;  // striped: the high bytes, see below
+        lda kPlaneRecip + 36, y;  // striped: the high bytes, see above
         sta vec_mul8_b;
         lda kPlaneRecip - 3, y;
         sta _pb;
@@ -843,21 +1659,13 @@ static void _fill_poly(void) {
         sta _hi, x;
     L_put_done:
         rts;
+
+    L_fl_exit:
   }
   // clang-format on
-}
-
-void _planes_fill_begin(uint8_t *back, uint8_t cols, uint8_t height) {
-  _blk = back;
-  _buf_h = height;
-  _buf_w1 = cols == 2 ? 47 : 23;
-  _bottom_adj = cols == 2 ? 64 : 0;
-}
-
-void _planes_fill_poly(uint8_t first, uint8_t count) {
-  _fs = first;
-  _fn = count;
-  _fill_poly();
+#ifdef __PLANES_PROFILE__
+  bm_end(6 * 40 + 20, kProfFill);
+#endif
 }
 
 #pragma optimize(pop)
