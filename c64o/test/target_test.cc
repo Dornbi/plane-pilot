@@ -43,6 +43,7 @@
 //   14  render_asm.cc _render_flush_span main/alt $E800/$EC00 sled & color RAM
 //   15  poly_asm.h _poly_bounds_and_clear & _poly_trace_edges against C ref
 //   16  planes_asm.cc split project/reslide/fill, place cuts & slid-out clear
+//   17  opponent_asm.h _opponent_world_delta near/far/out & world wraparound
 
 #include <stdint.h>
 
@@ -976,6 +977,97 @@ static void test_planes_split_reslide_asm(void) {
   expect(16, planes_place(&dot_lay, &view, &df), 0);
   expect(16, df.hidden, kPlaneBelowCut);
 }
+
+// 17. opponent_asm.h _opponent_world_delta: near/far/out classification,
+// sub-half-metre quarter shifts, x 7-bit wraparound, y 8-bit wraparound, and
+// slot 0 vs slot 1 indexing.
+static int32_t _test_eye_x, _test_eye_y, _test_eye_z;
+int32_t *const kFlightEye[3] = {&_test_eye_x, &_test_eye_y, &_test_eye_z};
+static int32_t _opponent_xyz[6];
+#include "../opponent_asm.h"
+
+static uint8_t _ref_world_delta(uint8_t i, vec3_t *out) {
+  uint8_t range = kOpponentNear;
+  uint8_t k = i;
+  uint16_t fd[3];
+  int8_t fs[3];
+  for (uint8_t c = 0; c < 3; ++c, k += 2) {
+    int32_t d = _opponent_xyz[k] - *kFlightEye[c];
+    fd[c] = (uint16_t)d;
+    uint8_t u = (uint8_t)(d >> 16);
+    if (c == 0) {
+      u &= 0x7F;
+      if (u & 0x40) {
+        u |= 0x80;
+      }
+    }
+    int8_t s = (int8_t)u;
+    fs[c] = s;
+    if (s >= 32 || s < -31) {
+      return kOpponentOut;
+    }
+    if (s >= 16 || s < -15) {
+      range = kOpponentFar;
+    }
+  }
+  for (uint8_t c = 0; c < 3; ++c) {
+    uint16_t f = fd[c];
+    uint16_t v = ((uint16_t)(uint8_t)fs[c] << 8) | (f >> 8);
+    if (range == kOpponentNear) {
+      v = (v << 2) | ((uint8_t)f >> 6);
+    }
+    (&out->x)[c] = (int16_t)v;
+  }
+  return range;
+}
+
+static void test_opponent_world_delta_asm(void) {
+  static const int32_t kEyes[3][3] = {
+      {0x00102000L, 0x00204000L, 0x00041000L},
+      {0x007E0080L, 0x00FD80C0L, 0x00060040L}, // near x=128 & y=256 wrap edges
+      {0x00018040L, 0x00020080L, 0x000800C0L},
+  };
+  static const int32_t kOffs[][3] = {
+      {0, 0, 0},
+      {0x000001C0L, -0x00000280L, 0x00000040L},  // fractional quarters
+      {0x000FFFFFL, -0x000F0000L, 0x00071240L},  // max near boundaries [-15, 15]
+      {0x00100000L, 0x00000180L, -0x00010040L},  // far boundary s = +16
+      {0x00000100L, -0x000F0001L, 0x00000000L},  // far boundary s = -16
+      {0x001FFFFFL, -0x001F0000L, 0x00104080L},  // max far boundaries [-31, 31]
+      {0x00200000L, 0, 0},                       // out boundary s = +32
+      {0, -0x001F0001L, 0},                      // out boundary s = -32
+      {0, 0, 0x00250000L},                       // z out
+      {-0x007C0040L, -0x00FB0080L, 0x00010040L}, // wrap across x=128 & y=256 (+4, +5)
+      {0x007B00C0L, 0x00EE0040L, -0x00010080L},  // wrap across x=128 & y=256 (-5, -18)
+  };
+  for (uint8_t e = 0; e < 3; ++e) {
+    _test_eye_x = kEyes[e][0];
+    _test_eye_y = kEyes[e][1];
+    _test_eye_z = kEyes[e][2];
+    for (uint8_t c = 0; c < sizeof(kOffs) / sizeof(kOffs[0]); ++c) {
+      for (uint8_t slot = 0; slot < 2; ++slot) {
+        uint8_t other = slot ^ 1;
+        _opponent_xyz[other] = 0x55AA55AAL;
+        _opponent_xyz[other + 2] = -0x33445566L;
+        _opponent_xyz[other + 4] = 0x11223344L;
+        _opponent_xyz[slot] = (_test_eye_x + kOffs[c][0]) & 0x007FFFFFL;
+        _opponent_xyz[slot + 2] = (_test_eye_y + kOffs[c][1]) & 0x00FFFFFFL;
+        _opponent_xyz[slot + 4] = _test_eye_z + kOffs[c][2];
+
+        vec3_t want_v = {0, 0, 0};
+        uint8_t want_r = _ref_world_delta(slot, &want_v);
+        vec_v = make_vector(1234, -5678, 9999);
+        uint8_t got_r = _opponent_world_delta(slot);
+        expect(17, got_r, want_r);
+        if (want_r != kOpponentOut) {
+          expect(17, vec_v.x, want_v.x);
+          expect(17, vec_v.y, want_v.y);
+          expect(17, vec_v.z, want_v.z);
+        }
+      }
+    }
+  }
+}
 #pragma optimize(pop)
 
 int main(void) {
@@ -1006,6 +1098,7 @@ int main(void) {
   test_render_flush_span_asm();
   test_poly_trace_edges_asm();
   test_planes_split_reslide_asm();
+  test_opponent_world_delta_asm();
 
   // Something for vice_dump.sh's @spin to break on. Everything above has
   // landed in the globals by the time the loop is reached.

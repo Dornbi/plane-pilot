@@ -671,9 +671,11 @@ static bool _opponent_busy;
 #pragma bss(bss)
 
 void opponent_invalidate(void) {
-  for (uint8_t i = 0; i < kOpponentMax; ++i) {
-    planes_state_init(&_opponent_planes[i]);
-    _opponent_shown[i].level = kPlaneLevelDot;
+  planes_state_t *st = _opponent_planes;
+  planes_layout_t *sh = _opponent_shown;
+  for (uint8_t i = 0; i < kOpponentMax; ++i, ++st, ++sh) {
+    planes_state_init(st);
+    sh->level = kPlaneLevelDot;
   }
   _opponent_front = 0;
   _opponent_pending = 0;
@@ -795,9 +797,17 @@ bool opponent_targets_down(void) {
   return opponent_none_left();
 }
 
+static inline uint16_t _opponent_hm(const int32_t *p) {
+#ifdef __OSCAR64__
+  return *(const uint16_t *)((const uint8_t *)p + 1);
+#else
+  return (uint16_t)(*p >> 8);
+#endif
+}
+
 static __noinline uint16_t _opponent_mid(uint8_t a, uint8_t b) {
-  uint16_t pa = (uint16_t)(_opponent_xyz[a] >> 8);
-  uint16_t pb = (uint16_t)(_opponent_xyz[b] >> 8);
+  uint16_t pa = _opponent_hm(&_opponent_xyz[a]);
+  uint16_t pb = _opponent_hm(&_opponent_xyz[b]);
   return pa + (uint16_t)((int16_t)(pb - pa) >> 1);
 }
 
@@ -814,10 +824,6 @@ static void _opponent_track(void) {
     flight_nav_point_y[kOpponentNav] =
         _opponent_mid((uint8_t)(a + kOpponentMax), (uint8_t)(b + kOpponentMax));
   }
-}
-
-static __noinline void _opponent_set_pos(uint8_t idx, uint16_t w) {
-  _opponent_xyz[idx] = (int32_t)w << 8;
 }
 
 // The mission's next pair, from kOpponentWaves[_opponent_wave], into both
@@ -843,9 +849,13 @@ static __noinline void _opponent_send(void) {
       _opponent_attack |= _opponent_bit(i);
     }
     _opponent_path[i] = p;
-    _opponent_set_pos(i, p->start_x);
-    _opponent_set_pos((uint8_t)(i + kOpponentMax), p->start_y);
-    _opponent_set_pos((uint8_t)(i + 2 * kOpponentMax), p->z);
+    const uint16_t *sp = &p->start_x;
+    uint8_t c = 3, idx = (uint8_t)(i + 2 * kOpponentMax);
+    do {
+      --c;
+      _opponent_xyz[idx] = (int32_t)sp[c] << 8;
+      idx -= kOpponentMax;
+    } while (c != 0);
     _opponent_start_head(p, &_opponent_head[i]);
     _opponent_speed[i] = q->speed;
     _opponent_color[i] =
@@ -917,7 +927,7 @@ static __noinline int16_t _opponent_toward(uint16_t w, uint8_t idx) {
 // the step size after the multiply.
 static __noinline void _opponent_move(uint8_t i, uint8_t idx, int16_t h) {
   _opponent_xyz[idx] +=
-      flight_step_s(vec_fastmul8p8(_opponent_speed[i] << 1, h));
+      flight_step_s(vec_fastmul8p8(h, _opponent_speed[i] << 1));
 }
 
 // Both axes across the ground, along slot i's heading.
@@ -975,7 +985,7 @@ static_assert(kOpponentFloor + kOpponentFloorMargin < 256,
               "floor heights fit in uint8_t");
 
 static __noinline bool _opponent_below(uint8_t i, uint8_t lim) {
-  return (int16_t)(_opponent_z[i] >> 8) < (int16_t)lim;
+  return (int16_t)_opponent_hm(&_opponent_z[i]) < (int16_t)lim;
 }
 
 // The climb level a hunting slot i wants, for the player dz above it and
@@ -1117,7 +1127,9 @@ __noinline uint8_t opponent_random(void) {
 // The eye's three axes come through flight.h's kFlightEye, so that a loop can
 // take each off in turn: written out, _opponent_camera()'s three 32-bit
 // differences were 104 B.
+#pragma bss(tscratch)
 static vec3_t _opponent_aim_d;
+#pragma bss(bss)
 static __noinline bool _opponent_gunner(uint8_t i) {
   // The line to the player, an axis at a time, counted down: oscar64
   // unrolls a for loop over three axes.
@@ -1125,7 +1137,7 @@ static __noinline bool _opponent_gunner(uint8_t i) {
   uint8_t c = 3, k = (uint8_t)(i + 2 * kOpponentMax);
   do {
     --c;
-    d[c] = _opponent_toward((uint16_t)(*kFlightEye[c] >> 8), k);
+    d[c] = _opponent_toward(_opponent_hm(kFlightEye[c]), k);
     k -= kOpponentMax;
   } while (c != 0);
   int16_t dx = d[0], dy = d[1];
@@ -1213,8 +1225,7 @@ static __noinline void _opponent_gone(uint8_t i) {
 static __noinline bool _opponent_close(uint8_t i, uint16_t r) {
   uint8_t c = 0;
   do {
-    if (_opponent_abs(_opponent_toward((uint16_t)(*kFlightEye[c] >> 8), i)) >=
-        r) {
+    if (_opponent_abs(_opponent_toward(_opponent_hm(kFlightEye[c]), i)) >= r) {
       return false;
     }
     i += kOpponentMax;
@@ -1427,15 +1438,12 @@ void opponent_step(void) {
   _opponent_track();
 }
 
-// Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
-#pragma optimize(push, nooutline)
-
 // Slot i is off screen, or only the dot, so its block sets no longer show
 // what it looks like. Until a new silhouette is filled it is shown as the
 // dot, never as the bitmap from the last time it was in view: that can be
 // any size, and a chase that looked away and back saw one frame of the
 // aircraft as close as it had been.
-static void _opponent_forget(uint8_t i) {
+static __noinline void _opponent_forget(uint8_t i) {
   uint8_t bit = _opponent_bit(i);
   _opponent_shown[i].level = kPlaneLevelDot;
   // A projection still to be filled is a bitmap that was never drawn, so
@@ -1446,28 +1454,75 @@ static void _opponent_forget(uint8_t i) {
   }
 }
 
-// Where slot i is in camera space, in _opponent_c, by its distance along
-// the world's axes: inside 16 units, ~2 km, on all three, kOpponentNear and
-// in eighth metres (docs/planes.md §2); out to 32, ~4 km, kOpponentFar and
-// in half metres, which keeps 4 km inside int16 and vec_transform_inv()'s
-// sums; farther on any, kOpponentOut and nothing. The two ranges' units are
-// the two views' numerators (kViewFar), so nothing on screen changes
-// between them.
-enum opponent_range_t { kOpponentNear, kOpponentFar, kOpponentOut };
-// Static, out of the zero page's temporaries (mem.h).
-#pragma bss(tscratch)
-static uint16_t _opponent_d[3];
-static int8_t _opponent_s[3];
-#pragma bss(bss)
-static __noinline uint8_t _opponent_camera(uint8_t i) {
+// Seven sprites for the stack (sprites.h kSpriteTerrainSlots), and two
+// aircraft at 2 x 2 would take eight: the farther would be dropped whole.
+// So while both are in view the farther is held to two sprites, which
+// changes nothing unless it is within ~115 m (kViewTwo). The back view's fin
+// takes 0 and 1 (sprites.cc kSpriteFinCount), which leaves the stack six.
+// The smoke - an aircraft's, or where a round hit the ground - and a tracer
+// (gun.cc) take one each: four and two still fit in front with one of them,
+// not with both, nor behind with either - and then both aircraft are held
+// to two. Which is nearer goes by depth, and changes
+// only once the other is an eighth nearer, so that two at about the same
+// range do not trade sizes every frame; one in the far range is the farther.
+// Sets _opponent_capped when both slots are in view.
+static __noinline void _opponent_cap(void) {
+  if (_opponent_far == 1 || _opponent_far == 2) {
+    _opponent_nearer = _opponent_far & 1;
+  } else {
+    uint8_t n = _opponent_nearer, o = n ^ 1;
+    uint16_t dn = (uint16_t)_opponent_cs[n].x;
+    if ((uint16_t)_opponent_cs[o].x < dn - (dn >> 3)) {
+      _opponent_nearer = o;
+    }
+  }
+  uint8_t extra =
+      (uint8_t)(_opponent_smoke != kOpponentNoSmoke || gun_puff_up()) +
+      (uint8_t)gun_tracer_up();
+  uint8_t capped = extra > (view_state == VIEW_BACK ? 0 : 1)
+                       ? 3
+                       : _opponent_bit(_opponent_nearer ^ 1);
+  planes_state_t *st = _opponent_planes;
+  for (uint8_t i = 0; i < kOpponentMax; ++i, ++st) {
+    uint8_t bit = _opponent_bit(i);
+    if ((capped & bit) && !(_opponent_capped & bit)) {
+      if (st->lay.level != kPlaneLevelDot && st->lay.cols + st->lay.rows > 2) {
+        _opponent_forget(i);
+        st->lay.level = kPlaneLevelDot;
+        st->key_valid = false;
+      }
+    }
+  }
+  _opponent_capped = capped;
+}
+
+// Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
+#pragma optimize(push, nooutline)
+
+// Viewport frustum reach around an aircraft at camera-space depth x > 64:
+// every part of it is within r = kPlaneMaxRadius / 2 eighth metres of c, so
+// no part is inside an edge at tangent t if |y| - r * (1 + t) > t * x, with
+// t = 160 / 256 = 1/2 + 1/8 across and 56 / 256 = 1/4 - 1/32 up and down
+// (vec_project()), plus 4 pixels (x / 64) for expanded pixels' rounding.
+static const uint16_t kOpponentRadius = kPlaneMaxRadius * kOpponentKn / 128;
+static const uint16_t kOpponentReachX = kOpponentRadius * 13 / 8 + 2;
+static const uint16_t kOpponentReachZ = kOpponentRadius * 39 / 32 + 2;
+static_assert(kOpponentReachX == 135 && kOpponentReachZ == 101,
+              "opponent_asm.h frustum reach constants");
+
+static_assert(kOpponentMax == 2 && sizeof(_opponent_xyz[0]) == 4,
+              "world delta stride");
+#include "opponent_asm.h"
+
+#ifndef __OSCAR64__
+static uint8_t _opponent_world_delta(uint8_t i) {
   uint8_t range = kOpponentNear;
   uint8_t k = i;
+  uint16_t fd[3];
+  int8_t fs[3];
   for (uint8_t c = 0; c < 3; ++c, k += kOpponentMax) {
-    // The difference's fraction, for the loop below, and its whole units,
-    // wrapped to the world: x repeats every 128 units, so its seven bits are
-    // sign-extended; y every 256, and z never gets there.
     int32_t d = _opponent_xyz[k] - *kFlightEye[c];
-    _opponent_d[c] = (uint16_t)d;
+    fd[c] = (uint16_t)d;
     uint8_t u = (uint8_t)(d >> 16);
     if (c == 0) {
       u &= 0x7F;
@@ -1475,10 +1530,8 @@ static __noinline uint8_t _opponent_camera(uint8_t i) {
         u |= 0x80;
       }
     }
-    // Signed range tests, not (uint8_t)(u + 16) >= 32: oscar64 folds that
-    // to u >= 16, wraparound dropped, and culled everything behind on x.
     int8_t s = (int8_t)u;
-    _opponent_s[c] = s;
+    fs[c] = s;
     if (s >= 32 || s < -31) {
       return kOpponentOut;
     }
@@ -1487,32 +1540,24 @@ static __noinline uint8_t _opponent_camera(uint8_t i) {
     }
   }
   for (uint8_t c = 0; c < 3; ++c) {
-    // The far range's half metres, and the near range's eighths from them:
-    // two bits more, the next two from the fraction's byte.
-    uint16_t f = _opponent_d[c];
-    uint16_t v = ((uint16_t)(uint8_t)_opponent_s[c] << 8) | (f >> 8);
+    uint16_t f = fd[c];
+    uint16_t v = ((uint16_t)(uint8_t)fs[c] << 8) | (f >> 8);
     if (range == kOpponentNear) {
       v = (v << 2) | ((uint8_t)f >> 6);
     }
-    (&_opponent_c.x)[c] = (int16_t)v;
+    (&vec_v.x)[c] = (int16_t)v;
   }
-  vec_transform_inv(&world_cam, &_opponent_c, &_opponent_c);
   return range;
 }
+#endif
 
-// Whether the aircraft at _opponent_c is wholly outside the viewport.
-//
-// Every part of it is within r = kPlaneMaxRadius / 2 eighth metres of c, so
-// no part is inside an edge at tangent t if |y| - r > t * (x + r), that is
-// |y| - r * (1 + t) > t * x. The edges are at t = 160 / 256 = 1/2 + 1/8
-// across and 56 / 256 = 1/4 - 1/32 up and down (vec_project()), and each
-// gets another 4 pixels, x / 64, for expanded pixels' rounding.
-//
-// Unsigned: x is positive here, and oscar64's signed shifts cost twice the
-// bytes. On _opponent_c rather than three parameters, for the same reason.
-static const uint16_t kOpponentRadius = kPlaneMaxRadius * kOpponentKn / 128;
-static const uint16_t kOpponentReachX = kOpponentRadius * 13 / 8 + 2;
-static const uint16_t kOpponentReachZ = kOpponentRadius * 39 / 32 + 2;
+static __noinline uint8_t _opponent_camera(uint8_t i) {
+  uint8_t range = _opponent_world_delta(i);
+  if (range != kOpponentOut) {
+    vec_transform_inv(&world_cam, &vec_v, &_opponent_c);
+  }
+  return range;
+}
 
 static __noinline bool _opponent_off_screen(void) {
   uint16_t half = (uint16_t)_opponent_c.x >> 1;
@@ -1541,12 +1586,12 @@ static int16_t _opponent_ra, _opponent_rb;
 #pragma bss(bss)
 
 // Turns the pair (_opponent_ra, _opponent_rb) by the angle whose cosine and
-// sine, 8.8, are c (< 256) and s: a' = c a + s b, b' = c b - s a. The pitch
-// turns front and up so, and the bank left and up.
+// sine, 8.8, are c (< 256) and s (< 256): a' = c a + s b, b' = c b - s a, with
+// the < 256 trig factor first so vec_fastmul8p8 takes its short path.
 static __noinline void _opponent_rot(uint8_t c, int16_t s) {
   int16_t a = _opponent_ra;
-  _opponent_ra = _opponent_dot(a, c, _opponent_rb, s);
-  _opponent_rb = _opponent_dot(_opponent_rb, c, a, -s);
+  _opponent_ra = _opponent_dot(c, a, s, _opponent_rb);
+  _opponent_rb = _opponent_dot(c, _opponent_rb, -s, a);
 }
 
 static void _opponent_axes(uint8_t i) {
@@ -1585,10 +1630,7 @@ static inline void _opponent_axes(uint8_t i, mat3_t *axes) {
 static_assert(kOpponentMax == 2, "the slots' turns below are written for two");
 
 // Which aircraft are in view, and where: bit i of the result for slot i, and
-// its camera-space position in _opponent_cs[i]. This, _opponent_cap() and
-// _opponent_draw() are functions of their own, out of
-// opponent_add_sprites(): in one they pushed oscar64's zero page
-// temporaries past the end of its area (mem.h).
+// its camera-space position in _opponent_cs[i].
 static __noinline uint8_t _opponent_cull(void) {
   uint8_t seen = 0, far = 0;
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
@@ -1596,78 +1638,25 @@ static __noinline uint8_t _opponent_cull(void) {
       continue;
     }
     uint8_t bit = _opponent_bit(i);
-    // Down, and gone: only its smoke stays (opponent_smoke()).
-    uint8_t range =
-        (_opponent_down & bit) ? (uint8_t)kOpponentOut : _opponent_camera(i);
-    // planes_render() says the same about x, but only after the axes
-    // below. Then wholly outside the viewport: planes_render() only gives
-    // up 45 degrees off the view axis, so an aircraft just over the top on
-    // the pass, or just off to one side, would be projected, and drawn or
-    // looked up in the cache, for nothing: 7,000-38,000 cycles a frame. In
-    // the far range's half metres the margins are four times what they need be.
-    if (range != kOpponentOut && _opponent_c.x > 64 &&
-        !_opponent_off_screen()) {
-      seen |= bit;
-      if (range == kOpponentFar) {
-        far |= bit;
+    if (!(_opponent_down & bit)) {
+      uint8_t range = _opponent_camera(i);
+      if (range != kOpponentOut && _opponent_c.x > 64 &&
+          !_opponent_off_screen()) {
+        seen |= bit;
+        if (range == kOpponentFar) {
+          far |= bit;
+        }
+        uint8_t o = i ? (uint8_t)sizeof(vec3_t) : 0;
+        for (uint8_t k = 0; k < sizeof(vec3_t); ++k, ++o) {
+          ((uint8_t *)_opponent_cs)[o] = ((const uint8_t *)&_opponent_c)[k];
+        }
+        continue;
       }
-      uint8_t o = i ? (uint8_t)sizeof(vec3_t) : 0;
-      for (uint8_t k = 0; k < sizeof(vec3_t); ++k, ++o) {
-        ((uint8_t *)_opponent_cs)[o] = ((const uint8_t *)&_opponent_c)[k];
-      }
-      continue;
     }
     _opponent_forget(i);
   }
   _opponent_far = far;
   return seen;
-}
-
-// Seven sprites for the stack (sprites.h kSpriteTerrainSlots), and two
-// aircraft at 2 x 2 would take eight: the farther would be dropped whole.
-// So while both are in view the farther is held to two sprites, which
-// changes nothing unless it is within ~115 m (kViewTwo). The back view's fin
-// takes 0 and 1 (sprites.cc kSpriteFinCount), which leaves the stack six.
-// The smoke - an aircraft's, or where a round hit the ground - and a tracer
-// (gun.cc) take one each: four and two still fit in front with one of them,
-// not with both, nor behind with either - and then both aircraft are held
-// to two. Which is nearer goes by depth, and changes
-// only once the other is an eighth nearer, so that two at about the same
-// range do not trade sizes every frame; one in the far range is the farther.
-// Sets _opponent_capped when both slots are in view.
-static __noinline void _opponent_cap(void) {
-  if (_opponent_far == 1 || _opponent_far == 2) {
-    _opponent_nearer = _opponent_far & 1;
-  } else {
-    uint8_t n = _opponent_nearer, o = n ^ 1;
-    uint16_t dn = (uint16_t)_opponent_cs[n].x;
-    if ((uint16_t)_opponent_cs[o].x < dn - (dn >> 3)) {
-      _opponent_nearer = o;
-    }
-  }
-  uint8_t extra =
-      (uint8_t)(_opponent_smoke != kOpponentNoSmoke || gun_puff_up()) +
-      (uint8_t)gun_tracer_up();
-  uint8_t capped = extra > (view_state == VIEW_BACK ? 0 : 1)
-                       ? 3
-                       : _opponent_bit(_opponent_nearer ^ 1);
-  for (uint8_t i = 0; i < kOpponentMax; ++i) {
-    uint8_t bit = _opponent_bit(i);
-    // Newly held to two with a layout of more than one sprite, on screen,
-    // being filled or only latched: the dot until its turn to redraw comes
-    // round, and that from scratch. The layout's hysteresis, carried from
-    // the larger view, could otherwise hold it at 2 x 2 under kViewTwo -
-    // two hold only for an aircraft drawn under it all along.
-    if ((capped & bit) && !(_opponent_capped & bit)) {
-      planes_state_t *st = &_opponent_planes[i];
-      if (st->lay.level != kPlaneLevelDot && st->lay.cols + st->lay.rows > 2) {
-        _opponent_forget(i);
-        st->lay.level = kPlaneLevelDot;
-        st->key_valid = false;
-      }
-    }
-  }
-  _opponent_capped = capped;
 }
 
 static __noinline void _opponent_latch_shown(uint8_t i) {
@@ -1691,25 +1680,7 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
   for (uint8_t k = 0; k < sizeof(vec3_t); ++k, ++o) {
     ((uint8_t *)&_opponent_c)[k] = ((const uint8_t *)_opponent_cs)[o];
   }
-  // A redraw takes two frames, the projection in one and the fill in the
-  // next (docs/planes.md §13, "The silhouette at half rate"), so neither
-  // frame pays for both. The position is this frame's either way: the
-  // bitmap on screen is placed at this frame's centre.
   bool seen = planes_centre(&_opponent_view, &_opponent_c, &_opponent_f);
-  // A projection to fill, or a frame free for one and a bitmap on screen,
-  // which is the state's: either is slid for this frame's centre before it
-  // is filled. The bitmap on screen was slid for an earlier one: if the plane
-  // has risen since, it has lost lines that are on screen now - half of a
-  // close one, bobbing at the bottom of the view - and if it has dropped, it
-  // is shown too high, by as much. So when its slide is two lines or more off
-  // it is filled again now, rather than projected: a fill costs what a
-  // projection does. Each refill puts the next shape off by a frame, so one
-  // that is too high, which a drop through the cut keeps making, gets at most
-  // three in a row; one cut too deep gets as many as it needs - a plane can
-  // rise only so far through the cut. Measured on the host, a close plane
-  // moving up and down through it: too high on 1.7% of frames, by 10 lines at
-  // worst, rather than 11% and 29, and the shape a quarter to nearly half a
-  // frame older on average.
   if (seen && ((_opponent_pending & bit) ||
                (!busy && _opponent_shown[i].level != kPlaneLevelDot))) {
     uint8_t when = (_opponent_pending & bit)  ? kPlaneReslideAlways
@@ -1733,14 +1704,6 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
     front += kOpponentSetBlocks;
   }
   if (_opponent_pending & bit) {
-    // The fill the last frame projected, or the refill above. It writes
-    // under I/O; the raster handlers bank I/O in for themselves (gfx.cc
-    // _gfx_isr), and nothing in planes_fill() touches it. Then the new
-    // bitmap is the front one:
-    // it goes on screen with this frame's characters, at
-    // mem_switch_buffer(), and by the time a later frame fills the other
-    // set the raster handler has stopped showing it - mem_switch_buffer()
-    // runs past raster 250 in its colour copy before it returns.
     mmap_set(MMAP_RAM);
     planes_fill(&_opponent_planes[i], _opponent_block(front));
     mmap_set(MMAP_NO_ROM);
@@ -1766,12 +1729,8 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
       planes_project_axes(&_opponent_planes[i], &_opponent_view,
                           &_opponent_axes_m, &_opponent_f);
       if (_opponent_f.cached) {
-        // The front set holds the state's silhouette - after a forget too,
-        // as the state has not been projected since it was filled.
         _opponent_latch_shown(i);
       } else {
-        // A new silhouette, filled next frame; until then the old bitmap,
-        // or the dot if there is none.
         _opponent_pending |= bit;
         started = true;
       }
