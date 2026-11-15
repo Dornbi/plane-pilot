@@ -44,6 +44,7 @@
 //   15  poly_asm.h _poly_bounds_and_clear & _poly_trace_edges against C ref
 //   16  planes_asm.cc split project/reslide/fill, place cuts & slid-out clear
 //   17  opponent_asm.h _opponent_world_delta near/far/out & world wraparound
+//   18  gun_asm.h _gun_track_all, _gun_rel_from, _gun_hits & _gun_collides
 
 #include <stdint.h>
 
@@ -1068,6 +1069,222 @@ static void test_opponent_world_delta_asm(void) {
     }
   }
 }
+
+// 18. gun_asm.h: _gun_track_all, _gun_rel_from, _gun_hits, and _gun_collides
+// against 16-bit C references on the emulated 6510.
+static const uint8_t kOpponentMax = 2;
+static const uint8_t kRoundMax = 8;
+static const int16_t kGunCollide = 192;
+uint8_t flight_step_shift;
+static int32_t _gun_eye[3];
+static int32_t _gun_p[3];
+static __striped int16_t _gun_t[3];
+static __striped int16_t _gun_d[3];
+static __striped int16_t _gun_q[3];
+static __striped int16_t _gun_moved[3];
+static __striped int16_t _gun_prev[6];
+static __striped int16_t _round_p[24];
+static __striped int16_t _round_v[24];
+#include "../gun_asm.h"
+
+static bool _ref_gun_rel(uint8_t c, int16_t *out_val) {
+  int32_t d = _gun_p[c] - _gun_eye[c];
+  uint8_t u = (uint8_t)(d >> 16);
+  if (c == 0) {
+    u &= 0x7F;
+    if (u & 0x40) {
+      u |= 0x80;
+    }
+  }
+  int8_t s = (int8_t)u;
+  if (s < -15 || s > 14) {
+    return false;
+  }
+  *out_val = (int16_t)(((int16_t)s << 11) + (int16_t)((uint16_t)d >> 5));
+  return true;
+}
+
+static bool _ref_gun_hits(uint8_t r, int16_t box) {
+  int16_t gd[3], gq[3];
+  uint8_t i = r;
+  for (uint8_t c = 0; c < 3; ++c, i += 8) {
+    int16_t d = _gun_t[c] - _round_p[i];
+    gd[c] = d;
+    int16_t v = _round_v[i];
+    for (uint8_t s = flight_step_shift; s != 0; --s) {
+      v >>= 1;
+    }
+    gq[c] = v >> 2;
+    uint16_t lim = _abs16(v) + (uint16_t)box;
+    if (_abs16(d) > lim) {
+      return false;
+    }
+  }
+  for (uint8_t n = 0; n < 4; ++n) {
+    bool in = true;
+    for (uint8_t c = 0; c < 3; ++c) {
+      int16_t d = gd[c] - gq[c];
+      gd[c] = d;
+      if (_abs16(d) > (uint16_t)box) {
+        in = false;
+      }
+    }
+    if (in) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool _ref_gun_collides(uint8_t k, bool prev, int16_t *prev_buf) {
+  bool now = true, mid = prev;
+  for (uint8_t c = 0; c < 3; ++c, k += 2) {
+    int16_t t = _gun_t[c];
+    if (_abs16(t) > 192) {
+      now = false;
+    }
+    if (_abs16((int16_t)((t + prev_buf[k]) >> 1)) > 192) {
+      mid = false;
+    }
+    prev_buf[k] = t;
+  }
+  return now || mid;
+}
+
+static void test_gun_asm(void) {
+  // _gun_track_all: sub-quantum preservation, positive/negative borrow across
+  // bit 16, exact d >> 5 in _gun_moved, and _gun_t zeroed.
+  static const int32_t kSteps[4][3] = {
+      {0x0000001FL, -0x00000001L, 0x00000020L},
+      {0x00000F15L, -0x00000E33L, 0x000001FFL},
+      {-0x00001205L, 0x0000185AL, -0x00000420L},
+      {0x00000083L, -0x0000009EL, 0x00000000L},
+  };
+  int32_t ref_eye[3] = {0x0010FFE8L, 0x00200010L, 0x00058004L};
+  for (uint8_t c = 0; c < 3; ++c) {
+    _gun_eye[c] = ref_eye[c];
+    *kFlightEye[c] = ref_eye[c];
+  }
+  for (uint8_t s = 0; s < 4; ++s) {
+    int16_t want_m[3];
+    for (uint8_t c = 0; c < 3; ++c) {
+      *kFlightEye[c] += kSteps[s][c];
+      int16_t d = (int16_t)((uint16_t)(*kFlightEye[c]) - (uint16_t)ref_eye[c]);
+      want_m[c] = d >> 5;
+      ref_eye[c] += (int16_t)(d & ~31);
+      _gun_t[c] = 1234;
+    }
+    _gun_track_all();
+    for (uint8_t c = 0; c < 3; ++c) {
+      expect(18, (int16_t)_gun_eye[c], (int16_t)ref_eye[c]);
+      expect(18, (int16_t)(_gun_eye[c] >> 16), (int16_t)(ref_eye[c] >> 16));
+      expect(18, _gun_moved[c], want_m[c]);
+      expect(18, _gun_t[c], 0);
+    }
+  }
+
+  // _gun_rel_from(0) and _gun_rel_from(2): wraparound on x/y and [-15, 14].
+  _gun_eye[0] = 0x007E0040L;
+  _gun_eye[1] = 0x00FC8020L;
+  _gun_eye[2] = 0x00040100L;
+  static const int32_t kRelOff[][3] = {
+      {0, 0, 0},
+      {0x000EFFFDL, -0x000F0000L, -0x00040100L}, // max in-range +14, -15
+      {0x000F0000L, 0, 0},                        // +15 out
+      {0, -0x000F0001L, 0},                       // -16 out
+      {0, 0, 0x000F0000L},                        // z out
+      {-0x007A0020L, -0x00F60040L, -0x00010060L}, // wrap across x=128 & y=256
+      {0x00790060L, 0x00F50080L, 0x000200A0L},    // negative wrap
+  };
+  for (uint8_t k = 0; k < sizeof(kRelOff) / sizeof(kRelOff[0]); ++k) {
+    _gun_p[0] = (_gun_eye[0] + kRelOff[k][0]) & 0x007FFFFFL;
+    _gun_p[1] = (_gun_eye[1] + kRelOff[k][1]) & 0x00FFFFFFL;
+    _gun_p[2] = _gun_eye[2] + kRelOff[k][2];
+    int16_t want_t[3] = {77, 88, 99};
+    bool want_ok = _ref_gun_rel(0, &want_t[0]) && _ref_gun_rel(1, &want_t[1]) &&
+                   _ref_gun_rel(2, &want_t[2]);
+    bool got_ok = _gun_rel3_to() != 0;
+    expect(18, got_ok, want_ok);
+    if (want_ok) {
+      expect(18, _gun_t[0], want_t[0]);
+      expect(18, _gun_t[1], want_t[1]);
+      expect(18, _gun_t[2], want_t[2]);
+    }
+    int16_t want_z = 33;
+    bool want_zok = _ref_gun_rel(2, &want_z);
+    _gun_t[0] = 11;
+    _gun_t[1] = 22;
+    bool got_zok = _gun_rel2() != 0;
+    expect(18, got_zok, want_zok);
+    expect(18, _gun_t[0], 11);
+    expect(18, _gun_t[1], 22);
+    if (want_zok) {
+      expect(18, _gun_t[2], want_z);
+    }
+  }
+
+  // _gun_hits: substeps, reach boundary, box boundary, and flight_step_shift.
+  static const int16_t kHitCases[][7] = {
+      {500, -200, 100, 800, -400, 200, 160},   // clean hit on substep 2
+      {960, 0, 0, 800, 0, 0, 160},             // exact |d| == lim, hits on substep 4
+      {961, 0, 0, 800, 0, 0, 160},             // |d| == lim + 1 -> early out
+      {500, 300, 0, 800, -400, 0, 160},        // y diverges -> miss in Pass 2
+      {-700, -160, 160, -800, 0, 0, 160},      // negative velocity boundary hit
+      {-700, -161, 160, -800, 0, 0, 160},      // off by 1 outside box -> miss
+      {600, -500, 400, 768, -600, 500, 640},   // near-miss box = 640
+  };
+  for (uint8_t sh = 0; sh <= 2; ++sh) {
+    flight_step_shift = sh;
+    for (uint8_t c = 0; c < sizeof(kHitCases) / sizeof(kHitCases[0]); ++c) {
+      uint8_t r = (uint8_t)(c & 7);
+      _gun_t[0] = kHitCases[c][0];
+      _gun_t[1] = kHitCases[c][1];
+      _gun_t[2] = kHitCases[c][2];
+      _round_p[r] = 40;
+      _round_p[r + 8] = -20;
+      _round_p[r + 16] = 10;
+      _round_v[r] = kHitCases[c][3];
+      _round_v[r + 8] = kHitCases[c][4];
+      _round_v[r + 16] = kHitCases[c][5];
+      int16_t box = kHitCases[c][6];
+      expect(18, _gun_hits(r, box), _ref_gun_hits(r, box));
+    }
+  }
+  flight_step_shift = 0;
+
+  // _gun_collides: +-192 vs +-193 on now and mid, prev=false vs true, slots 0/1.
+  static const int16_t kColSeq[][3] = {
+      {400, 0, 0},      // outside
+      {-384, 192, -192}, // now outside (-384), mid = (+8, +96, -96) -> mid hit if prev!
+      {500, 0, 0},      // outside
+      {-114, 0, 0},     // mid = +193 -> outside! now = -114 -> now hit!
+      {500, 0, 0},
+      {-113, 0, 0},     // mid = +193 -> outside; Wait: (500 + -114)>>1 = 193, (500 + -116)>>1 = 192
+      {500, 385, 0},
+      {-500, -1, 0},    // mid = (0, +192, 0) -> mid hit!
+      {500, 387, 0},
+      {-500, -1, 0},    // mid = (0, +193, 0) -> miss!
+      {192, -192, 192}, // exact boundary now hit
+      {193, 0, 0},      // +193 outside (unless mid hits: (192+193)>>1 = 192 -> mid hits if prev!)
+  };
+  int16_t ref_prev[6] = {0, 0, 0, 0, 0, 0};
+  for (uint8_t i = 0; i < 6; ++i) {
+    _gun_prev[i] = 0;
+  }
+  for (uint8_t s = 0; s < sizeof(kColSeq) / sizeof(kColSeq[0]); ++s) {
+    uint8_t slot = s & 1;
+    bool prev = (s >= 2);
+    _gun_t[0] = kColSeq[s][0];
+    _gun_t[1] = kColSeq[s][1];
+    _gun_t[2] = kColSeq[s][2];
+    bool want = _ref_gun_collides(slot, prev, ref_prev);
+    bool got = _gun_collides(slot, prev);
+    expect(18, got, want);
+    for (uint8_t i = 0; i < 6; ++i) {
+      expect(18, _gun_prev[i], ref_prev[i]);
+    }
+  }
+}
 #pragma optimize(pop)
 
 int main(void) {
@@ -1099,6 +1316,7 @@ int main(void) {
   test_poly_trace_edges_asm();
   test_planes_split_reslide_asm();
   test_opponent_world_delta_asm();
+  test_gun_asm();
 
   // Something for vice_dump.sh's @spin to break on. Everything above has
   // landed in the globals by the time the loop is reached.
