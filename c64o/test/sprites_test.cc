@@ -353,6 +353,14 @@ static void test_no_index_used_twice(void) {
     assert(!seen[spr_ptr(i)]);
     seen[spr_ptr(i)] = true;
   }
+
+  // Nothing reads a disabled sprite's pointer or colour, so the handler does
+  // not copy them: past the last index in use both are as it found them
+  // (program_terrain()'s 0xAA).
+  for (uint8_t i = F + 5; i < 8; ++i) {
+    assert(!enabled(i));
+    assert(spr_ptr(i) == 0xAA && spr_color(i) == 0xAA);
+  }
 }
 
 static void test_culls(void) {

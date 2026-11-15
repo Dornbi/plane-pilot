@@ -108,6 +108,11 @@ struct sprite_frame_t {
   // would be one more thing to unwind on the way back to the panel.
   uint8_t expand_y;
   uint8_t enable;
+  // The last index in use: at least 0, the mark's or the fin's. The handler
+  // copies the pointers and colours up to it and no further; the rest are
+  // disabled, and nothing reads a disabled sprite's. A zeroed frame (bss2;
+  // polydemo never calls sprites_init()) makes it copy one.
+  uint8_t last;
 };
 
 // $D000, as a literal rather than through the vic struct, so `[i]` is plainly
@@ -773,18 +778,18 @@ void sprites_stack_commit(void) {
   // Unused indices are left disabled rather than parked at x = 0. Parking
   // hides a sprite but still costs its DMA on every line it would have been
   // displayed on; clearing the enable bit costs neither, and it is one store
-  // in the handler instead of eight.
+  // in the handler instead of eight. They are parked all the same, but only
+  // their positions: the handler does not copy a pointer or a colour past
+  // `last`.
+  f->last = idx - 1;
   while (idx < kSpriteStackSize) {
     f->pos[idx << 1] = 0;
     f->pos[(idx << 1) + 1] = 0;
-    f->ptr[idx] = kSpriteDefSun.bitmap_idx;
-    f->color[idx] = kColorInstrument;
     ++idx;
   }
   // Sprite 0, the one index the stack never hands out, so the orientation
   // indicator takes it whether the stack overflowed or was empty. A frame
-  // that sets no marker parks it like the fill above, disabled and in the
-  // needle's colour.
+  // that sets no marker parks it, disabled and in the needle's colour.
   uint8_t orient_x = 0, orient_y = 0;
   uint8_t orient_ptr = kSpriteDefSun.bitmap_idx;
   uint8_t orient_color = kColorInstrument;
@@ -852,8 +857,20 @@ void sprites_stack_commit(void) {
 // _gfx_switch_to_terrain() selects it from mem_using_alt_buffer just as
 // sprites_show_terrain_sprites() selects the frame, so the other screen's
 // eight pointers are never fetched and are not written.
+//
+// The enable mask goes first, and that order is worth about 100 cycles a
+// frame for every index the stack left unused. The handler starts on raster
+// 253 or so with all eight sprites still enabled by the panel band, and an
+// unused one is parked at y = 0. The VIC compares a sprite's Y with the low
+// eight bits of the raster, so y = 0 is raster 256 too: with the mask written
+// last, after some 450 cycles of copying, every parked sprite was still
+// enabled on that line and was fetched for 21 lines of the lower border,
+// showing nothing. Written first, they are off before the raster gets there.
+// It only ever clears bits - the panel band leaves all eight set - and
+// clearing one neither stops nor hides a sprite that is being drawn.
 #define _sprites_program_frame(F, SCREEN)                                      \
   do {                                                                         \
+    vic.spr_enable = (F).enable;                                               \
     /* Counts down. Counting up made oscar64 increment the index before the  */ \
     /* store, so it kept the pre-increment copy in X and shuffled the two    */ \
     /* through ACCU - which is exactly the zero page this must not touch.    */ \
@@ -864,7 +881,9 @@ void sprites_stack_commit(void) {
       kVicSpritePos[i + 1] = (F).pos[i + 1];                                   \
       kVicSpritePos[i] = (F).pos[i];                                           \
     } while (i != 0);                                                          \
-    uint8_t k = 8;                                                             \
+    /* The count is the last index in use plus one, so it is never 0, which  */ \
+    /* would wrap and run 256 passes over the VIC's registers.               */ \
+    uint8_t k = (F).last + 1;                                                  \
     do {                                                                       \
       --k;                                                                     \
       *((SCREEN) + 1016 + k) = (F).ptr[k];                                     \
@@ -873,7 +892,6 @@ void sprites_stack_commit(void) {
     vic.spr_msbx = (F).msbx;                                                   \
     vic.spr_expand_x = (F).expand;                                             \
     vic.spr_expand_y = (F).expand_y;                                           \
-    vic.spr_enable = (F).enable;                                               \
   } while (0)
 
 // The frame of the buffer going on screen: the main one while the main line
@@ -901,7 +919,8 @@ inline void sprites_show_panel_top_sprites() {
   //   ends at 24 and the VIC compares X per raster line. It does *not* hide an
   //   X-expanded one, which is 48 wide and would poke 24 pixels into the panel.
   // - Sprite 0's colour. It is the vertical speed needle, the one instrument
-  //   drawn in this band, and the terrain handler now writes all eight colours.
+  //   drawn in this band, and the terrain handler writes the colour of every
+  //   index it uses, 0 always among them.
   // - $D017, for the same reason as $D01D: the back view's tail fin leaves
   //   sprites 0 and 1 Y-expanded, and two of the instruments are those
   //   two. Nothing shows it in the back view itself, which draws no

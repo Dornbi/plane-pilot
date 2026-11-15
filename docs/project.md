@@ -574,7 +574,10 @@ commit sorts by depth and assigns indices in that order. Correct mutual
 occlusion falls out with nothing written to `$D01B`, and the overflow rule
 comes free, since the entries that lose a slot are the farthest ones. The
 committed frame is double buffered, because the terrain raster handler programs
-it. The sun is an ordinary client at `INT16_MAX` depth; clouds are the other
+it. The handler writes the frame's enable mask first, so an index the stack
+left unused, parked at y = 0, is off before raster 256 would start its fetch
+in the lower border, and it copies the pointers and colours of the indices in
+use only. The sun is an ordinary client at `INT16_MAX` depth; clouds are the other
 one; [planes.md](planes.md) is meant to be the third.
 
 Seven slots, not eight: index 0 is the vertical-speed needle below the split
