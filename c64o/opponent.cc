@@ -89,9 +89,9 @@ static_assert(kSpriteVisibleEndYPixels - 1 == 89 &&
 //
 // kViewFar (`far`): for an aircraft from 16 units, ~2 km, out. Its
 // camera-space position is in half metres rather than eighth metres
-// (_opponent_camera()), so a quarter of the numerator gives the same k, and
-// the same picture - the dot, or a silhouette the size of one. The dot needs
-// no cap; two sprites' is the safe one.
+// (_opponent_world_delta()), so a quarter of the numerator gives the same k,
+// and the same picture - the dot, or a silhouette the size of one. The dot
+// needs no cap; two sprites' is the safe one.
 static inline void _opponent_set_view(bool far, bool two) {
   _opponent_view.kmax = far || two ? kPlaneKMaxTwoSprites : (uint8_t)kPlaneKMax;
   _opponent_view.kn = far ? kOpponentKn / 4 : kOpponentKn;
@@ -653,8 +653,9 @@ static uint8_t _opponent_capped;
 // row (_opponent_draw()).
 static uint8_t _opponent_refills[kOpponentMax];
 #pragma bss(tscratch)
-// The aircraft being culled or drawn, in camera space and eighth metres,
-// and each slot's once it is in view. Statics
+// The aircraft being drawn (_opponent_c, constant-addressed for
+// planes_centre()), and each slot's camera-space position once _opponent_cull()
+// accepts it (_opponent_cs). Statics
 // rather than locals, like the two below and the slot's state in
 // _opponent_draw(), read through _opponent_planes[i] rather than a pointer:
 // oscar64's zero page temporaries grow with the call graph and the
@@ -663,8 +664,8 @@ static uint8_t _opponent_refills[kOpponentMax];
 static vec3_t _opponent_c;
 static vec3_t _opponent_cs[kOpponentMax];
 // opponent_add_sprites()'s: which slots are in view, which of those are in
-// the far range (_opponent_camera()), and whether a redraw is in flight this
-// frame.
+// the far range (_opponent_world_delta()), and whether a redraw is in flight
+// this frame.
 static uint8_t _opponent_seen;
 static uint8_t _opponent_far;
 static bool _opponent_busy;
@@ -1551,23 +1552,15 @@ static uint8_t _opponent_world_delta(uint8_t i) {
 }
 #endif
 
-static __noinline uint8_t _opponent_camera(uint8_t i) {
+#ifndef __OSCAR64__
+static inline uint8_t _opponent_camera(uint8_t i) {
   uint8_t range = _opponent_world_delta(i);
   if (range != kOpponentOut) {
     vec_transform_inv(&world_cam, &vec_v, &_opponent_c);
   }
   return range;
 }
-
-static __noinline bool _opponent_off_screen(void) {
-  uint16_t half = (uint16_t)_opponent_c.x >> 1;
-  uint16_t eighth = half >> 2;
-  uint16_t px4 = eighth >> 3;
-  uint16_t ay = _opponent_abs(_opponent_c.y);
-  uint16_t az = _opponent_abs(_opponent_c.z);
-  return ay > half + eighth + px4 + kOpponentReachX ||
-         az > (half >> 1) - (eighth >> 2) + px4 + kOpponentReachZ;
-}
+#endif
 
 // Slot i's body axes in camera space, in _opponent_axes_m, as planes_project()
 // reads them: only their screen components, y and z, which are each a dot
@@ -1629,28 +1622,50 @@ static inline void _opponent_axes(uint8_t i, mat3_t *axes) {
 
 static_assert(kOpponentMax == 2, "the slots' turns below are written for two");
 
+static __noinline bool _opponent_in_lim(int16_t v, uint16_t lim) {
+  return (uint16_t)((uint16_t)v + lim) <= (uint16_t)(lim << 1);
+}
+
 // Which aircraft are in view, and where: bit i of the result for slot i, and
-// its camera-space position in _opponent_cs[i].
+// its camera-space position in _opponent_cs[i]. Camera-space x, z and y are
+// formed one row at a time with depth and frustum rejects interleaved, so an
+// aircraft behind the camera skips six multiplies and one above or below the
+// narrow viewport skips three.
 static __noinline uint8_t _opponent_cull(void) {
   uint8_t seen = 0, far = 0;
-  for (uint8_t i = 0; i < kOpponentMax; ++i) {
+  vec3_t *cs = _opponent_cs;
+  for (uint8_t i = 0; i < kOpponentMax; ++i, ++cs) {
     if (!_opponent_on[i]) {
       continue;
     }
     uint8_t bit = _opponent_bit(i);
     if (!(_opponent_down & bit)) {
-      uint8_t range = _opponent_camera(i);
-      if (range != kOpponentOut && _opponent_c.x > 64 &&
-          !_opponent_off_screen()) {
-        seen |= bit;
-        if (range == kOpponentFar) {
-          far |= bit;
+      uint8_t range = _opponent_world_delta(i);
+      if (range != kOpponentOut) {
+        int16_t cx = vec_dot(&world_cam.front, &vec_v);
+        if (cx > 64) {
+          cs->x = cx;
+          int16_t cz = vec_dot(&world_cam.up, &vec_v);
+          uint16_t half = (uint16_t)cx >> 1;
+          uint16_t quar = half >> 1;
+          uint16_t eighth = quar >> 1;
+          uint16_t u32 = eighth >> 2;
+          uint16_t px4 = u32 >> 1;
+          if (_opponent_in_lim(
+                  cz, (uint16_t)(quar - u32 + px4 + kOpponentReachZ))) {
+            cs->z = cz;
+            uint16_t lim_y = (uint16_t)(half + eighth + px4 + kOpponentReachX);
+            int16_t cy = vec_dot(&world_cam.left, &vec_v);
+            if (_opponent_in_lim(cy, lim_y)) {
+              cs->y = cy;
+              seen |= bit;
+              if (range == kOpponentFar) {
+                far |= bit;
+              }
+              continue;
+            }
+          }
         }
-        uint8_t o = i ? (uint8_t)sizeof(vec3_t) : 0;
-        for (uint8_t k = 0; k < sizeof(vec3_t); ++k, ++o) {
-          ((uint8_t *)_opponent_cs)[o] = ((const uint8_t *)&_opponent_c)[k];
-        }
-        continue;
       }
     }
     _opponent_forget(i);
