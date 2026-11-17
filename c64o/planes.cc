@@ -91,8 +91,8 @@ uint8_t _planes_pv[16];
 
 #ifndef __OSCAR64__
 // ---------------------------------------------------------------------------
-// planes_asm.h + planes_centre + planes_place + planes_fill in C, for the
-// host: what planes_asm.cc does on the C64, step for step.
+// planes_asm.h + planes_centre + planes_place + planes_reslide + planes_fill
+// in C, for the host: what planes_asm.cc does on the C64, step for step.
 
 static __noinline int16_t _abs16(int16_t a) { return a < 0 ? (int16_t)-a : a; }
 
@@ -492,21 +492,23 @@ void planes_state_init(planes_state_t *state) {
   state->key_count = 0;
 }
 
+// Byte offsets of (y, z) across front, left and up in mat3_t (x skipped).
+static const uint8_t kAxisScreenByte[12] = {2, 3,  4,  5,  8,  9,
+                                            10, 11, 14, 15, 16, 17};
+
 // Whether the axes' screen components differ from the ones in `last`, which
 // holds them from then on: (y, z) of the front, left and up, byte by byte,
 // the x of each skipped.
 static bool _new_axes(int16_t *last, const mat3_t *axes) {
-  const uint8_t *a = (const uint8_t *)&axes->front.y;
+  const uint8_t *a = (const uint8_t *)axes;
   uint8_t *l = (uint8_t *)last;
   bool moved = false;
-  uint8_t j = 0;
   for (uint8_t i = 0; i < 12; ++i) {
-    uint8_t v = a[j];
+    uint8_t v = a[kAxisScreenByte[i]];
     if (l[i] != v) {
       l[i] = v;
       moved = true;
     }
-    j += (i & 3) == 3 ? 3 : 1;
   }
   return moved;
 }
@@ -619,6 +621,7 @@ void planes_project_axes(planes_state_t *state, const planes_view_t *view,
   frame->cached = cached;
 }
 
+#ifndef __OSCAR64__
 bool planes_reslide(planes_state_t *state, const planes_view_t *view,
                     planes_frame_t *frame, uint8_t when) {
   planes_layout_t *lay = &state->lay;
@@ -644,6 +647,7 @@ bool planes_reslide(planes_state_t *state, const planes_view_t *view,
   state->key_band = (uint8_t)((uint16_t)lay->slid >> 7);
   return true;
 }
+#endif
 
 void planes_project(planes_state_t *state, const planes_view_t *view,
                     const vec3_t *c, const mat3_t *axes, planes_frame_t *frame) {

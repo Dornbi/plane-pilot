@@ -52,12 +52,12 @@
 #include <stdint.h>
 
 // Test 7's cases + asm suites need more room than oscar64's default layout
-// leaves: code and data up to $C800 (main() banks out BASIC + KERNAL ROM at
+// leaves: code and data up to $D000 (main() banks out BASIC + KERNAL ROM at
 // entry), stack in $0200-$03FF, bss in $0400-$07FF, and test buffers in
-// $C800-$CFFF and $F000-$F5FF.
+// $F000-$FDB4.
 #pragma heapsize(0)
 #pragma stacksize(0x200)
-#pragma region(main, 0x0860, 0xC800, , , {code, data})
+#pragma region(main, 0x0860, 0xD000, , , {code, data})
 #pragma region(stackregion, 0x0200, 0x0400, , , {heap, stack})
 #pragma region(bssregion, 0x0400, 0x0800, , , {bss})
 // And the zero page the programs under test get from -xz: vec_asm.cc's
@@ -66,6 +66,7 @@
 
 #include "../planedef.h"
 #include "../planes.h"
+#include "../planes_asm.h"
 #include "../poly_asm.h"
 #include "../render_asm.h"
 #include "../vec.h"
@@ -336,22 +337,22 @@ static void test_fastmul_short(void) {
 // ---------------------------------------------------------------------------
 // Backing arrays and C references for poly_asm.cc, world_asm.cc, render_asm.cc
 // ---------------------------------------------------------------------------
-// Place test scratch/reference screens in $F200-$F5FF (under banked-out KERNAL
-// ROM) and $C800-$CFFF.
+// Place test scratch/reference screens in $F200-$FBAF (under banked-out KERNAL
+// ROM).
 static uint8_t *const test_scr = (uint8_t *)0xF200;
-static uint8_t *const test_clr = (uint8_t *)0xC800;
-static uint8_t *const ref_scr = (uint8_t *)0xCA80;
-static uint8_t *const ref_clr = (uint8_t *)0xCD00;
+static uint8_t *const test_clr = (uint8_t *)0xF480;
+static uint8_t *const ref_scr = (uint8_t *)0xF700;
+static uint8_t *const ref_clr = (uint8_t *)0xF980;
 
 __striped uint8_t *mem_screen_row_ptrs[kScreenHeight];
 __striped uint8_t *const mem_color_row_ptrs[kViewportHeight] = {
-    (uint8_t *)0xC800 + 0 * 40,  (uint8_t *)0xC800 + 1 * 40,
-    (uint8_t *)0xC800 + 2 * 40,  (uint8_t *)0xC800 + 3 * 40,
-    (uint8_t *)0xC800 + 4 * 40,  (uint8_t *)0xC800 + 5 * 40,
-    (uint8_t *)0xC800 + 6 * 40,  (uint8_t *)0xC800 + 7 * 40,
-    (uint8_t *)0xC800 + 8 * 40,  (uint8_t *)0xC800 + 9 * 40,
-    (uint8_t *)0xC800 + 10 * 40, (uint8_t *)0xC800 + 11 * 40,
-    (uint8_t *)0xC800 + 12 * 40, (uint8_t *)0xC800 + 13 * 40};
+    (uint8_t *)0xF480 + 0 * 40,  (uint8_t *)0xF480 + 1 * 40,
+    (uint8_t *)0xF480 + 2 * 40,  (uint8_t *)0xF480 + 3 * 40,
+    (uint8_t *)0xF480 + 4 * 40,  (uint8_t *)0xF480 + 5 * 40,
+    (uint8_t *)0xF480 + 6 * 40,  (uint8_t *)0xF480 + 7 * 40,
+    (uint8_t *)0xF480 + 8 * 40,  (uint8_t *)0xF480 + 9 * 40,
+    (uint8_t *)0xF480 + 10 * 40, (uint8_t *)0xF480 + 11 * 40,
+    (uint8_t *)0xF480 + 12 * 40, (uint8_t *)0xF480 + 13 * 40};
 bool mem_using_alt_buffer;
 
 vec3_t _poly_clip3_buf[10];
@@ -750,8 +751,8 @@ static void test_render_flush_span_asm(void) {
 }
 
 // 15. poly_asm.h _poly_bounds_and_clear + _poly_trace_edges against C Bresenham.
-static uint8_t *const _ref_min_x = (uint8_t *)0xCF40;
-static uint8_t *const _ref_max_x = (uint8_t *)0xCF60;
+static uint8_t *const _ref_min_x = (uint8_t *)0xFC40;
+static uint8_t *const _ref_max_x = (uint8_t *)0xFC60;
 
 static void _ref_trace_edge(int8_t xa, uint8_t ya, int8_t xb, uint8_t yb) {
   if (ya == yb) {
@@ -913,6 +914,9 @@ static void test_poly_trace_edges_asm(void) {
 
 // 16. Split planes_project + planes_reslide + planes_fill, planes_place cut
 // boundaries, and full-buffer-slide empty fill on the 6502 routines.
+static planes_state_t *const _test_psa = (planes_state_t *)0xFD00;
+static planes_state_t *const _test_psb = (planes_state_t *)0xFD60;
+
 static void test_planes_split_reslide_asm(void) {
   const planes_view_t view = {kTargetCx0, kTargetCy0, kTargetCut1, kTargetCut2,
                               kPlaneKMax, kPlaneKnModel};
@@ -926,27 +930,26 @@ static void test_planes_split_reslide_asm(void) {
   // direct planes_render from the same prior layout latches.
   static const int16_t kDist[2] = {600, 260}; // ys=1 and ys=2 silhouettes
   for (uint8_t t = 0; t < 2; ++t) {
-    planes_state_t s_split, s_direct;
-    planes_state_init(&s_split);
-    planes_state_init(&s_direct);
+    planes_state_init(_test_psa);
+    planes_state_init(_test_psb);
     vec3_t c0 = make_vector(kDist[t], 20, 40);
     vec3_t c1 = make_vector(kDist[t], 20, -140);
     planes_frame_t f_split, f_direct;
 
-    planes_project(&s_split, &view, &c0, &axes, &f_split);
-    planes_project(&s_direct, &view, &c0, &axes, &f_direct);
+    planes_project(_test_psa, &view, &c0, &axes, &f_split);
+    planes_project(_test_psb, &view, &c0, &axes, &f_direct);
 
     bool ok = planes_centre(&view, &c1, &f_split);
     expect(16, ok ? 1 : 0, 1);
-    bool moved = planes_reslide(&s_split, &view, &f_split, kPlaneReslideAlways);
+    bool moved = planes_reslide(_test_psa, &view, &f_split, kPlaneReslideAlways);
     expect(16, moved ? 1 : 0, 1);
-    planes_fill(&s_split, _planes_sets[0][0]);
+    planes_fill(_test_psa, _planes_sets[0][0]);
 
-    planes_render(&s_direct, &view, &c1, &axes, _planes_sets[1][0], &f_direct);
+    planes_render(_test_psb, &view, &c1, &axes, _planes_sets[1][0], &f_direct);
     expect(16, f_split.x, f_direct.x);
     // For ys == 2 an odd reslide rounds up by 1 line, matching lay.slid.
-    expect(16, f_split.slid, (uint8_t)s_split.lay.slid);
-    if (s_split.lay.slid == s_direct.lay.slid) {
+    expect(16, f_split.slid, (uint8_t)(_test_psa->lay.slid));
+    if (_test_psa->lay.slid == _test_psb->lay.slid) {
       for (uint8_t b = 0; b < f_direct.cols * f_direct.rows; ++b) {
         for (uint8_t i = 0; i < kPlaneBlockBytes; ++i) {
           expect(16, _planes_sets[0][b][i], _planes_sets[1][b][i]);
@@ -955,14 +958,14 @@ static void test_planes_split_reslide_asm(void) {
     }
 
     // Slide >= buffer height must clear all blocks and draw nothing.
-    s_split.lay.slid = 200;
+    _test_psa->lay.slid = 200;
     for (uint8_t b = 0; b < 4; ++b) {
       for (uint8_t i = 0; i < kPlaneBlockStride; ++i) {
         _planes_sets[0][b][i] = 0xAA;
       }
     }
-    planes_fill(&s_split, _planes_sets[0][0]);
-    uint8_t blocks = (uint8_t)(s_split.lay.cols * s_split.lay.rows);
+    planes_fill(_test_psa, _planes_sets[0][0]);
+    uint8_t blocks = (uint8_t)(_test_psa->lay.cols * _test_psa->lay.rows);
     for (uint8_t b = 0; b < blocks; ++b) {
       for (uint8_t i = 0; i < kPlaneBlockStride; ++i) {
         expect(16, _planes_sets[0][b][i], 0);
@@ -981,6 +984,112 @@ static void test_planes_split_reslide_asm(void) {
   df.cy = (int16_t)(kTargetCut1 + kPlaneDotY + 1);
   expect(16, planes_place(&dot_lay, &view, &df), 0);
   expect(16, df.hidden, kPlaneBelowCut);
+
+  // planes_project_axes cache: x components of axes ignored, every (y, z) byte
+  // detected and triggers re-projection.
+  planes_state_init(_test_psa);
+  vec3_t ca = make_vector(400, 0, 0);
+  mat3_t ma = axes;
+  planes_project(_test_psa, &view, &ca, &ma, &df);
+  expect(16, df.cached ? 1 : 0, 0);
+  planes_project(_test_psa, &view, &ca, &ma, &df);
+  expect(16, df.cached ? 1 : 0, 1);
+  ma.front.x ^= 0x1234;
+  ma.left.x ^= 0x5678;
+  ma.up.x ^= 0x2345;
+  planes_project(_test_psa, &view, &ca, &ma, &df);
+  expect(16, df.cached ? 1 : 0, 1);
+  uint8_t *mb = (uint8_t *)&ma;
+  for (uint8_t off = 0; off < 18; ++off) {
+    if ((off % 6) < 2) {
+      continue;
+    }
+    mb[off] ^= 0x40;
+    planes_project_axes(_test_psa, &view, &ma, &df);
+    expect(16, _test_psa->axes[(off / 6) * 2 + ((off % 6) - 2) / 2],
+           ((const int16_t *)&ma)[off / 2]);
+    planes_project_axes(_test_psa, &view, &ma, &df);
+    expect(16, df.cached ? 1 : 0, 1);
+    mb[off] ^= 0x40;
+    planes_project_axes(_test_psa, &view, &ma, &df);
+  }
+
+  // planes_reslide thresholds (Deep/Off/Always), ys=1 & ys=2 odd parity, band, key_count=0.
+  static const int16_t kDeltas[] = {-300, -3, -2, -1, 0, 1, 2, 3, 130};
+  for (uint8_t ys = 1; ys <= 2; ++ys) {
+    for (uint8_t when = 0; when <= 2; ++when) {
+      for (uint8_t di = 0; di < sizeof(kDeltas) / sizeof(kDeltas[0]); ++di) {
+        int16_t want_d = kDeltas[di];
+        int16_t base_slid = 310;
+        int16_t need = (int16_t)(base_slid + want_d);
+        planes_state_init(_test_psa);
+        _test_psa->lay.level = kPlaneLevelX;
+        _test_psa->lay.ys = ys;
+        _test_psa->lay.cols = 1;
+        _test_psa->lay.rows = 1;
+        _test_psa->lay.ox = -12;
+        _test_psa->lay.oy = 0;
+        _test_psa->lay.slid = base_slid;
+        _test_psa->key_count = (di == 4) ? 0 : 4;
+        _test_psa->key_band = 99;
+        for (uint8_t v = 0; v < 4; ++v) {
+          _test_psa->key_y[v] = (uint8_t)(10 + v * 7);
+        }
+        df.hidden = kPlaneShown;
+        df.cx = 160;
+        df.cy = (int16_t)((ys == 2 ? view.cut2 : view.cut1) + need);
+        bool want_mv = !(when != kPlaneReslideAlways && want_d > -2 &&
+                         (when == kPlaneReslideDeep || want_d < 2));
+        bool got_mv = planes_reslide(_test_psa, &view, &df, when);
+        expect(16, got_mv ? 1 : 0, want_mv ? 1 : 0);
+        if (want_mv) {
+          int16_t ed = want_d;
+          if (ys == 2) {
+            ed = (int16_t)(ed + (ed & 1));
+          }
+          int16_t want_slid = (int16_t)(base_slid + ed);
+          uint8_t dy = (uint8_t)(ys == 2 ? (ed >> 1) : ed);
+          expect(16, _test_psa->lay.slid, want_slid);
+          expect(16, _test_psa->key_band, (uint8_t)((uint16_t)want_slid >> 7));
+          for (uint8_t v = 0; v < _test_psa->key_count; ++v) {
+            expect(16, _test_psa->key_y[v], (uint8_t)(10 + v * 7 + dy));
+          }
+        } else {
+          expect(16, _test_psa->lay.slid, base_slid);
+          expect(16, _test_psa->key_band, 99);
+        }
+      }
+    }
+  }
+
+  // Axis-aligned attitude (0 and +-256 screen components) through _planes_axis_products.
+  mat3_t aligned;
+  aligned.front = make_vector(0, 256, 0);
+  aligned.left = make_vector(-256, 0, 0);
+  aligned.up = make_vector(0, 0, -256);
+  _planes_mags(100);
+  _planes_axis_products(&aligned);
+  expect(16, _planes_tx[0], 0);
+  expect(16, _planes_ty[0], 0);
+  for (uint8_t p = 1; p < 16; ++p) {
+    int16_t pv = (int16_t)_planes_pv[p];
+    if (p < 12) {
+      expect(16, _planes_tx[16 + p], pv);
+      expect(16, _planes_tx[p], (int16_t)-pv);
+      expect(16, _planes_ty[16 + p], 0);
+      expect(16, _planes_ty[p], 0);
+    } else if (p < 14) {
+      expect(16, _planes_tx[16 + p], 0);
+      expect(16, _planes_tx[p], 0);
+      expect(16, _planes_ty[16 + p], 0);
+      expect(16, _planes_ty[p], 0);
+    } else {
+      expect(16, _planes_tx[16 + p], 0);
+      expect(16, _planes_tx[p], 0);
+      expect(16, _planes_ty[16 + p], (int16_t)-pv);
+      expect(16, _planes_ty[p], pv);
+    }
+  }
 }
 
 // 17. opponent_asm.h _opponent_world_delta: near/far/out classification,
@@ -1482,8 +1591,8 @@ static bool _test_msg_on;
 __noinline bool msg_active(void) { return _test_msg_on; }
 #include "../sprites_asm.h"
 
-static sprite_cand_t *const _ref_cand = (sprite_cand_t *)0xCF00;
-static sprite_frame_t *const _ref_frames = (sprite_frame_t *)0xCF60;
+static sprite_cand_t *const _ref_cand = (sprite_cand_t *)0xFC00;
+static sprite_frame_t *const _ref_frames = (sprite_frame_t *)0xFC80;
 static uint8_t _ref_cand_end;
 
 static bool _ref_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
