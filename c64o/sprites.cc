@@ -159,9 +159,10 @@ static uint8_t _sprites_fin_off = kSpritesOff;
 // from the main line at an unrelated point. A torn read of a single object -
 // which is all the old sun path could produce - is one object a frame stale;
 // a torn read across eight is one object's X against another's Y, which is a
-// sprite in the wrong place. Two named objects rather than an array of two,
-// because the raster handler must reach them by a *constant* address - see the
-// macro below.
+// sprite in the wrong place. Constant-indexed elements _sprites_frames[0] and
+// _sprites_frames[1] keep link-time constant addresses for the raster handler's
+// macro below, while contiguous placement lets sprites_stack_commit() in
+// sprites_asm.h reach either frame from one byte offset (0 or 37).
 //
 // **Each frame belongs to a screen buffer**: A to the main one and B to the
 // alt one. Commit fills the frame of the buffer being drawn into, and the
@@ -176,8 +177,9 @@ static uint8_t _sprites_fin_off = kSpritesOff;
 // The frames stay volatile. They are written by the main line and read by the
 // handler, and once that ordering was a flip index oscar64 hoisted to the top
 // of commit, so that the handler programmed a half-filled frame.
-static volatile sprite_frame_t _sprites_frame_a;
-static volatile sprite_frame_t _sprites_frame_b;
+static volatile sprite_frame_t _sprites_frames[2];
+#define _sprites_frame_a (_sprites_frames[0])
+#define _sprites_frame_b (_sprites_frames[1])
 
 static volatile sprite_xy_t _sprites_instrument_xy[8];
 static volatile uint8_t _sprites_instrument_idx[8];
@@ -334,6 +336,13 @@ inline void sprites_set_fuel(uint32_t fuel) {
 // coordinates, i.e. already shifted by kSpriteOffsetX / kSpriteOffsetY.
 static const uint8_t kSpritesMsgBoxBottom = kSpriteOffsetY + kMsgHeightPixels;
 
+void sprites_stack_reset(void) {
+  _sprites_cand_end = 0;
+  _sprites_orient_off = kSpritesOff;
+  _sprites_fin_off = kSpritesOff;
+}
+
+#ifndef __OSCAR64__
 static bool _sprites_hidden_by_msg(int16_t x, uint8_t vy, uint8_t width) {
   if (!msg_active() || vy >= kSpritesMsgBoxBottom) {
     return false;
@@ -341,12 +350,6 @@ static bool _sprites_hidden_by_msg(int16_t x, uint8_t vy, uint8_t width) {
   int16_t x0 = kSpriteOffsetX + (int16_t)msg_span_x0;
   int16_t x1 = kSpriteOffsetX + (int16_t)msg_span_x1;
   return x < x1 && x + width > x0;
-}
-
-void sprites_stack_reset(void) {
-  _sprites_cand_end = 0;
-  _sprites_orient_off = kSpritesOff;
-  _sprites_fin_off = kSpritesOff;
 }
 
 bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
@@ -459,6 +462,7 @@ bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
   c->flags = flags;
   return true;
 }
+#endif
 
 // --- The orientation indicator ---------------------------------------------
 
@@ -702,6 +706,9 @@ static void _sprites_draw_fin(void) {
 // world.cc sets it, sprites_stack_commit() publishes it.
 void sprites_set_fin(void) { _sprites_fin_off = view_state ^ VIEW_BACK; }
 
+#ifdef __OSCAR64__
+#include "sprites_asm.h"
+#else
 void sprites_stack_commit(void) {
   // Main line, so a pointer is fine here - the restriction above is on the
   // interrupt side only.
@@ -830,6 +837,7 @@ void sprites_stack_commit(void) {
   f->expand_y = expand_y;
   f->enable = enable;
 }
+#endif
 
 // Programs one frame into the VIC. A macro, and a duplicated loop, rather than
 // the obvious helper taking a `const sprite_frame_t *` - which is what this was

@@ -46,17 +46,19 @@
 //   17  opponent_asm.h _opponent_world_delta near/far/out & world wraparound
 //   18  gun_asm.h _gun_track_all, _gun_rel_from, _gun_hits & _gun_collides
 //   19  vec_asm.cc vec_div8p8 / vec_frac16 / vec_fracn & planes_asm.cc planes_centre
+//   20  sprites_asm.h sprites_stack_add & sprites_stack_commit against C ref
 
 #include <stdint.h>
 
 // Test 7's cases + asm suites need more room than oscar64's default layout
-// leaves: code and data up to $C000 (main() banks out BASIC ROM at entry), bss
-// in $0400-$07FF, and stack + test buffers in $C000-$CFFF.
+// leaves: code and data up to $C600 (main() banks out BASIC + KERNAL ROM at
+// entry), bss in $0400-$07FF, stack in $C600-$C7FF, and test buffers in
+// $C800-$CFFF and $F000-$F5FF.
 #pragma heapsize(0)
 #pragma stacksize(0x200)
-#pragma region(main, 0x0880, 0xC000, , , {code, data})
+#pragma region(main, 0x0880, 0xC600, , , {code, data})
 #pragma region(bssregion, 0x0400, 0x0800, , , {bss})
-#pragma region(stackregion, 0xC000, 0xC200, , , {heap, stack})
+#pragma region(stackregion, 0xC600, 0xC800, , , {heap, stack})
 // And the zero page the programs under test get from -xz: vec_asm.cc's
 // routines keep their operands there.
 #pragma region(zeropage, 0x80, 0x100, , , {zeropage})
@@ -163,7 +165,7 @@ static void test_mul_against_16bit_product(void) {
 // the reference, rendered through a front and a back buffer as a program
 // would and compared byte for byte.
 static uint8_t (*const _planes_sets)[4][kPlaneBlockStride] =
-    (uint8_t (*)[4][kPlaneBlockStride])0xC200;
+    (uint8_t (*)[4][kPlaneBlockStride])0xF000;
 static uint8_t _planes_dot[kPlaneBlockBytes];
 
 static void test_planes(void) {
@@ -333,9 +335,9 @@ static void test_fastmul_short(void) {
 // ---------------------------------------------------------------------------
 // Backing arrays and C references for poly_asm.cc, world_asm.cc, render_asm.cc
 // ---------------------------------------------------------------------------
-// Place test scratch/reference screens in the free 4 KB RAM block at $C000
-// ($C000-$C3FF holds stack/heap; $C400-$CF2F holds the test buffers cleanly).
-static uint8_t *const test_scr = (uint8_t *)0xC400;
+// Place test scratch/reference screens in $F200-$F5FF (under banked-out KERNAL
+// ROM) and $C800-$CFFF.
+static uint8_t *const test_scr = (uint8_t *)0xF200;
 static uint8_t *const test_clr = (uint8_t *)0xC800;
 static uint8_t *const ref_scr = (uint8_t *)0xCA80;
 static uint8_t *const ref_clr = (uint8_t *)0xCD00;
@@ -1468,13 +1470,319 @@ static void test_vec_div_and_planes_centre_asm(void) {
 }
 #pragma optimize(pop)
 
+// 20. sprites_asm.h sprites_stack_add and sprites_stack_commit against 16-bit C
+// references across culls, dither lattice, message box, sort/overflow, 1x1..2x2
+// slots, unused parking / past-last preservation, orientation mark, and fin.
+uint16_t msg_span_x0;
+uint16_t msg_span_x1;
+static bool _test_msg_on;
+__noinline bool msg_active(void) { return _test_msg_on; }
+#include "../sprites_asm.h"
+const sprite_meta_t kSpriteDefSun = {12, 10, 95};
+const sprite_meta_t kSpriteDefOrient = {12, 10, 80};
+
+static sprite_cand_t *const _ref_cand = (sprite_cand_t *)0xCF00;
+static sprite_frame_t *const _ref_frames = (sprite_frame_t *)0xCF60;
+static uint8_t _ref_cand_end;
+
+static bool _ref_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
+                           int8_t pivot_y, uint8_t bitmap, uint8_t bitmap2,
+                           uint8_t color, uint8_t flags) {
+  uint8_t width = kSpriteWidthPixels;
+  uint8_t px = (uint8_t)pivot_x;
+  if (flags & kSpriteFlagExpandX) {
+    width <<= 1;
+    px <<= 1;
+  }
+  x -= px;
+  if (flags & kSpriteFlagWide) {
+    width <<= 1;
+  }
+  uint8_t pitch = kSpriteHeightPixels;
+  if (flags & kSpriteFlagExpandY) {
+    pitch <<= 1;
+  }
+  uint8_t h_m1 = pitch - 1;
+  if (bitmap2 != kSpriteNoBitmap) {
+    h_m1 += pitch;
+  }
+  y -= (uint8_t)pivot_y;
+  if (flags & kSpriteFlagAlignDither) {
+    x &= ~1;
+    y = (y & ~1) | ((x >> 1) & 1);
+  }
+  if (x >= (int16_t)kScreenWidthPixels || x + width <= 0) {
+    return false;
+  }
+  if ((uint16_t)(y + h_m1) >=
+      kSpriteVisibleEndYPixels + kSpriteHeightPixels - 1) {
+    return false;
+  }
+  int16_t vx = x + (int16_t)kSpriteOffsetX;
+  uint8_t vy = (uint8_t)y + kSpriteOffsetY;
+  if (vx < 0) {
+    return false;
+  }
+  if (_test_msg_on && vy < kSpritesMsgBoxBottom) {
+    int16_t x0 = kSpriteOffsetX + (int16_t)msg_span_x0;
+    int16_t x1 = kSpriteOffsetX + (int16_t)msg_span_x1;
+    if (vx < x1 && vx + width > x0) {
+      return false;
+    }
+  }
+  uint8_t o = _ref_cand_end;
+  if (o == kSpriteCandBytes) {
+    if ((uint16_t)depth >= (uint16_t)_ref_cand[kSpriteStackSize - 1].depth) {
+      return false;
+    }
+    o -= kSpriteCandSize;
+  } else {
+    _ref_cand_end = o + kSpriteCandSize;
+  }
+  while (o != 0) {
+    uint8_t prev = o - kSpriteCandSize;
+    const sprite_cand_t *p =
+        (const sprite_cand_t *)((const uint8_t *)_ref_cand + prev);
+    if ((uint16_t)p->depth <= (uint16_t)depth) {
+      break;
+    }
+    uint8_t *b = (uint8_t *)_ref_cand;
+    uint8_t k = o + kSpriteCandSize;
+    do {
+      --k;
+      b[k] = b[k - kSpriteCandSize];
+    } while (k != o);
+    o = prev;
+  }
+  sprite_cand_t *c = (sprite_cand_t *)((uint8_t *)_ref_cand + o);
+  c->depth = depth;
+  c->x = vx;
+  c->y = vy;
+  c->bitmap = bitmap;
+  c->bitmap2 = bitmap2;
+  c->color = color;
+  c->flags = flags;
+  return true;
+}
+
+static void _ref_stack_commit(void) {
+  sprite_frame_t *f = mem_using_alt_buffer ? &_ref_frames[1] : &_ref_frames[0];
+  uint8_t idx = kSpriteStackFirst;
+  uint8_t bit = 1 << kSpriteStackFirst;
+  if (_sprites_fin_off == 0) {
+    idx = kSpriteFinFirst + kSpriteFinCount;
+    bit = 1 << (kSpriteFinFirst + kSpriteFinCount);
+  }
+  uint8_t msbx = 0, expand = 0, expand_y = 0, enable = 0;
+  for (uint8_t o = 0; o != _ref_cand_end; o += kSpriteCandSize) {
+    const sprite_cand_t *c =
+        (const sprite_cand_t *)((const uint8_t *)_ref_cand + o);
+    uint8_t flags = c->flags;
+    uint8_t cols = (flags & kSpriteFlagWide) ? 2 : 1;
+    uint8_t slots =
+        (c->bitmap2 == kSpriteNoBitmap) ? cols : (uint8_t)(cols << 1);
+    if (idx + slots > kSpriteStackSize) {
+      break;
+    }
+    uint8_t ptr = c->bitmap;
+    uint8_t sy = c->y;
+    uint8_t col_w = (flags & kSpriteFlagExpandX) ? 2 * kSpriteWidthPixels
+                                                 : kSpriteWidthPixels;
+    uint8_t pitch = (flags & kSpriteFlagExpandY) ? 2 * kSpriteHeightPixels
+                                                 : kSpriteHeightPixels;
+    for (uint8_t s = 0; s < slots; ++s) {
+      uint16_t sx = (uint16_t)c->x;
+      uint8_t p = ptr;
+      if ((cols & 2) && (s & 1)) {
+        sx += col_w;
+        ++p;
+      }
+      f->pos[idx << 1] = (uint8_t)sx;
+      f->pos[(idx << 1) + 1] = sy;
+      f->ptr[idx] = p;
+      f->color[idx] = c->color;
+      enable |= bit;
+      if (sx & 0x100) {
+        msbx |= bit;
+      }
+      if (flags & kSpriteFlagExpandX) {
+        expand |= bit;
+      }
+      if (flags & kSpriteFlagExpandY) {
+        expand_y |= bit;
+      }
+      if (s + 1 == cols) {
+        ptr = c->bitmap2;
+        sy += pitch;
+      }
+      bit <<= 1;
+      ++idx;
+    }
+  }
+  f->last = idx - 1;
+  while (idx < kSpriteStackSize) {
+    f->pos[idx << 1] = 0;
+    f->pos[(idx << 1) + 1] = 0;
+    ++idx;
+  }
+  uint8_t ox = 0, oy = 0, op = kSpriteDefSun.bitmap_idx, oc = kColorInstrument;
+  if (_sprites_orient_off == 0) {
+    ox = kSpriteOrientVX;
+    oy = kSpriteOrientVY;
+    op = kSpriteDefOrient.bitmap_idx;
+    oc = kColorOrientation;
+    enable |= kSpriteOrientBit;
+  }
+  f->pos[0] = ox;
+  f->pos[1] = oy;
+  f->ptr[0] = op;
+  f->color[0] = oc;
+  if (_sprites_fin_off == 0) {
+    f->pos[0] = kSpriteFinVX;
+    f->pos[1] = kSpriteFinTopVY;
+    f->pos[2] = kSpriteFinVX;
+    f->pos[3] = kSpriteFinBottomVY;
+    f->ptr[0] = kFinSpriteBlock;
+    f->ptr[1] = kFinSpriteBlock + 1;
+    f->color[0] = kColorAircraft;
+    f->color[1] = kColorAircraft;
+    enable |= kSpriteFinMask;
+    expand_y |= kSpriteFinMask;
+  }
+  f->msbx = msbx;
+  f->expand = expand;
+  f->expand_y = expand_y;
+  f->enable = enable;
+}
+
+static void _check_frames_eq(void) {
+  const volatile uint8_t *got = (const volatile uint8_t *)_sprites_frames;
+  const uint8_t *want = (const uint8_t *)_ref_frames;
+  for (uint8_t i = 0; i < sizeof(_sprites_frames); ++i) {
+    expect(20, got[i], want[i]);
+  }
+}
+
+static void test_sprites_asm(void) {
+  struct AddCase {
+    int16_t d, x, y;
+    int8_t px, py;
+    uint8_t b1, b2, col, fl;
+  };
+  static const AddCase kCulls[] = {
+      // Exact left/right/top/bottom boundaries for 1x1, ExpandX, 1x2, 2x2.
+      {100, -13, 50, 12, 10, 95, 0xFF, 7, 0},   // vx == -1 -> out
+      {100, -12, 50, 12, 10, 95, 0xFF, 7, 0},   // vx == 0, w == 24 -> out
+      {100, -11, 50, 12, 10, 95, 0xFF, 7, 0},   // vx == 1, w == 24 -> in
+      {100, 0, 50, 12, 10, 81, 0xFF, 1, 0x01},  // x == -24, w == 48 -> in (vx == 0)
+      {100, -1, 50, 12, 10, 81, 0xFF, 1, 0x01}, // x == -25, w == 48 -> out
+      {100, 331, 50, 12, 10, 95, 0xFF, 7, 0},   // x == 319 -> in
+      {100, 332, 50, 12, 10, 95, 0xFF, 7, 0},   // x == 320 -> out
+      {100, 160, -11, 12, 10, 95, 0xFF, 7, 0},  // y + 20 == -1 -> out
+      {100, 160, -10, 12, 10, 95, 0xFF, 7, 0},  // y + 20 == 0 -> in
+      {100, 160, 99, 12, 10, 95, 0xFF, 7, 0},   // y == 89, y + 20 == 109 -> in
+      {100, 160, 100, 12, 10, 95, 0xFF, 7, 0},  // y == 90, y + 20 == 110 -> out
+      {100, 160, 88, 12, 20, 85, 86, 1, 0x01},  // 1x2: y == 68, +41 == 109 -> in
+      {100, 160, 89, 12, 20, 85, 86, 1, 0x01},  // 1x2: y == 69, +41 == 110 -> out
+      {100, 100, 26, 0, 0, 69, 71, 12, 0x0D},   // 2x2 ExpandY: +83 == 109 -> in
+      {100, 100, 27, 0, 0, 69, 71, 12, 0x0D},   // 2x2 ExpandY: +83 == 110 -> out
+      // Dither parity across odd/even & negative top-lefts.
+      {100, 161, 55, 12, 10, 82, 0xFF, 1, 0x03},
+      {100, 162, 55, 12, 10, 82, 0xFF, 1, 0x03},
+      {100, 163, 56, 12, 10, 82, 0xFF, 1, 0x03},
+      {100, 5, -9, 12, 10, 82, 0xFF, 1, 0x03},
+      // Message box edges when msg_on ([100, 220), row 0 vy < 58).
+      {100, 88, 17, 12, 10, 95, 0xFF, 7, 0},    // vx=100, +24==124==x0 -> in
+      {100, 89, 17, 12, 10, 95, 0xFF, 7, 0},    // vx=101, +24==125>x0 -> hidden
+      {100, 232, 17, 12, 10, 95, 0xFF, 7, 0},   // vx=244==x1 -> in
+      {100, 231, 17, 12, 10, 95, 0xFF, 7, 0},   // vx=243<x1 -> hidden
+      {100, 160, 18, 12, 10, 95, 0xFF, 7, 0},   // y=8 -> vy=58 -> in
+      // Extreme 16-bit signed wrap edges.
+      {100, -32768, 50, 12, 10, 95, 0xFF, 7, 0},
+      {100, 32767, 50, 0, 0, 95, 0xFF, 7, 0},
+      {100, 160, -32768, 0, 10, 95, 0xFF, 7, 0},
+      {100, 160, 32767, 0, 0, 95, 0xFF, 7, 0},
+  };
+  msg_span_x0 = 100;
+  msg_span_x1 = 220;
+  for (uint8_t m = 0; m < 2; ++m) {
+    _test_msg_on = (m != 0);
+    for (uint8_t i = 0; i < sizeof(kCulls) / sizeof(kCulls[0]); ++i) {
+      _sprites_cand_end = 0;
+      _ref_cand_end = 0;
+      const AddCase *ac = &kCulls[i];
+      bool got = sprites_stack_add(ac->d, ac->x, ac->y, ac->px, ac->py, ac->b1,
+                                   ac->b2, ac->col, ac->fl);
+      bool want = _ref_stack_add(ac->d, ac->x, ac->y, ac->px, ac->py, ac->b1,
+                                 ac->b2, ac->col, ac->fl);
+      expect(20, got ? 1 : 0, want ? 1 : 0);
+      expect(20, _sprites_cand_end, _ref_cand_end);
+      if (want) {
+        const uint8_t *gb = (const uint8_t *)_sprites_cand;
+        const uint8_t *wb = (const uint8_t *)_ref_cand;
+        for (uint8_t b = 0; b < kSpriteCandSize; ++b) {
+          expect(20, gb[b], wb[b]);
+        }
+      }
+    }
+  }
+  _test_msg_on = false;
+
+  // Multi-frame commit tests: empty, 9-item overflow + ties, mixed 2x2 + 1x2 +
+  // msbx split, orientation mark, tail fin, and alt-buffer sentinel check.
+  static const AddCase kMixed[] = {
+      {0x7FFF, 300, 40, 12, 10, 95, 0xFF, 7, 0},      // sun with msbx
+      {450, 230, 12, 0, 0, 69, 71, 11, 0x0D},         // 2x2 plane crossing 256
+      {300, 161, 45, 12, 20, 85, 86, 1, 0x03},        // 1x2 dithered cloud
+      {300, 80, 30, 12, 10, 82, 0xFF, 1, 0x03},       // tie at depth 300
+      {120, 40, 20, 12, 10, 90, 0xFF, 2, 0},          // close tracer
+  };
+  uint8_t *raw_got = (uint8_t *)_sprites_frames;
+  uint8_t *raw_want = (uint8_t *)_ref_frames;
+  for (uint8_t b = 0; b < sizeof(_sprites_frames); ++b) {
+    raw_got[b] = 0xAA;
+    raw_want[b] = 0xAA;
+  }
+  for (uint8_t mode = 0; mode < 4; ++mode) {
+    mem_using_alt_buffer = (mode & 1) != 0;
+    _sprites_orient_off = (mode == 1) ? 0 : 0xFF;
+    _sprites_fin_off = (mode == 2) ? 0 : 0xFF;
+    _sprites_cand_end = 0;
+    _ref_cand_end = 0;
+    if (mode == 3) {
+      // 10 descending/interleaved items to exercise full-stack eviction & rejection.
+      for (uint8_t i = 0; i < 10; ++i) {
+        int16_t d = (i == 9) ? 999 : (int16_t)(900 - i * 80);
+        bool g = sprites_stack_add(d, (int16_t)(20 + i * 28), 35, 12, 10,
+                                   (uint8_t)(40 + i), 0xFF, (uint8_t)(i & 15), 0);
+        bool w = _ref_stack_add(d, (int16_t)(20 + i * 28), 35, 12, 10,
+                                (uint8_t)(40 + i), 0xFF, (uint8_t)(i & 15), 0);
+        expect(20, g ? 1 : 0, w ? 1 : 0);
+      }
+    } else if (mode != 0) {
+      for (uint8_t i = 0; i < sizeof(kMixed) / sizeof(kMixed[0]); ++i) {
+        const AddCase *ac = &kMixed[i];
+        bool g = sprites_stack_add(ac->d, ac->x, ac->y, ac->px, ac->py, ac->b1,
+                                   ac->b2, ac->col, ac->fl);
+        bool w = _ref_stack_add(ac->d, ac->x, ac->y, ac->px, ac->py, ac->b1,
+                                ac->b2, ac->col, ac->fl);
+        expect(20, g ? 1 : 0, w ? 1 : 0);
+      }
+    }
+    sprites_stack_commit();
+    _ref_stack_commit();
+    _check_frames_eq();
+  }
+  mem_using_alt_buffer = false;
+}
+
 int main(void) {
   // The KERNAL's timer interrupt keeps its clock and keyboard state in the
-  // zero page the region above hands out, and main extends past $A000 under
-  // BASIC ROM. Bank BASIC out ($01 = $36) and disable IRQs.
+  // zero page the region above hands out, and main/scratch extend under BASIC
+  // and KERNAL ROM. Bank both out ($01 = $35) and disable IRQs.
   __asm {
     sei;
-    lda #$36;
+    lda #$35;
     sta $01;
   }
   g_failures = 0;
@@ -1499,6 +1807,7 @@ int main(void) {
   test_opponent_world_delta_asm();
   test_gun_asm();
   test_vec_div_and_planes_centre_asm();
+  test_sprites_asm();
 
   // Something for vice_dump.sh's @spin to break on. Everything above has
   // landed in the globals by the time the loop is reached.
