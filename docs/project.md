@@ -293,7 +293,7 @@ is a multiple of 256 needs two at most, and a first operand below 256 in
 magnitude, which a camera row's component usually is, needs two as well, or
 one when the second is that short too. `vec_lut.cc` also carries a reciprocal table used by
 `vec_project()`. `vec_div8p8` is exact instead: a restoring division in
-`vec_asm.cc`, sharing its loop with `vec_fracn`.
+`vec_asm.cc`, sharing `vec_frac8` with `vec_frac16` and `vec_fracn`.
 
 `vec_project()` and `vec_project_nocull()` turn a camera-space vector into
 screen coordinates (`vec_sx`, `vec_sy`); the culling variant rejects anything
@@ -314,7 +314,7 @@ would have projected off screen. Everything else shares the out-of-line
 `vec_frac16` and `vec_mulfrac` are the clipping pair, and they exist because
 8.8 is not enough for a clip parameter — see the clipping notes under
 [`poly.cc`](#polycc--filled-polygons) below. `vec_frac16` is a restoring
-32/16 division in assembly (16 iterations, ~927 cycles) returning `|a| / |b|`
+32/16 division in assembly (two `vec_frac8` byte steps, ~400-670 cycles) returning `|a| / |b|`
 as an unsigned 0.16 fraction; `vec_mulfrac` multiplies that fraction by a
 delta using `vec_fastmul8p8` on each half, rounding the low one (~720
 cycles).

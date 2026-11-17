@@ -5,24 +5,29 @@
 
 #include "planedef.h"
 
-// The assembly half of planes.cc (planes_asm.h): axis products, fuselage
-// stations/tube/octagon, bounding box, layout hysteresis, placement, vertex
-// cache key, and polygon fill. Multiplies go through vec_mul8, the
-// quarter-square step vec_fastmul8p8 is built from.
+// The assembly half of planes.cc (planes_asm.h): centre projection and scale,
+// axis products, fuselage stations/tube/octagon, bounding box, layout
+// hysteresis, placement, vertex cache key, and polygon fill. Multiplies go
+// through vec_mul8, the quarter-square step vec_fastmul8p8 is built from, and
+// centre divisions share c->x through vec_frac8.
 
 // Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
 #pragma optimize(push, nooutline)
 
 #ifdef __PLANES_PROFILE__
 #include "benchmark.h"
+static const char kProfCentre[] = SCREEN_STR("centre ");
 static const char kProfFill[] = SCREEN_STR("fill ");
 #endif
 
 // Struct-field and constant assertions for the assembly routines below.
 static_assert(kPlaneLevelDot == 0 && kPlaneLevel1x == 1 && kPlaneLevelX == 2,
               "planes_asm level constants");
-static_assert(kPlaneBelowCut == 3 && kPlaneDotX == 12 && kPlaneDotY == 19,
-              "planes_asm dot constants");
+static_assert(kPlaneShown == 0 && kPlaneBehindCamera == 1 &&
+                  kPlaneOutOfRange == 2 && kPlaneBelowCut == 3 &&
+                  kPlaneDotX == 12 && kPlaneDotY == 19,
+              "planes_asm hidden and dot constants");
+static_assert((kPlaneMaxRadius << 1) == 136, "planes_asm 2 * kPlaneMaxRadius");
 static_assert(kPlaneYLimit == 41 && kPlaneYHold == 35 &&
                   kPlaneColsHold == 20 && kPlaneRowsHold == 17,
               "planes_asm layout thresholds");
@@ -30,6 +35,9 @@ static_assert(kPlaneYLimit == 41 && kPlaneYHold == 35 &&
 static_assert(kPlaneVertCount == 16 && kPlaneBodyCount == 3 &&
                   kPlaneVertMax == 30,
               "planes_asm polygon counts");
+static_assert(offsetof(vec3_t, x) == 0 && offsetof(vec3_t, y) == 2 &&
+                  offsetof(vec3_t, z) == 4,
+              "vec3_t layout changed");
 static_assert(offsetof(planes_layout_t, level) == 0 &&
                   offsetof(planes_layout_t, ys) == 1 &&
                   offsetof(planes_layout_t, cols) == 2 &&
@@ -48,8 +56,12 @@ static_assert(offsetof(planes_state_t, lay) == 0 &&
                   offsetof(planes_state_t, k) == 71 &&
                   offsetof(planes_state_t, axes) == 72,
               "planes_state_t layout changed");
-static_assert(offsetof(planes_view_t, cut1) == 4 &&
-                  offsetof(planes_view_t, cut2) == 6,
+static_assert(offsetof(planes_view_t, cx0) == 0 &&
+                  offsetof(planes_view_t, cy0) == 2 &&
+                  offsetof(planes_view_t, cut1) == 4 &&
+                  offsetof(planes_view_t, cut2) == 6 &&
+                  offsetof(planes_view_t, kmax) == 8 &&
+                  offsetof(planes_view_t, kn) == 9,
               "planes_view_t layout changed");
 static_assert(offsetof(planes_frame_t, hidden) == 0 &&
                   offsetof(planes_frame_t, level) == 1 &&
@@ -60,6 +72,10 @@ static_assert(offsetof(planes_frame_t, hidden) == 0 &&
                   offsetof(planes_frame_t, x) == 6 &&
                   offsetof(planes_frame_t, y) == 8 &&
                   offsetof(planes_frame_t, slid) == 10 &&
+                  offsetof(planes_frame_t, clamped) == 11 &&
+                  offsetof(planes_frame_t, cached) == 12 &&
+                  offsetof(planes_frame_t, k) == 13 &&
+                  offsetof(planes_frame_t, d) == 14 &&
                   offsetof(planes_frame_t, cx) == 15 &&
                   offsetof(planes_frame_t, cy) == 17,
               "planes_frame_t layout changed");
@@ -276,8 +292,8 @@ static uint8_t _ti, _tat;
 static uint8_t _fwidest, _fmaxr, _fnorm;
 static int8_t _ffx, _ffy;
 // Shared 10-byte per-step scratch: holds the octagon's 10 corner offsets in
-// _planes_fuselage(), then internal temporaries in _planes_layout() and
-// planes_place() (which never overlap).
+// _planes_fuselage(), then internal temporaries in planes_centre(),
+// _planes_layout(), and planes_place() (which never overlap).
 static uint8_t _foff[10];
 uint8_t _planes_lbx, _planes_lby, _planes_lxs, _planes_lys;
 bool _planes_lcached;
@@ -784,7 +800,181 @@ void _planes_layout(planes_state_t *state, uint8_t level) {
   // clang-format on
 }
 
-static __zeropage uint8_t *_blk;    // frame pointer in planes_place, back buffer in planes_fill
+static __zeropage uint8_t *_blk;    // frame pointer in planes_centre/planes_place, back buffer in planes_fill
+
+// Steps 1-7 for the frame alone: hidden check, view-cone check, screen centre
+// (view->cx0 - c->y / c->x, view->cy0 - c->z / c->x), perspective scale k
+// (min(kmax, floor(kn * 512 / c->x))), and pixel diameter d (trunc(2R * k / 256)),
+// sharing the positive divisor c->x > 64 across all three vec_frac8 calls.
+bool planes_centre(const planes_view_t *view, const vec3_t *c,
+                   planes_frame_t *frame) {
+#ifdef __PLANES_PROFILE__
+  bm_start();
+#endif
+  // _foff[0] steps 0 -> 2 across the two axes (c->y / cx0 / cx, then c->z / cy0 / cy).
+  // clang-format off
+  __asm {
+        lda c;
+        sta vec_proj_mul_a;
+        lda c + 1;
+        sta vec_proj_mul_a + 1;
+        lda view;
+        sta vec_proj_mul_b;
+        lda view + 1;
+        sta vec_proj_mul_b + 1;
+        lda frame;
+        sta _blk;
+        lda frame + 1;
+        sta _blk + 1;
+
+        lda #0;
+        tay;                    // frame->hidden == 0 (kPlaneShown)
+        sta (_blk), y;
+        ldy #10;                // frame->slid == 10
+        sta (_blk), y;
+        ldy #12;                // frame->cached == 12
+        sta (_blk), y;
+
+        // if (c->x <= 64) { frame->hidden = kPlaneBehindCamera; return false; }
+        ldy #1;
+        lda (vec_proj_mul_a), y;
+        bmi L_pc_behind;
+        sta frac_d1;
+        dey;
+        lda (vec_proj_mul_a), y;
+        sta frac_d0;
+        ldx frac_d1;
+        bne L_pc_x_ok;
+        cmp #65;
+        bcs L_pc_x_ok;
+    L_pc_behind:
+        lda #1;                 // kPlaneBehindCamera
+    L_pc_hide:
+        ldy #0;                 // frame->hidden
+        sta (_blk), y;
+        lda #0;
+        sta vec_proj_tmp1;
+        jmp L_pc_done;
+
+    L_pc_x_ok:
+        // Cone check + 5. centre across _foff = 0 (c->y, cx0, cx) and 2 (c->z, cy0, cy).
+        lda #0;
+    L_pc_axis:
+        sta _foff;
+        tay;
+        iny;
+        iny;                    // c->y == 2, c->z == 4
+        lda (vec_proj_mul_a), y;
+        sta frac_r0;
+        iny;
+        lda (vec_proj_mul_a), y;
+        sta vec_proj_tmp1;
+        bpl L_pc_abs_pos;
+        sec;
+        lda #0;
+        sbc frac_r0;
+        sta frac_r0;
+        lda #0;
+        sbc vec_proj_tmp1;
+    L_pc_abs_pos:
+        sta frac_r1;
+        ldx frac_r0;
+        cpx frac_d0;
+        sbc frac_d1;
+        bcc L_pc_div;
+        lda #2;                 // kPlaneOutOfRange
+        bne L_pc_hide;
+
+    L_pc_div:
+        jsr vec_frac8;
+        ldy _foff;              // view->cx0 == 0, view->cy0 == 2
+        bit vec_proj_tmp1;
+        bmi L_pc_add_q;
+        lda (vec_proj_mul_b), y;
+        sec;
+        sbc frac_q0;
+        tax;
+        iny;
+        lda (vec_proj_mul_b), y;
+        sbc #0;
+        jmp L_pc_store_c;
+    L_pc_add_q:
+        lda (vec_proj_mul_b), y;
+        clc;
+        adc frac_q0;
+        tax;
+        iny;
+        lda (vec_proj_mul_b), y;
+        adc #0;
+    L_pc_store_c:
+        pha;
+        lda _foff;
+        clc;
+        adc #15;                // frame->cx == 15, frame->cy == 17
+        tay;
+        txa;
+        sta (_blk), y;
+        iny;
+        pla;
+        sta (_blk), y;
+        lda _foff;
+        eor #2;
+        bne L_pc_axis;
+
+        // 6 & 6b. k = min(kmax, c->x > kn ? floor(kn * 512 / c->x) : 0x1ff).
+        // Since view->kmax <= 255, any 2 * kn >= c->x has k >= 256 > kmax and
+        // clamps immediately; 2 * kn < c->x needs one 8-bit vec_frac8 step.
+        ldy #9;                 // view->kn
+        lda (vec_proj_mul_b), y;
+        asl;
+        sta frac_r0;
+        lda #0;
+        rol;
+        sta frac_r1;
+        ldx frac_r0;
+        cpx frac_d0;
+        sbc frac_d1;
+        bcs L_pc_clamp;
+        jsr vec_frac8;
+        ldx frac_q0;
+        ldy #8;                 // view->kmax
+        lda (vec_proj_mul_b), y;
+        cmp frac_q0;
+        bcc L_pc_clamp_a;
+        lda #0;
+        beq L_pc_store_k;
+    L_pc_clamp:
+        ldy #8;                 // view->kmax
+        lda (vec_proj_mul_b), y;
+    L_pc_clamp_a:
+        tax;
+        lda #1;
+    L_pc_store_k:
+        ldy #11;                // frame->clamped
+        sta (_blk), y;
+        txa;
+        ldy #13;                // frame->k
+        sta (_blk), y;
+
+        // 7. d = (2 * kPlaneMaxRadius * kb) >> 8
+        sta vec_mul8_b;
+        lda #136;               // kPlaneMaxRadius << 1
+        jsr vec_mul8;
+        ldy #14;                // frame->d
+        sta (_blk), y;
+        lda #1;
+        sta vec_proj_tmp1;
+
+    L_pc_done:
+  }
+  // clang-format on
+#ifdef __PLANES_PROFILE__
+  if (vec_proj_tmp1 != 0) {
+    bm_end(2 * 40 + 20, kProfCentre);
+  }
+#endif
+  return vec_proj_tmp1 != 0;
+}
 
 int16_t planes_place(const planes_layout_t *lay, const planes_view_t *view,
                      planes_frame_t *frame) {

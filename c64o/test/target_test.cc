@@ -45,6 +45,7 @@
 //   16  planes_asm.cc split project/reslide/fill, place cuts & slid-out clear
 //   17  opponent_asm.h _opponent_world_delta near/far/out & world wraparound
 //   18  gun_asm.h _gun_track_all, _gun_rel_from, _gun_hits & _gun_collides
+//   19  vec_asm.cc vec_div8p8 / vec_frac16 / vec_fracn & planes_asm.cc planes_centre
 
 #include <stdint.h>
 
@@ -1285,6 +1286,186 @@ static void test_gun_asm(void) {
     }
   }
 }
+
+// 19. vec_asm.cc restoring division (vec_div8p8, vec_frac16, vec_fracn across
+// 8-bit and 16-bit divisors, zero/equal/integer/saturating boundaries) and
+// planes_asm.cc planes_centre (behind-camera, cone, scale clamp, and diameter).
+static uint16_t _ref_uabs16(int16_t v) {
+  return v < 0 ? (uint16_t)(-(uint16_t)v) : (uint16_t)v;
+}
+
+static uint16_t _ref_fracn(int16_t a, int16_t b, uint8_t bits) {
+  uint16_t ua = _ref_uabs16(a);
+  uint16_t ub = _ref_uabs16(b);
+  uint16_t ones = bits == 16 ? 0xFFFFu : (uint16_t)(((uint16_t)1 << bits) - 1);
+  if (ua >= ub) {
+    return ones;
+  }
+  uint16_t q = 0;
+  uint16_t r = ua;
+  for (uint8_t i = 0; i < bits; ++i) {
+    q <<= 1;
+    r <<= 1;
+    if (r >= ub) {
+      r -= ub;
+      q |= 1;
+    }
+  }
+  return q;
+}
+
+static int16_t _ref_div8p8(int16_t a, int16_t b) {
+  uint16_t ua = _ref_uabs16(a);
+  uint16_t ub = _ref_uabs16(b);
+  uint16_t q;
+  if (ua < ub) {
+    q = _ref_fracn(a, b, 8);
+  } else if (ub == 0) {
+    if (ua == 0) {
+      return 0;
+    }
+    q = 32767;
+  } else {
+    uint16_t d = ub;
+    uint8_t k = 0;
+    while (k < 7 && d <= (ua >> 1)) {
+      d <<= 1;
+      ++k;
+    }
+    if (k == 7) {
+      q = 32767;
+    } else {
+      uint8_t qi = 0;
+      for (;;) {
+        qi <<= 1;
+        if (ua >= d) {
+          ua -= d;
+          qi |= 1;
+        }
+        if (k == 0) {
+          break;
+        }
+        --k;
+        d >>= 1;
+      }
+      q = (uint16_t)(((uint16_t)qi << 8) | _ref_fracn((int16_t)ua, b, 8));
+    }
+  }
+  return ((a ^ b) < 0) ? (int16_t)-(int16_t)q : (int16_t)q;
+}
+
+static bool _ref_planes_centre(const planes_view_t *view, const vec3_t *c,
+                               planes_frame_t *f) {
+  f->hidden = kPlaneShown;
+  f->cached = false;
+  f->slid = 0;
+  if (c->x <= 64) {
+    f->hidden = kPlaneBehindCamera;
+    return false;
+  }
+  if (_ref_uabs16(c->y) >= (uint16_t)c->x ||
+      _ref_uabs16(c->z) >= (uint16_t)c->x) {
+    f->hidden = kPlaneOutOfRange;
+    return false;
+  }
+  f->cx = (int16_t)(view->cx0 - _ref_div8p8(c->y, c->x));
+  f->cy = (int16_t)(view->cy0 - _ref_div8p8(c->z, c->x));
+  uint16_t k = c->x > view->kn ? _ref_fracn(view->kn, c->x, 9) : 0x1FFu;
+  f->clamped = k > view->kmax;
+  if (f->clamped) {
+    k = view->kmax;
+  }
+  f->k = (uint8_t)k;
+  f->d = (uint8_t)(vec_mul8x8(kPlaneMaxRadius << 1, (uint8_t)k) >> 8);
+  return true;
+}
+
+static void test_vec_div_and_planes_centre_asm(void) {
+  static const int16_t kDivB[] = {0,    1,     -1,    2,     -3,   63,   64,
+                                  -64,  65,    -65,   127,   128,  -129, 200,
+                                  255,  -255,  256,   -256,  257,  511,  -1000,
+                                  8192, 32767, -32768};
+  static const int16_t kDivA[] = {0,     1,      -1,    2,     -63,   64,
+                                  -65,   127,    -128,  129,   200,   -254,
+                                  255,   -256,   511,   8191,  -8192, 8320,
+                                  32767, -32768};
+  for (uint8_t bi = 0; bi < sizeof(kDivB) / sizeof(kDivB[0]); ++bi) {
+    int16_t b = kDivB[bi];
+    for (uint8_t ai = 0; ai < sizeof(kDivA) / sizeof(kDivA[0]); ++ai) {
+      int16_t a = kDivA[ai];
+      int16_t want_d = _ref_div8p8(a, b);
+      int16_t got_d = vec_div8p8(a, b);
+      expect(19, got_d, want_d);
+      uint16_t want_f = _ref_fracn(a, b, 16);
+      uint16_t got_f = vec_frac16(a, b);
+      expect(19, (int16_t)got_f, (int16_t)want_f);
+    }
+  }
+  // Exact literals on tricky division corners.
+  expect(19, vec_div8p8(0, 0), 0);
+  expect(19, vec_div8p8(5, 0), 32767);
+  expect(19, vec_div8p8(-5, 0), -32767);
+  expect(19, vec_div8p8(-32768, -32768), 256);
+  expect(19, vec_div8p8(8191, 65), 32259);
+  expect(19, vec_div8p8(8320, 65), 32767);
+  expect(19, vec_div8p8(-32768, 256), -32767);
+  expect(19, (int16_t)vec_frac16(32767, -32768), (int16_t)0xFFFEu);
+  expect(19, (int16_t)vec_frac16(-32768, -32768), (int16_t)0xFFFFu);
+
+  // vec_fracn across odd bit counts and saturation.
+  static const uint8_t kBits[] = {1, 7, 8, 9, 12, 16};
+  static const int16_t kFnPairs[][2] = {
+      {0, 65},    {1, 3},      {2, 3},       {64, 128},    {64, 129},
+      {128, 129}, {-254, 255}, {255, -256},  {300, 1000},  {32767, -32768},
+      {200, 200}, {500, 200},  {-32768, -32768}, {10, 0},  {0, 0},
+  };
+  for (uint8_t bi = 0; bi < sizeof(kBits) / sizeof(kBits[0]); ++bi) {
+    uint8_t bits = kBits[bi];
+    for (uint8_t pi = 0; pi < sizeof(kFnPairs) / sizeof(kFnPairs[0]); ++pi) {
+      int16_t a = kFnPairs[pi][0], b = kFnPairs[pi][1];
+      uint16_t want_fn = _ref_fracn(a, b, bits);
+      uint16_t got_fn = vec_fracn(a, b, bits);
+      expect(19, (int16_t)got_fn, (int16_t)want_fn);
+    }
+  }
+
+  // planes_centre across views, behind-camera, cone edges, and clamp edges.
+  static const planes_view_t kViews[] = {
+      {160, 56, 89, 68, 150, 64},
+      {160, 80, 140, 119, 88, 64},
+      {120, 40, 200, 200, 255, 200},
+  };
+  static const int16_t kCases[][3] = {
+      {-32768, 0, 0},    {-1, 0, 0},       {0, 0, 0},        {64, 0, 0},
+      {65, 0, 0},        {65, 64, -64},    {65, -64, 64},    {65, 65, 0},
+      {65, -65, 0},      {65, 0, 65},      {65, 0, -65},     {65, -32768, 0},
+      {65, 10, -32768},  {128, -127, 127}, {129, 128, -128}, {218, -50, 30},
+      {219, 50, -30},    {372, -371, 200}, {373, 100, -372}, {400, 0, 0},
+      {401, 1, -1},      {2500, -1999, 800}, {32767, -32766, 32766},
+  };
+  for (uint8_t vi = 0; vi < sizeof(kViews) / sizeof(kViews[0]); ++vi) {
+    for (uint8_t ci = 0; ci < sizeof(kCases) / sizeof(kCases[0]); ++ci) {
+      vec3_t c = make_vector(kCases[ci][0], kCases[ci][1], kCases[ci][2]);
+      planes_frame_t got, want;
+      got.hidden = want.hidden = 99;
+      got.cached = want.cached = true;
+      got.slid = want.slid = 77;
+      bool got_ok = planes_centre(&kViews[vi], &c, &got);
+      bool want_ok = _ref_planes_centre(&kViews[vi], &c, &want);
+      expect(19, got_ok ? 1 : 0, want_ok ? 1 : 0);
+      expect(19, got.hidden, want.hidden);
+      expect(19, got.cached ? 1 : 0, want.cached ? 1 : 0);
+      expect(19, got.slid, want.slid);
+      if (want_ok) {
+        expect(19, got.clamped ? 1 : 0, want.clamped ? 1 : 0);
+        expect(19, got.k, want.k);
+        expect(19, got.d, want.d);
+        expect(19, got.cx, want.cx);
+        expect(19, got.cy, want.cy);
+      }
+    }
+  }
+}
 #pragma optimize(pop)
 
 int main(void) {
@@ -1317,6 +1498,7 @@ int main(void) {
   test_planes_split_reslide_asm();
   test_opponent_world_delta_asm();
   test_gun_asm();
+  test_vec_div_and_planes_centre_asm();
 
   // Something for vice_dump.sh's @spin to break on. Everything above has
   // landed in the globals by the time the loop is reached.

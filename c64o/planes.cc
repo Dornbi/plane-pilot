@@ -15,7 +15,6 @@
 #include "benchmark.h"
 #define PROFILE_START() bm_start()
 #define PROFILE_END(row, label) bm_end((row) * 40 + 20, label)
-static const char kProfCentre[] = SCREEN_STR("centre ");
 static const char kProfLayout[] = SCREEN_STR("layout ");
 static const char kProfKey[] = SCREEN_STR("key ");
 static const char kProfMags[] = SCREEN_STR("mags ");
@@ -23,6 +22,7 @@ static const char kProfPairs[] = SCREEN_STR("pairs ");
 static const char kProfVerts[] = SCREEN_STR("verts ");
 static const char kProfBody[] = SCREEN_STR("body ");
 #ifndef __OSCAR64__
+static const char kProfCentre[] = SCREEN_STR("centre ");
 static const char kProfFill[] = SCREEN_STR("fill ");
 #endif
 #else
@@ -89,12 +89,12 @@ uint8_t _planes_pv[16];
 // fraction and exact division. lib/planes.py's fdiv is vec_div8p8's
 // trunc(a * 256 / b): the centre, and the fuselage's unit normal.
 
-static __noinline int16_t _abs16(int16_t a) { return a < 0 ? (int16_t)-a : a; }
-
 #ifndef __OSCAR64__
 // ---------------------------------------------------------------------------
-// planes_asm.h + planes_place + planes_fill in C, for the host: what
-// planes_asm.cc does on the C64, step for step.
+// planes_asm.h + planes_centre + planes_place + planes_fill in C, for the
+// host: what planes_asm.cc does on the C64, step for step.
+
+static __noinline int16_t _abs16(int16_t a) { return a < 0 ? (int16_t)-a : a; }
 
 // lib/planes.py smul(u, r) for a unit component u (|u| <= 256) and 0 <= r < 256:
 // u * r / 256 rounded, as the reference forms it from trunc(2|u| r / 256).
@@ -518,6 +518,7 @@ void planes_dot_bitmap(uint8_t *block) {
   block[3 * (kPlaneDotY + 1) + 1] = 0x0C;
 }
 
+#ifndef __OSCAR64__
 // Steps 1-7 for the frame alone: what is hidden, the centre, the scale and
 // the pixel size. Nothing here depends on the state.
 bool planes_centre(const planes_view_t *view, const vec3_t *c, planes_frame_t *frame) {
@@ -557,6 +558,7 @@ bool planes_centre(const planes_view_t *view, const vec3_t *c, planes_frame_t *f
   frame->d = (uint8_t)(vec_mul8x8(kPlaneMaxRadius << 1, kb) >> 8);
   return true;
 }
+#endif
 
 bool planes_begin(planes_state_t *state, planes_frame_t *frame) {
   uint8_t level = _pick_level(state->lay.level, frame->d);

@@ -89,11 +89,14 @@ uint16_t vec_mul8x8(uint8_t a, uint8_t b);
 extern uint8_t vec_mul8_b, vec_mul8_lo;
 void vec_mul8(void);
 #ifdef __OSCAR64__
-// Shared projection state for vec_asm.cc and world.cc's grid dot loop.
+// Shared projection and restoring-division state for vec_asm.cc, world.cc's
+// grid dot loop, and planes_asm.cc's planes_centre().
 extern const uint8_t vec_recip_lut[];
 extern uint8_t vec_proj_tmp1, vec_proj_recip;
 extern int16_t vec_proj_mul_a, vec_proj_mul_b;
+extern uint8_t frac_q0, frac_q1, frac_r0, frac_r1, frac_d0, frac_d1;
 void vec_project_mul(void);
+void vec_frac8(void);
 #endif
 #endif
 
@@ -104,7 +107,7 @@ uint16_t vec_fastsqr8p8(int16_t a);
 // Divides a by b using 8.8 fixed point semantics: exactly (a << 8) / b,
 // truncated toward zero, saturating to +-32767 (and to the sign of a for
 // b == 0). One restoring-division step per quotient bit, eight for |a| < |b|:
-// about 520-580 cycles for those, rising to about 1,100 as |a / b| nears 128.
+// about 260-400 cycles for those, rising to about 950 as |a / b| nears 128.
 #ifdef __OSCAR64__
 int16_t vec_div8p8(int16_t a, int16_t b);
 #endif
@@ -123,11 +126,11 @@ int16_t vec_div8p8(int16_t a, int16_t b);
 // crossing), so the true value is in [0, 1].
 //
 // vec_fracn is the same fraction to `bits` bits, 1 to 16: floor(|a| * 2^bits
-// / |b|), all ones for |a| == |b|. It takes one iteration a bit, so a
-// quotient that needs fewer bits costs less; vec_frac16 is sixteen of them.
+// / |b|), saturating to all ones for |a| >= |b| (and b == 0). vec_frac16 is
+// sixteen bits, built as two calls to vec_frac8().
 #ifdef __OSCAR64__
 uint16_t vec_fracn(int16_t a, int16_t b, uint8_t bits);
-inline uint16_t vec_frac16(int16_t a, int16_t b) { return vec_fracn(a, b, 16); }
+uint16_t vec_frac16(int16_t a, int16_t b);
 #endif
 
 // (t * d) / 65536 for a 0.16 fraction t from vec_frac16, rounded.
