@@ -6,6 +6,7 @@
 #include "msg.h"
 #include "roll.h"
 #include "spritedef.h"
+#include "sprites_asm.h"
 #include "vec.h"
 #include "vic.h"
 #include "view.h"
@@ -32,13 +33,6 @@ static_assert(sizeof(kSpriteDataCompressed) >= kSpriteScratchEnd,
 static_assert(kSpriteScratchPath >= kViewportWidth * kViewportHeight,
               "flight path overlaps the viewport colour buffer");
 
-static const uint8_t kSpriteOffsetX = 24;
-static const uint8_t kSpriteOffsetY = 50;
-
-// An unexpanded sprite.
-static const uint8_t kSpriteWidthPixels = 24;
-static const uint8_t kSpriteHeightPixels = 21;
-
 // sprites_stack_add()'s one vertical cull serves both heights: the last line a
 // Y-expanded sprite may start on, plus its 42 lines, is the same as for a plain
 // one plus its 21.
@@ -46,74 +40,6 @@ static_assert(kViewportEndYPixels - kSpritesOffLeadExpandY +
                       2 * kSpriteHeightPixels ==
                   kSpriteVisibleEndYPixels + kSpriteHeightPixels,
               "the Y-expanded cut needs its own bound in sprites_stack_add()");
-
-static const uint8_t kSpriteSpeedPivotX = 112;
-static const uint8_t kSpriteSpeedPivotY = 176;
-static const uint8_t kSpriteAltPivotX = 208;
-static const uint8_t kSpriteAltPivotY = 176;
-static const uint8_t kSpriteVSpeedPivotX = 214;
-static const uint8_t kSpriteVSpeedPivotY = 136;
-static const uint8_t kSpriteRollPivotX = 160;
-static const uint8_t kSpriteRollPivotY = 176;
-static const uint8_t kSpriteThrottlePivotX = 8; // 264 & 0xff
-static const uint8_t kSpriteThrottlePivotY = 173;
-static const uint8_t kSpriteFuelPivotX = 56;
-static const uint8_t kSpriteFuelPivotY = 173;
-
-// The vertical-speed needle is drawn above the split and the other seven
-// below it, so it shares its index with the orientation indicator's
-// (sprites.h).
-static const uint8_t kSpriteIdxVSpeed = 0;
-static const uint8_t kSpriteIdxSpeed = 1;
-static const uint8_t kSpriteIdxRoll = 2;
-static const uint8_t kSpriteIdxPitch = 3;
-static const uint8_t kSpriteIdxAlt1 = 4;
-static const uint8_t kSpriteIdxAlt2 = 5;
-static const uint8_t kSpriteIdxThrottle = 6;
-static const uint8_t kSpriteIdxFuel = 7;
-
-struct sprite_xy_t {
-  uint8_t x;
-  uint8_t y;
-};
-
-// One offered object, before indices are handed out. Insertion-sorted by
-// ascending depth, so entry 0 is the nearest.
-struct sprite_cand_t {
-  int16_t depth;
-  int16_t x; // VIC sprite coordinates, top left, pivot already applied.
-  uint8_t y;
-  uint8_t bitmap;
-  uint8_t bitmap2; // kSpriteNoBitmap for a single sprite.
-  uint8_t color;
-  uint8_t flags;
-};
-
-// The committed frame. The layout is chosen for the *interrupt* that reads it,
-// not for the main line that writes it: `pos` mirrors $D000-$D00F byte for
-// byte, x and y interleaved, so the handler copies it with one index register
-// and one stride. Holding x and y in separate arrays would need two indices at
-// different strides, and on a 6502 that is one live value more than there are
-// registers - oscar64 spills the difference into its runtime zero page, which
-// a raster handler may not touch. See _sprites_program_frame() below.
-struct sprite_frame_t {
-  uint8_t pos[16];
-  uint8_t ptr[8];
-  uint8_t color[8];
-  uint8_t msbx;
-  uint8_t expand;
-  // $D017. Only the tail fin ever sets a bit here, but the field is per frame
-  // rather than written once at the view switch: the terrain band programs the
-  // whole of the sprite state from one frame, and a register it did not own
-  // would be one more thing to unwind on the way back to the panel.
-  uint8_t expand_y;
-  uint8_t enable;
-  // The last index in use: at least 0, the mark's or the fin's. The handler
-  // copies the pointers and colours up to it and no further; the rest are
-  // disabled, and nothing reads a disabled sprite's. A zeroed frame (bss2;
-  // polydemo never calls sprites_init()) makes it copy one.
-  uint8_t last;
-};
 
 // $D000, as a literal rather than through the vic struct, so `[i]` is plainly
 // absolute-indexed. spr_pos is the first member of struct VIC, so on the host
@@ -123,66 +49,6 @@ struct sprite_frame_t {
 #else
 #define kVicSpritePos ((volatile uint8_t *)vic_host)
 #endif
-
-#pragma bss(bss2)
-
-static sprite_cand_t _sprites_cand[kSpriteStackSize];
-// The end of the list as a byte offset, not a count, and every entry reached
-// by its byte offset: an entry is 9 bytes, and indexing by count went through
-// oscar64's __multab9L at every access.
-static uint8_t _sprites_cand_end;
-static const uint8_t kSpriteCandSize = sizeof(sprite_cand_t);
-static const uint8_t kSpriteCandBytes = kSpriteStackSize * kSpriteCandSize;
-static_assert(kSpriteStackSize * sizeof(sprite_cand_t) < 256,
-              "the candidates' byte offsets fit in uint8_t");
-#define SPRITE_CAND(o) ((sprite_cand_t *)((uint8_t *)_sprites_cand + (o)))
-
-// Any value but 0: a frame that never sets the two below shows neither.
-static const uint8_t kSpritesOff = 0xFF;
-
-// Whether this frame carries the orientation indicator, 0 if it does: the
-// view sprites_set_orientation() saw, XOR VIEW_CENTER, and kSpritesOff until
-// it is called - from the start too, so a commit before any reset shows
-// nothing. No position: the marker does not move. Kept the other way up from
-// a flag because `on = view_state == VIEW_CENTER` compiles to a compare and
-// two loads, 16 B, where the XOR is one EOR on the view.
-static uint8_t _sprites_orient_off = kSpritesOff;
-
-// The same, for the tail fin - see sprites_set_fin(): view_state XOR
-// VIEW_BACK. The two are mutually exclusive by construction, since one is the
-// front view and the other the back, but nothing here relies on that: they
-// own different sprite indices.
-static uint8_t _sprites_fin_off = kSpritesOff;
-
-// Double buffered, and that is not optional. _gfx_switch_to_terrain() reads the
-// frame from an interrupt at raster 250 while sprites_stack_commit() writes it
-// from the main line at an unrelated point. A torn read of a single object -
-// which is all the old sun path could produce - is one object a frame stale;
-// a torn read across eight is one object's X against another's Y, which is a
-// sprite in the wrong place. Constant-indexed elements _sprites_frames[0] and
-// _sprites_frames[1] keep link-time constant addresses for the raster handler's
-// macro below, while contiguous placement lets sprites_stack_commit() in
-// sprites_asm.h reach either frame from one byte offset (0 or 37).
-//
-// **Each frame belongs to a screen buffer**: A to the main one and B to the
-// alt one. Commit fills the frame of the buffer being drawn into, and the
-// handler shows the frame of the buffer it puts on screen, both decided by
-// mem_using_alt_buffer. So there is no flip of its own: mem_switch_buffer()'s
-// toggle of that byte puts the sprites and the characters one camera drew on
-// screen at the same raster 250. With a flip of its own at the end of commit,
-// as this had until docs/planes.md §13 step 6, the sprites went up a whole
-// render before the terrain they were drawn against - the sun and the clouds
-// from the next frame's camera over the last frame's ground.
-//
-// The frames stay volatile. They are written by the main line and read by the
-// handler, and once that ordering was a flip index oscar64 hoisted to the top
-// of commit, so that the handler programmed a half-filled frame.
-static volatile sprite_frame_t _sprites_frames[2];
-#define _sprites_frame_a (_sprites_frames[0])
-#define _sprites_frame_b (_sprites_frames[1])
-
-static volatile sprite_xy_t _sprites_instrument_xy[8];
-static volatile uint8_t _sprites_instrument_idx[8];
 
 // Defined with the rest of the tail fin, below; sprites_init() is the only
 // caller and it comes first in this file.
@@ -219,33 +85,11 @@ inline void sprites_init(void) {
   _sprites_draw_fin();
 }
 
-static const uint8_t kInstrumentPivotX[8] = {
-    (uint8_t)(kSpriteOffsetX + kSpriteVSpeedPivotX),
-    (uint8_t)(kSpriteOffsetX + kSpriteSpeedPivotX),
-    0,
-    0,
-    (uint8_t)(kSpriteOffsetX + kSpriteAltPivotX),
-    (uint8_t)(kSpriteOffsetX + kSpriteAltPivotX),
-    (uint8_t)(kSpriteOffsetX + kSpriteThrottlePivotX),
-    (uint8_t)(kSpriteOffsetX + kSpriteFuelPivotX),
-};
-
-static const uint8_t kInstrumentPivotY[8] = {
-    kSpriteOffsetY + kSpriteVSpeedPivotY,
-    kSpriteOffsetY + kSpriteSpeedPivotY,
-    0,
-    0,
-    kSpriteOffsetY + kSpriteAltPivotY,
-    kSpriteOffsetY + kSpriteAltPivotY,
-    kSpriteOffsetY + kSpriteThrottlePivotY,
-    kSpriteOffsetY + kSpriteFuelPivotY,
-};
-
+#ifndef __OSCAR64__
 // dir is 0..31, clockwise from up. The arm tables hold the first half-turn
 // only: dir + 16 draws bitmap dir with its pivot mirrored through the centre.
 // __noinline: six gauges a frame; the mirror inlined at each cost 70 bytes.
-static __noinline void _sprites_set_instrument_sprite(uint8_t idx,
-                                                      uint8_t dir) {
+__noinline void _sprites_set_instrument_sprite(uint8_t idx, uint8_t dir) {
   uint8_t arm_idx = dir & (kSpriteDefArmCount - 1);
   uint8_t off = (uint8_t)(arm_idx << 1);
   int8_t px, py;
@@ -263,13 +107,9 @@ static __noinline void _sprites_set_instrument_sprite(uint8_t idx,
     px = 2 * kSpriteDefArmCenterX - px;
     py = 2 * kSpriteDefArmCenterY - py;
   }
-  _sprites_instrument_xy[idx].x = kInstrumentPivotX[idx] - px;
-  _sprites_instrument_xy[idx].y = kInstrumentPivotY[idx] - py;
+  _sprites_instrument_xy[idx].x = kSpriteInstrumentPivotX[idx] - px;
+  _sprites_instrument_xy[idx].y = kSpriteInstrumentPivotY[idx] - py;
   _sprites_instrument_idx[idx] = bitmap + arm_idx;
-}
-
-inline void sprites_set_speed(uint8_t speed) {
-  _sprites_set_instrument_sprite(kSpriteIdxSpeed, speed >> 1);
 }
 
 inline void sprites_set_alt(uint16_t alt) {
@@ -290,6 +130,11 @@ inline void sprites_set_vspeed(int16_t vspeed) {
   }
   _sprites_set_instrument_sprite(kSpriteIdxVSpeed,
                                  (uint8_t)(0x18 + (vspeed >> 6)));
+}
+#endif
+
+inline void sprites_set_speed(uint8_t speed) {
+  _sprites_set_instrument_sprite(kSpriteIdxSpeed, speed >> 1);
 }
 
 // The roll arm is drawn through its hub, so only its bitmap turns, and a
@@ -330,11 +175,9 @@ inline void sprites_set_fuel(uint32_t fuel) {
 }
 
 // A terrain sprite that would land on the message text hides for as long as
-// the message is up, rather than drawing over it. The test is a box overlap
-// against the message span, so a message narrow enough — or a sprite far
-// enough to the side — leaves the sprite alone. Coordinates are VIC sprite
-// coordinates, i.e. already shifted by kSpriteOffsetX / kSpriteOffsetY.
-static const uint8_t kSpritesMsgBoxBottom = kSpriteOffsetY + kMsgHeightPixels;
+// the message is up, rather than drawing over it (kSpritesMsgBoxBottom in
+// sprites_asm.h). Coordinates are VIC sprite coordinates, i.e. already shifted
+// by kSpriteOffsetX / kSpriteOffsetY.
 
 void sprites_stack_reset(void) {
   _sprites_cand_end = 0;
@@ -466,10 +309,6 @@ bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
 
 // --- The orientation indicator ---------------------------------------------
 
-// Hardware sprite 0, and the bit that is its own in $D015: in front of
-// every sprite the stack hands out, and the needle's index below the split.
-static const uint8_t kSpriteIdxOrient = 0;
-static const uint8_t kSpriteOrientBit = 1 << kSpriteIdxOrient;
 static_assert(kSpriteIdxOrient == kSpriteIdxVSpeed,
               "the mark and the needle share the one index the stack skips");
 static_assert(kSpriteStackFirst == kSpriteIdxOrient + 1 &&
@@ -484,23 +323,8 @@ static_assert(kSpriteStackFirst == kSpriteIdxOrient + 1 &&
 // (docs/clouds.md §3.5). The blob's 48 blocks are otherwise full, so this dead
 // one is the only place the mark could have come from.
 //
-// The pivot is spelled out rather than read from kSpriteDefOrient because the
-// position below is worked out at build time and a `const` struct member is not
-// a constant expression. sprites_test.cc fails if the two ever disagree.
-static const uint8_t kSpriteOrientPivotX = 12;
-static const uint8_t kSpriteOrientPivotY = 10;
-
-// Dead centre of the viewport, in VIC coordinates: the pivot and then the
-// VIC's own origin, the same two steps sprites_stack_add() takes per object -
-// done once here, since this object never moves.
-//
-// Not X-expanded, unlike the clouds, so pivot_x does not double and the bar is
-// its own 24 pixels wide. Both coordinates fit a byte, so there is no ninth X
-// bit to carry and $D010 is left alone.
-static const uint8_t kSpriteOrientVX =
-    kScreenWidthPixels / 2 - kSpriteOrientPivotX + kSpriteOffsetX;
-static const uint8_t kSpriteOrientVY =
-    kViewportEndYPixels / 2 - kSpriteOrientPivotY + kSpriteOffsetY;
+// kSpriteOrientPivotX/Y and kSpriteOrientVX/VY live in sprites_asm.h;
+// sprites_test.cc fails if kSpriteDefOrient ever disagrees.
 
 // No message test, unlike every other viewport sprite: the message strip is
 // kMsgHeightPixels tall at the top of the viewport and the bar sits 56 pixels
@@ -541,21 +365,13 @@ void sprites_set_orientation(void) {
 // entries that lose are the farthest, which is the stack's ordinary overflow
 // rule.
 
-static const uint8_t kSpriteFinFirst = 0;
-static const uint8_t kSpriteFinCount = 2;
-static const uint8_t kSpriteFinMask = ((1 << kSpriteFinCount) - 1)
-                                      << kSpriteFinFirst;
-
-// A Y-expanded sprite is 42 raster lines tall, so the two tile the column
-// with no seam when they are 42 apart.
-static const uint8_t kSpriteFinPitch = 2 * kSpriteHeightPixels;
-
 // The whole DMA argument below is written in raster lines and read out of
 // sprite Y registers, which is only the same number because these two agree.
 static_assert(kSpriteOffsetY == kRasterScreenYStart,
               "sprite Y and raster line no longer count from the same place");
 
-// Where the column sits. X is the sprite's own middle on the screen's, the same
+// Where the column sits (kSpriteFinVX, kSpriteFinTopVY, kSpriteFinBottomVY in
+// sprites_asm.h). X is the sprite's own middle on the screen's, the same
 // two steps kSpriteOrientVX takes. Y is fixed at the bottom by the hardware:
 // mem.h derives the lowest line a Y-expanded sprite may start on from its 42
 // lines of DMA and the cycle-counted panel split below it.
@@ -595,15 +411,6 @@ static_assert(kSpriteOffsetY == kRasterScreenYStart,
 //
 // The tip sprite sits one pitch above it, at 78, and is inked from its first
 // row, so the fin is the full 84 lines two Y-expanded sprites can give.
-static const uint8_t kSpriteFinPivotX = 12;
-static const uint8_t kSpriteFinVX =
-    kScreenWidthPixels / 2 - kSpriteFinPivotX + kSpriteOffsetX;
-static const uint8_t kSpriteFinDropLines = 2;
-static const uint8_t kSpriteFinBottomVY = kSpriteOffsetY + kViewportEndYPixels -
-                                          1 - kSpritesOffLeadExpandY +
-                                          kSpriteFinDropLines;
-static const uint8_t kSpriteFinTopVY =
-    kSpriteFinBottomVY - (kSpriteFinCount - 1) * kSpriteFinPitch;
 
 // The last line the bottom sprite draws on, against the viewport's last line.
 // Equal is the whole point - that is the gap being closed - and one lower is a
@@ -706,9 +513,7 @@ static void _sprites_draw_fin(void) {
 // world.cc sets it, sprites_stack_commit() publishes it.
 void sprites_set_fin(void) { _sprites_fin_off = view_state ^ VIEW_BACK; }
 
-#ifdef __OSCAR64__
-#include "sprites_asm.h"
-#else
+#ifndef __OSCAR64__
 void sprites_stack_commit(void) {
   // Main line, so a pointer is fine here - the restriction above is on the
   // interrupt side only.

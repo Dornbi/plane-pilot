@@ -555,7 +555,7 @@ not tidiness: the one-pass form indexes the width table at `row - 13` and
 oscar64 drops the guard, which is
 [`bugs/const-array-ternary-guard/`](../bugs/const-array-ternary-guard/OSCAR64-BUG-REPORT.md).
 
-### `sprites.cc` / `sprites_asm.h` / `spritedef.cc`
+### `sprites.cc` / `sprites_asm.h` / `sprites_asm.cc` / `spritedef.cc`
 
 Eight sprites, reused twice per frame by the raster split: world objects over
 the terrain, and the instrument needles over the panel. Needle bitmaps are
@@ -589,10 +589,11 @@ stack hands out 1–7. The side views park every needle
 but one at x = 0, where the left border hides it, and the back view parks all
 of them — and takes indices 0-1 for the tail fin, which is the other piece of
 furniture the stack does not hand out (see `view.cc` above). Designed in
-[clouds.md](clouds.md) §1 and §1.9; on the C64, `sprites_stack_add()` and
-`sprites_stack_commit()` run as 6502 assembly in `sprites_asm.h` (verified by
-`test/target_test.cc`), while `sprites.cc` keeps the C counterparts for
-`test/sprites_test.cc`.
+[clouds.md](clouds.md) §1 and §1.9; on the C64, `sprites_stack_add()`,
+`sprites_stack_commit()`, `_sprites_set_instrument_sprite()`,
+`sprites_set_alt()`, and `sprites_set_vspeed()` run as 6502 assembly in
+`sprites_asm.cc` / `sprites_asm.h` (verified by `test/target_test.cc`), while
+`sprites.cc` keeps the C counterparts for `test/sprites_test.cc`.
 
 ### `clouds.cc` / `clouddef.cc`
 

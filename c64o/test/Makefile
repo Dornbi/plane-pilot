@@ -103,8 +103,8 @@ MUL_TEST_HDRS = ../vec.h
 # also why sprites.cc is a header dependency here. vic.h and mem.h point their
 # register and screen RAM addresses at arrays in the test when __OSCAR64__ is
 # not defined, the same way sid.h already does for the SID.
-SPRITES_TEST_SRC = sprites_test.cc ../spritedef.cc ../fmath.cc
-SPRITES_TEST_HDRS = ../sprites.h ../sprites.cc ../spritedef.h ../vic.h \
+SPRITES_TEST_SRC = sprites_test.cc ../sprites_asm.cc ../spritedef.cc ../fmath.cc
+SPRITES_TEST_HDRS = ../sprites.h ../sprites.cc ../sprites_asm.h ../spritedef.h ../vic.h \
 		../mem.h ../msg.h ../view.h ../color.h ../roll.h ../fmath.h
 
 # poly_test includes ../poly.cc rather than linking it: the projection and
@@ -254,7 +254,8 @@ planes_target_cases.h: ../../tools/generate_planes.py ../../lib/planes.py
 target_test.prg: target_test.cc int16.h ../vec.h ../vec.cc ../vec_lut.cc \
 		../planes.h ../planes.cc ../planes_asm.h ../planes_asm.cc ../planedef.h \
 		../poly_asm.h ../world_asm.h ../opponent_asm.h ../gun_asm.h \
-		../sprites_asm.h ../render_asm.h ../render_asm.cc \
+		../sprites.h ../sprites_asm.h ../sprites_asm.cc ../spritedef.h ../spritedef.cc \
+		../render_asm.h ../render_asm.cc \
 		planes_target_cases.h
 	$(OSCAR64) $(TARGET_CFLAGS) -D__TARGET_TEST__ -o=target_test.prg target_test.cc
 

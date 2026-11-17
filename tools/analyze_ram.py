@@ -135,7 +135,7 @@ DESCRIPTIONS = {
     'Instrument Panel': {
         'Code': 'viewport split raster handlers, gauge updates, the sprite '
                 'stack and hardware controller (`view.cc`, `panel.cc`, '
-                '`sprites.cc`, `spritedef.cc`)',
+                '`sprites.cc`, `sprites_asm.cc`, `spritedef.cc`)',
         'Data': 'compressed panel image and sprite bitmaps, character and '
                 'color LUTs',
         'BSS': 'raster IRQ split structures, the sprite candidate stack and '

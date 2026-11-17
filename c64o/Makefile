@@ -114,6 +114,7 @@ PPILOT_SRC = \
 		sprites.h \
 		sprites.cc \
 		sprites_asm.h \
+		sprites_asm.cc \
 		title.h \
 		title.cc \
 		titledef.h \
@@ -180,6 +181,7 @@ POLYDEMO_SRC = \
 		sprites.h \
 		sprites.cc \
 		sprites_asm.h \
+		sprites_asm.cc \
 		vec.h \
 		vec_asm.cc \
 		vec_lut.cc \

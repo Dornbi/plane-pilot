@@ -46,19 +46,20 @@
 //   17  opponent_asm.h _opponent_world_delta near/far/out & world wraparound
 //   18  gun_asm.h _gun_track_all, _gun_rel_from, _gun_hits & _gun_collides
 //   19  vec_asm.cc vec_div8p8 / vec_frac16 / vec_fracn & planes_asm.cc planes_centre
-//   20  sprites_asm.h sprites_stack_add & sprites_stack_commit against C ref
+//   20  sprites_asm.cc sprites_stack_add, sprites_stack_commit,
+//       _sprites_set_instrument_sprite & sprites_set_alt against C ref
 
 #include <stdint.h>
 
 // Test 7's cases + asm suites need more room than oscar64's default layout
-// leaves: code and data up to $C600 (main() banks out BASIC + KERNAL ROM at
-// entry), bss in $0400-$07FF, stack in $C600-$C7FF, and test buffers in
+// leaves: code and data up to $C800 (main() banks out BASIC + KERNAL ROM at
+// entry), stack in $0200-$03FF, bss in $0400-$07FF, and test buffers in
 // $C800-$CFFF and $F000-$F5FF.
 #pragma heapsize(0)
 #pragma stacksize(0x200)
-#pragma region(main, 0x0880, 0xC600, , , {code, data})
+#pragma region(main, 0x0860, 0xC800, , , {code, data})
+#pragma region(stackregion, 0x0200, 0x0400, , , {heap, stack})
 #pragma region(bssregion, 0x0400, 0x0800, , , {bss})
-#pragma region(stackregion, 0xC600, 0xC800, , , {heap, stack})
 // And the zero page the programs under test get from -xz: vec_asm.cc's
 // routines keep their operands there.
 #pragma region(zeropage, 0x80, 0x100, , , {zeropage})
@@ -1470,16 +1471,16 @@ static void test_vec_div_and_planes_centre_asm(void) {
 }
 #pragma optimize(pop)
 
-// 20. sprites_asm.h sprites_stack_add and sprites_stack_commit against 16-bit C
+// 20. sprites_asm.cc sprites_stack_add, sprites_stack_commit,
+// _sprites_set_instrument_sprite, and sprites_set_alt against 16-bit C
 // references across culls, dither lattice, message box, sort/overflow, 1x1..2x2
-// slots, unused parking / past-last preservation, orientation mark, and fin.
+// slots, unused parking / past-last preservation, orientation mark, fin, all
+// gauge indices/directions, and altitudes 0..65535.
 uint16_t msg_span_x0;
 uint16_t msg_span_x1;
 static bool _test_msg_on;
 __noinline bool msg_active(void) { return _test_msg_on; }
 #include "../sprites_asm.h"
-const sprite_meta_t kSpriteDefSun = {12, 10, 95};
-const sprite_meta_t kSpriteDefOrient = {12, 10, 80};
 
 static sprite_cand_t *const _ref_cand = (sprite_cand_t *)0xCF00;
 static sprite_frame_t *const _ref_frames = (sprite_frame_t *)0xCF60;
@@ -1663,6 +1664,7 @@ static void _check_frames_eq(void) {
   }
 }
 
+#pragma optimize(push, outline)
 static void test_sprites_asm(void) {
   struct AddCase {
     int16_t d, x, y;
@@ -1774,7 +1776,85 @@ static void test_sprites_asm(void) {
     _check_frames_eq();
   }
   mem_using_alt_buffer = false;
+
+  // Instrument needle placement across all 6 gauge slots and dir bytes,
+  // including mirrored directions (dir & 16) and wrapped upper bits.
+  static const uint8_t kGaugeIdxs[] = {0, 1, 4, 5, 6, 7};
+  static const uint8_t kGaugeDirs[] = {
+      0,  1,  7,  8,  15, 16, 17, 23, 24, 31, 32, 47, 48, 63, 0x94, 0xFF,
+  };
+  for (uint8_t gi = 0; gi < sizeof(kGaugeIdxs); ++gi) {
+    uint8_t idx = kGaugeIdxs[gi];
+    for (uint8_t di = 0; di < sizeof(kGaugeDirs); ++di) {
+      uint8_t dir = kGaugeDirs[di];
+      _sprites_set_instrument_sprite(idx, dir);
+      uint8_t arm_idx = dir & (kSpriteDefArmCount - 1);
+      uint8_t off = (uint8_t)(arm_idx << 1);
+      int8_t px, py;
+      uint8_t bitmap;
+      if (idx == kSpriteIdxSpeed || idx == kSpriteIdxAlt1) {
+        px = ((const int8_t *)kSpriteDefLongArm)[off];
+        py = ((const int8_t *)kSpriteDefLongArm)[off + 1];
+        bitmap = kSpriteDefLongArmBitmap;
+      } else {
+        px = ((const int8_t *)kSpriteDefShortArm)[off];
+        py = ((const int8_t *)kSpriteDefShortArm)[off + 1];
+        bitmap = kSpriteDefShortArmBitmap;
+      }
+      if (dir & kSpriteDefArmCount) {
+        px = 2 * kSpriteDefArmCenterX - px;
+        py = 2 * kSpriteDefArmCenterY - py;
+      }
+      expect(20, _sprites_instrument_xy[idx].x,
+             (uint8_t)(kSpriteInstrumentPivotX[idx] - px));
+      expect(20, _sprites_instrument_xy[idx].y,
+             (uint8_t)(kSpriteInstrumentPivotY[idx] - py));
+      expect(20, _sprites_instrument_idx[idx], (uint8_t)(bitmap + arm_idx));
+    }
+  }
+
+  // sprites_set_alt across 0..65535 boundaries and a dense sweep of a = 0..4095.
+  for (uint16_t a = 0; a <= 4095; a = (a < 32 || a > 4064) ? (a + 1) : (a + 11)) {
+    sprites_set_alt((uint16_t)((a << 4) | (a & 15)));
+    uint8_t gx1 = _sprites_instrument_xy[4].x, gy1 = _sprites_instrument_xy[4].y;
+    uint8_t gx2 = _sprites_instrument_xy[5].x, gy2 = _sprites_instrument_xy[5].y;
+    uint8_t gi1 = _sprites_instrument_idx[4], gi2 = _sprites_instrument_idx[5];
+    _sprites_set_instrument_sprite(4, (uint8_t)a);
+    _sprites_set_instrument_sprite(
+        5, ((uint8_t)vec_fastmul8p8((int16_t)a, 205)) >> 3);
+    expect(20, (int16_t)((gx1 << 8) | gy1),
+           (int16_t)((_sprites_instrument_xy[4].x << 8) |
+                     _sprites_instrument_xy[4].y));
+    expect(20, (int16_t)((gx2 << 8) | gy2),
+           (int16_t)((_sprites_instrument_xy[5].x << 8) |
+                     _sprites_instrument_xy[5].y));
+    expect(20, (int16_t)((gi1 << 8) | gi2),
+           (int16_t)((_sprites_instrument_idx[4] << 8) |
+                     _sprites_instrument_idx[5]));
+    if (a == 4095) {
+      break;
+    }
+  }
+
+  // sprites_set_vspeed across [-32768, 32767] clamp and 64-step boundaries.
+  static const int16_t kVsEdges[] = {
+      -32768, -1024, -832, -769, -768, -767, -705, -704, -65, -64, -1, 0,
+      1,      63,    64,   703,  704,  767,  768,  769,  831, 832, 32767,
+  };
+  for (uint8_t vi = 0; vi < sizeof(kVsEdges) / sizeof(kVsEdges[0]); ++vi) {
+    int16_t vs = kVsEdges[vi];
+    sprites_set_vspeed(vs);
+    uint8_t gx = _sprites_instrument_xy[0].x, gy = _sprites_instrument_xy[0].y;
+    uint8_t gi = _sprites_instrument_idx[0];
+    int16_t vc = vs > 0x300 ? 0x300 : (vs < -0x300 ? -0x300 : vs);
+    _sprites_set_instrument_sprite(0, (uint8_t)(0x18 + (vc >> 6)));
+    expect(20, (int16_t)((gx << 8) | gy),
+           (int16_t)((_sprites_instrument_xy[0].x << 8) |
+                     _sprites_instrument_xy[0].y));
+    expect(20, gi, _sprites_instrument_idx[0]);
+  }
 }
+#pragma optimize(pop)
 
 int main(void) {
   // The KERNAL's timer interrupt keeps its clock and keyboard state in the
