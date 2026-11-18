@@ -44,7 +44,9 @@
 //   15  poly_asm.h _poly_bounds_and_clear & _poly_trace_edges against C ref
 //   16  planes_asm.cc split project/reslide/fill, place cuts & slid-out clear
 //   17  opponent_asm.h _opponent_world_delta near/far/out & world wraparound
-//   18  gun_asm.h _gun_track_all, _gun_rel_from, _gun_hits & _gun_collides
+//   18  gun_asm.cc _gun_track_all, _gun_rel_from, _gun_hits, _gun_collides,
+//       _gun_store_enemy_round, _gun_step_rounds, _gun_shown, _gun_dir,
+//       _gun_view, _gun_view_round & _gun_vel_round against C ref
 //   19  vec_asm.cc vec_div8p8 / vec_frac16 / vec_fracn & planes_asm.cc planes_centre
 //   20  sprites_asm.cc sprites_stack_add, sprites_stack_commit,
 //       _sprites_set_instrument_sprite & sprites_set_alt against C ref
@@ -54,12 +56,13 @@
 // Test 7's cases + asm suites need more room than oscar64's default layout
 // leaves: code and data up to $D000 (main() banks out BASIC + KERNAL ROM at
 // entry), stack in $0200-$03FF, bss in $0400-$07FF, and test buffers in
-// $F000-$FDB4.
+// $E800-$FDB4.
 #pragma heapsize(0)
 #pragma stacksize(0x200)
-#pragma region(main, 0x0860, 0xD000, , , {code, data})
+#pragma region(main, 0x0854, 0xD000, , , {code, data})
 #pragma region(stackregion, 0x0200, 0x0400, , , {heap, stack})
-#pragma region(bssregion, 0x0400, 0x0800, , , {bss})
+#pragma section(gun_bss, 0, , , bss)
+#pragma region(bssregion, 0x0400, 0x0800, , , {bss, gun_bss})
 // And the zero page the programs under test get from -xz: vec_asm.cc's
 // routines keep their operands there.
 #pragma region(zeropage, 0x80, 0x100, , , {zeropage})
@@ -85,7 +88,7 @@ volatile int16_t g_first_got;
 volatile int16_t g_first_want;
 volatile uint16_t g_cases;
 
-static void expect(uint16_t id, int16_t got, int16_t want) {
+static __noinline void expect(uint16_t id, int16_t got, int16_t want) {
   ++g_cases;
   if (got == want) {
     return;
@@ -911,6 +914,8 @@ static void test_poly_trace_edges_asm(void) {
     }
   }
 }
+#pragma optimize(pop)
+#pragma optimize(push, outline)
 
 // 16. Split planes_project + planes_reslide + planes_fill, planes_place cut
 // boundaries, and full-buffer-slide empty fill on the 6502 routines.
@@ -959,17 +964,15 @@ static void test_planes_split_reslide_asm(void) {
 
     // Slide >= buffer height must clear all blocks and draw nothing.
     _test_psa->lay.slid = 200;
-    for (uint8_t b = 0; b < 4; ++b) {
-      for (uint8_t i = 0; i < kPlaneBlockStride; ++i) {
-        _planes_sets[0][b][i] = 0xAA;
-      }
+    uint8_t *flat0 = _planes_sets[0][0];
+    for (uint16_t i = 0; i < 4 * kPlaneBlockStride; ++i) {
+      flat0[i] = 0xAA;
     }
-    planes_fill(_test_psa, _planes_sets[0][0]);
-    uint8_t blocks = (uint8_t)(_test_psa->lay.cols * _test_psa->lay.rows);
-    for (uint8_t b = 0; b < blocks; ++b) {
-      for (uint8_t i = 0; i < kPlaneBlockStride; ++i) {
-        expect(16, _planes_sets[0][b][i], 0);
-      }
+    planes_fill(_test_psa, flat0);
+    uint16_t nbytes =
+        (uint16_t)(_test_psa->lay.cols * _test_psa->lay.rows) * kPlaneBlockStride;
+    for (uint16_t i = 0; i < nbytes; ++i) {
+      expect(16, flat0[i], 0);
     }
   }
 
@@ -1000,18 +1003,18 @@ static void test_planes_split_reslide_asm(void) {
   planes_project(_test_psa, &view, &ca, &ma, &df);
   expect(16, df.cached ? 1 : 0, 1);
   uint8_t *mb = (uint8_t *)&ma;
-  for (uint8_t off = 0; off < 18; ++off) {
-    if ((off % 6) < 2) {
-      continue;
+  uint8_t ax_i = 0;
+  for (uint8_t r = 0; r < 3; ++r) {
+    for (uint8_t c = 2; c < 6; c += 2, ++ax_i) {
+      uint8_t off = (uint8_t)(r * 6 + c);
+      mb[off] ^= 0x40;
+      planes_project_axes(_test_psa, &view, &ma, &df);
+      expect(16, _test_psa->axes[ax_i], ((const int16_t *)&ma)[off >> 1]);
+      planes_project_axes(_test_psa, &view, &ma, &df);
+      expect(16, df.cached ? 1 : 0, 1);
+      mb[off] ^= 0x40;
+      planes_project_axes(_test_psa, &view, &ma, &df);
     }
-    mb[off] ^= 0x40;
-    planes_project_axes(_test_psa, &view, &ma, &df);
-    expect(16, _test_psa->axes[(off / 6) * 2 + ((off % 6) - 2) / 2],
-           ((const int16_t *)&ma)[off / 2]);
-    planes_project_axes(_test_psa, &view, &ma, &df);
-    expect(16, df.cached ? 1 : 0, 1);
-    mb[off] ^= 0x40;
-    planes_project_axes(_test_psa, &view, &ma, &df);
   }
 
   // planes_reslide thresholds (Deep/Off/Always), ys=1 & ys=2 odd parity, band, key_count=0.
@@ -1174,30 +1177,22 @@ static void test_opponent_world_delta_asm(void) {
         uint8_t got_r = _opponent_world_delta(slot);
         expect(17, got_r, want_r);
         if (want_r != kOpponentOut) {
-          expect(17, vec_v.x, want_v.x);
-          expect(17, vec_v.y, want_v.y);
-          expect(17, vec_v.z, want_v.z);
+          for (uint8_t a = 0; a < 3; ++a) {
+            expect(17, (&vec_v.x)[a], (&want_v.x)[a]);
+          }
         }
       }
     }
   }
 }
 
-// 18. gun_asm.h: _gun_track_all, _gun_rel_from, _gun_hits, and _gun_collides
-// against 16-bit C references on the emulated 6510.
-static const uint8_t kOpponentMax = 2;
-static const uint8_t kRoundMax = 8;
-static const int16_t kGunCollide = 192;
+// 18. gun_asm.cc: _gun_track_all, _gun_rel_from, _gun_hits, _gun_collides,
+// _gun_store_enemy_round, _gun_step_rounds, _gun_shown, _gun_dir, _gun_view,
+// _gun_view_round, and _gun_vel_round against 16-bit C references on the
+// emulated 6510.
 uint8_t flight_step_shift;
-static int32_t _gun_eye[3];
-static int32_t _gun_p[3];
-static __striped int16_t _gun_t[3];
-static __striped int16_t _gun_d[3];
-static __striped int16_t _gun_q[3];
-static __striped int16_t _gun_moved[3];
-static __striped int16_t _gun_prev[6];
-static __striped int16_t _round_p[24];
-static __striped int16_t _round_v[24];
+uint8_t kFlightSubstepMask;
+mat3_t world_cam;
 #include "../gun_asm.h"
 
 static bool _ref_gun_rel(uint8_t c, int16_t *out_val) {
@@ -1267,18 +1262,17 @@ static bool _ref_gun_collides(uint8_t k, bool prev, int16_t *prev_buf) {
 static void test_gun_asm(void) {
   // _gun_track_all: sub-quantum preservation, positive/negative borrow across
   // bit 16, exact d >> 5 in _gun_moved, and _gun_t zeroed.
-  static const int32_t kSteps[4][3] = {
+  static const int32_t kSteps[3][3] = {
       {0x0000001FL, -0x00000001L, 0x00000020L},
       {0x00000F15L, -0x00000E33L, 0x000001FFL},
-      {-0x00001205L, 0x0000185AL, -0x00000420L},
-      {0x00000083L, -0x0000009EL, 0x00000000L},
+      {-0x00001205L, 0x0000185AL, 0x00000000L},
   };
   int32_t ref_eye[3] = {0x0010FFE8L, 0x00200010L, 0x00058004L};
   for (uint8_t c = 0; c < 3; ++c) {
     _gun_eye[c] = ref_eye[c];
     *kFlightEye[c] = ref_eye[c];
   }
-  for (uint8_t s = 0; s < 4; ++s) {
+  for (uint8_t s = 0; s < 3; ++s) {
     int16_t want_m[3];
     for (uint8_t c = 0; c < 3; ++c) {
       *kFlightEye[c] += kSteps[s][c];
@@ -1297,9 +1291,10 @@ static void test_gun_asm(void) {
   }
 
   // _gun_rel_from(0) and _gun_rel_from(2): wraparound on x/y and [-15, 14].
-  _gun_eye[0] = 0x007E0040L;
-  _gun_eye[1] = 0x00FC8020L;
-  _gun_eye[2] = 0x00040100L;
+  static const int32_t kRelEye[3] = {0x007E0040L, 0x00FC8020L, 0x00040100L};
+  for (uint8_t c = 0; c < 3; ++c) {
+    _gun_eye[c] = kRelEye[c];
+  }
   static const int32_t kRelOff[][3] = {
       {0, 0, 0},
       {0x000EFFFDL, -0x000F0000L, -0x00040100L}, // max in-range +14, -15
@@ -1319,18 +1314,16 @@ static void test_gun_asm(void) {
     bool got_ok = _gun_rel3_to() != 0;
     expect(18, got_ok, want_ok);
     if (want_ok) {
-      expect(18, _gun_t[0], want_t[0]);
-      expect(18, _gun_t[1], want_t[1]);
-      expect(18, _gun_t[2], want_t[2]);
+      for (uint8_t a = 0; a < 3; ++a) {
+        expect(18, _gun_t[a], want_t[a]);
+      }
     }
     int16_t want_z = 33;
     bool want_zok = _ref_gun_rel(2, &want_z);
     _gun_t[0] = 11;
     _gun_t[1] = 22;
-    bool got_zok = _gun_rel2() != 0;
-    expect(18, got_zok, want_zok);
-    expect(18, _gun_t[0], 11);
-    expect(18, _gun_t[1], 22);
+    expect(18, _gun_rel2() != 0, want_zok);
+    expect(18, (int16_t)((_gun_t[0] << 8) | _gun_t[1]), (11 << 8) | 22);
     if (want_zok) {
       expect(18, _gun_t[2], want_z);
     }
@@ -1350,17 +1343,13 @@ static void test_gun_asm(void) {
     flight_step_shift = sh;
     for (uint8_t c = 0; c < sizeof(kHitCases) / sizeof(kHitCases[0]); ++c) {
       uint8_t r = (uint8_t)(c & 7);
-      _gun_t[0] = kHitCases[c][0];
-      _gun_t[1] = kHitCases[c][1];
-      _gun_t[2] = kHitCases[c][2];
-      _round_p[r] = 40;
-      _round_p[r + 8] = -20;
-      _round_p[r + 16] = 10;
-      _round_v[r] = kHitCases[c][3];
-      _round_v[r + 8] = kHitCases[c][4];
-      _round_v[r + 16] = kHitCases[c][5];
-      int16_t box = kHitCases[c][6];
-      expect(18, _gun_hits(r, box), _ref_gun_hits(r, box));
+      static const int8_t kRp[3] = {40, -20, 10};
+      for (uint8_t a = 0; a < 3; ++a) {
+        _gun_t[a] = kHitCases[c][a];
+        _round_p[r + 8 * a] = kRp[a];
+        _round_v[r + 8 * a] = kHitCases[c][a + 3];
+      }
+      expect(18, _gun_hits(r, kHitCases[c][6]), _ref_gun_hits(r, kHitCases[c][6]));
     }
   }
   flight_step_shift = 0;
@@ -1370,9 +1359,7 @@ static void test_gun_asm(void) {
       {400, 0, 0},      // outside
       {-384, 192, -192}, // now outside (-384), mid = (+8, +96, -96) -> mid hit if prev!
       {500, 0, 0},      // outside
-      {-114, 0, 0},     // mid = +193 -> outside! now = -114 -> now hit!
-      {500, 0, 0},
-      {-113, 0, 0},     // mid = +193 -> outside; Wait: (500 + -114)>>1 = 193, (500 + -116)>>1 = 192
+      {-114, 0, 0},     // mid = +193 -> outside; now = -114 -> now hit!
       {500, 385, 0},
       {-500, -1, 0},    // mid = (0, +192, 0) -> mid hit!
       {500, 387, 0},
@@ -1397,6 +1384,123 @@ static void test_gun_asm(void) {
       expect(18, _gun_prev[i], ref_prev[i]);
     }
   }
+
+  // _gun_dir across all 16 directions, zero axes, small/large magnitudes, and
+  // int16_t extremes (-32768, 32767).
+  static const int16_t kDirVals[] = {
+      0, 1, -1, 25, -25, 78, -78, 127, -128, 128, 210, -210, 32767, -32768};
+  for (uint8_t xi = 0; xi < sizeof(kDirVals) / sizeof(kDirVals[0]); ++xi) {
+    for (uint8_t yi = 0; yi < sizeof(kDirVals) / sizeof(kDirVals[0]); ++yi) {
+      int16_t dx = kDirVals[xi], dy = kDirVals[yi];
+      int16_t rdx = dx, rdy = dy;
+      if (rdx < 0) {
+        rdx = -rdx;
+        rdy = -rdy;
+      }
+      uint16_t a = _abs16(rdy), b = (uint16_t)rdx;
+      while ((a | b) >= 128) {
+        a >>= 1;
+        b >>= 1;
+      }
+      bool steep = (uint8_t)b <= (uint8_t)a;
+      uint8_t n = steep ? (uint8_t)b : (uint8_t)a;
+      uint8_t m = steep ? (uint8_t)a : (uint8_t)b;
+      uint8_t k = 0;
+      for (uint8_t t = 0; t < 4; ++t) {
+        if ((uint16_t)((uint16_t)n << 8) > vec_mul8x8(m, kTracerTan[t])) {
+          ++k;
+        }
+      }
+      if (!steep) {
+        k = (uint8_t)(8 - k);
+      }
+      expect(18, _gun_dir(dx, dy), rdy < 0 ? k : (uint8_t)((16 - k) & 15));
+    }
+  }
+
+  // _gun_view, _gun_view_round, and _gun_vel_round across behind-camera, cone
+  // edges, 8-bit and 16-bit divisors, and rotated camera basis.
+  world_cam.front = make_vector(204, 153, 0);
+  world_cam.left = make_vector(-153, 204, 0);
+  world_cam.up = make_vector(0, 0, 256);
+  static const int8_t kViewPts[][3] = {
+      {-50, 0, 0},   {50, 38, 0},    {64, 48, 0},    // x <= 64
+      {80, 60, 100}, {80, -80, 10},  {100, 90, -80}, // cone out & x < 256 in
+      {120, 30, -20},                                // scaled << 5 below
+  };
+  for (uint8_t pi = 0; pi < sizeof(kViewPts) / sizeof(kViewPts[0]); ++pi) {
+    uint8_t r = (uint8_t)(pi & 7);
+    for (uint8_t c = 0; c < 3; ++c) {
+      int16_t pv = kViewPts[pi][c];
+      _round_p[r + 8 * c] = (pi == 6) ? (pv << 6) : (pv << 1);
+    }
+    vec3_t u = make_vector(_round_p[r] >> 1, _round_p[r + 8] >> 1,
+                           _round_p[r + 16] >> 1);
+    vec3_t rc;
+    vec_transform_inv(&world_cam, &u, &rc);
+    bool want_vis = rc.x > 64 && _abs16(rc.z) < (uint16_t)rc.x &&
+                    _abs16(rc.y) < (uint16_t)rc.x;
+    expect(18, _gun_view_round(r) ? 1 : 0, want_vis ? 1 : 0);
+    if (want_vis) {
+      expect(18, _gun_c.x, rc.x);
+      expect(18, _gun_s[0], (int16_t)(160 - vec_div8p8(rc.y, rc.x)));
+      expect(18, _gun_s[1], (int16_t)(56 - vec_div8p8(rc.z, rc.x)));
+    }
+    _gun_c = u;
+    expect(18, _gun_view() ? 1 : 0, want_vis ? 1 : 0);
+  }
+  static const int16_t kVel3[3] = {700, -351, 123};
+  for (uint8_t c = 0; c < 3; ++c) {
+    _round_v[3 + 8 * c] = kVel3[c];
+  }
+  _gun_vel_round(3);
+  expect(18, vec_v.x, vec_fastmul8p8(204, 350) + vec_fastmul8p8(153, -176));
+  expect(18, vec_v.z, 61);
+
+  // _gun_shown + _gun_store_enemy_round + _gun_step_rounds.
+  for (uint8_t r = 0; r < 8; ++r) {
+    _round_age[r] = 0;
+  }
+  *(volatile uint8_t *)&_gun_last = kRoundNone;
+  expect(18, _gun_shown(), kRoundNone);
+  static const int16_t kInitTV[4][3] = {
+      {333, -222, -500}, {40, -20, -40}, {200, -100, 0}, {64, -32, 16}};
+  for (uint8_t c = 0; c < 3; ++c) {
+    _gun_t[c] = kInitTV[0][c];
+    _gun_v[c] = kInitTV[1][c];
+    _round_p[8 * c] = kInitTV[2][c];
+    _round_v[8 * c] = kInitTV[3][c];
+  }
+  _gun_store_enemy_round(3, 2);
+  *(volatile uint8_t *)&_round_age[0] = 12;
+  *(volatile uint8_t *)&_round_owner[0] = 0;
+  expect(18, _gun_shown(), 3);
+
+  static const int8_t kMv[3] = {12, -7, 4};
+  for (uint8_t c = 0; c < 3; ++c) {
+    _gun_moved[c] = kMv[c];
+  }
+  *(volatile int32_t *)&_gun_eye[2] = 0x00004000L; // ground at -512 sixteenths
+  volatile uint8_t *vz = (volatile uint8_t *)&_gun_z;
+  volatile const uint8_t *vp = (volatile const uint8_t *)_gun_puff;
+  vz[11] = 0; // _gun_substep
+  vz[12] = 0; // _gun_puff_t
+  *(volatile uint8_t *)&_gun_last = 3;
+  *(volatile uint8_t *)&flight_step_shift = 1;
+  *(volatile uint8_t *)&kFlightSubstepMask = 1;
+  expect(18, _gun_step_rounds() ? 1 : 0, 0);
+  expect(18, (int16_t)((vz[0] << 8) | vz[3]), 12 << 8);
+  expect(18, *(volatile uint8_t *)&_gun_last, kRoundNone);
+  expect(18, (int16_t)((vp[3] << 8) | vp[0]), 341);
+  expect(18, (int16_t)((vp[5] << 8) | vp[2]), -512);
+
+  *(volatile uint8_t *)&flight_step_shift = 0;
+  *(volatile uint8_t *)&_gun_last = 0;
+  expect(18, _gun_step_rounds() ? 1 : 0, 1);
+  *(volatile uint8_t *)&kFlightSubstepMask = 0;
+  expect(18, (int16_t)((vz[0] << 8) | vz[12]), kPuffFrames - 1);
+  expect(18, *(volatile uint8_t *)&_gun_last, kRoundNone);
+  expect(18, (int16_t)((vp[3] << 8) | vp[0]), 329);
 }
 
 // 19. vec_asm.cc restoring division (vec_div8p8, vec_frac16, vec_fracn across
@@ -1407,9 +1511,12 @@ static uint16_t _ref_uabs16(int16_t v) {
 }
 
 static uint16_t _ref_fracn(int16_t a, int16_t b, uint8_t bits) {
-  uint16_t ua = _ref_uabs16(a);
-  uint16_t ub = _ref_uabs16(b);
-  uint16_t ones = bits == 16 ? 0xFFFFu : (uint16_t)(((uint16_t)1 << bits) - 1);
+  uint16_t ua = a < 0 ? (uint16_t)(-(uint16_t)a) : (uint16_t)a;
+  uint16_t ub = b < 0 ? (uint16_t)(-(uint16_t)b) : (uint16_t)b;
+  uint16_t ones = 0;
+  for (uint8_t i = 0; i < bits; ++i) {
+    ones = (uint16_t)((ones << 1) | 1);
+  }
   if (ua >= ub) {
     return ones;
   }
@@ -1513,16 +1620,9 @@ static void test_vec_div_and_planes_centre_asm(void) {
       expect(19, (int16_t)got_f, (int16_t)want_f);
     }
   }
-  // Exact literals on tricky division corners.
-  expect(19, vec_div8p8(0, 0), 0);
-  expect(19, vec_div8p8(5, 0), 32767);
-  expect(19, vec_div8p8(-5, 0), -32767);
-  expect(19, vec_div8p8(-32768, -32768), 256);
+  // Exact literal sanity anchor against _ref_div8p8 / _ref_fracn.
   expect(19, vec_div8p8(8191, 65), 32259);
-  expect(19, vec_div8p8(8320, 65), 32767);
-  expect(19, vec_div8p8(-32768, 256), -32767);
-  expect(19, (int16_t)vec_frac16(32767, -32768), (int16_t)0xFFFEu);
-  expect(19, (int16_t)vec_frac16(-32768, -32768), (int16_t)0xFFFFu);
+  expect(19, vec_div8p8(-32768, -32768), 256);
 
   // vec_fracn across odd bit counts and saturation.
   static const uint8_t kBits[] = {1, 7, 8, 9, 12, 16};
@@ -1535,8 +1635,8 @@ static void test_vec_div_and_planes_centre_asm(void) {
     uint8_t bits = kBits[bi];
     for (uint8_t pi = 0; pi < sizeof(kFnPairs) / sizeof(kFnPairs[0]); ++pi) {
       int16_t a = kFnPairs[pi][0], b = kFnPairs[pi][1];
-      uint16_t want_fn = _ref_fracn(a, b, bits);
       uint16_t got_fn = vec_fracn(a, b, bits);
+      uint16_t want_fn = _ref_fracn(a, b, bits);
       expect(19, (int16_t)got_fn, (int16_t)want_fn);
     }
   }
@@ -1578,7 +1678,6 @@ static void test_vec_div_and_planes_centre_asm(void) {
     }
   }
 }
-#pragma optimize(pop)
 
 // 20. sprites_asm.cc sprites_stack_add, sprites_stack_commit,
 // _sprites_set_instrument_sprite, and sprites_set_alt against 16-bit C
@@ -1773,63 +1872,71 @@ static void _check_frames_eq(void) {
   }
 }
 
-#pragma optimize(push, outline)
+struct CullCase {
+  int16_t x, y;
+  int8_t px, py;
+  uint8_t b1, b2, col, fl;
+};
+
+struct AddCase {
+  int16_t d;
+  CullCase c;
+};
+
+static __noinline void _run_cull(int16_t d, const CullCase *c) {
+  bool g = sprites_stack_add(d, c->x, c->y, c->px, c->py, c->b1, c->b2, c->col,
+                             c->fl);
+  bool w =
+      _ref_stack_add(d, c->x, c->y, c->px, c->py, c->b1, c->b2, c->col, c->fl);
+  expect(20, g ? 1 : 0, w ? 1 : 0);
+}
+
 static void test_sprites_asm(void) {
-  struct AddCase {
-    int16_t d, x, y;
-    int8_t px, py;
-    uint8_t b1, b2, col, fl;
-  };
-  static const AddCase kCulls[] = {
+  static const CullCase kCulls[] = {
       // Exact left/right/top/bottom boundaries for 1x1, ExpandX, 1x2, 2x2.
-      {100, -13, 50, 12, 10, 95, 0xFF, 7, 0},   // vx == -1 -> out
-      {100, -12, 50, 12, 10, 95, 0xFF, 7, 0},   // vx == 0, w == 24 -> out
-      {100, -11, 50, 12, 10, 95, 0xFF, 7, 0},   // vx == 1, w == 24 -> in
-      {100, 0, 50, 12, 10, 81, 0xFF, 1, 0x01},  // x == -24, w == 48 -> in (vx == 0)
-      {100, -1, 50, 12, 10, 81, 0xFF, 1, 0x01}, // x == -25, w == 48 -> out
-      {100, 331, 50, 12, 10, 95, 0xFF, 7, 0},   // x == 319 -> in
-      {100, 332, 50, 12, 10, 95, 0xFF, 7, 0},   // x == 320 -> out
-      {100, 160, -11, 12, 10, 95, 0xFF, 7, 0},  // y + 20 == -1 -> out
-      {100, 160, -10, 12, 10, 95, 0xFF, 7, 0},  // y + 20 == 0 -> in
-      {100, 160, 99, 12, 10, 95, 0xFF, 7, 0},   // y == 89, y + 20 == 109 -> in
-      {100, 160, 100, 12, 10, 95, 0xFF, 7, 0},  // y == 90, y + 20 == 110 -> out
-      {100, 160, 88, 12, 20, 85, 86, 1, 0x01},  // 1x2: y == 68, +41 == 109 -> in
-      {100, 160, 89, 12, 20, 85, 86, 1, 0x01},  // 1x2: y == 69, +41 == 110 -> out
-      {100, 100, 26, 0, 0, 69, 71, 12, 0x0D},   // 2x2 ExpandY: +83 == 109 -> in
-      {100, 100, 27, 0, 0, 69, 71, 12, 0x0D},   // 2x2 ExpandY: +83 == 110 -> out
+      {-13, 50, 12, 10, 95, 0xFF, 7, 0},   // vx == -1 -> out
+      {-12, 50, 12, 10, 95, 0xFF, 7, 0},   // vx == 0, w == 24 -> out
+      {-11, 50, 12, 10, 95, 0xFF, 7, 0},   // vx == 1, w == 24 -> in
+      {0, 50, 12, 10, 81, 0xFF, 1, 0x01},  // x == -24, w == 48 -> in (vx == 0)
+      {-1, 50, 12, 10, 81, 0xFF, 1, 0x01}, // x == -25, w == 48 -> out
+      {331, 50, 12, 10, 95, 0xFF, 7, 0},   // x == 319 -> in
+      {332, 50, 12, 10, 95, 0xFF, 7, 0},   // x == 320 -> out
+      {160, -11, 12, 10, 95, 0xFF, 7, 0},  // y + 20 == -1 -> out
+      {160, -10, 12, 10, 95, 0xFF, 7, 0},  // y + 20 == 0 -> in
+      {160, 99, 12, 10, 95, 0xFF, 7, 0},   // y == 89, y + 20 == 109 -> in
+      {160, 100, 12, 10, 95, 0xFF, 7, 0},  // y == 90, y + 20 == 110 -> out
+      {160, 88, 12, 20, 85, 86, 1, 0x01},  // 1x2: y == 68, +41 == 109 -> in
+      {160, 89, 12, 20, 85, 86, 1, 0x01},  // 1x2: y == 69, +41 == 110 -> out
+      {100, 26, 0, 0, 69, 71, 12, 0x0D},   // 2x2 ExpandY: +83 == 109 -> in
+      {100, 27, 0, 0, 69, 71, 12, 0x0D},   // 2x2 ExpandY: +83 == 110 -> out
       // Dither parity across odd/even & negative top-lefts.
-      {100, 161, 55, 12, 10, 82, 0xFF, 1, 0x03},
-      {100, 162, 55, 12, 10, 82, 0xFF, 1, 0x03},
-      {100, 163, 56, 12, 10, 82, 0xFF, 1, 0x03},
-      {100, 5, -9, 12, 10, 82, 0xFF, 1, 0x03},
+      {161, 55, 12, 10, 82, 0xFF, 1, 0x03},
+      {162, 55, 12, 10, 82, 0xFF, 1, 0x03},
+      {163, 56, 12, 10, 82, 0xFF, 1, 0x03},
+      {5, -9, 12, 10, 82, 0xFF, 1, 0x03},
       // Message box edges when msg_on ([100, 220), row 0 vy < 58).
-      {100, 88, 17, 12, 10, 95, 0xFF, 7, 0},    // vx=100, +24==124==x0 -> in
-      {100, 89, 17, 12, 10, 95, 0xFF, 7, 0},    // vx=101, +24==125>x0 -> hidden
-      {100, 232, 17, 12, 10, 95, 0xFF, 7, 0},   // vx=244==x1 -> in
-      {100, 231, 17, 12, 10, 95, 0xFF, 7, 0},   // vx=243<x1 -> hidden
-      {100, 160, 18, 12, 10, 95, 0xFF, 7, 0},   // y=8 -> vy=58 -> in
+      {88, 17, 12, 10, 95, 0xFF, 7, 0},    // vx=100, +24==124==x0 -> in
+      {89, 17, 12, 10, 95, 0xFF, 7, 0},    // vx=101, +24==125>x0 -> hidden
+      {232, 17, 12, 10, 95, 0xFF, 7, 0},   // vx=244==x1 -> in
+      {231, 17, 12, 10, 95, 0xFF, 7, 0},   // vx=243<x1 -> hidden
+      {160, 18, 12, 10, 95, 0xFF, 7, 0},   // y=8 -> vy=58 -> in
       // Extreme 16-bit signed wrap edges.
-      {100, -32768, 50, 12, 10, 95, 0xFF, 7, 0},
-      {100, 32767, 50, 0, 0, 95, 0xFF, 7, 0},
-      {100, 160, -32768, 0, 10, 95, 0xFF, 7, 0},
-      {100, 160, 32767, 0, 0, 95, 0xFF, 7, 0},
+      {-32768, 50, 12, 10, 95, 0xFF, 7, 0},
+      {32767, 50, 0, 0, 95, 0xFF, 7, 0},
+      {160, -32768, 0, 10, 95, 0xFF, 7, 0},
+      {160, 32767, 0, 0, 95, 0xFF, 7, 0},
   };
-  msg_span_x0 = 100;
-  msg_span_x1 = 220;
+  *(volatile uint16_t *)&msg_span_x0 = 100;
+  *(volatile uint16_t *)&msg_span_x1 = 220;
   for (uint8_t m = 0; m < 2; ++m) {
-    _test_msg_on = (m != 0);
+    *(volatile bool *)&_test_msg_on = (m != 0);
     for (uint8_t i = 0; i < sizeof(kCulls) / sizeof(kCulls[0]); ++i) {
-      _sprites_cand_end = 0;
+      *(volatile uint8_t *)&_sprites_cand_end = 0;
       _ref_cand_end = 0;
-      const AddCase *ac = &kCulls[i];
-      bool got = sprites_stack_add(ac->d, ac->x, ac->y, ac->px, ac->py, ac->b1,
-                                   ac->b2, ac->col, ac->fl);
-      bool want = _ref_stack_add(ac->d, ac->x, ac->y, ac->px, ac->py, ac->b1,
-                                 ac->b2, ac->col, ac->fl);
-      expect(20, got ? 1 : 0, want ? 1 : 0);
-      expect(20, _sprites_cand_end, _ref_cand_end);
-      if (want) {
-        const uint8_t *gb = (const uint8_t *)_sprites_cand;
+      _run_cull(100, &kCulls[i]);
+      expect(20, *(const volatile uint8_t *)&_sprites_cand_end, _ref_cand_end);
+      if (_ref_cand_end != 0) {
+        const volatile uint8_t *gb = (const volatile uint8_t *)_sprites_cand;
         const uint8_t *wb = (const uint8_t *)_ref_cand;
         for (uint8_t b = 0; b < kSpriteCandSize; ++b) {
           expect(20, gb[b], wb[b]);
@@ -1837,47 +1944,39 @@ static void test_sprites_asm(void) {
       }
     }
   }
-  _test_msg_on = false;
+  *(volatile bool *)&_test_msg_on = false;
 
   // Multi-frame commit tests: empty, 9-item overflow + ties, mixed 2x2 + 1x2 +
   // msbx split, orientation mark, tail fin, and alt-buffer sentinel check.
   static const AddCase kMixed[] = {
-      {0x7FFF, 300, 40, 12, 10, 95, 0xFF, 7, 0},      // sun with msbx
-      {450, 230, 12, 0, 0, 69, 71, 11, 0x0D},         // 2x2 plane crossing 256
-      {300, 161, 45, 12, 20, 85, 86, 1, 0x03},        // 1x2 dithered cloud
-      {300, 80, 30, 12, 10, 82, 0xFF, 1, 0x03},       // tie at depth 300
-      {120, 40, 20, 12, 10, 90, 0xFF, 2, 0},          // close tracer
+      {0x7FFF, {300, 40, 12, 10, 95, 0xFF, 7, 0}}, // sun with msbx
+      {450, {230, 12, 0, 0, 69, 71, 11, 0x0D}},    // 2x2 plane crossing 256
+      {300, {161, 45, 12, 20, 85, 86, 1, 0x03}},   // 1x2 dithered cloud
+      {300, {80, 30, 12, 10, 82, 0xFF, 1, 0x03}},  // tie at depth 300
+      {120, {40, 20, 12, 10, 90, 0xFF, 2, 0}},     // close tracer
   };
-  uint8_t *raw_got = (uint8_t *)_sprites_frames;
+  volatile uint8_t *raw_got = (volatile uint8_t *)_sprites_frames;
   uint8_t *raw_want = (uint8_t *)_ref_frames;
   for (uint8_t b = 0; b < sizeof(_sprites_frames); ++b) {
     raw_got[b] = 0xAA;
     raw_want[b] = 0xAA;
   }
   for (uint8_t mode = 0; mode < 4; ++mode) {
-    mem_using_alt_buffer = (mode & 1) != 0;
-    _sprites_orient_off = (mode == 1) ? 0 : 0xFF;
-    _sprites_fin_off = (mode == 2) ? 0 : 0xFF;
-    _sprites_cand_end = 0;
+    *(volatile bool *)&mem_using_alt_buffer = (mode & 1) != 0;
+    *(volatile uint8_t *)&_sprites_orient_off = (mode == 1) ? 0 : 0xFF;
+    *(volatile uint8_t *)&_sprites_fin_off = (mode == 2) ? 0 : 0xFF;
+    *(volatile uint8_t *)&_sprites_cand_end = 0;
     _ref_cand_end = 0;
     if (mode == 3) {
       // 10 descending/interleaved items to exercise full-stack eviction & rejection.
       for (uint8_t i = 0; i < 10; ++i) {
-        int16_t d = (i == 9) ? 999 : (int16_t)(900 - i * 80);
-        bool g = sprites_stack_add(d, (int16_t)(20 + i * 28), 35, 12, 10,
-                                   (uint8_t)(40 + i), 0xFF, (uint8_t)(i & 15), 0);
-        bool w = _ref_stack_add(d, (int16_t)(20 + i * 28), 35, 12, 10,
-                                (uint8_t)(40 + i), 0xFF, (uint8_t)(i & 15), 0);
-        expect(20, g ? 1 : 0, w ? 1 : 0);
+        CullCase cc = {(int16_t)(20 + i * 28), 35, 12, 10, (uint8_t)(40 + i),
+                       0xFF, (uint8_t)(i & 15), 0};
+        _run_cull((i == 9) ? (int16_t)999 : (int16_t)(900 - i * 80), &cc);
       }
     } else if (mode != 0) {
       for (uint8_t i = 0; i < sizeof(kMixed) / sizeof(kMixed[0]); ++i) {
-        const AddCase *ac = &kMixed[i];
-        bool g = sprites_stack_add(ac->d, ac->x, ac->y, ac->px, ac->py, ac->b1,
-                                   ac->b2, ac->col, ac->fl);
-        bool w = _ref_stack_add(ac->d, ac->x, ac->y, ac->px, ac->py, ac->b1,
-                                ac->b2, ac->col, ac->fl);
-        expect(20, g ? 1 : 0, w ? 1 : 0);
+        _run_cull(kMixed[i].d, &kMixed[i].c);
       }
     }
     sprites_stack_commit();

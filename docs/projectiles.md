@@ -1,8 +1,8 @@
 # Projectiles (`projectiles.md`)
 
 Guns for fpilot, the player's first and the opponents' provided for.
-*Since 2026-10-24* §9's phases 1–3 are built (`c64o/gun.cc`), with smoke and
-an end-to-end test: see §11 and §12.
+*Since 2026-10-24* §9's phases 1–3 are built (`c64o/gun.cc`, `c64o/gun_asm.cc`),
+with smoke and an end-to-end test: see §11 and §12.
 The rest of this is the plan they follow. Everything here is fpilot only (`__FPILOT__`);
 ppilot does not change. Lengths are on the current scale, 128 m to the
 world unit ([map.md](map.md) §4, "The scale").
@@ -225,8 +225,14 @@ the crash, so a stall still sounds while firing.
 
 ## 11. As built (phases 1 and 2)
 
-- **`gun.cc`, `gun.h`.** Space fires; `gun_step()` runs after
-  `opponent_step()`, and `gun_add_sprite()` after `opponent_add_sprites()`.
+- **`gun.cc`, `gun_asm.cc`, `gun_asm.h`, `gun.h`.** Space fires; `gun_step()`
+  runs after `opponent_step()`, and `gun_add_sprites()` after
+  `opponent_add_sprites()`. On the C64, eye tracking, world-to-eye wrapping,
+  swept-box hit and collision tests, per-step round advancement, active-tracer
+  selection, staged camera-cone projection (`vec_frac8`), and 16-angle needle
+  quantisation (`vec_mul8`) run as 6502 assembly in `gun_asm.cc` (verified by
+  `test/target_test.cc`), while `gun.cc` keeps the C counterparts under
+  `#ifndef __OSCAR64__` for `test/gun_test.cc` and `test/mission_test.cc`.
   `opponent.cc` gives it `opponent_target()` and `opponent_strike()`.
   `kOpponentHitsToDown` is 5 (3 until 2026-11-06), and a downed aircraft is no longer drawn
   ("OPPONENT SHOT DOWN").
@@ -327,7 +333,7 @@ the crash, so a stall still sounds while firing.
     rounds' eye jumped half a unit, 64 m, sideways for good. The tracers
     were drawn from the same eye and so still looked right. `_gun_track()`
     was called once an axis with the eye spelled out (now stepped across all
-    three axes via `kFlightEye` by `_gun_track_all()` in `gun_asm.h`).
+    three axes via `kFlightEye` by `_gun_track_all()` in `gun_asm.cc`).
   - `gun_test` now starts the eye half a unit into y, as missions do, and
     checks the rounds' eye keeps up on every axis.
   - A VICE run with a target placed dead ahead confirms it: smoke, "TARGET

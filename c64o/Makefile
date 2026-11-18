@@ -145,6 +145,7 @@ OPPONENT_SRC = \
 		gun.h \
 		gun.cc \
 		gun_asm.h \
+		gun_asm.cc \
 		damage.h \
 		damage.cc \
 		debrief.h \
