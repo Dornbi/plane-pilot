@@ -51,8 +51,8 @@ program (`__MAX_RAM__`).
 | ------------- | ---------------------------------------------------------- |
 | `$0002–$005A` | oscar64's own zero page: registers, parameters, temporaries |
 | `$0060–$00FF` | zero page (oscar64 `zeropage` region)                      |
-| `$0200–$0240` | CPU stack (`#pragma stacksize(0x40)`); `$0200–$0288` in fpilot, whose opponents need deeper static frames (`mem.h`) |
-| `$0240–$0860` | `bss2`, a second BSS region; cleared by `mem_init()`, not by the startup code; from `$0288` in fpilot; from `$0800` over the BASIC link byte and the startup stub, both dead once `main()` runs |
+| `$0200–$0240` | CPU stack (`#pragma stacksize(0x40)`); `$0200–$0220` (`stacksize(0x20)`) in fpilot, whose per-call temporaries live in `tscratch` (`mem.h`) |
+| `$0240–$0860` | `bss2`, a second BSS region; cleared by `mem_init()`, not by the startup code; from `$0220` in fpilot; from `$0800` over the BASIC link byte and the startup stub, both dead once `main()` runs |
 | `$0860–$0A5F` | boot-only code (`_boot()`, `cpu_probe()`, `mem_init()`); once `main()` is past it, scratch for `box.cc`'s caches (`mem.h` `kBootScratch`) |
 | `$0A60–$CFFF` | code, data, bss, heap                                      |
 | `$D000–$DFFF` | I/O (`MMAP_NO_ROM`)                                        |
@@ -878,7 +878,7 @@ C64; `make -C c64o test` runs those.
   tool, not a mirror of the shipped renderer.
 - **Opponents are in fpilot only, and fly fixed paths.**
   [planes.md](planes.md) specifies aircraft sprites in full; `fpilot.prg`
-  draws them (`opponent.cc`, §13), with the sprite buffers under I/O at
+  draws them (`opponent.cc`, `opponent_asm.cc`, §13), with the sprite buffers under I/O at
   `$D000`, time-shared with the map view's screen RAM and the title screen's
   aeroplane, and the dot in the block below. Up to two aircraft fly fixed
   paths of waypoints, level and at one speed each, or sit parked, in four

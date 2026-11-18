@@ -121,8 +121,8 @@ DESCRIPTIONS = {
         'Code': 'flight dynamics, physics integration, waypoint checking, '
                 'terrain grid rendering, clouds, opponents and guns (`flight.cc`, '
                 '`world.cc`, `world_asm.h`, `sim.cc`, `world_map.cc`, '
-                '`clouds.cc`, `opponent.cc`, `planes.cc`, `planes_asm.cc`, '
-                '`gun.cc`, `gun_asm.cc`)',
+                '`clouds.cc`, `opponent.cc`, `opponent_asm.cc`, `planes.cc`, '
+                '`planes_asm.cc`, `gun.cc`, `gun_asm.cc`)',
         'Data': 'orientation matrices (`mat3_rot`), the world '
                 'map, cloud hash and ladder tables, 3D aircraft models and paths',
         'BSS': 'flight path history (`flight_path_px/py`), delta transform '

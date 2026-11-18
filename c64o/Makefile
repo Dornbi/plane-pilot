@@ -142,6 +142,7 @@ OPPONENT_SRC = \
 		opponent.h \
 		opponent.cc \
 		opponent_asm.h \
+		opponent_asm.cc \
 		gun.h \
 		gun.cc \
 		gun_asm.h \

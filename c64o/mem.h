@@ -16,13 +16,13 @@
 // We barely use the stack, make it smaller than the default. Nothing recurses,
 // so oscar64 gives every function a static frame and never touches the
 // dynamic stack (SP is set at startup and read nowhere). The region only has
-// to hold the frames: about 51 bytes in ppilot and fpilot, whose opponents keep
-// their per-call temporaries in tscratch below. Should they outgrow it the link
-// fails with error 3034 (static stack usage exceeds stack segment); raise this,
-// the region top below and MEM_BSS2_START together.
+// to hold the frames: about 51 bytes in ppilot and 30 in fpilot, whose
+// opponents keep their per-call temporaries in tscratch below. Should they
+// outgrow it the link fails with error 3034 (static stack usage exceeds stack
+// segment); raise this, the region top below and MEM_BSS2_START together.
 #ifdef __FPILOT__
-#pragma stacksize(0x26)
-#define MEM_STACK_END 0x0226
+#pragma stacksize(0x20)
+#define MEM_STACK_END 0x0220
 #else
 #pragma stacksize(0x40)
 #define MEM_STACK_END 0x0240
@@ -59,8 +59,8 @@
 #pragma section(scratch, 0, , , bss)
 #pragma region( scratch, 0xEA30, 0xEBE8, , , {scratch} )
 // The same rows again, for the object and model steps' per-call scratch
-// (planes.cc, planes_asm.cc, clouds.cc, opponent.cc, gun.cc, gun_asm.cc): a
-// second region over the first, so the two share the bytes. They can, because
+// (planes.cc, planes_asm.cc, clouds.cc, opponent.cc, opponent_asm.cc, gun.cc,
+// gun_asm.cc): a second region over the first, so the two share the bytes. They can, because
 // gun_step() runs in the model loop, clouds/opponents/guns are drawn in
 // world_update_objects(), and the terrain only after it, and none keeps
 // anything here from one call to the next. The same rules as above.
