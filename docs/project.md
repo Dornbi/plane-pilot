@@ -51,8 +51,8 @@ program (`__MAX_RAM__`).
 | ------------- | ---------------------------------------------------------- |
 | `$0002–$005A` | oscar64's own zero page: registers, parameters, temporaries |
 | `$0060–$00FF` | zero page (oscar64 `zeropage` region)                      |
-| `$0200–$0240` | CPU stack (`#pragma stacksize(0x40)`); `$0200–$0288` in fpilot, whose opponents need deeper static frames (`mem.h`) |
-| `$0240–$0860` | `bss2`, a second BSS region; cleared by `mem_init()`, not by the startup code; from `$0288` in fpilot; from `$0800` over the BASIC link byte and the startup stub, both dead once `main()` runs |
+| `$0200–$0240` | CPU stack (`#pragma stacksize(0x40)`); `$0200–$0220` (`stacksize(0x20)`) in fpilot, whose per-call temporaries live in `tscratch` (`mem.h`) |
+| `$0240–$0860` | `bss2`, a second BSS region; cleared by `mem_init()`, not by the startup code; from `$0220` in fpilot; from `$0800` over the BASIC link byte and the startup stub, both dead once `main()` runs |
 | `$0860–$0A5F` | boot-only code (`_boot()`, `cpu_probe()`, `mem_init()`); once `main()` is past it, scratch for `box.cc`'s caches (`mem.h` `kBootScratch`) |
 | `$0A60–$CFFF` | code, data, bss, heap                                      |
 | `$D000–$DFFF` | I/O (`MMAP_NO_ROM`)                                        |
@@ -293,7 +293,7 @@ is a multiple of 256 needs two at most, and a first operand below 256 in
 magnitude, which a camera row's component usually is, needs two as well, or
 one when the second is that short too. `vec_lut.cc` also carries a reciprocal table used by
 `vec_project()`. `vec_div8p8` is exact instead: a restoring division in
-`vec_asm.cc`, sharing its loop with `vec_fracn`.
+`vec_asm.cc`, sharing `vec_frac8` with `vec_frac16` and `vec_fracn`.
 
 `vec_project()` and `vec_project_nocull()` turn a camera-space vector into
 screen coordinates (`vec_sx`, `vec_sy`); the culling variant rejects anything
@@ -314,7 +314,7 @@ would have projected off screen. Everything else shares the out-of-line
 `vec_frac16` and `vec_mulfrac` are the clipping pair, and they exist because
 8.8 is not enough for a clip parameter — see the clipping notes under
 [`poly.cc`](#polycc--filled-polygons) below. `vec_frac16` is a restoring
-32/16 division in assembly (16 iterations, ~927 cycles) returning `|a| / |b|`
+32/16 division in assembly (two `vec_frac8` byte steps, ~400-670 cycles) returning `|a| / |b|`
 as an unsigned 0.16 fraction; `vec_mulfrac` multiplies that fraction by a
 delta using `vec_fastmul8p8` on each half, rounding the low one (~720
 cycles).
@@ -555,7 +555,7 @@ not tidiness: the one-pass form indexes the width table at `row - 13` and
 oscar64 drops the guard, which is
 [`bugs/const-array-ternary-guard/`](../bugs/const-array-ternary-guard/OSCAR64-BUG-REPORT.md).
 
-### `sprites.cc` / `spritedef.cc`
+### `sprites.cc` / `sprites_asm.h` / `sprites_asm.cc` / `spritedef.cc`
 
 Eight sprites, reused twice per frame by the raster split: world objects over
 the terrain, and the instrument needles over the panel. Needle bitmaps are
@@ -589,7 +589,11 @@ stack hands out 1–7. The side views park every needle
 but one at x = 0, where the left border hides it, and the back view parks all
 of them — and takes indices 0-1 for the tail fin, which is the other piece of
 furniture the stack does not hand out (see `view.cc` above). Designed in
-[clouds.md](clouds.md) §1 and §1.9; the host suite is `test/sprites_test.cc`.
+[clouds.md](clouds.md) §1 and §1.9; on the C64, `sprites_stack_add()`,
+`sprites_stack_commit()`, `_sprites_set_instrument_sprite()`,
+`sprites_set_alt()`, and `sprites_set_vspeed()` run as 6502 assembly in
+`sprites_asm.cc` / `sprites_asm.h` (verified by `test/target_test.cc`), while
+`sprites.cc` keeps the C counterparts for `test/sprites_test.cc`.
 
 ### `clouds.cc` / `clouddef.cc`
 
@@ -874,7 +878,7 @@ C64; `make -C c64o test` runs those.
   tool, not a mirror of the shipped renderer.
 - **Opponents are in fpilot only, and fly fixed paths.**
   [planes.md](planes.md) specifies aircraft sprites in full; `fpilot.prg`
-  draws them (`opponent.cc`, §13), with the sprite buffers under I/O at
+  draws them (`opponent.cc`, `opponent_asm.cc`, §13), with the sprite buffers under I/O at
   `$D000`, time-shared with the map view's screen RAM and the title screen's
   aeroplane, and the dot in the block below. Up to two aircraft fly fixed
   paths of waypoints, level and at one speed each, or sit parked, in four

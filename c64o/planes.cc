@@ -15,7 +15,6 @@
 #include "benchmark.h"
 #define PROFILE_START() bm_start()
 #define PROFILE_END(row, label) bm_end((row) * 40 + 20, label)
-static const char kProfCentre[] = SCREEN_STR("centre ");
 static const char kProfLayout[] = SCREEN_STR("layout ");
 static const char kProfKey[] = SCREEN_STR("key ");
 static const char kProfMags[] = SCREEN_STR("mags ");
@@ -23,6 +22,7 @@ static const char kProfPairs[] = SCREEN_STR("pairs ");
 static const char kProfVerts[] = SCREEN_STR("verts ");
 static const char kProfBody[] = SCREEN_STR("body ");
 #ifndef __OSCAR64__
+static const char kProfCentre[] = SCREEN_STR("centre ");
 static const char kProfFill[] = SCREEN_STR("fill ");
 #endif
 #else
@@ -89,12 +89,12 @@ uint8_t _planes_pv[16];
 // fraction and exact division. lib/planes.py's fdiv is vec_div8p8's
 // trunc(a * 256 / b): the centre, and the fuselage's unit normal.
 
-static __noinline int16_t _abs16(int16_t a) { return a < 0 ? (int16_t)-a : a; }
-
 #ifndef __OSCAR64__
 // ---------------------------------------------------------------------------
-// planes_asm.h + planes_place + planes_fill in C, for the host: what
-// planes_asm.cc does on the C64, step for step.
+// planes_asm.h + planes_centre + planes_place + planes_reslide + planes_fill
+// in C, for the host: what planes_asm.cc does on the C64, step for step.
+
+static __noinline int16_t _abs16(int16_t a) { return a < 0 ? (int16_t)-a : a; }
 
 // lib/planes.py smul(u, r) for a unit component u (|u| <= 256) and 0 <= r < 256:
 // u * r / 256 rounded, as the reference forms it from trunc(2|u| r / 256).
@@ -492,21 +492,23 @@ void planes_state_init(planes_state_t *state) {
   state->key_count = 0;
 }
 
+// Byte offsets of (y, z) across front, left and up in mat3_t (x skipped).
+static const uint8_t kAxisScreenByte[12] = {2, 3,  4,  5,  8,  9,
+                                            10, 11, 14, 15, 16, 17};
+
 // Whether the axes' screen components differ from the ones in `last`, which
 // holds them from then on: (y, z) of the front, left and up, byte by byte,
 // the x of each skipped.
 static bool _new_axes(int16_t *last, const mat3_t *axes) {
-  const uint8_t *a = (const uint8_t *)&axes->front.y;
+  const uint8_t *a = (const uint8_t *)axes;
   uint8_t *l = (uint8_t *)last;
   bool moved = false;
-  uint8_t j = 0;
   for (uint8_t i = 0; i < 12; ++i) {
-    uint8_t v = a[j];
+    uint8_t v = a[kAxisScreenByte[i]];
     if (l[i] != v) {
       l[i] = v;
       moved = true;
     }
-    j += (i & 3) == 3 ? 3 : 1;
   }
   return moved;
 }
@@ -518,6 +520,7 @@ void planes_dot_bitmap(uint8_t *block) {
   block[3 * (kPlaneDotY + 1) + 1] = 0x0C;
 }
 
+#ifndef __OSCAR64__
 // Steps 1-7 for the frame alone: what is hidden, the centre, the scale and
 // the pixel size. Nothing here depends on the state.
 bool planes_centre(const planes_view_t *view, const vec3_t *c, planes_frame_t *frame) {
@@ -557,6 +560,7 @@ bool planes_centre(const planes_view_t *view, const vec3_t *c, planes_frame_t *f
   frame->d = (uint8_t)(vec_mul8x8(kPlaneMaxRadius << 1, kb) >> 8);
   return true;
 }
+#endif
 
 bool planes_begin(planes_state_t *state, planes_frame_t *frame) {
   uint8_t level = _pick_level(state->lay.level, frame->d);
@@ -617,6 +621,7 @@ void planes_project_axes(planes_state_t *state, const planes_view_t *view,
   frame->cached = cached;
 }
 
+#ifndef __OSCAR64__
 bool planes_reslide(planes_state_t *state, const planes_view_t *view,
                     planes_frame_t *frame, uint8_t when) {
   planes_layout_t *lay = &state->lay;
@@ -642,6 +647,7 @@ bool planes_reslide(planes_state_t *state, const planes_view_t *view,
   state->key_band = (uint8_t)((uint16_t)lay->slid >> 7);
   return true;
 }
+#endif
 
 void planes_project(planes_state_t *state, const planes_view_t *view,
                     const vec3_t *c, const mat3_t *axes, planes_frame_t *frame) {

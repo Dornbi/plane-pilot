@@ -966,15 +966,18 @@ one, went back to loops and took the bytes back, and bought much more:
   `lib/planes.py` only guards against and `TestSizeClamp` shows never
   happens: it anchors on the box alone and fills without clipping to the
   buffer's sides.
-- Projection, layout, placement, vertex-cache keying and the fill are assembly,
-  in `c64o/planes_asm.cc`. They multiply through `vec_mul8`, the quarter-square step
-  `vec_fastmul8p8` is built from, now callable on its own; `test/target_test.cc`
-  holds both single-call and split/reslide paths to the reference over 513
-  frames on an emulated 6510, and the `#ifndef __OSCAR64__` C counterparts in
-  `c64o/planes.cc` are what the host test holds over 5,848.
-- The divisions are `vec_fracn`: `vec_frac16`'s exact restoring division
-  stopped after the 8 or 9 quotient bits each needs. No runtime divide or
-  multiply is linked (`tools/check_mul_div.py`), as `ppilot` requires.
+- Centre projection and scale, projection, layout, placement, resliding,
+  vertex-cache keying and the fill are assembly, in `c64o/planes_asm.cc`.
+  Axis-pair products inline the quarter-square high-byte step directly (with
+  zero-component skips), and magnitude/tube/slope products call `vec_mul8`;
+  `test/target_test.cc` holds both single-call and split/reslide paths to the
+  reference over 513 frames on an emulated 6510, and the `#ifndef __OSCAR64__`
+  C counterparts in `c64o/planes.cc` are what the host test holds over 5,848.
+- The divisions share `vec_frac8` (`vec_asm.cc`'s exact 8-bit restoring-division
+  step behind `vec_div8p8` and `vec_frac16`, with a single-byte fast path when
+  the divisor is below 256); `planes_centre` loads `C.x` once for `cx`, `cy`,
+  and `k`. No runtime divide or multiply is linked (`tools/check_mul_div.py`),
+  as `ppilot` requires.
 - It keeps the magnitudes × `k` while `k` holds, and skips the projection
   for a frame with the last one's `k` and axes (§7).
 
@@ -1068,7 +1071,7 @@ went its own way; the subsections after it are the plan it followed.
 | Cap | `planes.h`, `opponent.cc` | The size cap is the view's `kmax`. A sweep of every attitude finds two sprites enough up to `k` 90, not 73 (`kPlaneKMaxTwoSprites`, 88, ~47 m). The opponent first used it; since 2026-10-19 it uses the model's own, `kPlaneKMax`, up to 2 × 2 from ~47 m in and frozen at ~27 m. A cap per slot cost ~150 bytes (oscar64 folds one constant view into the renderer), so the opponents went to one slot: a second needs §5's sets by rank, as two four-sprite slots and the dot would take 17 of the 16 blocks |
 | 9 | `planes.cc`, `opponent.cc` | Cut between the projection and the fill, not between polygons: under the cap the projection, ~17,000-20,000 cycles, already outweighs the fill. `planes_fill()` reads the vertex-cache key, so nothing shared has to survive between the halves |
 | — | `opponent.cc` | An aircraft wholly outside the viewport is skipped before it is projected: `planes_render()` gives up only 45° off the axis, the viewport is 32° and 12° |
-| Levers | `mem.h`, `planes_asm.cc` | The per-call scratch over the terrain's (`tscratch`). In assembly: the magnitudes × `k`, the flat vertices and the box, the full fuselage (`_planes_fuselage`: stations, norm, tube outline and end-on octagon), layout hysteresis (`_planes_layout`), `planes_place`, the self-modifying vertex-cache key (`_planes_key`), and the full `planes_fill` (4x-unrolled block clear, slide check, ZP key copy and convex polygon fill) |
+| Levers | `mem.h`, `planes_asm.cc` | The per-call scratch over the terrain's (`tscratch`). In assembly: `planes_centre` (cone check, shared-divisor `cx`/`cy`/`k` via `vec_frac8`, diameter), the magnitudes × `k`, inline quarter-square axis-pair products (`_pair_products` with zero-component skip), the flat vertices and the box, the full fuselage (`_planes_fuselage`: stations, norm, tube outline and end-on octagon), layout hysteresis (`_planes_layout`), `planes_place` + `planes_reslide` sharing `_place`, the self-modifying vertex-cache key (`_planes_key`), and the full `planes_fill` (8x-unrolled block clear, slide check, ZP key copy and ZP-backed convex polygon fill) |
 
 On the way, oscar64 folded `(uint8_t)(u + 16) >= 32` to `u >= 16`, which
 culled every aircraft behind the eye; `opponent.cc`'s range test is signed.
@@ -1625,7 +1628,6 @@ Not taken, and why:
 - **The centre by one reciprocal** instead of two exact divisions, ~1,100 on
   every frame: a 16-bit reciprocal of the depth is off by up to ~4 px at the
   screen's edge at 2 km, and a wider one costs what the divisions do.
-- **The axis products' multiplies inline**, ~500 for ~60 bytes.
 - **Clearing only the rows drawn before**, ~350 for a one-sprite aircraft:
   per-set bookkeeping in the caller for little.
 - **The fill's edges**: the slope's two multiplies and the end points are

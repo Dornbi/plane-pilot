@@ -113,6 +113,8 @@ PPILOT_SRC = \
 		spritedef.bin \
 		sprites.h \
 		sprites.cc \
+		sprites_asm.h \
+		sprites_asm.cc \
 		title.h \
 		title.cc \
 		titledef.h \
@@ -140,9 +142,11 @@ OPPONENT_SRC = \
 		opponent.h \
 		opponent.cc \
 		opponent_asm.h \
+		opponent_asm.cc \
 		gun.h \
 		gun.cc \
 		gun_asm.h \
+		gun_asm.cc \
 		damage.h \
 		damage.cc \
 		debrief.h \
@@ -176,6 +180,10 @@ POLYDEMO_SRC = \
 		sid.h \
 		sound.h \
 		sound.cc \
+		sprites.h \
+		sprites.cc \
+		sprites_asm.h \
+		sprites_asm.cc \
 		vec.h \
 		vec_asm.cc \
 		vec_lut.cc \

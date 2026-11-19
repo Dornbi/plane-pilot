@@ -457,39 +457,65 @@ inline bool vec_viewport_project() {
 // projection inline; each inlined copy is about 270 bytes.
 __noinline bool vec_project_once() { return vec_project(); }
 
-// Restoring division, one iteration per quotient bit. The dividend is
-// |a| << bits, so its high half starts as the remainder and the quotient grows
-// into the low half as the whole thing shifts left. |a| <= |b| is what keeps
-// the remainder under the divisor at every step, and therefore what makes
-// `bits` iterations enough; a == b saturates to all ones, which is the nearest
-// a fraction of that many bits gets to one. vec_frac16 is sixteen of them.
-static __zeropage uint8_t frac_q0, frac_q1, frac_r0, frac_r1;
-static __zeropage uint8_t frac_d0, frac_d1;
+// Restoring division, one iteration per quotient bit. For |a| < |b| <= 0x8000,
+// vec_frac8 produces 8 quotient bits in frac_q0 using a sentinel bit rotated
+// out on the eighth iteration, keeping r0 in A across iterations and taking a
+// single-byte loop whenever d < 256; |a| >= |b| saturates in vec_frac16 /
+// vec_fracn, and shifts integer bits first in vec_div8p8.
+__zeropage uint8_t frac_q0, frac_q1, frac_r0, frac_r1;
+__zeropage uint8_t frac_d0, frac_d1;
 
-// The loop itself, shared with vec_div8p8: X iterations of the dividend
-// frac_r:frac_q against frac_d, the quotient left in frac_q. JSR to it; not
-// callable from C.
-void vec_frac_loop(void) {
+// Eight fractional bits of (frac_r << 8) / frac_d into frac_q0, with
+// 0 <= frac_r < frac_d <= 0x8000, updating frac_r to the new remainder and
+// preserving frac_d, frac_q1, and tmp1. JSR to it; not callable from C.
+void vec_frac8(void) {
   // clang-format off
   __asm {
-    L_loop_fr:
-        asl frac_q0;
-        rol frac_q1;
-        rol frac_r0;
-        rol frac_r1;
         lda frac_r0;
+        ora frac_r1;
+        beq L_f8_zero;
+        lda #1;
+        sta frac_q0;
+        lda frac_r0;
+        ldx frac_d1;
+        bne L_f8_16;
+    L_f8_8:
+        asl;
+        bcs L_f8_8_sub;
+        cmp frac_d0;
+        bcc L_f8_8_next;
+    L_f8_8_sub:
+        sbc frac_d0;
+        sec;
+    L_f8_8_next:
+        rol frac_q0;
+        bcc L_f8_8;
+        sta frac_r0;
+        rts;
+    L_f8_zero:
+        sta frac_q0;
+        rts;
+    L_f8_16:
+        asl;
+        rol frac_r1;
+        tax;
         sec;
         sbc frac_d0;
         tay;
         lda frac_r1;
         sbc frac_d1;
-        bcc L_skip_fr;
-        sty frac_r0;
+        bcc L_f8_16_no;
         sta frac_r1;
-        inc frac_q0;
-    L_skip_fr:
-        dex;
-        bne L_loop_fr;
+        tya;
+        rol frac_q0;
+        bcc L_f8_16;
+        sta frac_r0;
+        rts;
+    L_f8_16_no:
+        txa;
+        rol frac_q0;
+        bcc L_f8_16;
+        sta frac_r0;
         rts;
   }
   // clang-format on
@@ -530,10 +556,46 @@ void vec_frac_setup(void) {
   // clang-format on
 }
 
+void vec_frac16_run(void) {
+  // clang-format off
+  __asm {
+        jsr vec_frac_setup;
+        lda frac_r0;
+        cmp frac_d0;
+        lda frac_r1;
+        sbc frac_d1;
+        bcc L_f16_ok;
+        lda #$ff;
+        sta frac_q0;
+        sta frac_q1;
+        rts;
+    L_f16_ok:
+        jsr vec_frac8;
+        lda frac_q0;
+        sta frac_q1;
+        jmp vec_frac8;
+  }
+  // clang-format on
+}
+
+uint16_t vec_frac16(int16_t a, int16_t b) {
+  // clang-format off
+  __asm {
+        lda a;
+        sta frac_r0;
+        lda b;
+        sta frac_d0;
+        lda a + 1;
+        ldy b + 1;
+        jsr vec_frac16_run;
+  }
+  // clang-format on
+  return ((uint16_t)frac_q1 << 8) | frac_q0;
+}
+
 uint16_t vec_fracn(int16_t a, int16_t b, uint8_t bits) {
   // clang-format off
   __asm {
-        // Remainder starts as |a|, the high half of the dividend.
         lda a;
         sta frac_r0;
         lda b;
@@ -542,19 +604,57 @@ uint16_t vec_fracn(int16_t a, int16_t b, uint8_t bits) {
         ldy b + 1;
         jsr vec_frac_setup;
         ldx bits;
-        jsr vec_frac_loop;
+        lda frac_r0;
+        cmp frac_d0;
+        lda frac_r1;
+        sbc frac_d1;
+        bcc L_fn_lt;
+    L_fn_ones:
+        sec;
+        rol frac_q0;
+        rol frac_q1;
+        dex;
+        bne L_fn_ones;
+        beq L_fn_done;
+    L_fn_lt:
+        cpx #8;
+        bcc L_fn_rem;
+        txa;
+        sbc #8;
+        pha;
+        jsr vec_frac8;
+        pla;
+        beq L_fn_done;
+        tax;
+    L_fn_rem:
+        asl frac_q0;
+        rol frac_q1;
+        asl frac_r0;
+        rol frac_r1;
+        lda frac_r0;
+        sec;
+        sbc frac_d0;
+        tay;
+        lda frac_r1;
+        sbc frac_d1;
+        bcc L_fn_skip;
+        sty frac_r0;
+        sta frac_r1;
+        inc frac_q0;
+    L_fn_skip:
+        dex;
+        bne L_fn_rem;
+    L_fn_done:
   }
   // clang-format on
   return ((uint16_t)frac_q1 << 8) | frac_q0;
 }
 
-// x / y in 8.8, exactly, on the same loop. The dividend is |a| << 8, and its
-// quotient has eight fraction bits plus however many integer ones |a| / |b|
-// needs. Those are found by moving |a|'s low bits from the remainder over
-// into the top of the quotient register, one per integer bit, until what is
-// left is below the divisor - which is vec_fracn's precondition, so the loop
-// then runs as is and shifts them back in. At most seven: an eighth integer
-// bit is a quotient of 128 or more, which saturates.
+// x / y in 8.8, exactly. For |a| < |b| it is eight fraction bits from
+// vec_frac8; for |a| >= |b| it shifts |a|'s low bits into frac_q1 (at most
+// seven: an eighth integer bit is a quotient of 128 or more, which saturates),
+// runs those integer restoring steps into frac_q1, and finishes the eight
+// fraction bits through vec_frac8.
 //
 // The remainder never overflows: it stays below |b| <= 32768, so doubling it
 // fits sixteen bits. The sign goes on at the end, in here, where the C tail
@@ -592,36 +692,35 @@ int16_t vec_div8p8(int16_t a, int16_t b) {
         bcc L_sign_dv;
 
     L_any_dv:
-        ldx #8;
-
-        // |a| < |b|: a fraction, eight iterations.
+        // |a| < |b|: a pure fraction, eight iterations in vec_frac8.
         lda frac_r0;
         cmp frac_d0;
         lda frac_r1;
         sbc frac_d1;
-        bcc L_div_dv;
+        bcc L_frac_dv;
 
         // b == 0: a saturates, and 0 / 0 is 0.
         lda frac_d0;
         ora frac_d1;
-        bne L_int_dv;
+        bne L_int_init_dv;
         lda frac_r0;
         ora frac_r1;
         beq L_done_dv;
         bne L_sat_dv;
 
+    L_int_init_dv:
+        ldx #0;
     L_int_dv:
         lsr frac_r1;
         ror frac_r0;
         ror frac_q1;
-        ror frac_q0;
         inx;
         lda frac_r0;
         cmp frac_d0;
         lda frac_r1;
         sbc frac_d1;
-        bcc L_div_dv;
-        cpx #15;
+        bcc L_int_run_dv;
+        cpx #7;
         bcc L_int_dv;
 
     L_sat_dv:
@@ -631,8 +730,26 @@ int16_t vec_div8p8(int16_t a, int16_t b) {
         sta frac_q1;
         bne L_sign_dv;
 
-    L_div_dv:
-        jsr vec_frac_loop;
+    L_int_run_dv:
+        asl frac_q1;
+        rol frac_r0;
+        rol frac_r1;
+        lda frac_r0;
+        sec;
+        sbc frac_d0;
+        tay;
+        lda frac_r1;
+        sbc frac_d1;
+        bcc L_int_skip_dv;
+        sty frac_r0;
+        sta frac_r1;
+        inc frac_q1;
+    L_int_skip_dv:
+        dex;
+        bne L_int_run_dv;
+
+    L_frac_dv:
+        jsr vec_frac8;
 
     L_sign_dv:
         bit tmp1;

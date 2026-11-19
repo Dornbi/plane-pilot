@@ -43,30 +43,43 @@
 //   14  render_asm.cc _render_flush_span main/alt $E800/$EC00 sled & color RAM
 //   15  poly_asm.h _poly_bounds_and_clear & _poly_trace_edges against C ref
 //   16  planes_asm.cc split project/reslide/fill, place cuts & slid-out clear
-//   17  opponent_asm.h _opponent_world_delta near/far/out & world wraparound
-//   18  gun_asm.h _gun_track_all, _gun_rel_from, _gun_hits & _gun_collides
+//   17  opponent_asm.cc _opponent_world_delta, _opponent_toward, _opponent_pos,
+//       _opponent_latch_shown, _opponent_copy_cs & _opponent_steer against C ref
+//   18  gun_asm.cc _gun_track_all, _gun_rel_from, _gun_hits, _gun_collides,
+//       _gun_store_enemy_round, _gun_step_rounds, _gun_shown, _gun_dir,
+//       _gun_view, _gun_view_round & _gun_vel_round against C ref
+//   19  vec_asm.cc vec_div8p8 / vec_frac16 / vec_fracn & planes_asm.cc planes_centre
+//   20  sprites_asm.cc sprites_stack_add, sprites_stack_commit,
+//       _sprites_set_instrument_sprite & sprites_set_alt against C ref
 
 #include <stdint.h>
 
 // Test 7's cases + asm suites need more room than oscar64's default layout
-// leaves: code and data up to $C000 (main() banks out BASIC ROM at entry), bss
-// in $0400-$07FF, and stack + test buffers in $C000-$CFFF.
+// leaves: code and data up to $D000 (main() banks out BASIC + KERNAL ROM at
+// entry), stack in $0200-$03FF, bss in $0400-$07FF, and test buffers in
+// $E800-$FDB4.
 #pragma heapsize(0)
 #pragma stacksize(0x200)
-#pragma region(main, 0x0880, 0xC000, , , {code, data})
-#pragma region(bssregion, 0x0400, 0x0800, , , {bss})
-#pragma region(stackregion, 0xC000, 0xC200, , , {heap, stack})
+#pragma region(main, 0x0854, 0xD000, , , {code, data})
+#pragma region(stackregion, 0x0200, 0x0400, , , {heap, stack})
+#pragma section(gun_bss, 0, , , bss)
+#pragma section(opp_bss, 0, , , bss)
+#pragma region(bssregion, 0x0400, 0x0800, , , {bss, gun_bss})
+#pragma region(oppbssreg, 0xE000, 0xE800, , , {opp_bss})
 // And the zero page the programs under test get from -xz: vec_asm.cc's
 // routines keep their operands there.
-#pragma region(zeropage, 0x80, 0x100, , , {zeropage})
+#pragma region(zeropage, 0x68, 0x100, , , {zeropage})
 
 #include "../planedef.h"
 #include "../planes.h"
+#include "../planes_asm.h"
 #include "../poly_asm.h"
 #include "../render_asm.h"
 #include "../vec.h"
 #include "../world_asm.h"
 #include "planes_target_cases.h"
+
+#pragma optimize(push, nooutline)
 
 // If this ever fails the file is being built for something that is not the
 // target, and every literal below is wrong.
@@ -80,7 +93,7 @@ volatile int16_t g_first_got;
 volatile int16_t g_first_want;
 volatile uint16_t g_cases;
 
-static void expect(uint16_t id, int16_t got, int16_t want) {
+static __noinline void expect(uint16_t id, int16_t got, int16_t want) {
   ++g_cases;
   if (got == want) {
     return;
@@ -91,6 +104,11 @@ static void expect(uint16_t id, int16_t got, int16_t want) {
     g_first_want = want;
   }
   ++g_failures;
+}
+
+static uint16_t _cur_id;
+static __noinline void expect_id(int16_t got, int16_t want) {
+  expect(_cur_id, got, want);
 }
 
 // Opaque to the optimiser, so a case cannot be folded into its own answer.
@@ -154,6 +172,8 @@ static void test_mul_against_16bit_product(void) {
     }
   }
 }
+#pragma optimize(pop)
+#pragma optimize(push, outline)
 
 // 6. The host suite holds planes.cc to lib/planes.py over four thousand cases,
 // and the first version passed it and drew only the left edge of every
@@ -162,57 +182,60 @@ static void test_mul_against_16bit_product(void) {
 // the reference, rendered through a front and a back buffer as a program
 // would and compared byte for byte.
 static uint8_t (*const _planes_sets)[4][kPlaneBlockStride] =
-    (uint8_t (*)[4][kPlaneBlockStride])0xC200;
+    (uint8_t (*)[4][kPlaneBlockStride])0xF000;
 static uint8_t _planes_dot[kPlaneBlockBytes];
+static planes_state_t *const _tp_state = (planes_state_t *)0xFD00;
+#pragma bss(opp_bss)
+static planes_frame_t _tp_frame;
+static mat3_t _tp_axes;
+static vec3_t _tp_c;
+#pragma bss(bss)
 
 static void test_planes(void) {
   const planes_view_t view = {kTargetCx0, kTargetCy0, kTargetCut1, kTargetCut2,
                               kPlaneKMax, kPlaneKnModel};
-  planes_state_t state;
-  planes_state_init(&state);
+  planes_state_init(_tp_state);
   planes_dot_bitmap(_planes_dot);
   uint8_t front = 0;
   for (uint8_t n = 0; n < kPlaneTargetCount; ++n) {
     const plane_target_case_t *pc = &kPlaneTargetCases[n];
-    const uint16_t id = 1000 + n;
+    _cur_id = 1000 + n;
     if (pc->fresh) {
-      planes_state_init(&state);
+      planes_state_init(_tp_state);
     }
-    vec3_t c = make_vector(pc->c[0], pc->c[1], pc->c[2]);
-    mat3_t axes;
-    axes.front = make_vector(pc->axes[0][0], pc->axes[0][1], pc->axes[0][2]);
-    axes.left = make_vector(pc->axes[1][0], pc->axes[1][1], pc->axes[1][2]);
-    axes.up = make_vector(pc->axes[2][0], pc->axes[2][1], pc->axes[2][2]);
+    _tp_c = make_vector(pc->c[0], pc->c[1], pc->c[2]);
+    _tp_axes.front = make_vector(pc->axes[0][0], pc->axes[0][1], pc->axes[0][2]);
+    _tp_axes.left = make_vector(pc->axes[1][0], pc->axes[1][1], pc->axes[1][2]);
+    _tp_axes.up = make_vector(pc->axes[2][0], pc->axes[2][1], pc->axes[2][2]);
     uint8_t *back = _planes_sets[front ^ 1][0];
-    planes_frame_t frame;
-    planes_render(&state, &view, &c, &axes, back, &frame);
+    planes_render(_tp_state, &view, &_tp_c, &_tp_axes, back, &_tp_frame);
 
-    expect(id, frame.hidden, pc->hidden);
+    expect_id(_tp_frame.hidden, pc->hidden);
     if (pc->hidden) {
       continue;
     }
-    expect(id, frame.level, pc->level);
-    expect(id, frame.ys, pc->ys);
-    expect(id, frame.cols, pc->cols);
-    expect(id, frame.rows, pc->rows);
-    expect(id, frame.x, pc->x);
-    expect(id, frame.y, pc->y);
-    expect(id, frame.slid, pc->slid);
-    expect(id, frame.clamped ? 1 : 0, pc->clamped);
-    expect(id, frame.cached ? 1 : 0, pc->cached);
+    expect_id(_tp_frame.level, pc->level);
+    expect_id(_tp_frame.ys, pc->ys);
+    expect_id(_tp_frame.cols, pc->cols);
+    expect_id(_tp_frame.rows, pc->rows);
+    expect_id(_tp_frame.x, pc->x);
+    expect_id(_tp_frame.y, pc->y);
+    expect_id(_tp_frame.slid, pc->slid);
+    expect_id(_tp_frame.clamped ? 1 : 0, pc->clamped);
+    expect_id(_tp_frame.cached ? 1 : 0, pc->cached);
     const uint8_t *want = kPlaneTargetBytes + pc->bytes;
-    if (frame.level == kPlaneLevelDot) {
+    if (_tp_frame.level == kPlaneLevelDot) {
       for (uint8_t i = 0; i < kPlaneBlockBytes; ++i) {
-        expect(id, _planes_dot[i], want[i]);
+        expect_id(_planes_dot[i], want[i]);
       }
       continue;
     }
-    if (!frame.cached) {
+    if (!_tp_frame.cached) {
       front ^= 1;
     }
-    for (uint8_t b = 0; b < frame.cols * frame.rows; ++b) {
+    for (uint8_t b = 0; b < _tp_frame.cols * _tp_frame.rows; ++b) {
       for (uint8_t i = 0; i < kPlaneBlockBytes; ++i) {
-        expect(id, _planes_sets[front][b][i], want[b * kPlaneBlockBytes + i]);
+        expect_id(_planes_sets[front][b][i], want[b * kPlaneBlockBytes + i]);
       }
     }
   }
@@ -224,7 +247,7 @@ static void test_planes(void) {
 // holds planes.cc's assembly to the reference; the host test cannot run it.
 static uint8_t _sum1, _sum2;
 
-static void _sum(uint8_t b) {
+static __noinline void _sum(uint8_t b) {
   _sum1 = (uint8_t)(_sum1 + b);
   _sum2 = (uint8_t)(_sum2 + _sum1);
 }
@@ -238,44 +261,41 @@ static void _sum_bytes(const uint8_t *p, uint8_t n) {
 static void test_planes_sweep(void) {
   const planes_view_t view = {kTargetCx0, kTargetCy0, kTargetCut1, kTargetCut2,
                               kPlaneKMax, kPlaneKnModel};
-  planes_state_t state;
-  planes_state_init(&state);
+  planes_state_init(_tp_state);
   uint8_t front = 0;
   for (uint16_t n = 0; n < kPlaneSweepCount; ++n) {
     const plane_sweep_case_t *pc = &kPlaneSweep[n];
     if (pc->fresh) {
-      planes_state_init(&state);
+      planes_state_init(_tp_state);
     }
-    vec3_t c = make_vector(pc->c[0], pc->c[1], pc->c[2]);
-    mat3_t axes;
-    axes.front = make_vector(pc->axes[0][0], pc->axes[0][1], pc->axes[0][2]);
-    axes.left = make_vector(pc->axes[1][0], pc->axes[1][1], pc->axes[1][2]);
-    axes.up = make_vector(pc->axes[2][0], pc->axes[2][1], pc->axes[2][2]);
+    _tp_c = make_vector(pc->c[0], pc->c[1], pc->c[2]);
+    _tp_axes.front = make_vector(pc->axes[0][0], pc->axes[0][1], pc->axes[0][2]);
+    _tp_axes.left = make_vector(pc->axes[1][0], pc->axes[1][1], pc->axes[1][2]);
+    _tp_axes.up = make_vector(pc->axes[2][0], pc->axes[2][1], pc->axes[2][2]);
     uint8_t *back = _planes_sets[front ^ 1][0];
-    planes_frame_t frame;
-    planes_render(&state, &view, &c, &axes, back, &frame);
+    planes_render(_tp_state, &view, &_tp_c, &_tp_axes, back, &_tp_frame);
 
     _sum1 = _sum2 = 0;
-    _sum(frame.hidden);
-    if (frame.hidden == kPlaneShown) {
-      _sum(frame.level);
-      _sum(frame.ys);
-      _sum(frame.cols);
-      _sum(frame.rows);
-      _sum((uint8_t)frame.x);
-      _sum((uint8_t)((uint16_t)frame.x >> 8));
-      _sum((uint8_t)frame.y);
-      _sum((uint8_t)((uint16_t)frame.y >> 8));
-      _sum(frame.slid);
-      _sum(frame.clamped ? 1 : 0);
-      _sum(frame.cached ? 1 : 0);
-      if (frame.level == kPlaneLevelDot) {
+    _sum(_tp_frame.hidden);
+    if (_tp_frame.hidden == kPlaneShown) {
+      _sum(_tp_frame.level);
+      _sum(_tp_frame.ys);
+      _sum(_tp_frame.cols);
+      _sum(_tp_frame.rows);
+      _sum((uint8_t)_tp_frame.x);
+      _sum((uint8_t)((uint16_t)_tp_frame.x >> 8));
+      _sum((uint8_t)_tp_frame.y);
+      _sum((uint8_t)((uint16_t)_tp_frame.y >> 8));
+      _sum(_tp_frame.slid);
+      _sum(_tp_frame.clamped ? 1 : 0);
+      _sum(_tp_frame.cached ? 1 : 0);
+      if (_tp_frame.level == kPlaneLevelDot) {
         _sum_bytes(_planes_dot, kPlaneBlockBytes);
       } else {
-        if (!frame.cached) {
+        if (!_tp_frame.cached) {
           front ^= 1;
         }
-        for (uint8_t b = 0; b < frame.cols * frame.rows; ++b) {
+        for (uint8_t b = 0; b < _tp_frame.cols * _tp_frame.rows; ++b) {
           _sum_bytes(_planes_sets[front][b], kPlaneBlockBytes);
         }
       }
@@ -289,19 +309,20 @@ static void test_planes_sweep(void) {
 // quotient and takes the loop, so the routine is its own reference; the
 // literals are the ends of the range and both sides of where it saturates.
 static void test_div_by_64(void) {
+  _cur_id = 8;
   for (int16_t a = -16383; a <= 16383 - 109; a += 109) {
-    expect(8, vec_div8p8(a, 64), vec_div8p8((int16_t)(a << 1), 128));
-    expect(8, vec_div8p8(a, -64), vec_div8p8((int16_t)(a << 1), -128));
+    expect_id(vec_div8p8(a, 64), vec_div8p8((int16_t)(a << 1), 128));
+    expect_id(vec_div8p8(a, -64), vec_div8p8((int16_t)(a << 1), -128));
   }
-  expect(8, vec_div8p8(0, 64), 0);
-  expect(8, vec_div8p8(63, 64), 252);
-  expect(8, vec_div8p8(-100, 64), -400);
-  expect(8, vec_div8p8(8191, 64), 32764);
-  expect(8, vec_div8p8(8192, 64), 32767);
-  expect(8, vec_div8p8(-8191, -64), 32764);
-  expect(8, vec_div8p8(-8192, 64), -32767);
-  expect(8, vec_div8p8(32767, -64), -32767);
-  expect(8, vec_div8p8(-32768, 64), -32767);
+  expect_id(vec_div8p8(0, 64), 0);
+  expect_id(vec_div8p8(63, 64), 252);
+  expect_id(vec_div8p8(-100, 64), -400);
+  expect_id(vec_div8p8(8191, 64), 32764);
+  expect_id(vec_div8p8(8192, 64), 32767);
+  expect_id(vec_div8p8(-8191, -64), 32764);
+  expect_id(vec_div8p8(-8192, 64), -32767);
+  expect_id(vec_div8p8(32767, -64), -32767);
+  expect_id(vec_div8p8(-32768, 64), -32767);
 }
 
 // 9. vec_fastmul8p8 skips the high byte's two partial products when |a| is
@@ -312,12 +333,14 @@ static void test_div_by_64(void) {
 static const int16_t kShortA[] = {1, 3, 100, 128, 255, -1, -77, -255};
 
 static void _fastmul_short(int16_t a, int16_t b) {
-  const int16_t want = (int16_t)(((int32_t)a * b) / 256);
-  expect(9, vec_fastmul8p8(a, b), want);
-  expect(9, vec_fastmul8p8(b, a), want);
+  int32_t p = (int32_t)a * b;
+  const int16_t want = (int16_t)(p < 0 ? -((-p) >> 8) : (p >> 8));
+  expect_id(vec_fastmul8p8(a, b), want);
+  expect_id(vec_fastmul8p8(b, a), want);
 }
 
 static void test_fastmul_short(void) {
+  _cur_id = 9;
   for (uint8_t i = 0; i < sizeof(kShortA) / sizeof(kShortA[0]); ++i) {
     const int16_t a = kShortA[i];
     for (int32_t b = -32768; b <= 32767; b += 1021) {
@@ -332,22 +355,24 @@ static void test_fastmul_short(void) {
 // ---------------------------------------------------------------------------
 // Backing arrays and C references for poly_asm.cc, world_asm.cc, render_asm.cc
 // ---------------------------------------------------------------------------
-// Place test scratch/reference screens in the free 4 KB RAM block at $C000
-// ($C000-$C3FF holds stack/heap; $C400-$CF2F holds the test buffers cleanly).
-static uint8_t *const test_scr = (uint8_t *)0xC400;
-static uint8_t *const test_clr = (uint8_t *)0xC800;
-static uint8_t *const ref_scr = (uint8_t *)0xCA80;
-static uint8_t *const ref_clr = (uint8_t *)0xCD00;
+// Place test scratch/reference screens in $F200-$FBAF (under banked-out KERNAL
+// ROM).
+static uint8_t *const test_scr = (uint8_t *)0xF200;
+static uint8_t *const test_clr = (uint8_t *)0xF480;
+static uint8_t *const ref_scr = (uint8_t *)0xF700;
+static uint8_t *const ref_clr = (uint8_t *)0xF980;
 
+#pragma bss(opp_bss)
 __striped uint8_t *mem_screen_row_ptrs[kScreenHeight];
+#pragma bss(bss)
 __striped uint8_t *const mem_color_row_ptrs[kViewportHeight] = {
-    (uint8_t *)0xC800 + 0 * 40,  (uint8_t *)0xC800 + 1 * 40,
-    (uint8_t *)0xC800 + 2 * 40,  (uint8_t *)0xC800 + 3 * 40,
-    (uint8_t *)0xC800 + 4 * 40,  (uint8_t *)0xC800 + 5 * 40,
-    (uint8_t *)0xC800 + 6 * 40,  (uint8_t *)0xC800 + 7 * 40,
-    (uint8_t *)0xC800 + 8 * 40,  (uint8_t *)0xC800 + 9 * 40,
-    (uint8_t *)0xC800 + 10 * 40, (uint8_t *)0xC800 + 11 * 40,
-    (uint8_t *)0xC800 + 12 * 40, (uint8_t *)0xC800 + 13 * 40};
+    (uint8_t *)0xF480 + 0 * 40,  (uint8_t *)0xF480 + 1 * 40,
+    (uint8_t *)0xF480 + 2 * 40,  (uint8_t *)0xF480 + 3 * 40,
+    (uint8_t *)0xF480 + 4 * 40,  (uint8_t *)0xF480 + 5 * 40,
+    (uint8_t *)0xF480 + 6 * 40,  (uint8_t *)0xF480 + 7 * 40,
+    (uint8_t *)0xF480 + 8 * 40,  (uint8_t *)0xF480 + 9 * 40,
+    (uint8_t *)0xF480 + 10 * 40, (uint8_t *)0xF480 + 11 * 40,
+    (uint8_t *)0xF480 + 12 * 40, (uint8_t *)0xF480 + 13 * 40};
 bool mem_using_alt_buffer;
 
 vec3_t _poly_clip3_buf[10];
@@ -376,6 +401,14 @@ int8_t roll_ey_dx[8];
 static void _init_row_ptrs(void) {
   for (uint8_t r = 0; r < kScreenHeight; ++r) {
     mem_screen_row_ptrs[r] = test_scr + r * 40;
+  }
+}
+
+static __noinline void _check_screens(uint8_t id) {
+  _cur_id = id;
+  for (uint16_t i = 0; i < kViewportHeight * 40; ++i) {
+    expect_id(test_scr[i], ref_scr[i]);
+    expect_id(test_clr[i], ref_clr[i]);
   }
 }
 
@@ -415,22 +448,25 @@ static bool _ref_frustum_all_out(uint8_t end3) {
 }
 
 static void test_poly_frustum_asm(void) {
-  static const int16_t kCases[][3][3] = {
-      {{100, 101, 0}, {200, 205, 0}, {50, 51, 0}},     // all y > x
-      {{100, -101, 0}, {200, -205, 0}, {50, -51, 0}},  // all y < -x
-      {{100, 0, 26}, {200, 0, 51}, {40, 0, 11}},       // all z > x>>2
-      {{100, 0, -26}, {200, 0, -51}, {40, 0, -11}},    // all z < -(x>>2)
-      {{100, 0, 25}, {200, 0, 51}, {40, 0, 11}},       // z == x>>2 boundary
-      {{100, 120, 0}, {100, -120, 0}, {100, 5, 0}},    // straddling x/y
-      {{20000, 25000, 0}, {22000, 26000, 0}, {18000, 20000, 0}}, // > 16k
+  _cur_id = 10;
+  static const int8_t kCases8[7][3][3] = {
+      {{100, 101, 0}, {120, 125, 0}, {50, 51, 0}},    // all y > x
+      {{100, -101, 0}, {120, -125, 0}, {50, -51, 0}}, // all y < -x
+      {{100, 0, 26}, {120, 0, 31}, {40, 0, 11}},      // all z > x>>2
+      {{100, 0, -26}, {120, 0, -31}, {40, 0, -11}},   // all z < -(x>>2)
+      {{100, 0, 25}, {120, 0, 31}, {40, 0, 11}},      // z == x>>2 boundary
+      {{100, 120, 0}, {100, -120, 0}, {100, 5, 0}},   // straddling x/y
+      {{20, 25, 0}, {22, 26, 0}, {18, 20, 0}},        // scaled * 1000 (> 16k)
   };
-  for (uint8_t c = 0; c < sizeof(kCases) / sizeof(kCases[0]); ++c) {
+  for (uint8_t c = 0; c < 7; ++c) {
+    int16_t scale = (c == 6) ? 1000 : 1;
     for (uint8_t i = 0; i < 3; ++i) {
-      _poly_clip3_buf[i] =
-          make_vector(kCases[c][i][0], kCases[c][i][1], kCases[c][i][2]);
+      _poly_clip3_buf[i] = make_vector(kCases8[c][i][0] * scale,
+                                       kCases8[c][i][1] * scale,
+                                       kCases8[c][i][2] * scale);
     }
-    expect(10, _poly_frustum_all_out(3 * sizeof(vec3_t)) ? 1 : 0,
-           _ref_frustum_all_out(3 * sizeof(vec3_t)) ? 1 : 0);
+    expect_id(_poly_frustum_all_out(3 * sizeof(vec3_t)) ? 1 : 0,
+              _ref_frustum_all_out(3 * sizeof(vec3_t)) ? 1 : 0);
   }
 }
 
@@ -498,6 +534,7 @@ static void _ref_scan_lines2(uint8_t fill_char_start_idx, uint8_t color,
 }
 
 static void test_poly_scan_lines2_asm(void) {
+  _cur_id = 11;
   _init_row_ptrs();
   for (uint8_t color_pass = 0; color_pass < 2; ++color_pass) {
     uint8_t col = color_pass ? 0x0B : 0;
@@ -523,11 +560,7 @@ static void test_poly_scan_lines2_asm(void) {
 
     _poly_scan_lines2(base_ch, col, 2, 5);
     _ref_scan_lines2(base_ch, col, 2, 5);
-
-    for (uint16_t i = 0; i < kViewportHeight * 40; ++i) {
-      expect(11, test_scr[i], ref_scr[i]);
-      expect(11, test_clr[i], ref_clr[i]);
-    }
+    _check_screens(11);
   }
 }
 
@@ -600,11 +633,7 @@ static void test_world_draw_box_points_asm(void) {
 
     _world_draw_box_points(14, 6, col);
     _ref_world_draw_box_points(14, 6, col);
-
-    for (uint16_t i = 0; i < kViewportHeight * 40; ++i) {
-      expect(12, test_scr[i], ref_scr[i]);
-      expect(12, test_clr[i], ref_clr[i]);
-    }
+    _check_screens(12);
   }
 }
 
@@ -654,6 +683,7 @@ static void _ref_snap_center(int16_t px, int16_t py, int8_t *out_cx,
 }
 
 static void test_render_snap_center_asm(void) {
+  _cur_id = 13;
   struct SnapCase {
     uint8_t period;
     bool x_major;
@@ -688,18 +718,19 @@ static void test_render_snap_center_asm(void) {
     bool r_alt = false;
     _ref_snap_center(kSnapCases[c].px, kSnapCases[c].py, &r_cx, &r_cy, &r_alt,
                      &r_sx, &r_sy);
-    expect(13, render_cx_chars, r_cx);
-    expect(13, render_cy_chars, r_cy);
-    expect(13, render_alt_box ? 1 : 0, r_alt ? 1 : 0);
+    expect_id(render_cx_chars, r_cx);
+    expect_id(render_cy_chars, r_cy);
+    expect_id(render_alt_box ? 1 : 0, r_alt ? 1 : 0);
     if (roll_period == 1) {
-      expect(13, render_alt_shift_x, r_sx);
-      expect(13, render_alt_shift_y, r_sy);
+      expect_id(render_alt_shift_x, r_sx);
+      expect_id(render_alt_shift_y, r_sy);
     }
   }
 }
 
 // 14. render_asm.cc _render_flush_span on $E800 (main) and $EC00 (alt).
 static void test_render_flush_span_asm(void) {
+  _cur_id = 14;
   volatile uint8_t *const main_ram = (volatile uint8_t *)0xE800;
   volatile uint8_t *const alt_ram = (volatile uint8_t *)0xEC00;
   uint8_t saved_p01 = *(volatile uint8_t *)0x01;
@@ -720,13 +751,13 @@ static void test_render_flush_span_asm(void) {
 
   // Main buffer: sky [0, 5) + ground [11, 20->14).
   _render_flush_span(kCharSolid11, 0, 5);
-  expect(14, _render_sky_rows, 5);
+  expect_id(_render_sky_rows, 5);
   _render_flush_span(128, 11, 20);
 
   // Alt buffer: single-row sky [7, 8) and [9, 12).
   mem_using_alt_buffer = true;
   _render_flush_span(kCharSolid11, 7, 8);
-  expect(14, _render_sky_rows, 5); // gap: should not advance _render_sky_rows
+  expect_id(_render_sky_rows, 5); // gap: should not advance _render_sky_rows
   _render_flush_span(128, 9, 12);
 
   // Switch ROM off temporarily so reads from $E800/$EC00 inspect underlying RAM.
@@ -737,17 +768,17 @@ static void test_render_flush_span_asm(void) {
     uint8_t want_clr = ((y >= 2 && y < 5) || y == 7) ? (0x08 | 6) : 0x55;
     for (uint8_t x = 0; x < 40; ++x) {
       uint16_t off = (uint16_t)y * 40 + x;
-      expect(14, main_ram[off], want_main);
-      expect(14, alt_ram[off], want_alt);
-      expect(14, test_clr[off], want_clr);
+      expect_id(main_ram[off], want_main);
+      expect_id(alt_ram[off], want_alt);
+      expect_id(test_clr[off], want_clr);
     }
   }
   *(volatile uint8_t *)0x01 = saved_p01;
 }
 
 // 15. poly_asm.h _poly_bounds_and_clear + _poly_trace_edges against C Bresenham.
-static uint8_t *const _ref_min_x = (uint8_t *)0xCF40;
-static uint8_t *const _ref_max_x = (uint8_t *)0xCF60;
+static uint8_t *const _ref_min_x = (uint8_t *)0xFC40;
+static uint8_t *const _ref_max_x = (uint8_t *)0xFC60;
 
 static void _ref_trace_edge(int8_t xa, uint8_t ya, int8_t xb, uint8_t yb) {
   if (ya == yb) {
@@ -834,8 +865,8 @@ static void _ref_trace_edge(int8_t xa, uint8_t ya, int8_t xb, uint8_t yb) {
   }
 }
 
-#pragma optimize(push, nooutline)
 static void test_poly_trace_edges_asm(void) {
+  _cur_id = 15;
   struct PolyCase {
     uint8_t n;
     int8_t v[12];
@@ -886,13 +917,13 @@ static void test_poly_trace_edges_asm(void) {
 
     uint8_t got_s = 99, got_e = 99;
     _poly_bounds_and_clear(v, n, &got_s, &got_e);
-    expect(15, (int16_t)(((uint16_t)got_e << 8) | got_s),
+    expect_id((int16_t)(((uint16_t)got_e << 8) | got_s),
            (int16_t)(((uint16_t)want_e << 8) | want_s));
     _poly_trace_edges(v, n);
 
     for (uint8_t i = 0; i < 2 * kViewportHeight; ++i) {
-      expect(15, _poly_min_x[i], _ref_min_x[i]);
-      expect(15, _poly_max_x[i], _ref_max_x[i]);
+      expect_id(_poly_min_x[i], _ref_min_x[i]);
+      expect_id(_poly_max_x[i], _ref_max_x[i]);
     }
 
     // Also verify end-to-end _poly_scan_lines2 output on the traced spans.
@@ -900,91 +931,180 @@ static void test_poly_trace_edges_asm(void) {
     uint8_t col = (c & 1) ? 0x0D : 0;
     _poly_scan_lines2(160, col, want_s, want_e);
     _ref_scan_lines2(160, col, want_s, want_e);
-    for (uint16_t i = 0; i < kViewportHeight * 40; ++i) {
-      expect(15, test_scr[i], ref_scr[i]);
-      expect(15, test_clr[i], ref_clr[i]);
-    }
+    _check_screens(15);
   }
 }
-
 // 16. Split planes_project + planes_reslide + planes_fill, planes_place cut
 // boundaries, and full-buffer-slide empty fill on the 6502 routines.
+static planes_state_t *const _test_psa = (planes_state_t *)0xFD00;
+static planes_state_t *const _test_psb = (planes_state_t *)0xFD60;
+#pragma bss(opp_bss)
+static planes_frame_t _ts_f1, _ts_f2;
+static mat3_t _ts_m1, _ts_m2;
+static vec3_t _ts_c0, _ts_c1;
+#pragma bss(bss)
+
 static void test_planes_split_reslide_asm(void) {
+  _cur_id = 16;
   const planes_view_t view = {kTargetCx0, kTargetCy0, kTargetCut1, kTargetCut2,
                               kPlaneKMax, kPlaneKnModel};
-  mat3_t axes;
-  axes.front = make_vector(-170, 170, 88);
-  axes.left = make_vector(-170, -170, 88);
-  axes.up = make_vector(88, 0, 241);
+  _ts_m1.front = make_vector(-170, 170, 88);
+  _ts_m1.left = make_vector(-170, -170, 88);
+  _ts_m1.up = make_vector(88, 0, 241);
 
-  // Project high up (no slide), then drop near the bottom so reslide moves the
-  // cached vertices into the slid band before planes_fill runs; must match a
-  // direct planes_render from the same prior layout latches.
   static const int16_t kDist[2] = {600, 260}; // ys=1 and ys=2 silhouettes
   for (uint8_t t = 0; t < 2; ++t) {
-    planes_state_t s_split, s_direct;
-    planes_state_init(&s_split);
-    planes_state_init(&s_direct);
-    vec3_t c0 = make_vector(kDist[t], 20, 40);
-    vec3_t c1 = make_vector(kDist[t], 20, -140);
-    planes_frame_t f_split, f_direct;
+    planes_state_init(_test_psa);
+    planes_state_init(_test_psb);
+    _ts_c0 = make_vector(kDist[t], 20, 40);
+    _ts_c1 = make_vector(kDist[t], 20, -140);
 
-    planes_project(&s_split, &view, &c0, &axes, &f_split);
-    planes_project(&s_direct, &view, &c0, &axes, &f_direct);
+    planes_project(_test_psa, &view, &_ts_c0, &_ts_m1, &_ts_f1);
+    planes_project(_test_psb, &view, &_ts_c0, &_ts_m1, &_ts_f2);
 
-    bool ok = planes_centre(&view, &c1, &f_split);
-    expect(16, ok ? 1 : 0, 1);
-    bool moved = planes_reslide(&s_split, &view, &f_split, kPlaneReslideAlways);
-    expect(16, moved ? 1 : 0, 1);
-    planes_fill(&s_split, _planes_sets[0][0]);
+    bool ok = planes_centre(&view, &_ts_c1, &_ts_f1);
+    expect_id(ok ? 1 : 0, 1);
+    bool moved = planes_reslide(_test_psa, &view, &_ts_f1, kPlaneReslideAlways);
+    expect_id(moved ? 1 : 0, 1);
+    planes_fill(_test_psa, _planes_sets[0][0]);
 
-    planes_render(&s_direct, &view, &c1, &axes, _planes_sets[1][0], &f_direct);
-    expect(16, f_split.x, f_direct.x);
-    // For ys == 2 an odd reslide rounds up by 1 line, matching lay.slid.
-    expect(16, f_split.slid, (uint8_t)s_split.lay.slid);
-    if (s_split.lay.slid == s_direct.lay.slid) {
-      for (uint8_t b = 0; b < f_direct.cols * f_direct.rows; ++b) {
+    planes_render(_test_psb, &view, &_ts_c1, &_ts_m1, _planes_sets[1][0], &_ts_f2);
+    expect_id(_ts_f1.x, _ts_f2.x);
+    expect_id(_ts_f1.slid, (uint8_t)(_test_psa->lay.slid));
+    if (_test_psa->lay.slid == _test_psb->lay.slid) {
+      for (uint8_t b = 0; b < _ts_f2.cols * _ts_f2.rows; ++b) {
         for (uint8_t i = 0; i < kPlaneBlockBytes; ++i) {
-          expect(16, _planes_sets[0][b][i], _planes_sets[1][b][i]);
+          expect_id(_planes_sets[0][b][i], _planes_sets[1][b][i]);
         }
       }
     }
 
     // Slide >= buffer height must clear all blocks and draw nothing.
-    s_split.lay.slid = 200;
-    for (uint8_t b = 0; b < 4; ++b) {
-      for (uint8_t i = 0; i < kPlaneBlockStride; ++i) {
-        _planes_sets[0][b][i] = 0xAA;
-      }
+    _test_psa->lay.slid = 200;
+    uint8_t *flat0 = _planes_sets[0][0];
+    for (uint16_t i = 0; i < 4 * kPlaneBlockStride; ++i) {
+      flat0[i] = 0xAA;
     }
-    planes_fill(&s_split, _planes_sets[0][0]);
-    uint8_t blocks = (uint8_t)(s_split.lay.cols * s_split.lay.rows);
-    for (uint8_t b = 0; b < blocks; ++b) {
-      for (uint8_t i = 0; i < kPlaneBlockStride; ++i) {
-        expect(16, _planes_sets[0][b][i], 0);
-      }
+    planes_fill(_test_psa, flat0);
+    uint16_t nbytes =
+        (uint16_t)(_test_psa->lay.cols * _test_psa->lay.rows) * kPlaneBlockStride;
+    for (uint16_t i = 0; i < nbytes; ++i) {
+      expect_id(flat0[i], 0);
     }
   }
 
   // Dot-tier exact cut1 boundary: y == cut1 is shown, y == cut1 + 1 is hidden.
-  planes_layout_t dot_lay = {kPlaneLevelDot, 1, 1, 1, 0, 0, 0};
-  planes_frame_t df;
-  df.hidden = kPlaneShown;
-  df.cx = 160;
-  df.cy = (int16_t)(kTargetCut1 + kPlaneDotY);
-  expect(16, planes_place(&dot_lay, &view, &df), 0);
-  expect(16, df.hidden, kPlaneShown);
-  df.cy = (int16_t)(kTargetCut1 + kPlaneDotY + 1);
-  expect(16, planes_place(&dot_lay, &view, &df), 0);
-  expect(16, df.hidden, kPlaneBelowCut);
+  static const planes_layout_t dot_lay = {kPlaneLevelDot, 1, 1, 1, 0, 0, 0};
+  _ts_f1.hidden = kPlaneShown;
+  _ts_f1.cx = 160;
+  _ts_f1.cy = (int16_t)(kTargetCut1 + kPlaneDotY);
+  expect_id(planes_place(&dot_lay, &view, &_ts_f1), 0);
+  expect_id(_ts_f1.hidden, kPlaneShown);
+  _ts_f1.cy = (int16_t)(kTargetCut1 + kPlaneDotY + 1);
+  expect_id(planes_place(&dot_lay, &view, &_ts_f1), 0);
+  expect_id(_ts_f1.hidden, kPlaneBelowCut);
+
+  // planes_project_axes cache: x components of axes ignored, every (y, z) byte
+  // detected and triggers re-projection.
+  planes_state_init(_test_psa);
+  _ts_c0 = make_vector(400, 0, 0);
+  _ts_m2 = _ts_m1;
+  planes_project(_test_psa, &view, &_ts_c0, &_ts_m2, &_ts_f1);
+  expect_id(_ts_f1.cached ? 1 : 0, 0);
+  planes_project(_test_psa, &view, &_ts_c0, &_ts_m2, &_ts_f1);
+  expect_id(_ts_f1.cached ? 1 : 0, 1);
+  _ts_m2.front.x ^= 0x1234;
+  _ts_m2.left.x ^= 0x5678;
+  _ts_m2.up.x ^= 0x2345;
+  planes_project(_test_psa, &view, &_ts_c0, &_ts_m2, &_ts_f1);
+  expect_id(_ts_f1.cached ? 1 : 0, 1);
+  uint8_t *mb = (uint8_t *)&_ts_m2;
+  uint8_t ax_i = 0;
+  for (uint8_t r = 0; r < 3; ++r) {
+    for (uint8_t c = 2; c < 6; c += 2, ++ax_i) {
+      uint8_t off = (uint8_t)(r * 6 + c);
+      mb[off] ^= 0x40;
+      planes_project_axes(_test_psa, &view, &_ts_m2, &_ts_f1);
+      expect_id(_test_psa->axes[ax_i], ((const int16_t *)&_ts_m2)[off >> 1]);
+      planes_project_axes(_test_psa, &view, &_ts_m2, &_ts_f1);
+      expect_id(_ts_f1.cached ? 1 : 0, 1);
+      mb[off] ^= 0x40;
+      planes_project_axes(_test_psa, &view, &_ts_m2, &_ts_f1);
+    }
+  }
+
+  // planes_reslide thresholds (Deep/Off/Always), ys=1 & ys=2 odd parity, band, key_count=0.
+  static const int16_t kDeltas[] = {-300, -3, -2, -1, 0, 1, 2, 3, 130};
+  for (uint8_t ys = 1; ys <= 2; ++ys) {
+    for (uint8_t when = 0; when <= 2; ++when) {
+      for (uint8_t di = 0; di < sizeof(kDeltas) / sizeof(kDeltas[0]); ++di) {
+        int16_t want_d = kDeltas[di];
+        int16_t base_slid = 310;
+        int16_t need = (int16_t)(base_slid + want_d);
+        planes_state_init(_test_psa);
+        _test_psa->lay.level = kPlaneLevelX;
+        _test_psa->lay.ys = ys;
+        _test_psa->lay.cols = 1;
+        _test_psa->lay.rows = 1;
+        _test_psa->lay.ox = -12;
+        _test_psa->lay.oy = 0;
+        _test_psa->lay.slid = base_slid;
+        _test_psa->key_count = (di == 4) ? 0 : 4;
+        _test_psa->key_band = 99;
+        for (uint8_t v = 0; v < 4; ++v) {
+          _test_psa->key_y[v] = (uint8_t)(10 + v * 7);
+        }
+        _ts_f1.hidden = kPlaneShown;
+        _ts_f1.cx = 160;
+        _ts_f1.cy = (int16_t)((ys == 2 ? view.cut2 : view.cut1) + need);
+        bool want_mv = !(when != kPlaneReslideAlways && want_d > -2 &&
+                         (when == kPlaneReslideDeep || want_d < 2));
+        bool got_mv = planes_reslide(_test_psa, &view, &_ts_f1, when);
+        expect_id(got_mv ? 1 : 0, want_mv ? 1 : 0);
+        if (want_mv) {
+          int16_t ed = want_d;
+          if (ys == 2) {
+            ed = (int16_t)(ed + (ed & 1));
+          }
+          int16_t want_slid = (int16_t)(base_slid + ed);
+          uint8_t dy = (uint8_t)(ys == 2 ? (ed >> 1) : ed);
+          expect_id(_test_psa->lay.slid, want_slid);
+          expect_id(_test_psa->key_band, (uint8_t)((uint16_t)want_slid >> 7));
+          for (uint8_t v = 0; v < _test_psa->key_count; ++v) {
+            expect_id(_test_psa->key_y[v], (uint8_t)(10 + v * 7 + dy));
+          }
+        } else {
+          expect_id(_test_psa->lay.slid, base_slid);
+          expect_id(_test_psa->key_band, 99);
+        }
+      }
+    }
+  }
+
+  // Axis-aligned attitude (0 and +-256 screen components) through _planes_axis_products.
+  _ts_m1.front = make_vector(0, 256, 0);
+  _ts_m1.left = make_vector(-256, 0, 0);
+  _ts_m1.up = make_vector(0, 0, -256);
+  _planes_mags(100);
+  _planes_axis_products(&_ts_m1);
+  expect_id(_planes_tx[0], 0);
+  expect_id(_planes_ty[0], 0);
+  for (uint8_t p = 1; p < 16; ++p) {
+    int16_t pv = (int16_t)_planes_pv[p];
+    int16_t wx = p < 12 ? pv : 0;
+    int16_t wy = p >= 14 ? (int16_t)-pv : 0;
+    expect_id(_planes_tx[16 + p], wx);
+    expect_id(_planes_tx[p], (int16_t)-wx);
+    expect_id(_planes_ty[16 + p], wy);
+    expect_id(_planes_ty[p], (int16_t)-wy);
+  }
 }
 
-// 17. opponent_asm.h _opponent_world_delta: near/far/out classification,
-// sub-half-metre quarter shifts, x 7-bit wraparound, y 8-bit wraparound, and
-// slot 0 vs slot 1 indexing.
+// 17. opponent_asm.cc: _opponent_world_delta, _opponent_toward, _opponent_pos,
+// _opponent_latch_shown, _opponent_copy_cs, and _opponent_steer against 16-bit
+// C references on the emulated 6510.
 static int32_t _test_eye_x, _test_eye_y, _test_eye_z;
 int32_t *const kFlightEye[3] = {&_test_eye_x, &_test_eye_y, &_test_eye_z};
-static int32_t _opponent_xyz[6];
 #include "../opponent_asm.h"
 
 static uint8_t _ref_world_delta(uint8_t i, vec3_t *out) {
@@ -1022,30 +1142,54 @@ static uint8_t _ref_world_delta(uint8_t i, vec3_t *out) {
   return range;
 }
 
+static __noinline void _check_steer(uint8_t slot, int16_t d, int16_t dy_in,
+                                    int16_t dz_in, int16_t hx, int16_t hy) {
+  _opponent_head[slot] = make_vector(hx, hy, 0);
+  vec_v = make_vector(d, dy_in, dz_in);
+  uint8_t got_cut = _opponent_steer(slot);
+  int16_t rdx = d, rdy = dy_in, rdz = dz_in;
+  uint8_t want_cut = 0;
+  while ((uint16_t)(rdx + 63) >= 127 || (uint16_t)(rdy + 63) >= 127) {
+    rdx >>= 1;
+    rdy >>= 1;
+    rdz >>= 1;
+    ++want_cut;
+  }
+  int16_t wc =
+      vec_fastmul8p8(rdy << 8, hx) + vec_fastmul8p8(-(rdx << 8), hy);
+  int16_t wd = vec_fastmul8p8(rdx << 8, hx) + vec_fastmul8p8(rdy << 8, hy);
+  expect_id((int16_t)(((uint16_t)got_cut << 8) | (uint8_t)vec_v.x),
+            (int16_t)(((uint16_t)want_cut << 8) | (uint8_t)rdx));
+  if (vec_v.y != rdy || vec_v.z != rdz || vec_sx != wc || vec_sy != wd) {
+    expect_id(vec_sx, wc ^ 1);
+  }
+}
+
 static void test_opponent_world_delta_asm(void) {
-  static const int32_t kEyes[3][3] = {
+  _cur_id = 17;
+  __striped static const int32_t kEyes[3][3] = {
       {0x00102000L, 0x00204000L, 0x00041000L},
       {0x007E0080L, 0x00FD80C0L, 0x00060040L}, // near x=128 & y=256 wrap edges
       {0x00018040L, 0x00020080L, 0x000800C0L},
   };
-  static const int32_t kOffs[][3] = {
+  __striped static const int32_t kOffs[11][3] = {
       {0, 0, 0},
-      {0x000001C0L, -0x00000280L, 0x00000040L},  // fractional quarters
-      {0x000FFFFFL, -0x000F0000L, 0x00071240L},  // max near boundaries [-15, 15]
-      {0x00100000L, 0x00000180L, -0x00010040L},  // far boundary s = +16
-      {0x00000100L, -0x000F0001L, 0x00000000L},  // far boundary s = -16
-      {0x001FFFFFL, -0x001F0000L, 0x00104080L},  // max far boundaries [-31, 31]
-      {0x00200000L, 0, 0},                       // out boundary s = +32
-      {0, -0x001F0001L, 0},                      // out boundary s = -32
-      {0, 0, 0x00250000L},                       // z out
-      {-0x007C0040L, -0x00FB0080L, 0x00010040L}, // wrap across x=128 & y=256 (+4, +5)
-      {0x007B00C0L, 0x00EE0040L, -0x00010080L},  // wrap across x=128 & y=256 (-5, -18)
+      {0x000001C0L, -0x00000280L, 0x00000040L},
+      {0x000FFFFFL, -0x000F0000L, 0x00071240L},
+      {0x00100000L, 0x00000180L, -0x00010040L},
+      {0x00000100L, -0x000F0001L, 0x00000000L},
+      {0x001FFFFFL, -0x001F0000L, 0x00104080L},
+      {0x00200000L, 0, 0},
+      {0, -0x001F0001L, 0},
+      {0, 0, 0x00250000L},
+      {-0x007C0040L, -0x00FB0080L, 0x00010040L},
+      {0x007B00C0L, 0x00EE0040L, -0x00010080L},
   };
   for (uint8_t e = 0; e < 3; ++e) {
     _test_eye_x = kEyes[e][0];
     _test_eye_y = kEyes[e][1];
     _test_eye_z = kEyes[e][2];
-    for (uint8_t c = 0; c < sizeof(kOffs) / sizeof(kOffs[0]); ++c) {
+    for (uint8_t c = 0; c < 11; ++c) {
       for (uint8_t slot = 0; slot < 2; ++slot) {
         uint8_t other = slot ^ 1;
         _opponent_xyz[other] = 0x55AA55AAL;
@@ -1055,36 +1199,98 @@ static void test_opponent_world_delta_asm(void) {
         _opponent_xyz[slot + 2] = (_test_eye_y + kOffs[c][1]) & 0x00FFFFFFL;
         _opponent_xyz[slot + 4] = _test_eye_z + kOffs[c][2];
 
-        vec3_t want_v = {0, 0, 0};
-        uint8_t want_r = _ref_world_delta(slot, &want_v);
+        uint8_t want_r = _ref_world_delta(slot, &_ts_c0);
         vec_v = make_vector(1234, -5678, 9999);
-        uint8_t got_r = _opponent_world_delta(slot);
-        expect(17, got_r, want_r);
+        expect_id(_opponent_world_delta(slot), want_r);
         if (want_r != kOpponentOut) {
-          expect(17, vec_v.x, want_v.x);
-          expect(17, vec_v.y, want_v.y);
-          expect(17, vec_v.z, want_v.z);
+          for (uint8_t a = 0; a < 3; ++a) {
+            expect_id((&vec_v.x)[a], (&_ts_c0.x)[a]);
+          }
         }
       }
     }
   }
+
+  // _opponent_toward, _opponent_pos, _opponent_latch_shown, _opponent_copy_cs.
+  static const int32_t kTwPos[6] = {
+      0x00102000L,  0x00102001L, 0x007F80FFL,
+      -0x003F4080L, 0x00400000L, 0x12345678L,
+  };
+  static const uint16_t kTwW[8] = {0x0000, 0x1020, 0x1021, 0x5020,
+                                   0x5021, 0x9020, 0xFF80, 0xFFFF};
+  for (uint8_t idx = 0; idx < 6; ++idx) {
+    _opponent_xyz[idx] = kTwPos[idx];
+  }
+  for (uint8_t idx = 0; idx < 6; ++idx) {
+    const uint8_t *pb = (const uint8_t *)&_opponent_xyz[idx];
+    uint16_t p16 = *(const uint16_t *)(pb + 1) + (pb[0] != 0 ? 1u : 0u);
+    for (uint8_t wi = 0; wi < 8; ++wi) {
+      int16_t d = (int16_t)(kTwW[wi] - p16);
+      expect_id(_opponent_toward(kTwW[wi], idx), (int16_t)(d << 1) >> 1);
+    }
+  }
+  for (uint8_t slot = 0; slot < 2; ++slot) {
+    #pragma bss(opp_bss)
+    static int32_t pos_out[3];
+    #pragma bss(bss)
+    pos_out[0] = pos_out[1] = pos_out[2] = -1;
+    _opponent_pos(slot, pos_out);
+    for (uint8_t b = 0; b < 12; ++b) {
+      uint8_t src = (uint8_t)((slot << 2) + (b & 3) + ((b & ~3) << 1));
+      expect_id(((const uint8_t *)pos_out)[b],
+                ((const uint8_t *)_opponent_xyz)[src]);
+    }
+  }
+  for (uint8_t b = 0; b < 8; ++b) {
+    ((uint8_t *)&_opponent_planes[0].lay)[b] = (uint8_t)(0x10 + b);
+    ((uint8_t *)&_opponent_planes[1].lay)[b] = (uint8_t)(0xA0 + b);
+    ((uint8_t *)_opponent_shown)[b] = 0;
+    ((uint8_t *)_opponent_shown)[8 + b] = 0;
+    if (b < 6) {
+      ((uint8_t *)&_opponent_cs[0])[b] = (uint8_t)(0x21 + b);
+      ((uint8_t *)&_opponent_cs[1])[b] = (uint8_t)(0xD5 - b);
+    }
+  }
+  for (uint8_t slot = 0; slot < 2; ++slot) {
+    _opponent_latch_shown(slot);
+    if (slot == 0) {
+      expect_id(((uint8_t *)_opponent_shown)[8], 0);
+    }
+    for (uint8_t b = 0; b < 8; ++b) {
+      expect_id(((uint8_t *)&_opponent_shown[slot])[b],
+                ((uint8_t *)&_opponent_planes[slot].lay)[b]);
+    }
+    _opponent_copy_cs(slot);
+    for (uint8_t b = 0; b < 6; ++b) {
+      expect_id(((uint8_t *)&_opponent_c)[b],
+                ((uint8_t *)&_opponent_cs[slot])[b]);
+    }
+  }
+
+  // _opponent_steer across all d8 in [-64, 63] and all h in [-256, 256].
+  static const int16_t kSteerHX[4] = {-256, -255, 0, 255};
+  static const int16_t kSteerHY[4] = {256, 181, -181, -1};
+  for (uint8_t di = 0; di < 128; ++di) {
+    int16_t d = (int16_t)di - 64;
+    for (uint8_t hi = 0; hi < 4; ++hi) {
+      _check_steer((uint8_t)(di & 1), d, (int16_t)(-1 - d), -300, kSteerHX[hi],
+                   kSteerHY[hi]);
+    }
+  }
+  for (uint16_t hi = 0; hi <= 512; ++hi) {
+    int16_t h = (int16_t)hi - 256;
+    _check_steer(0, -63, 57, 1024, h, (int16_t)-h);
+  }
+  _check_steer(1, -16384, 16383, -4095, 181, -181);
 }
 
-// 18. gun_asm.h: _gun_track_all, _gun_rel_from, _gun_hits, and _gun_collides
-// against 16-bit C references on the emulated 6510.
-static const uint8_t kOpponentMax = 2;
-static const uint8_t kRoundMax = 8;
-static const int16_t kGunCollide = 192;
+// 18. gun_asm.cc: _gun_track_all, _gun_rel_from, _gun_hits, _gun_collides,
+// _gun_store_enemy_round, _gun_step_rounds, _gun_shown, _gun_dir, _gun_view,
+// _gun_view_round, and _gun_vel_round against 16-bit C references on the
+// emulated 6510.
 uint8_t flight_step_shift;
-static int32_t _gun_eye[3];
-static int32_t _gun_p[3];
-static __striped int16_t _gun_t[3];
-static __striped int16_t _gun_d[3];
-static __striped int16_t _gun_q[3];
-static __striped int16_t _gun_moved[3];
-static __striped int16_t _gun_prev[6];
-static __striped int16_t _round_p[24];
-static __striped int16_t _round_v[24];
+uint8_t kFlightSubstepMask;
+mat3_t world_cam;
 #include "../gun_asm.h"
 
 static bool _ref_gun_rel(uint8_t c, int16_t *out_val) {
@@ -1152,21 +1358,25 @@ static bool _ref_gun_collides(uint8_t k, bool prev, int16_t *prev_buf) {
 }
 
 static void test_gun_asm(void) {
+  _cur_id = 18;
   // _gun_track_all: sub-quantum preservation, positive/negative borrow across
   // bit 16, exact d >> 5 in _gun_moved, and _gun_t zeroed.
-  static const int32_t kSteps[4][3] = {
+  __striped static const int32_t kSteps[3][3] = {
       {0x0000001FL, -0x00000001L, 0x00000020L},
       {0x00000F15L, -0x00000E33L, 0x000001FFL},
-      {-0x00001205L, 0x0000185AL, -0x00000420L},
-      {0x00000083L, -0x0000009EL, 0x00000000L},
+      {-0x00001205L, 0x0000185AL, 0x00000000L},
   };
-  int32_t ref_eye[3] = {0x0010FFE8L, 0x00200010L, 0x00058004L};
+  static const int32_t kInitEye[3] = {0x0010FFE8L, 0x00200010L, 0x00058004L};
+  #pragma bss(opp_bss)
+  static int32_t ref_eye[3];
+  static int16_t want_m[3];
+  #pragma bss(bss)
   for (uint8_t c = 0; c < 3; ++c) {
+    ref_eye[c] = kInitEye[c];
     _gun_eye[c] = ref_eye[c];
     *kFlightEye[c] = ref_eye[c];
   }
-  for (uint8_t s = 0; s < 4; ++s) {
-    int16_t want_m[3];
+  for (uint8_t s = 0; s < 3; ++s) {
     for (uint8_t c = 0; c < 3; ++c) {
       *kFlightEye[c] += kSteps[s][c];
       int16_t d = (int16_t)((uint16_t)(*kFlightEye[c]) - (uint16_t)ref_eye[c]);
@@ -1176,55 +1386,53 @@ static void test_gun_asm(void) {
     }
     _gun_track_all();
     for (uint8_t c = 0; c < 3; ++c) {
-      expect(18, (int16_t)_gun_eye[c], (int16_t)ref_eye[c]);
-      expect(18, (int16_t)(_gun_eye[c] >> 16), (int16_t)(ref_eye[c] >> 16));
-      expect(18, _gun_moved[c], want_m[c]);
-      expect(18, _gun_t[c], 0);
+      expect_id((int16_t)_gun_eye[c], (int16_t)ref_eye[c]);
+      expect_id((int16_t)(_gun_eye[c] >> 16), (int16_t)(ref_eye[c] >> 16));
+      expect_id(_gun_moved[c], want_m[c]);
+      expect_id(_gun_t[c], 0);
     }
   }
 
   // _gun_rel_from(0) and _gun_rel_from(2): wraparound on x/y and [-15, 14].
-  _gun_eye[0] = 0x007E0040L;
-  _gun_eye[1] = 0x00FC8020L;
-  _gun_eye[2] = 0x00040100L;
-  static const int32_t kRelOff[][3] = {
+  static const int32_t kRelEye[3] = {0x007E0040L, 0x00FC8020L, 0x00040100L};
+  for (uint8_t c = 0; c < 3; ++c) {
+    _gun_eye[c] = kRelEye[c];
+  }
+  __striped static const int32_t kRelOff[7][3] = {
       {0, 0, 0},
-      {0x000EFFFDL, -0x000F0000L, -0x00040100L}, // max in-range +14, -15
-      {0x000F0000L, 0, 0},                        // +15 out
-      {0, -0x000F0001L, 0},                       // -16 out
-      {0, 0, 0x000F0000L},                        // z out
-      {-0x007A0020L, -0x00F60040L, -0x00010060L}, // wrap across x=128 & y=256
-      {0x00790060L, 0x00F50080L, 0x000200A0L},    // negative wrap
+      {0x000EFFFDL, -0x000F0000L, -0x00040100L},
+      {0x000F0000L, 0, 0},
+      {0, -0x000F0001L, 0},
+      {0, 0, 0x000F0000L},
+      {-0x007A0020L, -0x00F60040L, -0x00010060L},
+      {0x00790060L, 0x00F50080L, 0x000200A0L},
   };
-  for (uint8_t k = 0; k < sizeof(kRelOff) / sizeof(kRelOff[0]); ++k) {
+  for (uint8_t k = 0; k < 7; ++k) {
     _gun_p[0] = (_gun_eye[0] + kRelOff[k][0]) & 0x007FFFFFL;
     _gun_p[1] = (_gun_eye[1] + kRelOff[k][1]) & 0x00FFFFFFL;
     _gun_p[2] = _gun_eye[2] + kRelOff[k][2];
-    int16_t want_t[3] = {77, 88, 99};
-    bool want_ok = _ref_gun_rel(0, &want_t[0]) && _ref_gun_rel(1, &want_t[1]) &&
-                   _ref_gun_rel(2, &want_t[2]);
+    bool want_ok = _ref_gun_rel(0, &want_m[0]) && _ref_gun_rel(1, &want_m[1]) &&
+                   _ref_gun_rel(2, &want_m[2]);
     bool got_ok = _gun_rel3_to() != 0;
-    expect(18, got_ok, want_ok);
+    expect_id(got_ok, want_ok);
     if (want_ok) {
-      expect(18, _gun_t[0], want_t[0]);
-      expect(18, _gun_t[1], want_t[1]);
-      expect(18, _gun_t[2], want_t[2]);
+      for (uint8_t a = 0; a < 3; ++a) {
+        expect_id(_gun_t[a], want_m[a]);
+      }
     }
     int16_t want_z = 33;
     bool want_zok = _ref_gun_rel(2, &want_z);
     _gun_t[0] = 11;
     _gun_t[1] = 22;
-    bool got_zok = _gun_rel2() != 0;
-    expect(18, got_zok, want_zok);
-    expect(18, _gun_t[0], 11);
-    expect(18, _gun_t[1], 22);
+    expect_id(_gun_rel2() != 0, want_zok);
+    expect_id((int16_t)((_gun_t[0] << 8) | _gun_t[1]), (11 << 8) | 22);
     if (want_zok) {
-      expect(18, _gun_t[2], want_z);
+      expect_id(_gun_t[2], want_z);
     }
   }
 
   // _gun_hits: substeps, reach boundary, box boundary, and flight_step_shift.
-  static const int16_t kHitCases[][7] = {
+  __striped static const int16_t kHitCases[7][7] = {
       {500, -200, 100, 800, -400, 200, 160},   // clean hit on substep 2
       {960, 0, 0, 800, 0, 0, 160},             // exact |d| == lim, hits on substep 4
       {961, 0, 0, 800, 0, 0, 160},             // |d| == lim + 1 -> early out
@@ -1237,29 +1445,23 @@ static void test_gun_asm(void) {
     flight_step_shift = sh;
     for (uint8_t c = 0; c < sizeof(kHitCases) / sizeof(kHitCases[0]); ++c) {
       uint8_t r = (uint8_t)(c & 7);
-      _gun_t[0] = kHitCases[c][0];
-      _gun_t[1] = kHitCases[c][1];
-      _gun_t[2] = kHitCases[c][2];
-      _round_p[r] = 40;
-      _round_p[r + 8] = -20;
-      _round_p[r + 16] = 10;
-      _round_v[r] = kHitCases[c][3];
-      _round_v[r + 8] = kHitCases[c][4];
-      _round_v[r + 16] = kHitCases[c][5];
-      int16_t box = kHitCases[c][6];
-      expect(18, _gun_hits(r, box), _ref_gun_hits(r, box));
+      static const int8_t kRp[3] = {40, -20, 10};
+      for (uint8_t a = 0; a < 3; ++a) {
+        _gun_t[a] = kHitCases[c][a];
+        _round_p[r + 8 * a] = kRp[a];
+        _round_v[r + 8 * a] = kHitCases[c][a + 3];
+      }
+      expect_id(_gun_hits(r, kHitCases[c][6]), _ref_gun_hits(r, kHitCases[c][6]));
     }
   }
   flight_step_shift = 0;
 
   // _gun_collides: +-192 vs +-193 on now and mid, prev=false vs true, slots 0/1.
-  static const int16_t kColSeq[][3] = {
+  __striped static const int16_t kColSeq[10][3] = {
       {400, 0, 0},      // outside
       {-384, 192, -192}, // now outside (-384), mid = (+8, +96, -96) -> mid hit if prev!
       {500, 0, 0},      // outside
-      {-114, 0, 0},     // mid = +193 -> outside! now = -114 -> now hit!
-      {500, 0, 0},
-      {-113, 0, 0},     // mid = +193 -> outside; Wait: (500 + -114)>>1 = 193, (500 + -116)>>1 = 192
+      {-114, 0, 0},     // mid = +193 -> outside; now = -114 -> now hit!
       {500, 385, 0},
       {-500, -1, 0},    // mid = (0, +192, 0) -> mid hit!
       {500, 387, 0},
@@ -1267,8 +1469,11 @@ static void test_gun_asm(void) {
       {192, -192, 192}, // exact boundary now hit
       {193, 0, 0},      // +193 outside (unless mid hits: (192+193)>>1 = 192 -> mid hits if prev!)
   };
-  int16_t ref_prev[6] = {0, 0, 0, 0, 0, 0};
+  #pragma bss(opp_bss)
+  static int16_t ref_prev[6];
+  #pragma bss(bss)
   for (uint8_t i = 0; i < 6; ++i) {
+    ref_prev[i] = 0;
     _gun_prev[i] = 0;
   }
   for (uint8_t s = 0; s < sizeof(kColSeq) / sizeof(kColSeq[0]); ++s) {
@@ -1279,21 +1484,713 @@ static void test_gun_asm(void) {
     _gun_t[2] = kColSeq[s][2];
     bool want = _ref_gun_collides(slot, prev, ref_prev);
     bool got = _gun_collides(slot, prev);
-    expect(18, got, want);
+    expect_id(got, want);
     for (uint8_t i = 0; i < 6; ++i) {
-      expect(18, _gun_prev[i], ref_prev[i]);
+      expect_id(_gun_prev[i], ref_prev[i]);
     }
+  }
+
+  // _gun_dir across all 16 directions, zero axes, small/large magnitudes, and
+  // int16_t extremes (-32768, 32767).
+  static const int16_t kDirVals[] = {
+      0, 1, -1, 25, -25, 78, -78, 127, -128, 128, 210, -210, 32767, -32768};
+  for (uint8_t xi = 0; xi < sizeof(kDirVals) / sizeof(kDirVals[0]); ++xi) {
+    for (uint8_t yi = 0; yi < sizeof(kDirVals) / sizeof(kDirVals[0]); ++yi) {
+      int16_t dx = kDirVals[xi], dy = kDirVals[yi];
+      int16_t rdx = dx, rdy = dy;
+      if (rdx < 0) {
+        rdx = -rdx;
+        rdy = -rdy;
+      }
+      uint16_t a = _abs16(rdy), b = (uint16_t)rdx;
+      while ((a | b) >= 128) {
+        a >>= 1;
+        b >>= 1;
+      }
+      bool steep = (uint8_t)b <= (uint8_t)a;
+      uint8_t n = steep ? (uint8_t)b : (uint8_t)a;
+      uint8_t m = steep ? (uint8_t)a : (uint8_t)b;
+      uint8_t k = 0;
+      for (uint8_t t = 0; t < 4; ++t) {
+        if ((uint16_t)((uint16_t)n << 8) > vec_mul8x8(m, kTracerTan[t])) {
+          ++k;
+        }
+      }
+      if (!steep) {
+        k = (uint8_t)(8 - k);
+      }
+      expect_id(_gun_dir(dx, dy), rdy < 0 ? k : (uint8_t)((16 - k) & 15));
+    }
+  }
+
+  // _gun_view, _gun_view_round, and _gun_vel_round across behind-camera, cone
+  // edges, 8-bit and 16-bit divisors, and rotated camera basis.
+  world_cam.front = make_vector(204, 153, 0);
+  world_cam.left = make_vector(-153, 204, 0);
+  world_cam.up = make_vector(0, 0, 256);
+  static const int8_t kViewPts[][3] = {
+      {-50, 0, 0},   {50, 38, 0},    {64, 48, 0},    // x <= 64
+      {80, 60, 100}, {80, -80, 10},  {100, 90, -80}, // cone out & x < 256 in
+      {120, 30, -20},                                // scaled << 5 below
+  };
+  for (uint8_t pi = 0; pi < sizeof(kViewPts) / sizeof(kViewPts[0]); ++pi) {
+    uint8_t r = (uint8_t)(pi & 7);
+    for (uint8_t c = 0; c < 3; ++c) {
+      int16_t pv = kViewPts[pi][c];
+      _round_p[r + 8 * c] = (pi == 6) ? (pv << 6) : (pv << 1);
+    }
+    _ts_c0 = make_vector(_round_p[r] >> 1, _round_p[r + 8] >> 1,
+                         _round_p[r + 16] >> 1);
+    vec_transform_inv(&world_cam, &_ts_c0, &_ts_c1);
+    bool want_vis = _ts_c1.x > 64 && _abs16(_ts_c1.z) < (uint16_t)_ts_c1.x &&
+                    _abs16(_ts_c1.y) < (uint16_t)_ts_c1.x;
+    expect_id(_gun_view_round(r) ? 1 : 0, want_vis ? 1 : 0);
+    if (want_vis) {
+      expect_id(_gun_c.x, _ts_c1.x);
+      expect_id(_gun_s[0], (int16_t)(160 - vec_div8p8(_ts_c1.y, _ts_c1.x)));
+      expect_id(_gun_s[1], (int16_t)(56 - vec_div8p8(_ts_c1.z, _ts_c1.x)));
+    }
+    _gun_c = _ts_c0;
+    expect_id(_gun_view() ? 1 : 0, want_vis ? 1 : 0);
+  }
+  static const int16_t kVel3[3] = {700, -351, 123};
+  for (uint8_t c = 0; c < 3; ++c) {
+    _round_v[3 + 8 * c] = kVel3[c];
+  }
+  _gun_vel_round(3);
+  expect_id(vec_v.x, vec_fastmul8p8(204, 350) + vec_fastmul8p8(153, -176));
+  expect_id(vec_v.z, 61);
+
+  // _gun_shown + _gun_store_enemy_round + _gun_step_rounds.
+  for (uint8_t r = 0; r < 8; ++r) {
+    _round_age[r] = 0;
+  }
+  *(volatile uint8_t *)&_gun_last = kRoundNone;
+  expect_id(_gun_shown(), kRoundNone);
+  static const int16_t kInitTV[4][3] = {
+      {333, -222, -500}, {40, -20, -40}, {200, -100, 0}, {64, -32, 16}};
+  for (uint8_t c = 0; c < 3; ++c) {
+    _gun_t[c] = kInitTV[0][c];
+    _gun_v[c] = kInitTV[1][c];
+    _round_p[8 * c] = kInitTV[2][c];
+    _round_v[8 * c] = kInitTV[3][c];
+  }
+  _gun_store_enemy_round(3, 2);
+  *(volatile uint8_t *)&_round_age[0] = 12;
+  *(volatile uint8_t *)&_round_owner[0] = 0;
+  expect_id(_gun_shown(), 3);
+
+  static const int8_t kMv[3] = {12, -7, 4};
+  for (uint8_t c = 0; c < 3; ++c) {
+    _gun_moved[c] = kMv[c];
+  }
+  *(volatile int32_t *)&_gun_eye[2] = 0x00004000L; // ground at -512 sixteenths
+  volatile uint8_t *vz = (volatile uint8_t *)&_gun_z;
+  volatile const uint8_t *vp = (volatile const uint8_t *)_gun_puff;
+  vz[11] = 0; // _gun_substep
+  vz[12] = 0; // _gun_puff_t
+  _gun_last = 3;
+  flight_step_shift = 1;
+  kFlightSubstepMask = 1;
+  expect_id(_gun_step_rounds() ? 1 : 0, 0);
+  expect_id((int16_t)((vz[0] << 8) | vz[3]), 12 << 8);
+  expect_id(_gun_last, kRoundNone);
+  expect_id(_gun_puff[0], 341);
+  expect_id(_gun_puff[2], -512);
+
+  flight_step_shift = 0;
+  _gun_last = 0;
+  expect_id(_gun_step_rounds() ? 1 : 0, 1);
+  kFlightSubstepMask = 0;
+  expect_id((int16_t)((vz[0] << 8) | vz[12]), kPuffFrames - 1);
+  expect_id(_gun_last, kRoundNone);
+  expect_id(_gun_puff[0], 329);
+}
+
+// 19. vec_asm.cc restoring division (vec_div8p8, vec_frac16, vec_fracn across
+// 8-bit and 16-bit divisors, zero/equal/integer/saturating boundaries) and
+// planes_asm.cc planes_centre (behind-camera, cone, scale clamp, and diameter).
+static uint16_t _ref_uabs16(int16_t v) {
+  return v < 0 ? (uint16_t)(-(uint16_t)v) : (uint16_t)v;
+}
+
+static __noinline uint16_t _ref_fracn(int16_t a, int16_t b, uint8_t bits) {
+  uint16_t ua = a < 0 ? (uint16_t)(-(uint16_t)a) : (uint16_t)a;
+  uint16_t ub = b < 0 ? (uint16_t)(-(uint16_t)b) : (uint16_t)b;
+  uint16_t ones = 0;
+  for (uint8_t i = 0; i < bits; ++i) {
+    ones = (uint16_t)((ones << 1) | 1);
+  }
+  if (ua >= ub) {
+    return ones;
+  }
+  uint16_t q = 0;
+  uint16_t r = ua;
+  for (uint8_t i = 0; i < bits; ++i) {
+    q <<= 1;
+    r <<= 1;
+    if (r >= ub) {
+      r -= ub;
+      q |= 1;
+    }
+  }
+  return q;
+}
+
+static __noinline int16_t _ref_div8p8(int16_t a, int16_t b) {
+  uint16_t ua = _ref_uabs16(a);
+  uint16_t ub = _ref_uabs16(b);
+  uint16_t q;
+  if (ua < ub) {
+    q = _ref_fracn(a, b, 8);
+  } else if (ub == 0) {
+    if (ua == 0) {
+      return 0;
+    }
+    q = 32767;
+  } else {
+    uint16_t d = ub;
+    uint8_t k = 0;
+    while (k < 7 && d <= (ua >> 1)) {
+      d <<= 1;
+      ++k;
+    }
+    if (k == 7) {
+      q = 32767;
+    } else {
+      uint8_t qi = 0;
+      for (;;) {
+        qi <<= 1;
+        if (ua >= d) {
+          ua -= d;
+          qi |= 1;
+        }
+        if (k == 0) {
+          break;
+        }
+        --k;
+        d >>= 1;
+      }
+      q = (uint16_t)(((uint16_t)qi << 8) | _ref_fracn((int16_t)ua, b, 8));
+    }
+  }
+  return ((a ^ b) < 0) ? (int16_t)-(int16_t)q : (int16_t)q;
+}
+
+static bool _ref_planes_centre(const planes_view_t *view, const vec3_t *c,
+                               planes_frame_t *f) {
+  f->hidden = kPlaneShown;
+  f->cached = false;
+  f->slid = 0;
+  if (c->x <= 64) {
+    f->hidden = kPlaneBehindCamera;
+    return false;
+  }
+  if (_ref_uabs16(c->y) >= (uint16_t)c->x ||
+      _ref_uabs16(c->z) >= (uint16_t)c->x) {
+    f->hidden = kPlaneOutOfRange;
+    return false;
+  }
+  f->cx = (int16_t)(view->cx0 - _ref_div8p8(c->y, c->x));
+  f->cy = (int16_t)(view->cy0 - _ref_div8p8(c->z, c->x));
+  uint16_t k = c->x > view->kn ? _ref_fracn(view->kn, c->x, 9) : 0x1FFu;
+  f->clamped = k > view->kmax;
+  if (f->clamped) {
+    k = view->kmax;
+  }
+  f->k = (uint8_t)k;
+  f->d = (uint8_t)(vec_mul8x8(kPlaneMaxRadius << 1, (uint8_t)k) >> 8);
+  return true;
+}
+
+static void test_vec_div_and_planes_centre_asm(void) {
+  _cur_id = 19;
+  static const int16_t kDivB[] = {0,    1,     -1,    2,     -3,   63,   64,
+                                  -64,  65,    -65,   127,   128,  -129, 200,
+                                  255,  -255,  256,   -256,  257,  511,  -1000,
+                                  8192, 32767, -32768};
+  static const int16_t kDivA[] = {0,     1,      -1,    2,     -63,   64,
+                                  -65,   127,    -128,  129,   200,   -254,
+                                  255,   -256,   511,   8191,  -8192, 8320,
+                                  32767, -32768};
+  for (uint8_t bi = 0; bi < sizeof(kDivB) / sizeof(kDivB[0]); ++bi) {
+    int16_t b = kDivB[bi];
+    for (uint8_t ai = 0; ai < sizeof(kDivA) / sizeof(kDivA[0]); ++ai) {
+      int16_t a = kDivA[ai];
+      int16_t want_d = _ref_div8p8(a, b);
+      int16_t got_d = vec_div8p8(a, b);
+      expect_id(got_d, want_d);
+      uint16_t want_f = _ref_fracn(a, b, 16);
+      uint16_t got_f = vec_frac16(a, b);
+      expect_id((int16_t)got_f, (int16_t)want_f);
+    }
+  }
+  // Exact literal sanity anchor against _ref_div8p8 / _ref_fracn.
+  expect_id(vec_div8p8(8191, 65), 32259);
+  expect_id(vec_div8p8(-32768, -32768), 256);
+
+  // vec_fracn across odd bit counts and saturation.
+  static const uint8_t kBits[] = {1, 7, 8, 9, 12, 16};
+  __striped static const int16_t kFnPairs[15][2] = {
+      {0, 65},    {1, 3},      {2, 3},       {64, 128},    {64, 129},
+      {128, 129}, {-254, 255}, {255, -256},  {300, 1000},  {32767, -32768},
+      {200, 200}, {500, 200},  {-32768, -32768}, {10, 0},  {0, 0},
+  };
+  for (uint8_t bi = 0; bi < sizeof(kBits) / sizeof(kBits[0]); ++bi) {
+    uint8_t bits = kBits[bi];
+    for (uint8_t pi = 0; pi < sizeof(kFnPairs) / sizeof(kFnPairs[0]); ++pi) {
+      int16_t a = kFnPairs[pi][0], b = kFnPairs[pi][1];
+      uint16_t got_fn = vec_fracn(a, b, bits);
+      uint16_t want_fn = _ref_fracn(a, b, bits);
+      expect_id((int16_t)got_fn, (int16_t)want_fn);
+    }
+  }
+
+  // planes_centre across views, behind-camera, cone edges, and clamp edges.
+  static const planes_view_t kViews[] = {
+      {160, 56, 89, 68, 150, 64},
+      {160, 80, 140, 119, 88, 64},
+      {120, 40, 200, 200, 255, 200},
+  };
+  __striped static const int16_t kCases[23][3] = {
+      {-32768, 0, 0},    {-1, 0, 0},       {0, 0, 0},        {64, 0, 0},
+      {65, 0, 0},        {65, 64, -64},    {65, -64, 64},    {65, 65, 0},
+      {65, -65, 0},      {65, 0, 65},      {65, 0, -65},     {65, -32768, 0},
+      {65, 10, -32768},  {128, -127, 127}, {129, 128, -128}, {218, -50, 30},
+      {219, 50, -30},    {372, -371, 200}, {373, 100, -372}, {400, 0, 0},
+      {401, 1, -1},      {2500, -1999, 800}, {32767, -32766, 32766},
+  };
+  for (uint8_t vi = 0; vi < sizeof(kViews) / sizeof(kViews[0]); ++vi) {
+    for (uint8_t ci = 0; ci < sizeof(kCases) / sizeof(kCases[0]); ++ci) {
+      _ts_c0 = make_vector(kCases[ci][0], kCases[ci][1], kCases[ci][2]);
+      _ts_f1.hidden = _ts_f2.hidden = 99;
+      _ts_f1.cached = _ts_f2.cached = true;
+      _ts_f1.slid = _ts_f2.slid = 77;
+      bool got_ok = planes_centre(&kViews[vi], &_ts_c0, &_ts_f1);
+      bool want_ok = _ref_planes_centre(&kViews[vi], &_ts_c0, &_ts_f2);
+      expect_id((int16_t)(((got_ok ? 1 : 0) << 8) | _ts_f1.hidden),
+                (int16_t)(((want_ok ? 1 : 0) << 8) | _ts_f2.hidden));
+      expect_id((int16_t)(((_ts_f1.cached ? 1 : 0) << 8) | _ts_f1.slid),
+                (int16_t)(((_ts_f2.cached ? 1 : 0) << 8) | _ts_f2.slid));
+      if (want_ok) {
+        expect_id((int16_t)(((_ts_f1.clamped ? 1 : 0) << 8) | _ts_f1.k),
+                  (int16_t)(((_ts_f2.clamped ? 1 : 0) << 8) | _ts_f2.k));
+        expect_id(_ts_f1.d, _ts_f2.d);
+        expect_id(_ts_f1.cx, _ts_f2.cx);
+        expect_id(_ts_f1.cy, _ts_f2.cy);
+      }
+    }
+  }
+}
+
+// 20. sprites_asm.cc sprites_stack_add, sprites_stack_commit,
+// _sprites_set_instrument_sprite, and sprites_set_alt against 16-bit C
+// references across culls, dither lattice, message box, sort/overflow, 1x1..2x2
+// slots, unused parking / past-last preservation, orientation mark, fin, all
+// gauge indices/directions, and altitudes 0..65535.
+uint16_t msg_span_x0;
+uint16_t msg_span_x1;
+static bool _test_msg_on;
+__noinline bool msg_active(void) { return _test_msg_on; }
+#include "../sprites_asm.h"
+
+static sprite_cand_t *const _ref_cand = (sprite_cand_t *)0xFC00;
+static sprite_frame_t *const _ref_frames = (sprite_frame_t *)0xFC80;
+static uint8_t _ref_cand_end;
+
+static bool _ref_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
+                           int8_t pivot_y, uint8_t bitmap, uint8_t bitmap2,
+                           uint8_t color, uint8_t flags) {
+  uint8_t width = kSpriteWidthPixels;
+  uint8_t px = (uint8_t)pivot_x;
+  if (flags & kSpriteFlagExpandX) {
+    width <<= 1;
+    px <<= 1;
+  }
+  x -= px;
+  if (flags & kSpriteFlagWide) {
+    width <<= 1;
+  }
+  uint8_t pitch = kSpriteHeightPixels;
+  if (flags & kSpriteFlagExpandY) {
+    pitch <<= 1;
+  }
+  uint8_t h_m1 = pitch - 1;
+  if (bitmap2 != kSpriteNoBitmap) {
+    h_m1 += pitch;
+  }
+  y -= (uint8_t)pivot_y;
+  if (flags & kSpriteFlagAlignDither) {
+    x &= ~1;
+    y = (y & ~1) | ((x >> 1) & 1);
+  }
+  if (x >= (int16_t)kScreenWidthPixels || x + width <= 0) {
+    return false;
+  }
+  if ((uint16_t)(y + h_m1) >=
+      kSpriteVisibleEndYPixels + kSpriteHeightPixels - 1) {
+    return false;
+  }
+  int16_t vx = x + (int16_t)kSpriteOffsetX;
+  uint8_t vy = (uint8_t)y + kSpriteOffsetY;
+  if (vx < 0) {
+    return false;
+  }
+  if (_test_msg_on && vy < kSpritesMsgBoxBottom) {
+    int16_t x0 = kSpriteOffsetX + (int16_t)msg_span_x0;
+    int16_t x1 = kSpriteOffsetX + (int16_t)msg_span_x1;
+    if (vx < x1 && vx + width > x0) {
+      return false;
+    }
+  }
+  uint8_t o = _ref_cand_end;
+  if (o == kSpriteCandBytes) {
+    if ((uint16_t)depth >= (uint16_t)_ref_cand[kSpriteStackSize - 1].depth) {
+      return false;
+    }
+    o -= kSpriteCandSize;
+  } else {
+    _ref_cand_end = o + kSpriteCandSize;
+  }
+  while (o != 0) {
+    uint8_t prev = o - kSpriteCandSize;
+    const sprite_cand_t *p =
+        (const sprite_cand_t *)((const uint8_t *)_ref_cand + prev);
+    if ((uint16_t)p->depth <= (uint16_t)depth) {
+      break;
+    }
+    uint8_t *b = (uint8_t *)_ref_cand;
+    uint8_t k = o + kSpriteCandSize;
+    do {
+      --k;
+      b[k] = b[k - kSpriteCandSize];
+    } while (k != o);
+    o = prev;
+  }
+  sprite_cand_t *c = (sprite_cand_t *)((uint8_t *)_ref_cand + o);
+  c->depth = depth;
+  c->x = vx;
+  c->y = vy;
+  c->bitmap = bitmap;
+  c->bitmap2 = bitmap2;
+  c->color = color;
+  c->flags = flags;
+  return true;
+}
+
+static void _ref_stack_commit(void) {
+  sprite_frame_t *f = mem_using_alt_buffer ? &_ref_frames[1] : &_ref_frames[0];
+  uint8_t idx = kSpriteStackFirst;
+  uint8_t bit = 1 << kSpriteStackFirst;
+  if (_sprites_fin_off == 0) {
+    idx = kSpriteFinFirst + kSpriteFinCount;
+    bit = 1 << (kSpriteFinFirst + kSpriteFinCount);
+  }
+  uint8_t msbx = 0, expand = 0, expand_y = 0, enable = 0;
+  for (uint8_t o = 0; o != _ref_cand_end; o += kSpriteCandSize) {
+    const sprite_cand_t *c =
+        (const sprite_cand_t *)((const uint8_t *)_ref_cand + o);
+    uint8_t flags = c->flags;
+    uint8_t cols = (flags & kSpriteFlagWide) ? 2 : 1;
+    uint8_t slots =
+        (c->bitmap2 == kSpriteNoBitmap) ? cols : (uint8_t)(cols << 1);
+    if (idx + slots > kSpriteStackSize) {
+      break;
+    }
+    uint8_t ptr = c->bitmap;
+    uint8_t sy = c->y;
+    uint8_t col_w = (flags & kSpriteFlagExpandX) ? 2 * kSpriteWidthPixels
+                                                 : kSpriteWidthPixels;
+    uint8_t pitch = (flags & kSpriteFlagExpandY) ? 2 * kSpriteHeightPixels
+                                                 : kSpriteHeightPixels;
+    for (uint8_t s = 0; s < slots; ++s) {
+      uint16_t sx = (uint16_t)c->x;
+      uint8_t p = ptr;
+      if ((cols & 2) && (s & 1)) {
+        sx += col_w;
+        ++p;
+      }
+      f->pos[idx << 1] = (uint8_t)sx;
+      f->pos[(idx << 1) + 1] = sy;
+      f->ptr[idx] = p;
+      f->color[idx] = c->color;
+      enable |= bit;
+      if (sx & 0x100) {
+        msbx |= bit;
+      }
+      if (flags & kSpriteFlagExpandX) {
+        expand |= bit;
+      }
+      if (flags & kSpriteFlagExpandY) {
+        expand_y |= bit;
+      }
+      if (s + 1 == cols) {
+        ptr = c->bitmap2;
+        sy += pitch;
+      }
+      bit <<= 1;
+      ++idx;
+    }
+  }
+  f->last = idx - 1;
+  while (idx < kSpriteStackSize) {
+    f->pos[idx << 1] = 0;
+    f->pos[(idx << 1) + 1] = 0;
+    ++idx;
+  }
+  uint8_t ox = 0, oy = 0, op = kSpriteDefSun.bitmap_idx, oc = kColorInstrument;
+  if (_sprites_orient_off == 0) {
+    ox = kSpriteOrientVX;
+    oy = kSpriteOrientVY;
+    op = kSpriteDefOrient.bitmap_idx;
+    oc = kColorOrientation;
+    enable |= kSpriteOrientBit;
+  }
+  f->pos[0] = ox;
+  f->pos[1] = oy;
+  f->ptr[0] = op;
+  f->color[0] = oc;
+  if (_sprites_fin_off == 0) {
+    f->pos[0] = kSpriteFinVX;
+    f->pos[1] = kSpriteFinTopVY;
+    f->pos[2] = kSpriteFinVX;
+    f->pos[3] = kSpriteFinBottomVY;
+    f->ptr[0] = kFinSpriteBlock;
+    f->ptr[1] = kFinSpriteBlock + 1;
+    f->color[0] = kColorAircraft;
+    f->color[1] = kColorAircraft;
+    enable |= kSpriteFinMask;
+    expand_y |= kSpriteFinMask;
+  }
+  f->msbx = msbx;
+  f->expand = expand;
+  f->expand_y = expand_y;
+  f->enable = enable;
+}
+
+static void _check_frames_eq(void) {
+  const volatile uint8_t *got = (const volatile uint8_t *)_sprites_frames;
+  const uint8_t *want = (const uint8_t *)_ref_frames;
+  for (uint8_t i = 0; i < sizeof(_sprites_frames); ++i) {
+    expect_id(got[i], want[i]);
+  }
+}
+
+struct CullPreset {
+  int8_t px, py;
+  uint8_t b1, b2, col, fl;
+};
+
+struct CullShort {
+  int16_t x, y;
+  uint8_t p;
+};
+
+struct CullCase {
+  int16_t x, y;
+  int8_t px, py;
+  uint8_t b1, b2, col, fl;
+};
+
+struct AddCase {
+  int16_t d;
+  CullCase c;
+};
+
+static __noinline void _run_cull(int16_t d, const CullCase *c) {
+  bool g = sprites_stack_add(d, c->x, c->y, c->px, c->py, c->b1, c->b2, c->col,
+                             c->fl);
+  bool w =
+      _ref_stack_add(d, c->x, c->y, c->px, c->py, c->b1, c->b2, c->col, c->fl);
+  expect_id(g ? 1 : 0, w ? 1 : 0);
+}
+
+static void test_sprites_asm(void) {
+  _cur_id = 20;
+  static const CullPreset kCP[7] = {
+      {12, 10, 95, 0xFF, 7, 0},    {12, 10, 81, 0xFF, 1, 0x01},
+      {12, 20, 85, 86, 1, 0x01},   {0, 0, 69, 71, 12, 0x0D},
+      {12, 10, 82, 0xFF, 1, 0x03}, {0, 0, 95, 0xFF, 7, 0},
+      {0, 10, 95, 0xFF, 7, 0},
+  };
+  __striped static const CullShort kCulls[28] = {
+      {-13, 50, 0},    {-12, 50, 0},   {-11, 50, 0},    {0, 50, 1},
+      {-1, 50, 1},     {331, 50, 0},   {332, 50, 0},    {160, -11, 0},
+      {160, -10, 0},   {160, 99, 0},   {160, 100, 0},   {160, 88, 2},
+      {160, 89, 2},    {100, 26, 3},   {100, 27, 3},    {161, 55, 4},
+      {162, 55, 4},    {163, 56, 4},   {5, -9, 4},      {88, 17, 0},
+      {89, 17, 0},     {232, 17, 0},   {231, 17, 0},    {160, 18, 0},
+      {-32768, 50, 0}, {32767, 50, 5}, {160, -32768, 6},{160, 32767, 5},
+  };
+  msg_span_x0 = 100;
+  msg_span_x1 = 220;
+  for (uint8_t m = 0; m < 2; ++m) {
+    _test_msg_on = (m != 0);
+    for (uint8_t i = 0; i < 28; ++i) {
+      _sprites_cand_end = 0;
+      _ref_cand_end = 0;
+      const CullPreset *cp = &kCP[kCulls[i].p];
+      #pragma bss(opp_bss)
+      static CullCase cc;
+      #pragma bss(bss)
+      cc.x = kCulls[i].x;
+      cc.y = kCulls[i].y;
+      cc.px = cp->px;
+      cc.py = cp->py;
+      cc.b1 = cp->b1;
+      cc.b2 = cp->b2;
+      cc.col = cp->col;
+      cc.fl = cp->fl;
+      _run_cull(100, &cc);
+      expect_id(_sprites_cand_end, _ref_cand_end);
+      if (_ref_cand_end != 0) {
+        for (uint8_t b = 0; b < kSpriteCandSize; ++b) {
+          expect_id(((const uint8_t *)_sprites_cand)[b],
+                    ((const uint8_t *)_ref_cand)[b]);
+        }
+      }
+    }
+  }
+  _test_msg_on = false;
+
+  // Multi-frame commit tests: empty, 9-item overflow + ties, mixed 2x2 + 1x2 +
+  // msbx split, orientation mark, tail fin, and alt-buffer sentinel check.
+  static const AddCase kMixed[5] = {
+      {0x7FFF, {300, 40, 12, 10, 95, 0xFF, 7, 0}}, // sun with msbx
+      {450, {230, 12, 0, 0, 69, 71, 11, 0x0D}},    // 2x2 plane crossing 256
+      {300, {161, 45, 12, 20, 85, 86, 1, 0x03}},   // 1x2 dithered cloud
+      {300, {80, 30, 12, 10, 82, 0xFF, 1, 0x03}},  // tie at depth 300
+      {120, {40, 20, 12, 10, 90, 0xFF, 2, 0}},     // close tracer
+  };
+  volatile uint8_t *raw_got = (volatile uint8_t *)_sprites_frames;
+  uint8_t *raw_want = (uint8_t *)_ref_frames;
+  for (uint8_t b = 0; b < sizeof(_sprites_frames); ++b) {
+    raw_got[b] = 0xAA;
+    raw_want[b] = 0xAA;
+  }
+  #pragma bss(opp_bss)
+  static CullCase mc;
+  static uint8_t alt_g[6];
+  #pragma bss(bss)
+  for (uint8_t mode = 0; mode < 4; ++mode) {
+    mem_using_alt_buffer = (mode & 1) != 0;
+    _sprites_orient_off = (mode == 1) ? 0 : 0xFF;
+    _sprites_fin_off = (mode == 2) ? 0 : 0xFF;
+    _sprites_cand_end = 0;
+    _ref_cand_end = 0;
+    if (mode == 3) {
+      // 10 descending/interleaved items to exercise full-stack eviction & rejection.
+      for (uint8_t i = 0; i < 10; ++i) {
+        mc.x = (int16_t)(20 + i * 28);
+        mc.y = 35;
+        mc.px = 12;
+        mc.py = 10;
+        mc.b1 = (uint8_t)(40 + i);
+        mc.b2 = 0xFF;
+        mc.col = (uint8_t)(i & 15);
+        mc.fl = 0;
+        _run_cull((i == 9) ? (int16_t)999 : (int16_t)(900 - i * 80), &mc);
+      }
+    } else if (mode != 0) {
+      for (uint8_t i = 0; i < 5; ++i) {
+        _run_cull(kMixed[i].d, &kMixed[i].c);
+      }
+    }
+    sprites_stack_commit();
+    _ref_stack_commit();
+    _check_frames_eq();
+  }
+  mem_using_alt_buffer = false;
+
+  // Instrument needle placement across all 6 gauge slots and dir bytes,
+  // including mirrored directions (dir & 16) and wrapped upper bits.
+  static const uint8_t kGaugeIdxs[] = {0, 1, 4, 5, 6, 7};
+  static const uint8_t kGaugeDirs[] = {
+      0,  1,  7,  8,  15, 16, 17, 23, 24, 31, 32, 47, 48, 63, 0x94, 0xFF,
+  };
+  for (uint8_t gi = 0; gi < sizeof(kGaugeIdxs); ++gi) {
+    uint8_t idx = kGaugeIdxs[gi];
+    for (uint8_t di = 0; di < sizeof(kGaugeDirs); ++di) {
+      uint8_t dir = kGaugeDirs[di];
+      _sprites_set_instrument_sprite(idx, dir);
+      uint8_t arm_idx = dir & (kSpriteDefArmCount - 1);
+      uint8_t off = (uint8_t)(arm_idx << 1);
+      int8_t px, py;
+      uint8_t bitmap;
+      if (idx == kSpriteIdxSpeed || idx == kSpriteIdxAlt1) {
+        px = ((const int8_t *)kSpriteDefLongArm)[off];
+        py = ((const int8_t *)kSpriteDefLongArm)[off + 1];
+        bitmap = kSpriteDefLongArmBitmap;
+      } else {
+        px = ((const int8_t *)kSpriteDefShortArm)[off];
+        py = ((const int8_t *)kSpriteDefShortArm)[off + 1];
+        bitmap = kSpriteDefShortArmBitmap;
+      }
+      if (dir & kSpriteDefArmCount) {
+        px = 2 * kSpriteDefArmCenterX - px;
+        py = 2 * kSpriteDefArmCenterY - py;
+      }
+      expect_id(
+          (int16_t)((_sprites_instrument_xy[idx].x << 8) |
+                    _sprites_instrument_xy[idx].y),
+          (int16_t)(((uint8_t)(kSpriteInstrumentPivotX[idx] - px) << 8) |
+                    (uint8_t)(kSpriteInstrumentPivotY[idx] - py)));
+      expect_id(_sprites_instrument_idx[idx], (uint8_t)(bitmap + arm_idx));
+    }
+  }
+
+  // sprites_set_alt across 0..65535 boundaries and a dense sweep of a = 0..4095.
+  for (uint16_t a = 0; a <= 4095; a = (a < 32 || a > 4064) ? (a + 1) : (a + 11)) {
+    sprites_set_alt((uint16_t)((a << 4) | (a & 15)));
+    alt_g[0] = _sprites_instrument_xy[4].x;
+    alt_g[1] = _sprites_instrument_xy[4].y;
+    alt_g[2] = _sprites_instrument_xy[5].x;
+    alt_g[3] = _sprites_instrument_xy[5].y;
+    alt_g[4] = _sprites_instrument_idx[4];
+    alt_g[5] = _sprites_instrument_idx[5];
+    _sprites_set_instrument_sprite(4, (uint8_t)a);
+    _sprites_set_instrument_sprite(
+        5, ((uint8_t)vec_fastmul8p8((int16_t)a, 205)) >> 3);
+    if (alt_g[0] != _sprites_instrument_xy[4].x ||
+        alt_g[1] != _sprites_instrument_xy[4].y ||
+        alt_g[2] != _sprites_instrument_xy[5].x ||
+        alt_g[3] != _sprites_instrument_xy[5].y ||
+        alt_g[4] != _sprites_instrument_idx[4]) {
+      expect_id(-1, 0);
+    }
+    expect_id(alt_g[5], _sprites_instrument_idx[5]);
+    if (a == 4095) {
+      break;
+    }
+  }
+
+  // sprites_set_vspeed across [-32768, 32767] clamp and 64-step boundaries.
+  static const int16_t kVsEdges[] = {
+      -32768, -1024, -832, -769, -768, -767, -705, -704, -65, -64, -1, 0,
+      1,      63,    64,   703,  704,  767,  768,  769,  831, 832, 32767,
+  };
+  for (uint8_t vi = 0; vi < sizeof(kVsEdges) / sizeof(kVsEdges[0]); ++vi) {
+    int16_t vs = kVsEdges[vi];
+    sprites_set_vspeed(vs);
+    uint8_t gx = _sprites_instrument_xy[0].x, gy = _sprites_instrument_xy[0].y;
+    uint8_t gi = _sprites_instrument_idx[0];
+    int16_t vc = vs > 0x300 ? 0x300 : (vs < -0x300 ? -0x300 : vs);
+    _sprites_set_instrument_sprite(0, (uint8_t)(0x18 + (vc >> 6)));
+    expect_id((int16_t)((gx << 8) | gy),
+           (int16_t)((_sprites_instrument_xy[0].x << 8) |
+                     _sprites_instrument_xy[0].y));
+    expect_id(gi, _sprites_instrument_idx[0]);
   }
 }
 #pragma optimize(pop)
 
 int main(void) {
   // The KERNAL's timer interrupt keeps its clock and keyboard state in the
-  // zero page the region above hands out, and main extends past $A000 under
-  // BASIC ROM. Bank BASIC out ($01 = $36) and disable IRQs.
+  // zero page the region above hands out, and main/scratch extend under BASIC
+  // and KERNAL ROM. Bank both out ($01 = $35) and disable IRQs.
   __asm {
     sei;
-    lda #$36;
+    lda #$35;
     sta $01;
   }
   g_failures = 0;
@@ -1317,6 +2214,8 @@ int main(void) {
   test_planes_split_reslide_asm();
   test_opponent_world_delta_asm();
   test_gun_asm();
+  test_vec_div_and_planes_centre_asm();
+  test_sprites_asm();
 
   // Something for vice_dump.sh's @spin to break on. Everything above has
   // landed in the globals by the time the loop is reached.

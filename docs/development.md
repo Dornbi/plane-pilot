@@ -29,8 +29,8 @@ If everything goes well it builds these executables into `c64o/`:
 - `fpilot.prg`: Fighter Pilot, the combat variant. Built from the same
   `ppilot.cc` with `-D__FPILOT__`, which swaps the mission table for the one
   in `fmission.cc` (ten missions), renames the menu, and adds the other
-  aircraft of [planes.md](planes.md) (`opponent.cc`; `-D__NO_OPPONENT__` leaves
-  them out). It has no debug view: the build leaves out `-D__ENABLE_DEBUG__`,
+  aircraft of [planes.md](planes.md) (`opponent.cc`, `opponent_asm.cc`;
+  `-D__NO_OPPONENT__` leaves them out). It has no debug view: the build leaves out `-D__ENABLE_DEBUG__`,
   for the RAM.
 - `polydemo.prg`: Polygon rendering prototype.
 - `vecdemo.prg`: Simple character mode prototype of the dots on the ground.

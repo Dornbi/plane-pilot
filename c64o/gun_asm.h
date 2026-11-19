@@ -5,341 +5,104 @@
 
 #include "bool.h"
 #include "vec.h"
+#ifndef __TARGET_TEST__
+#include "flight.h"
+#include "mem.h"
+#include "opponent.h"
+#include "world.h"
+#else
+static const uint8_t kOpponentMax = 2;
+extern uint8_t kFlightSubstepMask;
+extern int32_t *const kFlightEye[3];
+extern uint8_t flight_step_shift;
+extern mat3_t world_cam;
+#endif
+
+// The assembly half of gun.cc, in gun_asm.cc: shared round and scratch state
+// in bss2 / tscratch, plus 6502 routines for eye tracking, world-to-eye
+// wrapping, swept-box hit and collision tests, per-step round motion, active
+// tracer selection, staged camera-cone projection, and 16-angle needle
+// quantisation. gun.cc keeps the C counterparts under #ifndef __OSCAR64__ for
+// test/gun_test.cc and test/mission_test.cc, and test/target_test.cc holds the
+// 6502 assembly to 16-bit C references on the emulated 6510.
+
+static const uint8_t kRoundMax = 8;
+static const uint8_t kRoundNone = 0xFF;
+// A round's owner: the player, or 1 + the opponent slot that fired it.
+static const uint8_t kRoundPlayer = 0;
+// Model steps a round flies before it is gone: ~600 m at 48 m a step.
+static const uint8_t kRoundLife = 12;
+// Half the hit box's side: 10 m against the ~20 m span the opponents are
+// drawn at (opponent.cc kOpponentKn). And a near miss's, which provokes an
+// aircraft that waits to be fired upon (opponent_provoke()): 40 m.
+static const int16_t kRoundHit = 10 * 16;
+static const int16_t kRoundNear = 40 * 16;
+// Half the side of the box an opponent and the player collide in, on every
+// axis: 12 m, about the ~20 m span the opponents are drawn at and the
+// player's own.
+static const int16_t kGunCollide = 12 * 16;
+// Frames the smoke where a round hits the ground lasts: ~1.5 s at the 6-8 a
+// second a stock C64 renders.
+static const uint8_t kPuffFrames = 10;
+static const uint8_t kRoundAxes = 3 * kRoundMax;
+
+// Tangents of the 11.25 degree needle steps' midpoints, x256.
+static const uint8_t kTracerTan[4] = {25, 78, 137, 210};
+
+// Model steps flown, from 1; 0 is a free slot. Grouped with the other scalar
+// state that gun_reset() zeroes so one byte loop clears all 14 B.
+struct gun_z_t {
+  uint8_t age[kRoundMax];
+  uint8_t near_m;
+  uint8_t wait;
+  uint8_t side;
+  uint8_t substep;
+  uint8_t puff_t;
+  bool armed;
+};
+
+extern __striped int16_t _round_p[kRoundAxes];
+extern __striped int16_t _round_v[kRoundAxes];
+extern gun_z_t _gun_z;
+#define _round_age _gun_z.age
+#define _gun_near _gun_z.near_m
+#define _gun_wait _gun_z.wait
+#define _gun_side _gun_z.side
+#define _gun_substep _gun_z.substep
+#define _gun_puff_t _gun_z.puff_t
+#define _gun_armed _gun_z.armed
+extern uint8_t _round_owner[kRoundMax];
+extern int32_t _gun_eye[3];
+extern __striped int16_t _gun_prev[3 * kOpponentMax];
+extern uint8_t _gun_last;
+extern __striped int16_t _gun_puff[3];
+
+extern int32_t _gun_p[3];
+extern __striped int16_t _gun_t[3];
+extern __striped int16_t _gun_d[3];
+extern __striped int16_t _gun_q[3];
+extern __striped int16_t _gun_moved[3];
+extern int16_t _gun_v[3];
+extern vec3_t _gun_c;
+extern int16_t _gun_s[2];
+extern int16_t _gun_h[2];
 
 #ifdef __OSCAR64__
-static_assert(kOpponentMax == 2 && kGunCollide == 192 && kRoundMax == 8,
-              "gun_asm layout constants");
-
-// Steps _gun_eye[0..2] to kFlightEye[0..2] in 32-sub-unit (1/16 m) quanta,
-// stores each axis's 1/16 m step into _gun_moved[0..2], and zeroes _gun_t[0..2].
-static __noinline void _gun_track_all(void) {
-  // clang-format off
-  __asm {
-        ldx #2;
-        stx vec_proj_tmp1;
-    L_gt_axis:
-        txa;
-        asl;
-        tay;
-        lda kFlightEye, y;
-        sta vec_proj_mul_a;
-        lda kFlightEye + 1, y;
-        sta vec_proj_mul_a + 1;
-        tya;
-        asl;
-        tax;
-
-        ldy #0;
-        lda (vec_proj_mul_a), y;
-        sec;
-        sbc _gun_eye, x;
-        and #$e0;
-        sta vec_mul8_lo;
-        iny;
-        lda (vec_proj_mul_a), y;
-        sbc _gun_eye + 1, x;
-        sta vec_mul8_b;
-
-        ldy #0;
-        lda vec_mul8_b;
-        bpl L_gt_pos;
-        dey;
-    L_gt_pos:
-        clc;
-        lda _gun_eye, x;
-        adc vec_mul8_lo;
-        sta _gun_eye, x;
-        lda _gun_eye + 1, x;
-        adc vec_mul8_b;
-        sta _gun_eye + 1, x;
-        tya;
-        adc _gun_eye + 2, x;
-        sta _gun_eye + 2, x;
-        tya;
-        adc _gun_eye + 3, x;
-        sta _gun_eye + 3, x;
-
-        tya;
-        ldy #3;
-    L_gt_sh:
-        asl vec_mul8_lo;
-        rol vec_mul8_b;
-        rol;
-        dey;
-        bne L_gt_sh;
-
-        ldx vec_proj_tmp1;
-        sta _gun_moved + 3, x;
-        lda vec_mul8_b;
-        sta _gun_moved, x;
-        lda #0;
-        sta _gun_t, x;
-        sta _gun_t + 3, x;
-        dex;
-        stx vec_proj_tmp1;
-        bpl L_gt_axis;
-  }
-  // clang-format on
-}
-
-// Axes c0..2 of _gun_p less _gun_eye, in sixteenths of a metre the short way
-// round (x wraps mod 128, y mod 256), into _gun_t[c0..2]; 0 past [-15, 14].
-static __noinline uint8_t _gun_rel_from(uint8_t c0) {
-  // clang-format off
-  __asm {
-        lda #0;
-        sta vec_proj_tmp1;
-        lda c0;
-        sta vec_proj_recip;
-    L_gr_axis:
-        asl;
-        asl;
-        tax;
-        lda _gun_p, x;
-        sec;
-        sbc _gun_eye, x;
-        sta vec_mul8_lo;
-        lda _gun_p + 1, x;
-        sbc _gun_eye + 1, x;
-        sta vec_mul8_b;
-        lda _gun_p + 2, x;
-        sbc _gun_eye + 2, x;
-
-        ldx vec_proj_recip;
-        bne L_gr_not_x;
-        asl;
-        cmp #$80;
-        ror;
-    L_gr_not_x:
-        clc;
-        adc #15;
-        cmp #30;
-        bcs L_gr_done;
-        sbc #14;
-
-        ldy #3;
-    L_gr_sh:
-        asl vec_mul8_lo;
-        rol vec_mul8_b;
-        rol;
-        dey;
-        bne L_gr_sh;
-
-        sta _gun_t + 3, x;
-        lda vec_mul8_b;
-        sta _gun_t, x;
-
-        inx;
-        stx vec_proj_recip;
-        txa;
-        cmp #3;
-        bcc L_gr_axis;
-        lda #1;
-        sta vec_proj_tmp1;
-    L_gr_done:
-  }
-  // clang-format on
-  return vec_proj_tmp1;
-}
-
+void _gun_track_all(void);
+uint8_t _gun_rel_from(uint8_t c0);
 static inline uint8_t _gun_rel3_to(void) { return _gun_rel_from(0); }
 static inline uint8_t _gun_rel2(void) { return _gun_rel_from(2); }
+uint8_t _gun_hits(uint8_t r, int16_t box);
+bool _gun_collides(uint8_t k, bool prev);
+void _gun_store_enemy_round(uint8_t r, uint8_t owner);
+uint8_t _gun_step_rounds(void);
+uint8_t _gun_shown(void);
+uint8_t _gun_dir(int16_t dx, int16_t dy);
+bool _gun_view(void);
+bool _gun_view_round(uint8_t r);
+void _gun_vel_round(uint8_t r);
 
-// Four-substep swept AABB test of round r against half-extent `box` around
-// _gun_t, with early whole-step reach rejection on each axis.
-static __noinline uint8_t _gun_hits(uint8_t r, int16_t box) {
-  // clang-format off
-  __asm {
-        lda #0;
-        sta vec_proj_tmp1;
-        ldx r;
-        ldy #0;
-    L_gh_p1:
-        lda _round_v, x;
-        sta vec_mul8_lo;
-        lda flight_step_shift;
-        sta vec_proj_recip;
-        lda _round_v + 24, x;
-    L_gh_v_chk:
-        dec vec_proj_recip;
-        bmi L_gh_v_done;
-        cmp #$80;
-        ror;
-        ror vec_mul8_lo;
-        jmp L_gh_v_chk;
-    L_gh_v_done:
-        sta vec_proj_mul_a + 1;
-        lda vec_mul8_lo;
-        sta vec_proj_mul_a;
-        lda vec_proj_mul_a + 1;
-        jsr L_gh_abs;
-        clc;
-        pha;
-        lda vec_mul8_lo;
-        adc box;
-        sta vec_proj_mul_b;
-        pla;
-        adc box + 1;
-        sta vec_proj_mul_b + 1;
-
-        lda vec_proj_mul_a + 1;
-        cmp #$80;
-        ror;
-        ror vec_proj_mul_a;
-        cmp #$80;
-        ror;
-        ror vec_proj_mul_a;
-        sta _gun_q + 3, y;
-        lda vec_proj_mul_a;
-        sta _gun_q, y;
-
-        sec;
-        lda _gun_t, y;
-        sbc _round_p, x;
-        sta _gun_d, y;
-        sta vec_mul8_lo;
-        lda _gun_t + 3, y;
-        sbc _round_p + 24, x;
-        sta _gun_d + 3, y;
-        jsr L_gh_abs;
-        sta vec_mul8_b;
-        lda vec_proj_mul_b;
-        cmp vec_mul8_lo;
-        lda vec_proj_mul_b + 1;
-        sbc vec_mul8_b;
-        bcc L_gh_done;
-
-        txa;
-        clc;
-        adc #8;
-        tax;
-        iny;
-        cpy #3;
-        bcc L_gh_p1;
-
-        ldx #4;
-    L_gh_step:
-        lda #1;
-        sta vec_proj_recip;
-        ldy #2;
-    L_gh_axis:
-        sec;
-        lda _gun_d, y;
-        sbc _gun_q, y;
-        sta _gun_d, y;
-        sta vec_mul8_lo;
-        lda _gun_d + 3, y;
-        sbc _gun_q + 3, y;
-        sta _gun_d + 3, y;
-        jsr L_gh_abs;
-        sta vec_mul8_b;
-        lda box;
-        cmp vec_mul8_lo;
-        lda box + 1;
-        sbc vec_mul8_b;
-        bcs L_gh_in;
-        lda #0;
-        sta vec_proj_recip;
-    L_gh_in:
-        dey;
-        bpl L_gh_axis;
-        lda vec_proj_recip;
-        bne L_gh_hit;
-        dex;
-        bne L_gh_step;
-        beq L_gh_done;
-    L_gh_hit:
-        sta vec_proj_tmp1;
-        bne L_gh_done;
-
-    L_gh_abs:
-        ora #0;
-        bpl L_gh_abs_pos;
-        sta vec_mul8_b;
-        sec;
-        lda #0;
-        sbc vec_mul8_lo;
-        sta vec_mul8_lo;
-        lda #0;
-        sbc vec_mul8_b;
-    L_gh_abs_pos:
-        rts;
-
-    L_gh_done:
-  }
-  // clang-format on
-  return vec_proj_tmp1;
-}
-
-// Opponent-player box collision test at _gun_t and midway from _gun_prev[k..],
-// updating _gun_prev[k..] with _gun_t.
-static __noinline bool _gun_collides(uint8_t k, bool prev) {
-  // clang-format off
-  __asm {
-        ldx #1;
-        lda prev;
-        beq L_gc_init;
-        ldx #3;
-    L_gc_init:
-        stx vec_proj_tmp1;
-        ldx #0;
-        ldy k;
-    L_gc_axis:
-        lda _gun_t + 3, x;
-        sta vec_mul8_b;
-        lda _gun_t, x;
-        jsr L_gc_out192;
-        bcc L_gc_now_ok;
-        lda vec_proj_tmp1;
-        and #$02;
-        sta vec_proj_tmp1;
-    L_gc_now_ok:
-        lda _gun_t, x;
-        clc;
-        adc _gun_prev, y;
-        sta vec_proj_recip;
-        lda _gun_t + 3, x;
-        adc _gun_prev + 6, y;
-        cmp #$80;
-        ror;
-        sta vec_mul8_b;
-        lda _gun_t, x;
-        sta _gun_prev, y;
-        lda _gun_t + 3, x;
-        sta _gun_prev + 6, y;
-        lda vec_proj_recip;
-        ror;
-        jsr L_gc_out192;
-        bcc L_gc_mid_ok;
-        lda vec_proj_tmp1;
-        and #$01;
-        sta vec_proj_tmp1;
-    L_gc_mid_ok:
-        iny;
-        iny;
-        inx;
-        cpx #3;
-        bcc L_gc_axis;
-        beq L_gc_done;
-
-    L_gc_out192:
-        clc;
-        adc #$c0;
-        pha;
-        lda vec_mul8_b;
-        adc #0;
-        sta vec_mul8_b;
-        pla;
-        cmp #$81;
-        lda vec_mul8_b;
-        sbc #1;
-        rts;
-
-    L_gc_done:
-  }
-  // clang-format on
-  return (bool)vec_proj_tmp1;
-}
+#pragma compile("gun_asm.cc")
 #endif
 
 #endif

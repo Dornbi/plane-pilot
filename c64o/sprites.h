@@ -188,6 +188,8 @@ void sprites_show_no_sprites();
 void sprites_show_panel_top_sprites();
 void sprites_show_panel_bottom_sprites();
 
+#ifndef __TARGET_TEST__
 #pragma compile("sprites.cc")
+#endif
 
 #endif

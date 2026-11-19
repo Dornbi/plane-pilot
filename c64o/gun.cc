@@ -3,6 +3,7 @@
 #include "color.h"
 #include "damage.h"
 #include "flight.h"
+#include "gun_asm.h"
 #include "mem.h"
 #include "spritedef.h"
 #include "sprites.h"
@@ -12,8 +13,6 @@
 // docs/projectiles.md. The rounds are state and the sprite is a view of one
 // of them: every round is flown and hit-tested each step whether or not it
 // is drawn, and each frame at most one is offered to the stack.
-
-// --- Rounds -----------------------------------------------------------------
 //
 // A round never gets more than a kilometre or so from the player, so it is
 // kept relative to the eye, in sixteenths of a metre - int16 is good to
@@ -22,27 +21,9 @@
 // with world positions the module was twice the size.
 //
 // By axis and then by round, the axes x, y and z as everywhere, in one flat
-// striped array each: round r's axis c is [c * kRoundMax + r], one index
-// register and no multiply, where [3][kRoundMax] cost a third more code.
-
-static const uint8_t kRoundMax = 8;
-static const uint8_t kRoundNone = 0xFF;
-// A round's owner: the player, or 1 + the opponent slot that fired it.
-static const uint8_t kRoundPlayer = 0;
-// Model steps a round flies before it is gone: ~600 m at 48 m a step.
-static const uint8_t kRoundLife = 12;
-// Half the hit box's side: 10 m against the ~20 m span the opponents are
-// drawn at (opponent.cc kOpponentKn). And a near miss's, which provokes an
-// aircraft that waits to be fired upon (opponent_provoke()): 40 m.
-static const int16_t kRoundHit = 10 * 16;
-static const int16_t kRoundNear = 40 * 16;
-// Half the side of the box an opponent and the player collide in, on every
-// axis: 12 m, about the ~20 m span the opponents are drawn at and the
-// player's own.
-static const int16_t kGunCollide = 12 * 16;
-// Frames the smoke where a round hits the ground lasts: ~1.5 s at the 6-8 a
-// second a stock C64 renders.
-static const uint8_t kPuffFrames = 10;
+// striped array each (gun_asm.cc): round r's axis c is [c * kRoundMax + r],
+// one index register and no multiply, where [3][kRoundMax] cost a third more
+// code.
 
 // Muzzle velocity, kGunMuzzle (gun.h), 48 m a step: slower than a real gun,
 // so a tracer is seen for a dozen frames rather than two
@@ -61,38 +42,6 @@ static const int16_t kGunConverge = kGunMuzzle / 50;
 static const uint8_t kGunInterval = 2;
 
 #pragma bss(bss2)
-static const uint8_t kRoundAxes = 3 * kRoundMax;
-static __striped int16_t _round_p[kRoundAxes];
-static __striped int16_t _round_v[kRoundAxes];
-// Model steps flown, from 1; 0 is a free slot. Grouped with the other scalar
-// state that gun_reset() zeroes so one byte loop clears all 14 B.
-static struct {
-  uint8_t age[kRoundMax];
-  uint8_t near_m;
-  uint8_t wait;
-  uint8_t side;
-  uint8_t substep;
-  uint8_t puff_t;
-  bool armed;
-} _gun_z;
-#define _round_age _gun_z.age
-#define _gun_near _gun_z.near_m
-#define _gun_wait _gun_z.wait
-#define _gun_side _gun_z.side
-#define _gun_substep _gun_z.substep
-#define _gun_puff_t _gun_z.puff_t
-#define _gun_armed _gun_z.armed
-static uint8_t _round_owner[kRoundMax];
-// The eye the rounds are relative to, in flight_eye_*'s 24.8 half metres.
-static int32_t _gun_eye[3];
-// Each opponent's offset from the eye on the last step, as _gun_t holds it,
-// for the collision test, and bit i: slot i's is from the last step.
-static __striped int16_t _gun_prev[3 * kOpponentMax];
-// The player's newest round, the one drawn while firing, or kRoundNone.
-static uint8_t _gun_last;
-// Where the last round to hit the ground did, relative to the eye like a
-// round; frames left of its smoke are in _gun_puff_t, 0 for none.
-static __striped int16_t _gun_puff[3];
 uint8_t gun_player_hits;
 // Counted down a digit at a time, which is what the panel draws: no binary to
 // decimal step between the two. Ten a round, so the units digit stays 0 and
@@ -105,25 +54,13 @@ static const uint8_t kGunAmmoTens = kGunAmmoDigits - 2;
 uint8_t gun_ammo[kGunAmmoDigits];
 bool gun_ammo_shown;
 uint8_t gun_tally[kGunTallies * kGunTallyDigits];
-#pragma bss(tscratch)
-static int32_t _gun_p[3];
-// What a round is being tested against, relative to the eye like a round;
-// and _gun_hits()' and gun_step()'s working, static rather than on oscar64's
-// software stack.
-static __striped int16_t _gun_t[3];
-static __striped int16_t _gun_d[3];
-static __striped int16_t _gun_q[3];
-static __striped int16_t _gun_moved[3];
-static int16_t _gun_v[3];
 #pragma bss(bss)
 
-#ifdef __OSCAR64__
-#include "gun_asm.h"
-#endif
-
+#ifndef __OSCAR64__
 static __noinline uint16_t _gun_abs(int16_t v) {
   return (uint16_t)(v < 0 ? -v : v);
 }
+#endif
 
 static int16_t _gun_asr5(int16_t v) { return v >> 5; }
 
@@ -291,9 +228,9 @@ static void _gun_fire(void) {
     int16_t fc = cam[0];
     int16_t lc = cam[3];
     _round_p[i] = _gun_dot(fc, kGunAhead, lc, wing) -
-                  vec_fastmul8p8(cam[6], kGunDrop);
+                  vec_fastmul8p8(kGunDrop, cam[6]);
     int16_t own = i >= 2 * kRoundMax ? flight_vspeed : vec_fastmul8p8(fc, speed2);
-    _round_v[i] = (fc << 1) + fc + vec_fastmul8p8(lc, in) + _gun_asr5(own);
+    _round_v[i] = (fc << 1) + fc + vec_fastmul8p8(in, lc) + _gun_asr5(own);
     ++cam;
     i += kRoundMax;
   } while (i < kRoundAxes);
@@ -306,12 +243,8 @@ static void _gun_fire(void) {
 // opponent_fires() left in _gun_v. Into a free slot or the oldest of the
 // opponents' rounds, never one the player has in flight; not fired if there
 // is none.
-static void _gun_fire_from(uint8_t i) {
-  uint8_t r = _gun_slot(true);
-  if (r == kRoundNone || !opponent_target(i, _gun_p) || !_gun_rel3_to()) {
-    return;
-  }
-  // Counted down: oscar64 unrolls the three axes of a for loop, here 74 B.
+#ifndef __OSCAR64__
+static void _gun_store_enemy_round(uint8_t r, uint8_t owner) {
   uint8_t k = (uint8_t)(r + 2 * kRoundMax), c = 3;
   do {
     --c;
@@ -320,7 +253,16 @@ static void _gun_fire_from(uint8_t i) {
     k -= kRoundMax;
   } while (c != 0);
   _round_age[r] = 1;
-  _round_owner[r] = (uint8_t)(i + 1);
+  _round_owner[r] = owner;
+}
+#endif
+
+static void _gun_fire_from(uint8_t i) {
+  uint8_t r = _gun_slot(true);
+  if (r == kRoundNone || !opponent_target(i, _gun_p) || !_gun_rel3_to()) {
+    return;
+  }
+  _gun_store_enemy_round(r, (uint8_t)(i + 1));
 }
 
 #ifndef __OSCAR64__
@@ -376,6 +318,49 @@ static __noinline bool _gun_collides(uint8_t k, bool prev) {
     _gun_prev[k] = t;
   }
   return now || mid;
+}
+
+static uint8_t _gun_step_rounds(void) {
+  bool whole = (++_gun_substep & kFlightSubstepMask) == 0;
+  int16_t ground = -32767;
+  bool have_ground = false;
+  if (_gun_puff_t != 0) {
+    --_gun_puff_t;
+    uint8_t c = 3;
+    do {
+      --c;
+      _gun_puff[c] -= _gun_moved[c];
+    } while (c != 0);
+  }
+  for (uint8_t r = 0; r < kRoundMax; ++r) {
+    if (_round_age[r] == 0) {
+      continue;
+    }
+    if (!have_ground) {
+      have_ground = true;
+      _gun_p[2] = 0;
+      if (_gun_rel2()) {
+        ground = _gun_t[2];
+      }
+    }
+    uint8_t i = r;
+    for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {
+      _round_p[i] += flight_step_s(_round_v[i]) - _gun_moved[c];
+    }
+    if (_round_p[2 * kRoundMax + r] < ground) {
+      _gun_puff[0] = _round_p[r];
+      _gun_puff[1] = _round_p[kRoundMax + r];
+      _gun_puff[2] = ground;
+      _gun_puff_t = kPuffFrames;
+      _round_age[r] = 0;
+    } else if (whole && ++_round_age[r] > kRoundLife) {
+      _round_age[r] = 0;
+    }
+  }
+  if (_gun_last != kRoundNone && _round_age[_gun_last] == 0) {
+    _gun_last = kRoundNone;
+  }
+  return whole;
 }
 #endif
 
@@ -452,47 +437,7 @@ void gun_step(bool trigger) {
   // for a round to get down there. Ages, and the trigger, run once a whole
   // step: at a larger flight_step_shift the substeps only share its distance
   // out. The smoke's frames run down every call, which is one a frame.
-  bool whole = (++_gun_substep & kFlightSubstepMask) == 0;
-  int16_t ground = -32767;
-  bool have_ground = false;
-  if (_gun_puff_t != 0) {
-    --_gun_puff_t;
-    // Counted down, as in _gun_fire_from(), and for the same reason.
-    uint8_t c = 3;
-    do {
-      --c;
-      _gun_puff[c] -= _gun_moved[c];
-    } while (c != 0);
-  }
-  for (uint8_t r = 0; r < kRoundMax; ++r) {
-    if (_round_age[r] == 0) {
-      continue;
-    }
-    if (!have_ground) {
-      have_ground = true;
-      _gun_p[2] = 0;
-      if (_gun_rel2()) {
-        ground = _gun_t[2];
-      }
-    }
-    uint8_t i = r;
-    for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {
-      _round_p[i] += flight_step_s(_round_v[i]) - _gun_moved[c];
-    }
-    if (_round_p[2 * kRoundMax + r] < ground) {
-      _gun_puff[0] = _round_p[r];
-      _gun_puff[1] = _round_p[kRoundMax + r];
-      _gun_puff[2] = ground;
-      _gun_puff_t = kPuffFrames;
-      _round_age[r] = 0;
-    } else if (whole && ++_round_age[r] > kRoundLife) {
-      _round_age[r] = 0;
-    }
-  }
-  if (_gun_last != kRoundNone && _round_age[_gun_last] == 0) {
-    _gun_last = kRoundNone;
-  }
-  if (!whole) {
+  if (!_gun_step_rounds()) {
     return;
   }
   damage_step();
@@ -523,11 +468,11 @@ void gun_step(bool trigger) {
 static const int16_t kTracerExpand = 1200;
 static const int16_t kTracerLong = 2400;
 
+#ifndef __OSCAR64__
 // The needle bitmap for a line along (dx, dy) on screen, y down: 0..15,
 // clockwise from straight up, the arms' order. The angle from the vertical
 // is folded to an octant and compared against the tangents of the 11.25
 // degree steps' midpoints, x256: no atan, and one byte multiply a compare.
-static const uint8_t kTracerTan[4] = {25, 78, 137, 210};
 static uint8_t _gun_dir(int16_t dx, int16_t dy) {
   // A line has no direction: fold onto the right half; for dx == 0 or dy == 0,
   // k is 0 or 8, both fixed points of (16 - k) & 15 below.
@@ -558,45 +503,44 @@ static uint8_t _gun_dir(int16_t dx, int16_t dy) {
 }
 
 // Transforms _gun_c (initialized to a point relative to the eye in eighth
-// metres) into camera space in place, and projects where it is on screen into
-// _gun_s, x then y; false if it is not in the view's cone.
-#pragma bss(tscratch)
-static vec3_t _gun_c;
-static vec3_t _gun_w;
-static int16_t _gun_s[2];
-static int16_t _gun_h[2];
-#pragma bss(bss)
-// The screen's centre, x then y: camera y and z project onto them.
-static const int16_t kGunCentre[2] = {kScreenWidthPixels / 2,
-                                      kViewportEndYPixels / 2};
+// metres) into camera space in place one row at a time with depth and
+// 45-degree cone rejects interleaved, and projects onto _gun_s, x then y.
 static __noinline bool _gun_view(void) {
-  vec_transform_inv(&world_cam, &_gun_c, &_gun_c);
-  int16_t x = _gun_c.x;
+  vec_v = _gun_c;
+  int16_t x = vec_dot(&world_cam.front, &vec_v);
   if (x <= 64) {
     return false;
   }
-  // z, then y, counted down: written out, the two were 104 B. A point
-  // outside the cone on z leaves _gun_s[1] written, which nothing reads.
-  uint8_t c = 2;
-  do {
-    --c;
-    int16_t v = (&_gun_c.y)[c];
-    if (_gun_abs(v) >= (uint16_t)x) {
-      return false;
-    }
-    _gun_s[c] = kGunCentre[c] - vec_div8p8(v, x);
-  } while (c != 0);
+  int16_t z = vec_dot(&world_cam.up, &vec_v);
+  if (_gun_abs(z) >= (uint16_t)x) {
+    return false;
+  }
+  int16_t y = vec_dot(&world_cam.left, &vec_v);
+  if (_gun_abs(y) >= (uint16_t)x) {
+    return false;
+  }
+  _gun_c.x = x;
+  _gun_c.y = y;
+  _gun_c.z = z;
+  _gun_s[0] = (kScreenWidthPixels / 2) - vec_div8p8(y, x);
+  _gun_s[1] = (kViewportEndYPixels / 2) - vec_div8p8(z, x);
   return true;
 }
 
-// Depth in the clouds' 1 m units, like the opponents', so all sort together.
-// Both the tracer needle and the single-sprite cloud rungs (1..4) pivot at
-// (12, 10) = (kSpriteDefArmCenterX, kSpriteDefArmCenterY).
-static __noinline void _gun_offer(uint8_t bitmap, uint8_t color,
-                                  uint8_t flags) {
-  sprites_stack_add((int16_t)((uint16_t)_gun_c.x >> 3), _gun_s[0], _gun_s[1],
-                    kSpriteDefArmCenterX, kSpriteDefArmCenterY, bitmap,
-                    kSpriteNoBitmap, color, flags);
+static bool _gun_view_round(uint8_t r) {
+  uint8_t i = r;
+  for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {
+    (&_gun_c.x)[c] = _round_p[i] >> 1;
+  }
+  return _gun_view();
+}
+
+static void _gun_vel_round(uint8_t r) {
+  uint8_t i = r;
+  for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {
+    (&vec_v.x)[c] = _round_v[i] >> 1;
+  }
+  vec_transform_inv(&world_cam, &vec_v, &vec_v);
 }
 
 // The round worth drawing: the player's newest while firing, else the
@@ -614,6 +558,17 @@ static uint8_t _gun_shown(void) {
     }
   }
   return shown;
+}
+#endif
+
+// Depth in the clouds' 1 m units, like the opponents', so all sort together.
+// Both the tracer needle and the single-sprite cloud rungs (1..4) pivot at
+// (12, 10) = (kSpriteDefArmCenterX, kSpriteDefArmCenterY).
+static __noinline void _gun_offer(uint8_t bitmap, uint8_t color,
+                                  uint8_t flags) {
+  sprites_stack_add((int16_t)((uint16_t)_gun_c.x >> 3), _gun_s[0], _gun_s[1],
+                    kSpriteDefArmCenterX, kSpriteDefArmCenterY, bitmap,
+                    kSpriteNoBitmap, color, flags);
 }
 
 bool gun_tracer_up(void) { return _gun_shown() != kRoundNone; }
@@ -673,15 +628,7 @@ static void _gun_smoke(void) {
 void gun_add_sprites(void) {
   _gun_smoke();
   uint8_t r = _gun_shown();
-  if (r == kRoundNone) {
-    return;
-  }
-  uint8_t i = r;
-  for (uint8_t c = 0; c < 3; ++c, i += kRoundMax) {
-    (&_gun_c.x)[c] = _round_p[i] >> 1;
-    (&_gun_w.x)[c] = _round_v[i] >> 1;
-  }
-  if (!_gun_view()) {
+  if (r == kRoundNone || !_gun_view_round(r)) {
     return;
   }
   // Which way it is going on screen, exactly: the screen point is
@@ -691,10 +638,10 @@ void gun_add_sprites(void) {
   // a step, and whole pixels put its needle anywhere - mostly upright. The
   // velocity in eighth metres too, at most ~500, against a round within
   // ~1.3 km, ~10,000, keeps the products in int16 with room to spare.
-  vec_transform_inv(&world_cam, &_gun_w, &_gun_w);
+  _gun_vel_round(r);
   int16_t nx = -_gun_c.x;
-  int16_t dx = _gun_dot(_gun_c.y, _gun_w.x, _gun_w.y, nx);
-  int16_t dy = _gun_dot(_gun_c.z, _gun_w.x, _gun_w.z, nx);
+  int16_t dx = _gun_dot(_gun_c.y, vec_v.x, vec_v.y, nx);
+  int16_t dy = _gun_dot(_gun_c.z, vec_v.x, vec_v.z, nx);
   uint8_t bitmap = kSpriteDefShortArmBitmap;
   uint8_t flags = 0;
   if ((uint16_t)_gun_c.x < (uint16_t)kTracerLong) {

@@ -63,6 +63,9 @@ __forceinline void msg_restore_color(void) {
   }
 }
 
+#ifdef __OSCAR64__
+__noinline
+#endif
 bool msg_active(void) { return msg_text != nullptr && msg_len != 0; }
 
 void msg_render(void) {

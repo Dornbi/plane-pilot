@@ -62,9 +62,8 @@ TARGET_TEST ?= target-test
 OSCAR64 ?= oscar64
 # Mirrors OSCAR64_INCLUDE in c64o/Makefile, one directory deeper.
 OSCAR64_INCLUDE ?= ../../../../oscar64-main/include
-# -Oz matches the game build; the rest is what c64o/Makefile passes, minus the
-# flags that only make sense for a program with a display.
-TARGET_CFLAGS = -ii=$(OSCAR64_INCLUDE) -D__OSCAR64__ -g -O2 -Oz $(FLIGHT_MODEL)
+# -Os -Op -Oa -Oz -Oo keeps the 20 test harnesses + reference tables inside $0860-$D000.
+TARGET_CFLAGS = -ii=$(OSCAR64_INCLUDE) -D__OSCAR64__ -g -xz -Os -Op -Oa -Oz -Oo $(FLIGHT_MODEL)
 
 FLIGHT_TEST_SRC = flight_test.cc host_vec.cc ../flight.cc ../pmission.cc ../world_map.cc ../vec.cc \
 		../vec_lut.cc ../fmath.cc ../msg.cc
@@ -103,8 +102,8 @@ MUL_TEST_HDRS = ../vec.h
 # also why sprites.cc is a header dependency here. vic.h and mem.h point their
 # register and screen RAM addresses at arrays in the test when __OSCAR64__ is
 # not defined, the same way sid.h already does for the SID.
-SPRITES_TEST_SRC = sprites_test.cc ../spritedef.cc ../fmath.cc
-SPRITES_TEST_HDRS = ../sprites.h ../sprites.cc ../spritedef.h ../vic.h \
+SPRITES_TEST_SRC = sprites_test.cc ../sprites_asm.cc ../spritedef.cc ../fmath.cc
+SPRITES_TEST_HDRS = ../sprites.h ../sprites.cc ../sprites_asm.h ../spritedef.h ../vic.h \
 		../mem.h ../msg.h ../view.h ../color.h ../roll.h ../fmath.h
 
 # poly_test includes ../poly.cc rather than linking it: the projection and
@@ -142,7 +141,7 @@ PLANES_EDGE_TEST_HDRS = ../planes.h ../planes_asm.h ../planedef.h ../vec.h
 # fpilot's, so __FPILOT__; its sprite blocks are an array (opponent.cc
 # kOpponentBank). Not in the narrowing pass: without __FPILOT__ opponent.h
 # stubs out the functions opponent.cc defines.
-OPPONENT_TEST_SRC = opponent_test.cc ../fmission.cc ../planes.cc ../vec.cc ../vec_lut.cc \
+OPPONENT_TEST_SRC = opponent_test.cc ../opponent_asm.cc ../fmission.cc ../planes.cc ../vec.cc ../vec_lut.cc \
 		../fmath.cc
 OPPONENT_TEST_HDRS = ../opponent.cc ../opponent.h ../opponent_asm.h ../planes.h ../planes_asm.h \
 		../planedef.h ../vec.h ../flight.h ../mission.h ../sprites.h ../world.h \
@@ -150,7 +149,7 @@ OPPONENT_TEST_HDRS = ../opponent.cc ../opponent.h ../opponent_asm.h ../planes.h 
 
 # gun_test #includes ../gun.cc, for its statics, and fakes what it asks of
 # opponent.cc and the sprite stack. fpilot's, so __FPILOT__.
-GUN_TEST_SRC = gun_test.cc ../vec.cc ../vec_lut.cc ../fmath.cc ../spritedef.cc
+GUN_TEST_SRC = gun_test.cc ../gun_asm.cc ../vec.cc ../vec_lut.cc ../fmath.cc ../spritedef.cc
 GUN_TEST_HDRS = ../gun.cc ../gun.h ../gun_asm.h ../damage.h ../opponent.h ../vec.h ../flight.h ../sprites.h \
 		../spritedef.h ../world.h ../mem.h ../color.h
 
@@ -170,7 +169,7 @@ FPILOT_TEST_HDRS = ../flight.h ../mission.h ../opponent.h ../vec.h ../fmath.h ..
 # and shoots the recon down end to end. opponent.cc and gun.cc are #included
 # for their statics; their drawing and messages are stubbed.
 MISSION_TEST_SRC = mission_test.cc host_vec.cc ../flight.cc ../fmission.cc ../world_map.cc \
-		../planes.cc ../vec.cc ../vec_lut.cc ../fmath.cc ../spritedef.cc ../damage.cc
+		../planes.cc ../opponent_asm.cc ../gun_asm.cc ../vec.cc ../vec_lut.cc ../fmath.cc ../spritedef.cc ../damage.cc
 MISSION_TEST_HDRS = ../flight.h ../mission.h ../opponent.h ../opponent.cc ../opponent_asm.h \
 		../gun.h ../gun.cc ../gun_asm.h \
 		../damage.h \
@@ -253,7 +252,8 @@ planes_target_cases.h: ../../tools/generate_planes.py ../../lib/planes.py
 
 target_test.prg: target_test.cc int16.h ../vec.h ../vec.cc ../vec_lut.cc \
 		../planes.h ../planes.cc ../planes_asm.h ../planes_asm.cc ../planedef.h \
-		../poly_asm.h ../world_asm.h ../opponent_asm.h ../gun_asm.h \
+		../poly_asm.h ../world_asm.h ../opponent_asm.h ../opponent_asm.cc ../gun_asm.h ../gun_asm.cc \
+		../sprites.h ../sprites_asm.h ../sprites_asm.cc ../spritedef.h ../spritedef.cc \
 		../render_asm.h ../render_asm.cc \
 		planes_target_cases.h
 	$(OSCAR64) $(TARGET_CFLAGS) -D__TARGET_TEST__ -o=target_test.prg target_test.cc
