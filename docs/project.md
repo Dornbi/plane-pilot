@@ -1,185 +1,98 @@
-# Plane Pilot — Architecture
+# Plane Pilot & Fighter Pilot — Architecture Reference
 
-Plane Pilot is a 3D flight simulator for the Commodore 64. This document
-describes how the code works. For build and usage instructions see
-[../README.md](../README.md) and [development.md](development.md).
+Two C64 3D flight simulators built from one engine (`c64o/ppilot.cc`):
 
-The repository holds two related codebases:
+- **Plane Pilot (`ppilot.prg`)**: 10 peaceful missions (`pmission.cc`), per-mission colour schemes, sound, title music, and the `D` debug view.
+- **Fighter Pilot (`fpilot.prg`, `-D__FPILOT__`)**: 10 combat missions (`fmission.cc`), 3D enemy fighters and bombers (`planes*.cc`, `opponent*.cc`), guns/tracers/smoke (`gun*.cc`), progressive damage (`damage.cc`), and mission debrief (`debrief.cc`); drops the debug view and colour schemes to fit 64 KB.
 
-- **`c64o/`** — the actual C64 program, written in C (`.cc`, compiled with
-  [oscar64](https://github.com/drmortalwombat/oscar64)) with a few hand-written
-  assembly routines.
-- **`lib/` + `tools/`** — a Python prototype that models the C64 graphics
-  hardware, explores the horizon-rendering scheme, and _generates_ the character
-  set, tile definitions and sprite data that the C64 code compiles in.
+## Repository layout
 
-Data flows one way: Python generates `chardefs`, `boxdefs`, `spritedef`,
-`clouddef`, `mapdefs`, `musicdef`, `gfx_chars.bin` and the panels `ppanel.koa` and `fpanel.koa`
-(with their compressed `.lzo` slices); the C64 code
-consumes them. `make data` runs the lot.
+- `c64o/` — C64 source (`.cc`/`.h`, targeted 6502 `__asm` in `*_asm.*`), build (`c64o/Makefile`), and 16 host C++ test suites + on-target VICE suite (`c64o/test/`).
+- `lib/` — Python reference models, generators, and graphics libraries (`planes.py`, `music.py`, `chardefs.py`, `boxdefs.py`, `spritedef.py`, `clouddef.py`, `renderer_engine.py`, etc.).
+- `tools/` — Data generators, link-time checkers, RAM analyser, VICE screenshot/benchmark scripts, and `ram_loop.sh`.
+- `gfx/`, `screens/`, `bin/` — Source panel/tile art, generated CRT screenshots, and released `.prg` binaries.
+- `tests/` — Python unit tests (`make test`).
+
+See [development.md](development.md) for build flags, `Makefile` targets, debug view, and tests.
 
 ---
 
-## 1. The core idea
+## 1. Core idea
 
-Drawing a rotating horizon pixel by pixel is far too slow on a 1 MHz 6510. So
-the horizon is never drawn — it is _looked up_.
+A C64 cannot rasterise a tilted sky/ground gradient at 8–10 fps in bitmap mode, so the viewport uses **Multicolor Character Mode (MCCM)** with pre-rendered tiles:
 
-1. The roll angle is quantized to one of **60 fixed angles** (`kRollMax`), each
-   defined by an integer direction vector such as `r8u1` (8 right, 1 up).
-2. For each angle, an offline pass finds a small repeating **tile** (a "box")
-   of characters that reproduces the dithered sky→ground gradient along that
-   line, plus the step vector to place the next copy of the tile.
-3. At runtime the frame is built by filling solid sky and solid ground, then
-   stamping the tile repeatedly along the horizon line.
-
-The cost of a frame is therefore roughly independent of the roll angle. The
-price is a large static data set: **333 unique gradient characters** across
-**68 tile definitions** — more characters than the VIC-II can address at once,
-so the ~30 characters a tile needs are copied into character RAM each time the
-tile changes. The C64 stores 224 of them (`kCharDefCount`): the rest are one of
-those upside down, and are copied backwards.
+- **60 roll angles** (`0..59`), each with a main `boxdef` (plus 8 alternates for half-character alignment = **68 `boxdef`s**, 4×5 to 6×16 chars).
+- **333 unique characters** across all tiles; 107 are vertical flips of another, so only **224** are stored in one 728-byte overlapping superstring (`chardefs.cc`), copied backwards when flipped.
+- Each active `boxdef` uses at most **29** characters (`kMaxBoxCharCount = 32`), copied on demand into one of two 32-character double-buffered slots in character RAM.
+- Solid sky/ground fills the rest of the 40×14-char (320×112 px) viewport; ground dots and 3D polygons draw directly into screen/char RAM; clouds, sun, orientation mark, tail fin, opponents, tracers, and smoke are hardware sprites; the bottom 11 rows switch via raster IRQ to a **Multicolor Bitmap Mode (MCBM)** instrument panel.
 
 ---
 
 ## 2. Memory map
 
-`mem.h` moves everything into VIC bank 3 and hands the low memory back to the
-program (`__MAX_RAM__`).
+Exact per-feature byte totals and the 64 KB address-space walk live in [memory_map.md](memory_map.md) (`make pram` / `make fram`). High-level layout (`c64o/mem.h`):
 
-| Address       | Contents                                                   |
-| ------------- | ---------------------------------------------------------- |
-| `$0002–$005A` | oscar64's own zero page: registers, parameters, temporaries |
-| `$0060–$00FF` | zero page (oscar64 `zeropage` region)                      |
-| `$0200–$0240` | CPU stack (`#pragma stacksize(0x40)`); `$0200–$0220` (`stacksize(0x20)`) in fpilot, whose per-call temporaries live in `tscratch` (`mem.h`) |
-| `$0240–$0860` | `bss2`, a second BSS region; cleared by `mem_init()`, not by the startup code; from `$0220` in fpilot; from `$0800` over the BASIC link byte and the startup stub, both dead once `main()` runs |
-| `$0860–$0A5F` | boot-only code (`_boot()`, `cpu_probe()`, `mem_init()`); once `main()` is past it, scratch for `box.cc`'s caches (`mem.h` `kBootScratch`) |
-| `$0A60–$CFFF` | code, data, bss, heap                                      |
-| `$D000–$DFFF` | I/O (`MMAP_NO_ROM`)                                        |
-| `$D000–$D3FF` | map view screen RAM while the map is open; the title screen aircraft, expanded from `titledef.bin` (fpilot: `ftitledef.bin`), while the menu is |
-| `$D400`       | sprite bitmaps, expanded from `spritedef.bin` at startup   |
-| `$D800`       | color RAM                                                  |
-| `$DA30`       | panel color rows (= `$D800 + 14*40`)                       |
-| `$E000–$E7FF` | character RAM                                              |
-| `$E800`       | screen RAM, main buffer                                    |
-| `$EC00`       | screen RAM, alt buffer                                     |
-| `$EE30`       | panel screen rows (= `$EC00 + 14*40`)                      |
-| `$F000–$FF3F` | MCBM bitmap for the instrument panel                       |
-| `$FF40–$FFBF` | the back view's tail fin, two sprite blocks (`sprites.cc`)  |
+| Range | Purpose |
+| --- | --- |
+| `$0000–$005F` | 6510 I/O port (`$00–$01`) + oscar64 runtime zero page (headroom checked by `check_zeropage.py`) |
+| `$0060–$00FF` | Program zero page (160 B) |
+| `$0100–$01FF` | 6502 hardware stack |
+| `$0200–$023F` (`$021F` fpilot) | oscar64 static software stack frames (`#pragma stacksize(0x40)` / `0x20`, `#pragma heapsize(0)`) |
+| `$0240–$085F` (`$0220` fpilot) | `bss2` (zeroed by `mem_init()`; reuses dead BASIC link `$0800` & startup stub `$0801–$0852`) |
+| `$0860–$0A5F` | `boot` region (`_boot()` only); reused as `kBootScratch` (`box.cc` slot caches) after boot |
+| `$0A60–$CFFF` (`$CFBF` fpilot) | Main code, data, BSS |
+| `$CFC0–$CFFF` (fpilot only) | `kOpponentDotBlock` — 1 static opponent-dot sprite block outside I/O |
+| `$D000–$D3FF` | RAM under I/O (1,024 B), time-shared: map screen RAM / title aircraft (4 sprite blocks) / fpilot's 16 dynamic opponent sprite blocks |
+| `$D400–$DFFF` | 48 static sprite blocks (`kSpriteData`, pointers 80–127: orient mark, 14 clouds, sun, 32 gauge arms) |
+| `$D800–$DBE7` | Color RAM (separate 1,000 × 4-bit I/O SRAM, off DRAM budget) |
+| `$E000–$E7FF` | Character RAM (256 chars, VIC bank 3) |
+| `$E800–$EBE7` / `$EBF8–$EBFF` | Main screen RAM + sprite pointers; in fpilot, rows 14–24 (`$EA30–$EBE7`, 420 B) double as `scratch`/`tscratch` during flight |
+| `$EC00–$EFE7` / `$EFF8–$EFFF` | Alt screen RAM + sprite pointers |
+| `$F000–$FF3F` | MCBM panel bitmap (rows 12–13 hold off-screen heading strips & ammo digits; rows 14–24 visible) |
+| `$FF40–$FFBF` | Back-view vertical tail fin (2 sprite blocks, pointers 253–254) |
+| `$FFC0–$FFF7` | `irqcode` region (14 B `_rirq_buf` raster stub) |
+| `$FFFA–$FFFF` | Hardware NMI / RESET / IRQ vectors |
 
-The zeropage region starts below oscar64's `$80` default because the KERNAL and
-BASIC are banked out and their zero page is ours to take. The limit is not the
-ROMs but the compiler: its spilled temporaries start at `$53` and grow upward
-with the call graph, unbounded and unchecked, so `$60` is the measured high
-water mark (`$5A`) plus margin rather than a fixed safe address. An overrun
-corrupts globals silently, so `tools/check_zeropage.py` runs on every link and
-fails the build if the two ever meet. If it fires, raise the region start in
-`mem.h` — see the comment there for the full runtime layout.
+### Screen layout & raster split
 
-VIC bank selection is `cia2.pra &= 0xFC` (bank 3, `$C000–$FFFF`). The two
-`vic_memptr` values are `$A8` (screen `$E800`) and `$B8` (screen `$EC00`); both
-select character RAM at `$E000`.
+- Rows 0–13 (rasters 50–161): 3D viewport in MCCM, double-buffered between `$E800` and `$EC00`.
+- Rows 14–24 (rasters 162–249): MCBM instrument panel (or text debug view in `ppilot`).
+- **Three raster IRQs** (`-DNUM_IRQS=3`, `gfx.cc` `kGfxRasterRows[3]`):
+  1. **Raster 161** — `RIRQCode` stub (`_rirq_buf` at `$FFC0`) switches to MCBM panel top (`12` NOPs stock C64 / `19` NOPs SuperCPU in 1 MHz mode) and shows panel-top sprites.
+  2. **Raster 187** — direct ISR switches to panel-bottom sprites.
+  3. **Raster 252** — direct ISR switches back to MCCM terrain, commits terrain sprites, and runs `sound_blit()` when `sound_dirty` is set.
 
-Note the deliberate overlap: character RAM and both screen buffers sit _inside_
-the address range the MCBM bitmap would occupy. That is safe because a raster
-interrupt switches modes at the viewport boundary — the top of the screen never
-reads bitmap data, and the bottom never reads characters.
+### Character RAM layout (`$E000–$E7FF`)
 
-### Screen layout
-
-- 40 × 25 characters total.
-- **Viewport**: rows 0–13, full 40 columns (`kViewportWidth` 40,
-  `kViewportHeight` 14), multicolor character mode.
-- **Panel**: rows 14–24, multicolor bitmap mode.
-- `kRasterScreenYStart` is 50; raster IRQs fire at lines 161 (switch to panel
-  top), 186 (panel bottom sprites) and 250 (back to terrain).
-
-### Character RAM layout
-
-| Range     | Contents                                                                                                                                                    |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0`       | solid `0xFF` — every pixel pair is `11`, so the color comes from color RAM (`kCharSolid11`, `kCharSolidSky`, `kCharSolidGrad1`)                             |
-| `1–29`    | gradient tile characters for the **main** buffer (`mem_box_char_start` = `$01`)                                                                             |
-| `32–127`  | fixed characters from `gfx_chars.bin`, indexed by ASCII (font)                                                                                              |
-| `97–125`  | gradient tile characters for the **alt** buffer (`$61`) — overlaid on the unused lowercase span of the font                                                 |
-| `128`     | `kCharSolidGround`, the zero-density member of the quad group                                                                                               |
-| `128–255` | eight 16-character groups from `gfx.h`: quad fills (ground sparse/dense, `11` sparse/dense, mixed sparse/dense) and single-point characters (ground, color) |
-
-The two tile slots exist so double buffering works: while one screen buffer is
-displayed, the other's tile characters can be rewritten. `kMaxBoxCharCount` is
-29 — the largest actual tile — which is what keeps slot `$61` clear of
-`kCharSolidGround` at 128. `box.cc` sizes its lookup tables at
-`kMaxBoxCharCount + 3`, since indices 0–2 are reserved for the solid ground,
-sky and `11` characters.
+| Chars | Contents |
+| --- | --- |
+| `0..63` | 64-char ASCII font (decompressed from `gfx_chars.bin`) |
+| `64..127` | Inverted font (status messages on row 13) |
+| `128..159` | Active horizon `boxdef` slot 0 (32 chars) |
+| `160..191` | Active horizon `boxdef` slot 1 (32 chars) |
+| `192..223` | Solid fills (`192` sky, `193` ground), ground-dot bitmaps, polygon fill chars |
+| `224..255` | 2×2 sub-cell pixel patterns (`kGfxGroundPoints`, `kGfxColorPoints`) |
 
 ### Colors
 
-Multicolor character mode fixes three colors screen-wide and takes the fourth
-per character position from color RAM:
+MCCM provides three shared screen colours (`$D021` background, `$D022` multi 1, `$D023` multi 2) plus per-cell colour RAM (`$D800`, values `0..7` with bit 3 set for multicolour).
 
-| Bit pair | Register          | Color                                       |
-| -------- | ----------------- | ------------------------------------------- |
-| `00`     | `vic.color_back`  | light blue (`kColorGrad2`)                  |
-| `01`     | `vic.color_back1` | green (`kColorGround`)                      |
-| `10`     | `vic.color_back2` | orange (`kColorGrndObj`)                    |
-| `11`     | color RAM         | blue sky, cyan gradient, or an object color |
-
-Because `11` is per-position, solid sky and the near-horizon gradient band both
-use character 0 and differ only in their color RAM byte. That is also why color
-RAM has to be rewritten every frame — it cannot be double buffered, since
-`$D800` is fixed. Colors live in `color.h`.
+- Default Earth palette (`color.h`): green ground, cyan/light-blue/blue sky gradient, orange ground dots, colour-RAM objects (black runway, yellow/grey/red buildings & fields, blue lakes).
+- `ppilot.prg` adds four per-mission **colour schemes** (`Earth`, `Desert`, `Dusk`, `Night`) via `-D__ENABLE_COLOR_SCHEMES__` ([color_schemes.md](color_schemes.md)). `fpilot.prg` compiles the `COLOR_*` macros to Earth constants.
 
 ---
 
-## 3. Frame loop
+## 3. Frame loop (`sim.cc`)
 
-`ppilot.cc` is a thin shell: initialize, then alternate `menu_run()` and
-`sim_run()` forever. The real loop is in `sim.cc`:
+`sim_run()` loops once per rendered frame until `Q` (or menu exit):
 
-```
-keys_poll() → edge-detect toggles → dispatch controls
-flight_advance(), msg_update()         MDL
-view_update_cam()
-world_update_roll_state()
-world_update_objects()                 UPD
-  clouds_add_candidates()                └ CLD
-  sprites_stack_commit()                 └ SPR
-render_snap_center_chars()             SNP
-render_fill_sky_ground()               BGR
-box_prepare()                          CHR
-box_draw()                             DRW
-world_render_grid()                    GRD
-  poly_draw_3d(), per object             └ PLY
-msg_render()
-panel_update_instruments()
-panel_maybe_print_debug()
-sound_update()
-                                       TOT
-mem_switch_buffer()                    COL
-```
+1. **Input:** `keys_update()`, toggle keys (`P`, `R`, `N`, `M`, `T`, `V`, `H`, `Q`, `D` in `ppilot`, views `1`–`4`), plus held flight controls (`I/J/K/L`, `A/S`, `+/-`, `F`, `G`, `B`, `Space` in `fpilot`).
+2. **Model step (`MDL`):** Loops `sim_time_steps` times (1×, 2×, or 4× under `T` time compression, re-polling held keys on extra steps): `flight_advance()`, and in `fpilot` `opponent_step()`, `gun_step(trigger)`, ORing `flight_events` across substeps.
+3. **Horizon & terrain (`SNP`, `BGR`, `CHR`, `DRW`, `GRD`/`PLY`):** `render_snap_center_chars()`, `render_fill_sky_ground()`, `box_prepare()`, `render_draw_tiles()`, `world_draw_terrain()` (ground grid dots + 3D polygons), `msg_restore_color()`.
+4. **Post-render (`UPD`/`CLD`/`SPR`):** `view_update_cam()`, `sprites_stack_reset()`, `world_update_objects()` (clouds, sun, plus `opponent_add_sprites()` and `gun_add_sprites()` in `fpilot`), `sprites_stack_commit()`, `panel_update()`, `damage_frame()` (red hit flash in `fpilot`), `sound_update()`.
+5. **Buffer flip (`COL`):** `mem_switch_buffer()` waits for the raster flip window, swaps `$E800`/`$EC00`, and copies the staged colour RAM to `$D800`.
 
-The right-hand labels are the cycle counters shown in the debug view (`D`);
-`benchmark.cc` reads the chained CIA2 timers around each phase.
-[development.md](development.md) has the full table and two calibration
-readings. Three things to keep in mind reading them. The indented labels are a
-breakdown of the stage above, not extra terms, and are deliberately left out of
-`TOT`. `TOT` is the sum of the eight unindented stages and nothing else, so the
-key scan, the instruments, `sound_update()` and the wait inside
-`mem_switch_buffer()` are in no counter and `TOT` is short of the frame period.
-And the debug view is not free of observer effect: with it up the panel
-instruments are skipped and the raster handler runs no sprites, so the frame it
-measures is cheaper than the one you fly.
-
-The instrument update sits *after* the drawing calls on purpose. Everything
-above it writes the viewport, so it has to be finished before
-`mem_switch_buffer()` shows that buffer; the panel does not, because its bitmap
-and the sprite registers are single-buffered and owned by the raster handlers.
-Placing it last spends it in the gap between the final drawing call and the
-raster reaching the flip window — time `mem_switch_buffer()` would otherwise
-spin away. It still reads the same iteration's flight state, so nothing is
-pipelined and no control input is a frame staler.
-
-Map mode short-circuits the whole render path and just waits for vsync.
+For the `D` debug counters and caveats see [development.md](development.md).
 
 ---
 
@@ -187,93 +100,18 @@ Map mode short-circuits the whole render path and just waits for vsync.
 
 ### `roll.cc` / `roll_asm.cc` — angle tables
 
-One macro list defines the first 16 of the 60 angles and expands into three
-parallel tables: `kRollDx`, `kRollDy` and `kRollDxDivDy` (a 12.4 fixed-point
-slope). The period, how many pixel steps along the line before it returns to
-a character-aligned position, is computed from the trailing zero bits of
-`dx | dy`; the renderer caps it at 8. Angle
-a + 30 is angle a with `dx` and `dy` negated, and angle 30 - a is angle a
-with `dx` and the slope negated, so `roll_update_state()` folds the second
-half-turn onto the first and angles 16-29 onto 14-1. It also fills `roll_ex_dy` and
-`roll_ey_dx`, the eight products of the current `dy`/`dx` with a pixel's
-offset from its nearest char (-4..3), which `roll_get_dist()` looks up.
+Maps roll angle (`0..59`) to slope (`roll_dx`, `roll_dy`), repeat period (`roll_period`), and signed screen-pixel distance from the horizon (`roll_get_dist`). Uses precomputed multiply tables and 6502 `__asm` for fast inner-loop queries.
 
-### `render.cc` — snapping and background fill
+### `render.cc` / `render_asm.cc` — snapping and background fill
 
-`render_snap_center_chars()` takes the horizon center in pixels
-(`render_cx_pixels`, `render_cy_pixels`, computed by `world_update_roll_state()`
-by projecting a far-away point), slides it along the horizon to near the
-viewport center (`_pull_to_center`), then searches the candidate lattice
-positions for the character-aligned point closest to the true line. For angles
-with period 1 there are exactly two candidates — the main lattice and an
-"alt" lattice shifted half a character — and the winner sets `render_alt_box`.
-
-`render_fill_sky_ground()` then fills the viewport with solid sky and solid
-ground, walking `roll_dx_div_dy` down the rows. Each row is a sky span on one
-side and a ground span on the other, so one loop covers every bank angle; a
-level horizon, whole rows only, has a cheaper loop of its own. It deliberately
-leaves `kSkipLines` (4) rows either side of the horizon unfilled, because the
-tiles are about to overwrite them anyway — worth about 1000 cycles.
-
-A whole row of sky needs its characters every frame, but its 40 colours only
-when something has put another colour there. `render_sky_rows` counts the
-colour buffer's rows, from the top, that hold only the sky colour: the fill
-skips their colours and sets the count to this frame's unbroken run of sky
-rows, and `_draw_one_box()` lowers it to the top row of every box it draws.
-Polygons and dots colour only cells that hold ground characters, which a
-counted row has none of.
+- `render_snap_center_chars()` (hand-assembled in `render_asm.cc`, inlining `roll_get_dist()`) snaps the horizon centre to character coordinates and picks main vs alternate `boxdef`.
+- `render_fill_sky_ground()` fills pure-sky and pure-ground spans using `_render_flush_span()` (14-row unrolled sled in `render_asm.cc`), skipping colour-RAM writes on sky rows that remained sky from the previous frame.
+- `render_draw_tiles()` stamps the active `boxdef` across the horizon band.
 
 ### `boxdefs.cc` / `box.cc` — tiles
 
-`boxdef_t` is the tile: width, height, the step vector to the next copy, its
-offset relative to the snapped center. Each box is one object: the
-`boxdef_t`, then the character indices, then the w × h cell map, so the
-definition holds no pointer to them (`boxdef_set_main()` points
-`boxdef_char_idx` just past it; `box_prepare()` finds the cells at
-`boxdef_char_idx + char_count` and sums w × h, so neither is stored). `boxdefs.cc` holds 68 definitions — 60 main (one per angle) and 8 alt —
-looked up through `main_boxes[]`, indexed by angle, and `alt_boxes[]`, which
-holds only the 8 angles that have an alt tile (listed in `alt_box_angles[]`,
-searched by `boxdef_set_alt()`). Both files are generated;
-edit the generators under `lib/` and re-run `make chardefs`.
-
-`chardefs.cc` stores each character once per vertical flip: a multicolour
-character upside down is its eight bytes in reverse order, and 107 of the 333
-are another one of them reversed. With the solid ground and sky left out, which
-`box_prepare()` never copies, it holds 224 (`lib/find_boxes.py`
-`build_c_charset()`). That is 872 bytes less, and few enough that a tile's
-characters are one byte each, a plain index into `chardefs`. Each tile's local
-characters are ordered so the ones it needs upside down form a single run,
-and `box_prepare()` copies those bottom row first. The tile's characters are
-sky-coloured first and Grad1-coloured after (`grad1_color_start`), and the run
-is placed across that boundary, so one byte, `flip_around`, says where it is:
-how far it reaches below the boundary in the low nibble, how far from it up in
-the high one. One boundary of its own would not do, as six tiles have upright
-characters of both colours on either side of the run. A backwards copy costs a
-few cycles more per character than a forwards one, and dropping the old
-`char_offset` (an add and a wrap per character, back when the indices were
-relative to a per-tile base because 333 did not fit a byte) costs fewer:
-measured over all 240 calls the game can make, every one is faster than before
-the change, by 30 to 572 cycles. `tests/test_c_horizon_tables.py`
-decodes the checked-in tables the same way and compares every cell with the
-Python model.
-
-The 224 characters overlap heavily: one's bottom rows are often another's top
-rows. So `chardefs.cc` keeps them as one 728 B byte stream, `chardef_bytes`,
-in which every character is eight consecutive bytes (a greedy shortest common
-superstring, `lib/find_boxes.py` `build_char_stream()`), instead of 1,792 B of
-separate rows. The characters are numbered in the order they start in the
-stream, so the start offset grows with the index. `chardef_offset_lo[]` holds
-its low byte, and the high byte steps up at `kCharDefPage1` and
-`kCharDefPage2`, which `box_prepare()` tests with two compares. Stream, table
-and code together are about 820 B smaller than the rows were.
-
-`box_prepare()` copies the tile's unique characters into the current buffer's
-character slot and builds parallel character/color arrays. It caches per slot:
-if the slot already holds this definition — the common case when flying
-straight — everything is still valid and the copy is skipped.
-
-`box_draw()` stamps the tile from the snapped center outward in both
-directions along the step vector, clipping each copy against the viewport.
+- `boxdefs.cc` stores the 68 tile definitions and the 728-byte overlapping character superstring (`chardefs.cc`).
+- `box.cc` (`box_prepare()`) copies the active tile's unique characters (reversing byte order for vertically flipped chars) into the inactive 32-char RAM slot (`128..159` or `160..191`), returning early when the same `boxdef` is already resident. Per-slot cache tables live in `kBootScratch` (`$0860–$0A5F`).
 
 ---
 
@@ -281,149 +119,27 @@ directions along the step vector, clipping each copy against the viewport.
 
 ### `vec.h` / `vec.cc` / `vec_asm.cc` / `vec_lut.cc`
 
-All 3D math is 8.8 fixed point with unit length 256. Orientation is a `mat3_t`
-of three orthonormal vectors (`front`, `left`, `up`).
+Fixed-point 8.8 vector and 3×3 matrix math (zero hardware multiply/divide, enforced by `check_mul_div.py`):
+- **Quarter-square multiply (`vec_fastmul8p8`, `vec_fastsqr8p8`)** in `vec_asm.cc` using 512-byte square LUTs (`vec_lut.cc`), with zero-high-byte fast paths.
+- **Exact restoring division (`vec_frac8`)** in `vec_asm.cc` for perspective projection and opponent rendering.
+- **Perspective & rotation:** `vec_project()`, `vec_transform_inv()`, `vec_rotate_step()` (6-multiply incremental rotation from a 6-byte table), `vec_turn3_xy()` (horizontal yaw), and `vec_orthonormalize()`.
 
-The multiply is the interesting part. `vec_fastmul8p8` is hand-written assembly
-built on quarter-square tables (`x*y = T(x+y) − T(|x−y|)` with `T(i) = i²/4`),
-assembling the 16-bit result from four 8×8 partial products. Unlike the earlier
-C version it is exact for all `int16` inputs, which removed several precision
-workarounds elsewhere. It skips the products that are zero: an operand that
-is a multiple of 256 needs two at most, and a first operand below 256 in
-magnitude, which a camera row's component usually is, needs two as well, or
-one when the second is that short too. `vec_lut.cc` also carries a reciprocal table used by
-`vec_project()`. `vec_div8p8` is exact instead: a restoring division in
-`vec_asm.cc`, sharing `vec_frac8` with `vec_frac16` and `vec_fracn`.
+### `world.cc` / `world_asm.h` / `world_map.cc` — ground detail
 
-`vec_project()` and `vec_project_nocull()` turn a camera-space vector into
-screen coordinates (`vec_sx`, `vec_sy`); the culling variant rejects anything
-outside the view cone, the other rejects nothing and is only given points the
-near clip has passed (`x >= 8`). Inside the cone both use the reciprocal
-table, about 480 cycles and within 2 of `trunc(256·y/x)`; outside it
-`vec_project_nocull()` falls back to two exact `vec_div8p8` calls, about
-1,230, or about 220 for a vertex the near clip lifted to `x = 64`, a divisor
-`vec_div8p8` answers with a shift. Only the grid loop inlines
-projection, as `vec_viewport_ahead()`, `vec_viewport_beside()` and
-`vec_viewport_project()`: the cone tests one at a time, so the loop adds a
-dot's y only once it is ahead of the camera and its z only once it is inside
-the cone's sides. The last step narrows the cone to the viewport before it
-projects, `|z| <= x/4` and `|y| <= x - x/4`: a dot either test turns away
-would have projected off screen. Everything else shares the out-of-line
-`vec_project_once()`.
+- `world_map.cc` defines the 32×16-cell repeating world (each cell = 8×8 world units = 1,024 m; total 32.8×16.4 km).
+- `world.cc` walks visible cells around the aircraft, projecting ground grid dots via hand-assembled `_world_draw_box_points()` (`world_asm.h`) with horizontal viewport pre-culling, and dispatching map objects (runways, towns, cities, lakes, fields) to `poly_draw_3d()`.
+- `world_update_objects()` feeds sprites into the viewport sprite stack: clouds (`clouds.cc`), sun, and in `fpilot`, opponents (`opponent.cc`) and tracers/smoke (`gun.cc`).
 
-`vec_frac16` and `vec_mulfrac` are the clipping pair, and they exist because
-8.8 is not enough for a clip parameter — see the clipping notes under
-[`poly.cc`](#polycc--filled-polygons) below. `vec_frac16` is a restoring
-32/16 division in assembly (two `vec_frac8` byte steps, ~400-670 cycles) returning `|a| / |b|`
-as an unsigned 0.16 fraction; `vec_mulfrac` multiplies that fraction by a
-delta using `vec_fastmul8p8` on each half, rounding the low one (~720
-cycles).
+### `poly.cc` / `poly_asm.h` — filled polygons
 
-`vectest.prg` and `vecdemo.prg` exist to verify and benchmark these routines
-in isolation.
-
-### `world.cc` / `world_map.cc` — ground detail
-
-The world is a **32 × 16 map** (`kWorldMap`) that wraps in both directions.
-Each cell is either nothing, a colored dot cluster, or a polygon object
-(runway, field, pond, lake, town, city). Every type fits in a nibble, so the
-map stores two cells per byte, 256 B.
-
-`world_render_grid()` walks a square of cells centered on the plane. The radius
-is chosen from altitude (2 at ground level, 3 by default, 4 when high), and the
-number of dots per cell falls off with distance from the center
-(`kNumPoints3/4`; radius 2 reads the first three entries of `kNumPoints3`). Dot positions inside a cell come from a 16-entry
-Mitchell's-best-candidate distribution, precombined once per frame into
-`_mitch_x/y/z` so each dot costs three additions and a projection. Iteration
-breaks out early once cells fall behind the camera.
-
-Dots are drawn by `gfx_draw_projected()`, inline in the grid loop, which only writes if the target
-character is still solid ground — so dots never land on the sky or on a
-polygon.
-
-### `poly.cc` — filled polygons
-
-`poly_draw_3d()` clips against the near plane, projects, clips against the four
-viewport edges (one data-driven routine per edge), and fills.
-
-**Clipping precision.** Both clippers interpolate `prev + t * delta`, and `t`
-used to come from `vec_div8p8`, which has eight fractional bits. A part in 256
-sounds harmless and is not: a clipped edge is often a thousand units long, and
-a vertex just past the near plane projects thousands of sub-pixels off screen,
-so a part in 256 of that span is whole characters. The near plane makes it
-worse — at `x = 8` the projection multiplies `y` by 32, so **one world unit is
-eight sub-pixels**, and an intersection rounded to whole units can only land on
-every fourth character column. A polygon covering most of the ground could come
-out as a thin wedge running into a corner of the screen, and it did.
-
-Three things fix it, and `test/poly_test.cc` measures all three against the
-same geometry projected in double precision:
-
-1. `t` is a 0.16 fraction from `vec_frac16`, and the lerp is `vec_mulfrac`.
-   `_clip_2d` keeps the old 8.8 path when the interpolated delta is 255
-   sub-pixels or less, which is the common case and costs nothing.
-2. The near-plane intersection is computed eight times finer and emitted at
-   `x = 64` rather than `x = 8` whenever the components have room for the
-   shift. Projection is a ratio, so scaling one vertex changes nothing but its
-   own resolution.
-3. The projection rounds instead of truncating toward zero. It is the only
-   one of the three that helps an ordinary distant polygon, where nothing is
-   clipped at all.
-
-   Written as `(vec_sx >> 2) + ((vec_sx >> 1) & 1)` rather than the
-   `(vec_sx + 2) >> 2` it started as. `vec_div8p8` saturates at 32767 and a
-   vertex just past the near plane saturates it routinely, so on a 16-bit
-   `int` the addition wrapped to −32767 and put that vertex on the opposite
-   side of the screen — one polygon then covered the whole viewport. The host
-   suite cannot see that class of bug at all, because there `int` is 32 bits
-   and the sum simply fits; it was found by flying mission 4 and pinned down
-   by reading the projected vertices out of a running C64
-   ([emulator.md](emulator.md)).
-
-Measured over 65,520 poses of a polygon at takeoff and landing height, in
-sub-pixels filled wrongly out of the viewport's 2,240: mean 28.8 and 5.7% of
-poses more than 128 wrong before, mean 7.8 and none over 128 after. The cost
-is +722 bytes, and about 830 cycles for each near-plane crossing plus 490 for
-each viewport crossing wider than the guard — zero for a polygon that does not
-straddle the camera plane, which is most of them.
-
-Filling works on a scanline buffer at **half-character vertical resolution**
-(`_min_x`/`_max_x` are `2 * kViewportHeight` entries) and half-character
-horizontal resolution, matching the 4×4 sub-cell granularity of the quad
-character groups. Two fillers exist: `_scan_lines` is smaller and better for
-small polygons, `_scan_lines2` costs ~250 bytes more and wins on large ones.
+3D convex polygon pipeline in character/2×2 sub-cell space (keeps 16-bit `int` intermediates safe against overflow — see `c64o/test/int16.h`):
+1. 3D frustum early-reject and near-plane clipping (`_project_vertices`, `_clip_near`).
+2. Perspective projection + 2D Sutherland–Hodgman viewport clipping (`_clip_2d`).
+3. 6502 `__asm` rasteriser (`poly_asm.h`): `_poly_bounds_and_clear`, `_poly_trace_edges`, and `_poly_scan_lines2` (solid interior fills + 2×2 fringe characters at edges).
 
 ### `flight.cc` — flight model
 
-State: orientation matrix `flight_cam`, position (`flight_eye_x/y/z` as 24.8
-meters), speed, vertical speed, throttle, fuel, and the flap / gear / nav
-toggles. [flight.md](flight.md) is the specification, [missions.md](missions.md)
-what each mission asks of it.
-
-Per step: air resistance proportional to speed², extra drag from gear and
-flaps, a gravity term from pitch, throttle thrust, then lift computed from
-speed² and `up.z`. A lift deficit costs both vertical speed and forward speed.
-Below stall speed the nose is forced down; flaps lower the stall threshold.
-
-Two distinct regimes:
-
-- **Airborne** — full 3-axis control; a roll away from level induces a yaw
-  proportional to `left.z` (the turn).
-- **On ground** — no stall, wings forced level, no nose-down pitch, and roll
-  input is remapped to yaw. Pitching up above stall speed is what takes off.
-
-Touching down checks roll, pitch, vertical speed, forward speed and gear; fail
-any of them and `flight_status` latches a crash, freezing the model and all
-input.
-
-`vec_orthonormalize()` runs after any rotation that needs it, to stop the
-matrix from drifting. It is the dominant cost of a step — 58% of it — which is
-why `model_need_normalize` is set as sparingly as it is.
-
-The model has no elapsed time in it: `sim.cc` takes exactly one step per
-rendered frame (two or four while the pilot has time compression on, T), and the step *size* scales with what `cpu_probe()` measured the
-machine to be at boot. [flight.md](flight.md) §8 has the reasoning, the
-measurements, and what the raster timebase that preceded it cost.
+Arcade flight model (shipping in both `ppilot` and `fpilot`; optional angle-of-attack model under `FLIGHT_AOA=1`). Handles lift/drag, stall, banked turns, ground roll/takeoff/landing/crash envelope, fuel/refuel, waypoints, SuperCPU substepping (`cpu_step_shift`), and `fpilot` damage/falling hooks. Full specification in [flight.md](flight.md); missions in [missions.md](missions.md).
 
 ---
 
@@ -431,461 +147,100 @@ measurements, and what the raster timebase that preceded it cost.
 
 ### `mem.cc` — buffers and modes
 
-`mem_switch_buffer()` is the frame boundary: wait for the flip window, toggle
-`mem_using_alt_buffer`, point `mem_screen_ram`, the row-pointer table and
-`mem_box_char_start` at the other slot, then copy the color buffer to `$D800`.
-
-The wait is `gfx_wait_flip_window()`, not `gfx_wait_vsync()`, and it is a raster
-*range* rather than a line — see the constants in `gfx.cc`. It opens at 162, the
-first line past the viewport, because the copy rewrites the color RAM lines
-50–161 are still fetching; it closes at 242, because `_switch_to_terrain()`
-latches `mem_using_alt_buffer` into `$d018` at raster 250 and the toggle has to
-beat it. Most frames are already inside the window and never wait at all, and
-because it is a range no interrupt handler can straddle it and cost a frame the
-way a single-line wait can.
-
-That latch is also why nothing here writes `$d018` directly any more. A write of
-its own would have to land inside the window, which is the middle of the panel,
-where it would repoint the panel's video matrix mid-screen. And since
-`mem_using_alt_buffer` is one byte and the only state the handler reads, the
-store is atomic on its own — the `sei`/`cli` pair this used to need is gone.
-
-The color buffer (40 × 14 = 560 bytes) is aliased onto
-`kSpriteDataCompressed` — the compressed sprite blob is dead once it has been
-expanded to `$D7C0`, so its storage is reused.
+Initialises VIC bank 3 (`$C000–$FFFF`), banks out BASIC/KERNAL (`MMAP_NO_ROM`), zeroes `bss2`, decompresses the 48 static sprite bitmaps to `$D400` and the character set to `$E000`, and handles double-buffer swaps + colour-RAM copy.
 
 ### `gfx.cc` — raster IRQs, characters, points
 
-Three raster interrupts drive the mode split. `_switch_to_panel_top` pads with
-16 `nop`s to land in the border, then writes `$D018`, `$D011` and `$D021`
-directly in assembly to enter bitmap mode. `_switch_to_terrain` restores
-multicolor character mode at the bottom of the frame. All three are compiled
-with `#pragma optimize(noasm)` so the compiler leaves the timing alone.
-
-`gfx.cc` also owns the fixed character set (`gfx_chars.bin`, embedded LZO,
-expanded at startup), the ground/color point plotting, the scrolling heading
-strip (cached — it only redraws when the heading changes), and the panel's
-nav / flap / gear indicator lights, which are toggled by storing light red or
-black into the cell's color RAM byte.
-
-Color RAM, and not one of the two screen RAM colors, because those two share a
-byte and which of them holds what is `png2koa.py`'s choice: its lossless slot
-optimizer relabels them for compression, and it once moved a lamp from one
-nibble to the other, which killed the right-hand nav light silently. `make
-panel` therefore passes `--pin-color-ram 10@ROW,COL` for the four lamp cells,
-and nothing else — light red anywhere else in the panel is still placed for
-compression. `tests/test_png2koa.py` reads the lamp coordinates out of `gfx.cc`
-and checks the shipped `ppanel.koa` and `fpanel.koa` and the Makefile's pin list against
-them, since the same four cells are now written down in three places.
-The lamps also only update in the center view, like the heading strip: a side
-view replaces those cells with the fill pattern, which draws with color RAM
-itself, and the back view replaces the whole panel with it.
+- Installs the 3 raster IRQs (161, 187, 252) with stock (12 NOP) / SuperCPU (19 NOP + 1 MHz) panel-top handlers ([supercpu.md](supercpu.md)).
+- Draws MCCM ground dots (`gfx_draw_point`) and updates the instrument panel:
+  - **5 indicator lamps** (`--pin-color-ram` in `Makefile`: nav left/right, stall, flaps, gear), toggled by storing light red or black into colour RAM.
+  - **Heading strip** and (`fpilot`) **ammo digits** (`--pin-slots`), copied from the off-screen head of the panel bitmap (`$F000–$F17F`).
 
 ### `view.cc` — the four views
 
-`view_update_cam()` derives the camera from `flight_cam`: forward, ±90° using
-the `left` vector, or 180° by negating **both** `front` and `left` — negating
-one alone would mirror the world rather than turn round in it, and every
-polygon would come out wound the wrong way.
-
-Switching to a side view rebuilds the panel bitmap, sliding the retained 8
-columns (`kCopyWidthChars`) to one side and filling the rest with a gradient
-pattern. Returning to center re-expands the compressed panel. Bitmap state is
-tracked separately (`view_bitmap_state`) so a center→side switch skips the
-re-expansion.
-
-The back view keeps no columns at all — there is no dashboard behind the
-pilot's head — so it fills all forty with the same gradient, and the colours
-are two memsets rather than a shift. That makes it the one view switch with no
-LZO pass in it: the fill overwrites everything the expansion would have
-produced, so the two to four frames it costs elsewhere are not spent. It leaves
-`view_bitmap_state` at `VIEW_BACK`, which is what makes *leaving* the back view
-re-expand the art the fill destroyed, the heading strip included. No instrument
-sprite, no lamp, no heading strip and no orientation mark is drawn while it is
-up; each of those already bails out on a `view_state != VIEW_CENTER` test.
-
-What the back view *adds* is the **tail fin**: two hardware sprites in a
-column down the middle of the viewport, both Y-expanded, drawn from two
-bitmaps — a tapered tip and a straight shaft. Like the
-orientation indicator it is furniture rather than an object, so it is a flag and
-a set of constants rather than a stack entry, and `sprites_stack_reset()` clears
-it every frame. Three things about it are load bearing:
-
-- **It owns sprites 0 and 1.** VIC priority is index order, so the lowest
-  indices are the ones that draw in front of every cloud and of the sun, which
-  is where a tail four metres away belongs; 0 is the orientation indicator's
-  in the front view, and the mark is never up in the back. The stack starts
-  above it while it is up and has six slots rather than seven; the entries that lose are the
-  farthest, which is the stack's ordinary overflow rule.
-- **Its ink starts below viewport row 0**, which is the only row a message
-  occupies, so it cannot draw over the text. That is a clearance rather than a
-  test, and deliberately: the alternative for an object that never moves is
-  blinking the whole tail out whenever a message appears.
-- **Its lowest sprite starts at raster 120, not 139.** Y-expansion doubles a
-  sprite's DMA to 42 raster lines, so it needs twice `kSpritesOffLead`'s
-  clearance above the cycle-counted panel split — `mem.h` derives
-  `kSpritesOffLeadExpandY` the same way and names 118. The column is dropped two
-  lines below that (`kSpriteFinDropLines`) so that the shaft's last line is the
-  viewport's last line, 161, and the tail meets the panel instead of stopping
-  two lines of ground short of it.
-
-  That is an exemption, and a measured one. `mem.h`'s limit was swept with
-  *seven* sprites still fetching across the split, which is where the handler
-  came out 55 cycles late; the fin is two, on indices 0–1, whose data for a
-  line is fetched in the tail cycles of the line before it, and the six slots
-  the stack can still hand out here are culled against `kSpritesOffLead` as
-  always, so they are done by 159. With the stack full and every entry on the
-  lowest line it is allowed, the panel comes out byte-identical to the build
-  with the fin two lines higher — six frames in `x64sc`, three in `xscpu64`,
-  whose handler has its own NOP count (measured with the earlier three-sprite
-  fin; two is a subset of its DMA; and again with the stack's six slots on
-  2–7 full beside it, eight sprites in the band, pixel identical in both).
-  The fin never moves, so there is no
-  "sometimes" for it to hide in. It does not generalise: see
-  [sprite_objects.md](sprite_objects.md) §0 for what a cloud would have to
-  re-derive.
-
-The two bitmaps live at `$FF40`, in the 186 bytes between the panel bitmap and
-the hardware vectors, because that is the only run left in VIC bank 3: the
-`$D400` blob's 48 blocks reach `$DFFF` exactly. Nothing can load them there, so
-`sprites_init()` draws them — every row of both is a centred horizontal run, so
-the art is nine numbers rather than 126 bytes of bitmap. It is drawn in two
-passes over the rows, clearing them all and then painting the taper, and that is
-not tidiness: the one-pass form indexes the width table at `row - 13` and
-oscar64 drops the guard, which is
-[`bugs/const-array-ternary-guard/`](../bugs/const-array-ternary-guard/OSCAR64-BUG-REPORT.md).
+Manages the four cockpit views (`1` left, `2` forward, `3` right, `4` back over tail), derives `world_cam` from `flight_cam`, decompresses the LZO-packed MCBM panel (`ppanel_*.lzo` or `fpanel_*.lzo`), and controls the orientation mark (front view) and 2-sprite vertical tail fin (back view).
 
 ### `sprites.cc` / `sprites_asm.h` / `sprites_asm.cc` / `spritedef.cc`
 
-Eight sprites, reused twice per frame by the raster split: world objects over
-the terrain, and the instrument needles over the panel. Needle bitmaps are
-pre-rotated into 16 directions; the other 16 reuse them with the pivot
-mirrored through the sprite centre (`kSpriteDefLongArm`, `kSpriteDefShortArm`
-hold the first half-turn's pivots), so setting an instrument is a table lookup,
-an optional mirror and two subtractions. Sprite pointers sit at offset 1016 of
-a screen buffer; each raster handler writes those of the screen its band is
-shown from (the terrain band's buffer on screen, the panel's alt screen).
-
-**The sprite stack** is how the terrain band's sprites are handed out. VIC
-sprite-to-sprite priority is fixed by index — sprite 0 draws in front of sprite
-1 — so "draw the closest object first" is implemented as "give the closest
-object the lowest index": reset, add candidates in any order, commit, and the
-commit sorts by depth and assigns indices in that order. Correct mutual
-occlusion falls out with nothing written to `$D01B`, and the overflow rule
-comes free, since the entries that lose a slot are the farthest ones. The
-committed frame is double buffered, because the terrain raster handler programs
-it. The handler writes the frame's enable mask first, so an index the stack
-left unused, parked at y = 0, is off before raster 256 would start its fetch
-in the lower border, and it copies the pointers and colours of the indices in
-use only. The sun is an ordinary client at `INT16_MAX` depth; clouds are the other
-one; [planes.md](planes.md) is meant to be the third.
-
-Seven slots, not eight: index 0 is the vertical-speed needle below the split
-and the **orientation indicator** above it — a fixed bar with a gap in it at
-the centre of the viewport, in the front view only, which is what gives the
-moving horizon something to be read against. Index 0 draws in front of every
-other sprite, so the sun, a cloud or an opponent passes behind the mark; the
-stack hands out 1–7. The side views park every needle
-but one at x = 0, where the left border hides it, and the back view parks all
-of them — and takes indices 0-1 for the tail fin, which is the other piece of
-furniture the stack does not hand out (see `view.cc` above). Designed in
-[clouds.md](clouds.md) §1 and §1.9; on the C64, `sprites_stack_add()`,
-`sprites_stack_commit()`, `_sprites_set_instrument_sprite()`,
-`sprites_set_alt()`, and `sprites_set_vspeed()` run as 6502 assembly in
-`sprites_asm.cc` / `sprites_asm.h` (verified by `test/target_test.cc`), while
-`sprites.cc` keeps the C counterparts for `test/sprites_test.cc`.
+Shared depth-sorted viewport sprite stack (slots 1–7 in front/side views; 2–7 behind the tail fin in back view) plus instrument gauge needles on the panel. Core stack add/commit and instrument gauge updates are in 6502 `__asm` (`sprites_asm.cc`). Double-buffered via `mem_using_alt_buffer`, serving clouds, sun, opponents, tracers, and smoke. See [sprite_objects.md](sprite_objects.md) and [clouds.md](clouds.md) §1.
 
 ### `clouds.cc` / `clouddef.cc`
 
-Clouds have no storage anywhere and no bound on how many the world contains.
-`clouds_add_candidates()` walks a 5 × 5 grid of cloud cells around the
-aircraft; a hash over the cell coordinate decides whether that cell carries a
-group, jitters it inside the cell, and picks one of four three-blob layouts.
-Distance then selects a rung of a ten-step size ladder — rungs 0–4 are one
-X-expanded sprite, 5–9 a 1 × 2 stack — and far groups collapse to a single
-blob, since three sprites on something 13 pixels wide is most of the cost for
-none of the picture.
-
-The bitmaps are white-and-transparent checkerboards, which at one bit per pixel
-read as a half-tone against the sky. Two overlapping clouds have to share one
-dither lattice or they fill each other in, so the stack snaps a cloud-flagged
-entry to X even and `(X >> 1) + Y` even.
-
-`clouddef.cc` is generated by `tools/generate_clouds.py` from four numbers —
-cell size, gate mask, blob diameter, deck altitude — which also emits
-`lib/clouddef.py` so `make cloud-preview` can render the layout without an
-emulator. All of it is behind `__ENABLE_CLOUDS__`. The whole design, including
-the parts that were tried and rejected, is [clouds.md](clouds.md).
+Procedural 3-blob cloud deck at 700 m across 128 hash-gated cells (37 active), 10-rung size ladder, far-group collapse, and global checkerboard dither lattice. See [clouds.md](clouds.md).
 
 ---
 
-## 7. Screens
+## 7. Screens & Combat
 
-| Module      | Screen                                                                             |
-| ----------- | ---------------------------------------------------------------------------------- |
-| `menu.cc`   | main menu — mission list, `I`/`K` to move, `SPACE`/`RETURN` to start, `H` for help |
-| `title.cc`  | the aircraft that crosses the menu page every six seconds or so                     |
-| `help.cc`   | static key reference, one text blob printed by `print_lines()`                     |
-| `music.cc`  | the title tune, ticked from the menu's and the help screen's own vsync loops       |
-| `map.cc`    | multicolor bitmap rendering of the 32 × 16 world map, with navpoints, the flight path and the aircraft |
-| `screen.cc` | shared mode transitions: enter static MCCM, begin text page, restore simulation    |
-| `sim.cc`    | the flight screen and its input dispatch                                           |
+### `menu.cc`, `help.cc`, `debrief.cc`
 
-`keys.cc` provides the primitives every screen needs: `keys_scan()`, which
-reads a table of scan codes into one bit each, `keys_edges()` for rising-edge
-detection on toggle keys, and `keys_wait_release()` for momentary ones.
+- `menu.cc`: interactive 10-mission selector with completion checkmarks, title tune (`music.cc`), and `title.cc` flyby.
+- `help.cc`: key reference screen (accessible from menu and in-flight via `H`).
+- `debrief.cc` (`fpilot` only): post-flight debrief shown on `Q` (goals, 6-tier aircraft damage status, rounds fired/on target, enemy gun kills).
 
 ### `title.cc` — the menu flyby
 
-Four **multicolour** sprites in a 2 × 2 block — 48 × 42 screen pixels of one
-aeroplane — cross the page every six seconds or so, taking one and a half to
-two and a half seconds about it.
-
-Every flyby is the same aeroplane at the same angle at the same speed: two
-pixels left and two lines down per frame, always. The art is a fixed
-silhouette, so the direction of travel has to match the direction it is
-pointing or it reads as a skid, and a second speed would want a second
-silhouette to be honest about it. **What varies between flybys is only where
-the aeroplane comes in.**
-
-Because the angle never changes, every path is one of a family of parallel
-lines, and a 45° line down and to the left is the set of points where X + Y is
-constant. So one number picks a flyby out of that family — the code calls it
-the *lane*, to keep it apart from the 45° itself, which is not a choice anyone
-makes. Everything else follows from it: where the aircraft crosses the top
-edge, where it crosses the right edge, where it leaves, and how long it is on
-screen.
-
-Flybys **alternate** between two bands of lanes. The first comes in over the
-right half of the top edge, the second over the top half of the right edge, and
-so on; the count restarts when the page is painted. Alternating rather than
-drawing the side at random is what makes the variety visible — those bands are
-160 lanes and 99, so a single sweep across both would come in over the top
-nearly twice as often as over the side, and a run of four the same way would
-not be unusual. An LFSR stepped every menu frame then picks the lane within the
-band, scaled to fit it by two shifts and an add (`(r >> a) + (r >> b)` is
-`r × (2⁻ᵃ + 2⁻ᵇ)`); a remainder would use each band exactly and cost the
-139-byte divmod routine that `tools/check_mul_div.py` fails the build over.
-
-The lower lanes leave through the **left** edge rather than the bottom, and
-that is the one case the VIC will not clip for you: hiding a 24-pixel sprite
-column behind a left border that ends at X = 24 wants X = −24, and one step
-below zero wraps the sprite round to the right of the same raster line. Parking
-a column at X = 0 is the exact answer rather than an approximation — a sprite
-there spans 0–23 and the picture starts at 24, so it is completely hidden, and
-every negative position is equally hidden. `_title_program()` clamps the two
-columns independently, so the column still partly on screen keeps its true
-position and clips a pixel at a time while the other sits behind the border.
-The aeroplane goes off the left edge column by column with nothing snapping.
+Animates a multicolour title aeroplane across the menu screen using 4 sprite blocks time-shared in `$D000–$D3FF` (`kTitleSpriteData`).
 
 ### `map.cc` — the map view
 
-`M` swaps the whole screen for a 128 × 128 multicolor bitmap of the world: one
-4 × 8 pixel tile per map cell drawn from `mapdefs.cc`, then an overlay layer
-carrying the navpoint digits, the flight path and a compass, then two hardware
-sprites crossed into an aircraft marker. Screen RAM for it goes at `$D000`,
-under I/O, which only the title screen's aeroplane uses otherwise; the bitmap borrows
-`$E000–$FF3F` — character RAM, both screen buffers and the panel — and
-`screen_restore_simulation()` rebuilds all of it on the way out.
+Full-screen MCBM world map (`M`) reusing `$E000–$FF3F` for its bitmap and `$D000–$D3FF` for screen RAM, rendering 18 tiles (`mapdefs.cc`), compass letters (`N/E/S/W`), white flight path, navpoints, and a light-green aircraft sprite. See [map.md](map.md).
 
-The tile art is `gfx/ppilot_map_tiles.png`, which is the source of truth:
-`make map-tiles` compiles it and `make map-preview` composites the result over
-`kWorldMap` so the whole map can be judged in a PNG. The flight path is a
-256-byte ring of screen pixels living in the scratch space behind the expanded
-sprite blob (`sprites.h`), cleared when a mission starts. [map.md](map.md) has
-the format, the colour budget and the coordinate conventions.
+### `pmission.cc` / `fmission.cc`
 
-### `pmission.cc`
+Mission definitions, start poses, waypoints, navpoints, and (`pmission.cc` only) per-mission colour schemes. See [missions.md](missions.md).
 
-Ten missions (`kMissionCount`), from "01 AIRBORNE" through "10 FUEL
-CHALLENGE". There is no per-mission struct: everything is held in parallel
-arrays indexed by mission, which keeps each table a flat run of bytes the
-6510 can index directly.
+### Combat modules (`fpilot` only)
 
-- **Start state** — `kMissionStartX/Y/Z`, `kMissionStartSpeed`,
-  `kMissionStartThrottle`, `kMissionStartFuel`, plus `kMissionWindX/Y`
-  (declared and zero everywhere; nothing reads them yet). The scale factors
-  are documented per array in `mission.h` — e.g. `flight_eye_x = start_x << 16`.
-- **Text** — `kMissionTitles` and `kMissionDesc`, shown by `menu.cc`.
-- **Progress** — `mission_completed[]`, rendered as `@` or `.` in the menu's
-  mission list.
-
-**Waypoints** live in a second set of arrays, `kMissionWpX/Y` and
-`kMissionWpConstraint`, pooled across all missions
-(`kMissionWpCount` = 16). Each mission owns a half-open slice of that pool
-given by `kMissionWpBegin[]` and `kMissionWpEnd[]`, so missions can share
-waypoints — the runway-2 landing appears in four of them. `kWaypointDefault`
-is the fallback nav target for a mission whose slice yields no usable point.
-
-A constraint (`MissionWaypointConstraint`) says what has to be true at the
-waypoint: nothing, landed, a minimum altitude, below 250 ft, or inverted
-and low.
-
-`flight_init_from_mission()` applies the start state and unpacks the slice
-into `flight_nav_point_x/y[6]` — hence at most six navpoints, which is what
-the `N` key cycles through. Waypoints at `(0, 0)` are position-free
-(altitude-only goals such as "climb to 1000 ft") and are skipped when building
-the nav list; `flight_waypoint_nav[]` records which nav point, if any, each
-waypoint maps to. `flight_current_wp` tracks progress, advanced in
-`flight.cc` when the aircraft is inside the waypoint's tolerance box and
-satisfies its constraint. Unmet constraints surface as warning text through
-`flight_status_text()` and `msg_show()`.
-
-Clearing the last waypoint sets `flight_status` to `FLIGHT_MISSION_COMPLETED`
-and announces it for a few seconds, but it does **not** end the flight: the
-pilot keeps flying until they crash, restart with `R` or quit with `Q`. Only a
-crash freezes the model, which is what `flight_crashed()` in `flight.h` asks —
-`flight_status` being non-zero is not the same question, and the crash statuses
-are kept last in the enum so that predicate stays a single comparison.
+- `planes.cc` / `planes_asm.cc` / `planedef.h` — filled-polygon 3D aircraft rasteriser into 16 dynamic sprite blocks (`$D000–$D3FF`) + 1 static dot block (`$CFC0`), split half-rate across frames ([planes.md](planes.md)).
+- `opponent.cc` / `opponent_asm.cc` — 2-slot wave spawner, fighter/bomber flight model, hunting/strafing/break-off AI, bomber rear gunners, and falling downed aircraft ([opponent_ai.md](opponent_ai.md)).
+- `gun.cc` / `gun_asm.cc` — 8-round eye-relative projectile pool, swept AABB hits/provokes/collisions, yellow tracers, black smoke/ground puffs, finite ammo (`600`), and tallies ([projectiles.md](projectiles.md)).
+- `damage.cc` — armour (3–4 hits), 5 progressive system failures, red border flash, and shot-down dive ([opponent_ai.md](opponent_ai.md) §8).
 
 ---
 
 ## 8. Support modules
 
-- **`fmath.cc`** — `kBit`, a division-free `_get_ratio` (6-bit
-  shift-subtract), and LUT-based `_get_heading` (48 steps) and
-  `_get_roll_angle` (60 steps).
-- **`sound.cc`** — flight audio. Split by rate: `sound_update()` computes a
-  25-byte shadow on the main line, `sound_blit()` copies its 22 live
-  registers to `$D400` from `_switch_to_terrain`, once after each update.
-  See [sound.md](sound.md).
-- **`music.cc` / `musicdef.cc`** — the title tune, a separate owner of the SID
-  under the same rule: only one of the two drivers may hold the chip, so
-  `music_playing` makes `sound_silence()` return without touching the
-  registers. Ticked at 50 Hz from the menu's and the help screen's own
-  `gfx_wait_vsync()` loops rather than from an interrupt, since those screens
-  run with the raster split stopped. Data is generated from `lib/music.py`.
-  See [music.md](music.md).
-- **`print.cc`** — screen text, plus a double-dabble BCD converter in assembly
-  for the debug readouts.
-- **`benchmark.cc`** — CIA2 timer A/B chained to a 32-bit cycle counter; all
-  entry points compile to nothing unless a `__DEBUG_*__` flag is set.
-- **`color.h`, `vic.h`, `cia.h`, `bool.h`** — constants and non-oscar64
-  fallbacks so the code can be reasoned about outside the compiler.
+- `fmath.cc` — closed-form integer heading and roll-angle approximations (no LUTs).
+- `sound.cc` — 3-voice SID flight SFX (`sound_update` → 25 B shadow → 22-reg `sound_blit` gated by `sound_dirty`). See [sound.md](sound.md).
+- `music.cc` / `musicdef.cc` — 50 Hz PAL title tune player and packed 24-bar D-minor data. See [music.md](music.md).
+- `cpu.cc` — boot-time CIA2 speed probe for SuperCPU detection ([supercpu.md](supercpu.md)).
+- `keys.cc` — direct CIA1 keyboard matrix scanner.
+- `bcd.cc` — 6502 double-dabble binary-to-BCD converter.
+- `print.cc` — character/number printing and debug readouts.
+- `msg.cc` / `screen.cc` — timed row-13 HUD status messages and shared screen transitions/notices.
+- `benchmark.cc` — CIA2 cycle counters for `ppilot`'s `D` view and `tools/bench.sh`.
 
 ---
 
-## 9. Build targets
+## 9. Build & verification overview
 
-`c64o/Makefile`, with `-O2 -Op -Oa -Oi -Oz -Oo`:
+Build commands, feature dials, binary list, and the 16 host + on-target test suites are documented in [development.md](development.md). Every link of `ppilot`, `fpilot`, and `polydemo` enforces five automated invariants:
 
-| Target         | Purpose                                                       |
-| -------------- | ------------------------------------------------------------- |
-| `ppilot.prg`   | the game (`-D__ENABLE_SOUND__ -D__ENABLE_DEBUG__ -D__MAX_RAM__`) |
-| `polydemo.prg` | polygon rasterizer test bed (`-D__DEBUG_POLY__`)              |
-| `vecdemo.prg`  | character-mode ground-dot prototype                           |
-| `vectest.prg`  | correctness and cycle counts for the vector routines          |
+1. `check_zeropage.py` — runtime ZP spill stays below `$0060`.
+2. `check_irq_zp.py` — raster ISRs never touch oscar64 runtime ZP.
+3. `check_mul_div.py` — no accidental compiler 16-bit multiply/divide library calls.
+4. `check_rom_window.py` — no global reads from `$A000–$BFFF` or `$E000–$FFFF` before `mem_init()`.
+5. `check_boot_region.py` — nothing calls into the `$0860` boot region after `_boot()` returns.
 
-`ppilot.prg` is 47,607 bytes as currently built - one binary carrying sound,
-music, clouds and the debug view; `make -C c64o SOUND=`, `DEBUG=` or `CLOUDS=`
-each build it without one of those, which is how their cost gets measured.
-About 3.3 KB of allocatable RAM is left ([memory_map.md](memory_map.md), and
-[codesize.md](codesize.md) for where it would come from).
-`OSCAR64_INCLUDE` at the top of the Makefile points at the oscar64 include
-directory and may need adjusting.
-
-Every link runs five checks, and each fails the build rather than warning:
-`check_zeropage.py` (oscar64's spilled temporaries must not reach the zeropage
-region), `check_rom_window.py` (nothing before `mem_init()` may read a global
-out of the ROM windows), `check_irq_zp.py` (a raster handler must not touch the
-runtime zero page), `check_mul_div.py` (no `divmod` routine may be linked
-in) and `check_boot_region.py` (nothing but `main()`'s start-up may call into
-the boot-only code, whose RAM is reused as scratch once it has run).
+RAM footprints and headroom are tracked in [memory_map.md](memory_map.md); frame cycle benchmarks in [framerate.md](framerate.md) and [ram-loop.md](ram-loop.md).
 
 ---
 
-## 10. The Python prototype
+## 10. Python reference & asset pipeline
 
-`lib/` models the C64 display well enough to design the horizon scheme offline,
-and generates the tables the C64 code compiles in.
-
-**Hardware model**
-
-- `c64_colors.py` — the 16-color palette.
-- `c64_graphics.py` — `C64Screen`, rendering both multicolor bitmap mode
-  (background + screen RAM + color RAM + 8000 bytes of bitmap) and multicolor
-  character mode (3 global colors + screen RAM + color RAM + a 2048-byte
-  character set) to PNG.
-- `c64_converter.py` — converts an MCBM image to MCCM, deduplicating character
-  patterns within a pixel tolerance.
-
-**Horizon generation**
-
-- `roll_angle.py` — the `RollAngle` enum and the 60 valid angles. An angle is
-  valid when its horizontal component is even (an MCCM pixel is two pixels
-  wide) and one component is divisible by 8. Note the period table here is the
-  true period, while `roll.cc` caps it at 8 for rendering.
-- `frame_generator.py` — draws one 320×200 reference frame: solid ground, solid
-  sky, and a Bayer-dithered gradient band of 0, 2 or 4 characters between them.
-- `batch_generator.py` — renders all angles (and the alternate centers),
-  collects the deduplicated global character set, and emits `chardefs`.
-- `find_boxes.py` — finds the minimal repeating tile for each frame and emits
-  `boxdefs`.
-- `verify_defs.py` — checks the generated C against the Python originals.
-- `renderer_engine.py` — reimplements the C64 renderer in Python from the
-  generated `chardefs`/`boxdefs`, used to validate the scheme end to end.
-- `spritedef.py` — the pre-rotated instrument needle bitmaps.
-
-**Command line tools** (`tools/`)
-
-| Script                  | Make target       | Output                                                                   |
-| ----------------------- | ----------------- | ------------------------------------------------------------------------ |
-| `generate_frame.py`     | —                 | one reference frame as PNG                                               |
-| `generate_all.py`       | `make chardefs`   | all frames, plus `chardefs` and `boxdefs` for both Python and C          |
-| `render_frame.py`       | —                 | one frame through `renderer_engine`                                      |
-| `render_all.py`         | `make render`     | all frames through `renderer_engine`                                     |
-| `flight_demo.py`        | `make demo`       | interactive roll/pitch demo                                              |
-| `generate_sprites.py`   | `make sprites`    | `spritedef.bin` and `spritedef.py`                                       |
-| `generate_gfx_chars.py` | `make gfx-chars`  | `c64o/gfx_chars.bin` — the font plus the quad and point character groups |
-| `generate_clouds.py`    | `make clouds`     | `c64o/clouddef.{h,cc}` and `lib/clouddef.py` — cloud placement constants |
-| `generate_map_tiles.py` | `make map-tiles`  | `c64o/mapdefs.{h,cc}` from `gfx/ppilot_map_tiles.png`                    |
-| `generate_music.py`     | `make music`      | `c64o/musicdef.{h,cc}` and `docs/sid-intro-theme.html`                   |
-| `png2koa.py`            | `make panel`      | `.koa` images from 320×200 PNGs — `c64o/{ppanel,fpanel}.koa` from the panel art |
-| `render_map_preview.py` | `make map-preview`| `out/map_preview.png` — the tiles composited over `kWorldMap`            |
-| `render_cloud_preview.py` | `make cloud-preview` | `out/cloud_preview.png` plus the density and slot-demand tables     |
-| `analyze_ram.py`        | `make pram`       | the RAM breakdown in [memory_map.md](memory_map.md)                     |
-
-`make data` runs the six generator targets together; `make panel` is separate,
-because the panel art changes rarely and its optimizer takes a while. The
-canonical flags for each tool live in the root `Makefile`; the scripts resolve
-their own paths from the repo root, so they can be run from any directory.
-Rendered frames and other disposable output go to `out/`, which is gitignored —
-`chardefs`, `boxdefs`, `spritedef`, `clouddef` and `reference_frames/` are
-checked in and written in place.
-
-`lib/music.py` and `lib/planes.py` are not part of that pipeline in the same
-way: the first is the tune's source of truth and the second is a Python mirror
-of a renderer that does not exist on the C64 yet ([planes.md](planes.md)).
-
-Tests live in `tests/` and run with `make test`. The C64 code has its own host
-suites under `c64o/test/` — `flight_test`, `poly_test`, `sound_test`,
-`music_test`, `sprites_test`, `map_test`, `msg_test`, `mul_test` and
-`cpu_test` — which compile the real `.cc` files with `g++` and run them off the
-C64; `make -C c64o test` runs those.
+`lib/` mirrors core C64 subsystems so assets and invariants can be generated and unit-tested in Python (`make test`):
+- Horizon tiles & charset: `lib/chardefs.py`, `lib/boxdefs.py`, `lib/renderer_engine.py`, `lib/roll_angle.py` → `make chardefs`, `make gfx-chars`.
+- Sprites, clouds, map tiles, panels: `lib/spritedef.py`, `lib/titledef.py`, `lib/clouddef.py`, `tools/png2koa.py`, `tools/generate_map_tiles.py` → `make sprites`, `make clouds`, `make map-tiles`, `make panel`.
+- Music: `lib/music.py` → `make music` (`c64o/musicdef.{h,cc}` + `docs/sid-intro-theme.html`).
+- 3D opponent renderer twin: `lib/planes.py` (bit-exact twin of `docs/planes-prototype.html` and `c64o/planes*.cc`, checked across 12,304 + 5,848 cases) → `make planes` (`c64o/planedef.h`).
 
 ---
 
-## 11. Known gaps and inconsistencies
+## 11. Known gaps
 
-- **Wind is unimplemented.** `kMissionWindX` / `kMissionWindY` are defined and
-  zero for every mission; nothing reads them.
-- **Clouds pop off the left edge.** A sprite whose register X would go negative
-  is dropped rather than wrapped round the VIC's 504-position horizontal
-  counter. [clouds.md](clouds.md) §1.6 designs the wrap; it is the one phase of
-  that document not built.
-- **Prototype and C64 viewports differ.** `renderer_engine.py` uses a 32 × 15
-  character viewport; the C64 uses 40 × 14. The Python renderer is a design
-  tool, not a mirror of the shipped renderer.
-- **Opponents are in fpilot only, and fly fixed paths.**
-  [planes.md](planes.md) specifies aircraft sprites in full; `fpilot.prg`
-  draws them (`opponent.cc`, `opponent_asm.cc`, §13), with the sprite buffers under I/O at
-  `$D000`, time-shared with the map view's screen RAM and the title screen's
-  aeroplane, and the dot in the block below. Up to two aircraft fly fixed
-  paths of waypoints, level and at one speed each, or sit parked, in four
-  missions - a recon, two bombers, an ambush, a scramble - and nothing else: guns and
-  hits, and with them any way to complete a mission, are still to come, and
-  `ppilot.prg` has no opponents.
-- **A single polygon can cost more than the rest of the frame.** On the runway
-  it is 43,064 cycles, a third of everything measured. See
-  [framerate.md](framerate.md).
-- No joystick, no takeoff/landing interaction with objects.
+- **No joystick support:** keyboard controls only.
+- **Wind fields unused:** `kMissionWindX`/`kMissionWindY` exist in `mission.h` as zero placeholders not read by `flight.cc`.
+- **Sprite left-edge wrap not built:** sprites pop off the left viewport edge instead of wrapping via PAL X-wrap ([clouds.md](clouds.md) §1.6).
+- **Python vs C64 viewport:** `lib/renderer_engine.py` models a 320×200 full-screen preview; the C64 viewport is 320×112 above the panel.
+- **SuperCPU wall-clock speed:** without a raster catch-up loop, 50 fps at `1/4` substep runs ~1.3–1.8× faster than a stock C64 ([supercpu.md](supercpu.md)).

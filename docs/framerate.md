@@ -1,94 +1,41 @@
-# Where the frame goes
+# Frame Time & Benchmark Figures
 
-A one-off measurement, taken on **18 August 2026** against the source at that
-date (clouds with the far-group collapse of [clouds.md](clouds.md) §3.5 in, built
-with oscar64 `v1.32.272-117-ga7305f9`). It answers one question — what do the
-polygons and the clouds cost — and it is written down so the answer does not
-have to be guessed at again.
+Exact per-frame cycle counts measured in cycle-exact `x64sc` (PAL, 19,705 cycles per 50 Hz raster frame). See [emulator.md](emulator.md) for the harness (`tools/bench.sh`) and [development.md](development.md) for the live `D` debug counters in `ppilot.prg`.
 
-> **2026-08-29.** The two numbers this document went looking for are now
-> counters in the debug view: `PLY` is the polygon total and `CLD` the cloud
-> scan, alongside `SPR` for the sprite stack the "stage counters are calls, not
-> consequences" note below calls out. So the poses no longer have to be rebuilt
-> to ask this question - press `D` and read it. The figures agree with the ones
-> below: 43,064 against 44,132 for the runway polygon, 11,761 against 13,824
-> for clouds at the same pose, the difference being that the debug view turns
-> the sprites off and the frozen pose is not bit-identical.
+## Current `fpilot` timings (`tools/bench.sh`)
 
-**This is a snapshot, not a regression suite.** Nothing re-runs it, nothing
-fails if the numbers move, and there is no reason to repeat it after an ordinary
-change. Re-measure when the shape of the render changes — a new per-frame stage,
-a rework of `poly.cc` or the grid walk, a different sprite budget — or when a
-specific decision needs a number, which is the only reason it was taken in the
-first place. [emulator.md](emulator.md) has the method; it is about twenty
-minutes of work.
+`tools/bench.sh` measures one frame's work (`bm_model_start()` through `bm_total()` in `sim_run()`: model step + full render, excluding the vsync flip wait) across ten deterministic `fpilot` scenes — five frozen (averaged over 16 frames) and five live combat scenes (averaged over the frames when opponents are near and redrawn).
 
-## The poses
+Snapshot as of pass 152 ([ram-loop.md](ram-loop.md)):
 
-Frame cost depends far more on what is on screen than on anything else, so three
-frozen poses rather than one, each with the aircraft paused:
+| Scene | Type | Cycles / frame | ~PAL frames | ~FPS (work-bound) |
+| --- | --- | ---: | ---: | ---: |
+| `start` (01 Recon, airborne) | frozen | 86,410 | 4.4 | ~10.0 |
+| `approach` (final to runway) | frozen | 105,701 | 5.4 | ~8.3 |
+| `cruise` (level flight, clouds) | frozen | 113,148 | 5.7 | ~8.3 |
+| `town` (over town polygons) | frozen | 100,576 | 5.1 | ~8.3 |
+| `lake` (over lake polygons) | frozen | 103,074 | 5.2 | ~8.3 |
+| `scramble` (04 pair pass + guns) | live | 153,235 | 7.8 | ~6.2 |
+| `shootdown` (04 scripted 5 hits + fall) | live | 148,865 | 7.6 | ~6.2 |
+| `headon` (05 hunters closing ahead) | live | 93,221 | 4.7 | ~10.0 |
+| `chase` (05 hunters behind, back view) | live | 117,568 | 5.9 | ~8.3 |
+| `strafe` (04 pair strafing run) | live | 150,562 | 7.6 | ~6.2 |
+| **Total (10 scenes)** | | **1,172,360** | | |
 
-| name | what | how |
-| --- | --- | --- |
-| **runway** | parked at the start of mission 01, runway filling the lower viewport | `selected_mission = 0` |
-| **approach** | mission 02's start, 256 m up on final | `selected_mission = 1` |
-| **cruise** | 700 m, at the cloud deck, terrain and clouds and two distant objects | eye `0x8D5000, 0x2C0000, 0x057800` |
+(For comparison, the 2026-11-01 pre-optimisation baseline total was 1,548,482 cycles; 152 passes cut frame cost by 18–30% across scenes.)
 
-## What it costs
+### Where a frame goes (historical ablation)
 
-Per stage, from CIA2 timers around the calls — unquantised, so these are the
-honest cycle counts. "Render work" is `view_update_cam()` through
-`sound_update()`, i.e. everything `bm_total()` covers.
+An earlier August 2026 ablation of `ppilot` (`CLOUDS=`, `SOUND=`, polygon disable) showed the structural balance that still holds:
 
-| pose | render work | clouds | polygons | clouds % | polys % | together |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| runway | 129,841 | 13,824 | 44,132 | 10.6% | 34.0% | **44.6%** |
-| approach | 100,365 | 15,367 | 17,426 | 15.3% | 17.4% | **32.7%** |
-| cruise | 145,663 | 28,283 | 30,042 | 19.4% | 20.6% | **40.0%** |
-
-`clouds` is `clouds_add_candidates()`. `polygons` is every `poly_draw_3d()` call
-in the grid walk, summed over the frame.
-
-## What it is worth
-
-The same three poses built four ways — both features, each one removed
-(`CLOUDS=` and a `#ifndef __NO_POLY__` around `_world_render_object()`), and
-neither:
-
-| pose | with both | with neither | |
-| --- | ---: | ---: | ---: |
-| runway | 7.12 frames, 7.04 fps | 4.17 frames, 12.02 fps | +5.0 fps |
-| approach | 6.00, 8.35 fps | 4.08, 12.29 fps | +3.9 fps |
-| cruise | 8.00, 6.27 fps | 5.00, 10.02 fps | +3.8 fps |
-
-**Between them, about three PAL frames** — the difference between roughly 7 fps
-and roughly 12 fps.
-
-## The one thing worth acting on
-
-**A single polygon can cost more than everything else in the frame.** On the
-runway there is exactly one on screen and it takes **44,132 cycles, 2.25 PAL
-frames**. The same routine at cruise draws two for 15,021 cycles each.
-`poly_draw_3d()` fills, so its cost tracks the area covered, and the worst case
-is the moment the frame rate matters most: on final with the runway filling the
-viewport.
-
-Clouds are both cheaper and much steadier — 14k to 28k across every pose, and
-the cruise figure was 36,756 before §3.5 collapsed far groups to one blob. If
-there is a second round of that kind of work to do, it is in `poly.cc`, not in
-`clouds.cc`.
+- **Polygons (`PLY` inside `GRD`)** are the single largest variable cost when a large runway or lake fills the near foreground (up to ~35–50% of `GRD`).
+- **Terrain dots & horizon draw (`GRD`, `DRW`, `BGR`, `COL`)** form the steady baseline.
+- **Clouds (`CLD` inside `UPD`)** scale with visible cloud count (~11k–28k cycles; see [clouds.md](clouds.md) §5).
+- **Opponents & combat (`fpilot`)** add ~35k–50k cycles on live close passes (`scramble`, `strafe`) when two silhouettes are projected, filled, and smoking.
+- **Sound (`sound_update` + `sound_blit`)** costs only ~1,500–2,000 cycles (< 2% of a frame).
 
 ## Reading the numbers
 
-- **Frame period quantises, stage counters do not.** The main loop waits for the
-  raster, so a frame is a whole number of PAL frames and the ablation column
-  rounds: removing clouds at cruise reads as 19,645 cycles against the counter's
-  28,283. Use the stage counters for what something *costs* and the ablation for
-  what you would *feel*.
-- **The stage counters are calls, not consequences.** `clouds` excludes the
-  cycles the VIC steals for sprite DMA and the extra work
-  `sprites_stack_commit()` does with a fuller stack. Both are small; neither is
-  zero.
-- **One frame per pose**, with the aircraft frozen, 60 frames in. There is no
-  averaging and no variance figure here, which is fine for 30%-sized effects and
-  would not be for 3%-sized ones.
+1. **Frame rate is quantised to whole PAL frames** (50/4 = 12.5, 50/5 = 10.0, 50/6 = 8.33, 50/7 = 7.14, 50/8 = 6.25 fps). Because `mem_switch_buffer()` waits for the next raster split, `FPS = 50 / ceil(work / 19705)`. A 5,000-cycle saving changes FPS only when it crosses a 19,705-cycle boundary; compare **cycle counts**, not FPS, when profiling.
+2. **Stage counters include VIC DMA steals.** Enabling sprites adds DMA cycles on the scanlines they occupy, so turning clouds or opponents off lowers `BGR`/`DRW`/`GRD` slightly alongside `UPD`.
+3. **Rolling raises `CHR`.** On a frozen pose `box_prepare()` takes its early return (~400 cycles); while rolling, copying new horizon characters costs ~10,000–15,000 cycles.

@@ -1,398 +1,102 @@
-# Sprite Objects — Design Notes (`sprite_objects.md`)
+# Viewport Sprite Objects (`sprite_objects.md`)
 
-**Status: built for clouds and the sun; still a plan for aircraft.** This
-describes the scheme for drawing world objects — clouds, other aircraft,
-possibly projectiles — with the eight hardware sprites in the viewport band.
-§2's restructure shipped as the sprite stack in
-[`c64o/sprites.cc`](../c64o/sprites.cc), designed in detail in
-[clouds.md](clouds.md) §1, which also supersedes §6.1 the way
-[planes.md](planes.md) supersedes §6.2. Clouds and the sun go through it,
-and so do opponents in `fpilot.prg` (planes.md §13), its third client.
+Shipped design for all hardware-sprite objects in the 3D viewport: **clouds**, **sun**, **orientation mark**, **tail fin**, and in `fpilot.prg`, **3D opponent aircraft**, **tracers**, and **smoke**. Implementation lives in `c64o/sprites.{h,cc}`, `c64o/sprites_asm.{h,cc}`, `c64o/clouds.cc`, `c64o/opponent.cc`, and `c64o/gun.cc`.
 
-For how sprites are used today see [project.md](project.md); for the raster
-band split see `gfx.cc`. For the aircraft case in full — which supersedes §6.2
-and §3 — see [planes.md](planes.md).
+---
 
 ## 0. Two absolute rules
 
-Everything below is subject to these, and they are not trade-offs to be
-revisited per object type. They are rules about **world objects in the flight
-viewport** — the title screen's aeroplane is four multicolour sprites and
-breaks the first of them on purpose, for reasons neither rule's argument
-covers (`docs/project.md` §7, `c64o/title.cc`):
-
-- **Hires only. Never multicolour.** One colour per sprite, full horizontal
-  resolution. `$D01C` stays zero.
-- **Never expand along Y.** X-expansion is available. **One exception, for
-  near opponents:** a close aircraft too tall for two sprites — steeply banked,
-  inside ~50 m — expands along Y as well as X ([planes.md](planes.md) §4).
-
-The back view's tail fin (`c64o/sprites.cc`) is the one thing in the viewport
-that expands along Y, and `$D017` is a per-frame register because of it. It is
-allowed to for the same reason the title aeroplane is allowed its multicolour:
-it is not a world object. Both arguments for the rule are about objects that
-are projected, and the fin is bolted to the aircraft — it is at one fixed
-position, at one fixed size, in one view. What it does pay is the rule's real
-cost: a Y-expanded sprite's DMA runs 42 raster lines rather than 21, so it needs
-twice the clearance above the panel split, which is `mem.h`'s
-`kSpritesOffLeadExpandY`. The fin then starts two lines below even that, at
-raster 120, so that its last line is the viewport's last line and it meets the
-panel — which is allowed only because it is two sprites on indices 0–1 that
-never move, and only because it was measured that way with the stack full on
-both emulators (`c64o/sprites.cc`, `kSpriteFinDropLines`). A cloud that expanded
-gets none of that: it moves through the band, so it would have to be culled
-against a line instead of parked on one, and §1.8's whole argument would need
-redoing.
-
-Opponents' exception is not the fin's. Aircraft are projected and do move
-through the band, so the rule's arguments do apply to them — and they no longer
-hold. The shape argument (§3) was about thin lines and dithers: a near-horizontal
-stroke turns into a two-line staircase and a checkerboard into stripes. Opponents
-are now drawn as filled polygons, whose weight is carried by their area, and a
-2 × 2 sprite pixel is exactly the terrain's 2 × 2 dot. The DMA argument is met
-by rasterising: an opponent bitmap is redrawn every frame, so rather than being
-culled against `kSpritesOffLeadExpandY`'s line it slides above it inside its own
-buffer ([planes.md](planes.md) §4). Clouds have neither way out and stay
-unexpanded vertically.
-
-Earlier drafts of §3 and §4 proposed both; those sections have been rewritten.
+1. **No multicolour sprites (`$D01C = 0`) in flight.** Every viewport and panel sprite is hires (24 × 21 px, 1 colour per sprite). The only multicolour sprites in the program are the menu's title aeroplane (`title.cc`, never active during flight).
+2. **No Y-expansion (`$D017 = 0`) by default.** Exceptions are explicitly budgeted for DMA clearance ([clouds.md](clouds.md) §1.8):
+   - Back-view vertical tail fin (slots 0–1, fixed Y = 78 / 120).
+   - Near banked 3D opponents (`kSpriteFlagExpandY`, max start Y = 118, see [planes.md](planes.md) §4).
 
 ---
 
-## 1. What already exists, and what it buys us
+## 1. Band split & properties
 
-The sprite multiplexer in this project is **per raster band, not per object**.
-`gfx_init_raster_irqs()` installs three handlers, and each one re-points all
-eight sprites for the band below it:
+### 1.1 Three raster bands (`gfx.cc`, `-DNUM_IRQS=3`)
 
-| Handler | Raster line | Sprites used |
-| :--- | :--- | :--- |
-| `_switch_to_terrain` | `50 + 200` (latches for the next frame's viewport) | 8 — the committed stack frame: the orientation mark in 0, in front of everything; sun, clouds and opponents in 1–7 |
-| `_switch_to_panel_top` | `50 + 112 - 1` | 1 — vertical speed, index 0 |
-| `_switch_to_panel_bottom` | `50 + 112 + 24` | 7 instrument needles, indices 1–7 |
+The screen is split into three sprite bands by raster IRQs:
 
-When this was written the terrain band used exactly one sprite, the sun at
-index 4, and **seven of the eight were idle for the entire viewport.** So up to
-eight simultaneous objects need no new multiplexing at all: no sorting by Y, no
-mid-band re-latching, no raster splits inside the viewport. That is the
-expensive part of a general sprite engine and this design gets to skip it
-outright, at the price of a hard cap of eight. In the shipped stack it is a cap
-of seven: [clouds.md](clouds.md) §1.9 keeps index 0 for the panel band, and
-spends it on the orientation mark.
+| Band | Starts at raster | Active sprites |
+| --- | ---: | --- |
+| Viewport (MCCM) | **252** | Slot 0: orient mark (front) or fin top (back); slot 1: fin bottom (back) or stack; slots 1–7 (front/side) or 2–7 (back): depth-sorted stack |
+| Panel top (MCBM) | **161** | Sprite 0: vertical-speed needle (slots 1–7 parked) |
+| Panel bottom (MCBM) | **187** | Instrument gauge needles (airspeed, horizon/roll, altimeter, fuel, throttle) |
 
-Two further properties fall out of the existing code for free:
+### 1.2 Viewport sprite properties
 
-### 1.1. Bottom clipping already works
-
-`_switch_to_panel_top` parks sprites at `x = 0` at the viewport edge. The VIC
-compares the X register **per raster line**, so an object straddling the panel
-boundary is cut cleanly at that line rather than having to be culled whole.
-(`x = 0` lands inside the left border, which hides a 24-pixel sprite
-completely. **It does not hide an X-expanded one:** that is 48 pixels wide and
-the left border ends at 24, so parked at 0 it pokes 24 pixels into the picture.
-Any band that parks sprites this way must also clear `$D01D` — see
-[clouds.md](clouds.md) §1.4 and [planes.md](planes.md) §5.)
-
-The sun's old `y >= kRasterScreenYStart + kViewportEndYPixels` cull was
-therefore stricter than it needed to be — it hid an object that could legally be
-shown partially. The stack's cull is a box intersection against the viewport
-band instead, so an object straddling the bottom edge is clipped rather than
-dropped; where exactly, and why sprite DMA has to be off before the panel
-switch, is [clouds.md](clouds.md) §1.8.
-
-### 1.2. Sprite-to-sprite priority is free depth sorting
-
-VIC priority is by index: **lower index draws in front**. If the candidate list
-is sorted by distance and assigned nearest → index 0, correct mutual occlusion
-between objects comes out with no extra work.
-
-Sprites always draw over the character-mode terrain, which is correct here:
-every object of interest is at or above ground level and there is no terrain
-relief to occlude it.
+Every viewport stack candidate passes through `sprites_stack_add()` and obeys the panel-split DMA cutoff (unexpanded start Y ≤ 139, Y-expanded start Y ≤ 118; [clouds.md](clouds.md) §1.8).
 
 ---
 
-## 2. The structural change: index sharing
+## 2. Index sharing
 
-**Built.** `sprites.cc` carries the split below, and the `kIdxThrottle ==
-kIdxSun` / `kIdxFuel == kIdxSun` special cases are gone with it.
-
-Every viewport sprite index collides with an instrument index, because the
-panel uses all of 0–7. This used to be handled by one-off special cases
-(`kIdxSun == kIdxAlt1`, plus `if (kIdxThrottle == kIdxSun)` in
-`sprites_show_panel_bottom_sprites`). That does not generalise to eight shared
-slots.
-
-**The split.** In the panel-top band sprites 1–7 are parked at `x = 0` and
-their colour is irrelevant; only index 0 must be correct. So:
-
-- `_switch_to_panel_top` — cycle-counted and NOP-padded, leave it alone. Set
-  index 0's colour only.
-- `_switch_to_panel_bottom` — not cycle-critical, sits below the split.
-  Restore all eight instrument colours here.
-
-Then the terrain handler is free to write all eight `spr_color` entries without
-any handshake with the panel code.
-
-**Fold the sun into the object list.** Rather than keeping `kIdxSun` special,
-the sun is an ordinary entry with a fixed "infinite" distance (`INT16_MAX`) so
-it always sorts last — highest index, drawn behind everything. One code path,
-one cull test, one set of position registers.
+All 8 hardware sprite indices are time-shared across the three bands without conflict because each band's raster handler reprograms positions, pointers, colours, `$D010`, `$D01D`, `$D017`, and `$D015` for its own vertical range (`sprites.cc`, `sprites_asm.cc`). See [clouds.md](clouds.md) §1 for double buffering, volatile ordering, and IRQ zero-page constraints.
 
 ---
 
 ## 3. Sizing and levels of detail
 
-The viewport is 40 × 14 characters = 320 × 112 screen pixels. The terrain is
-drawn at half that horizontally — **160 × 112 world pixels** — so one world
-pixel is 2 screen pixels wide, which is exactly one X-expanded sprite pixel.
+| Mode | Footprint (screen px) | Pixel size | Used by |
+| --- | --- | --- | --- |
+| 1× hires | 24 × 21 | 1 × 1 | Orient mark, sun, far clouds (rungs 1–3), far/mid opponents, tracers |
+| X-expanded (`$D01D`) | 48 × 21 | 2 × 1 | Mid/near clouds (rungs 4–9), smoke puffs, close tracers, mid/near opponents |
+| 2-wide or 2-tall | 48 × 42 or 96 × 42 | 1×1 or 2×1 | Stacked clouds (rungs 5–9), near opponents |
+| X+Y expanded | 48 × 42 or 96 × 42 | 2 × 2 | Closest banked opponents ([planes.md](planes.md) §4) |
 
-| Sprite configuration | Screen footprint | World footprint | Granularity | Colours |
-| :--- | :--- | :--- | :--- | :--- |
-| Hires, 1:1 | 24 × 21 | 12 × 21 | ½ world px | 1 |
-| Hires, X-expand | 48 × 21 | 24 × 21 | 1 world px | 1 |
-| Two hires stacked, 1:1 | 24 × 42 | 12 × 42 | ½ world px | 1 each |
-| Two hires stacked, X-expand | 48 × 42 | 24 × 42 | 1 world px | 1 each |
-
-The multicolour rows that used to appear here have been removed under §0, and
-so have the Y-expanded ones except for the one opponents use: **2 × 2 hires,
-X- and Y-expanded: 96 × 84 screen pixels, 48 world pixels by 84 lines, each
-sprite pixel one world pixel by two lines** — see below.
-
-A single X-expanded sprite is **24 world pixels wide — 15% of the viewport
-width**. That is already large. The detail ladder therefore lives mostly in the
-bitmap, not in the sprite count:
-
-1. Small silhouette inside one sprite (distant).
-2. X-expand — still one sprite, 48 × 21 screen pixels (mid).
-3. 1 × 2 stack — two sprites, 48 × 42 (near).
-
-Y-expansion used to be listed here as a free third rung, on the grounds that it
-costs nothing from the budget of eight. It costs nothing in *sprites* and a
-great deal in *shape*: it halves vertical placement precision, which for an
-aircraft is exactly the axis a near-horizontal wing line is read by, and for a
-cloud makes the checkerboard dither read as stripes. X-expansion by contrast
-lands on 2 screen pixels — the same granularity as the world around it — so it
-costs nothing either way. See [planes.md](planes.md) §4.
-
-That is still the rule for clouds. Aircraft have since got Y-expansion back,
-taken together with X, because they are filled polygons now and the staircase
-argument was about lines ([planes.md](planes.md) §1) — but only as a last
-resort, when a close aircraft is too tall for two unexpanded sprites, so a level
-opponent keeps one line per pixel however near it comes. Their horizontal pixel
-size follows **distance** — 1:1, then X — and their sprite layout, 1 × 1 up to
-2 × 2, follows the bounding box; the layout changes no pixel.
-
-**Vertical granularity mismatch — 2:1, and only vertically.** An earlier draft
-of this paragraph said the terrain dot characters put each plotted dot in a
-"4 × 4 screen-pixel quadrant, i.e. 4 raster lines tall". That is wrong by a
-factor of two on both axes. `gfx_draw_projected()` selects the character with
-`((lpx & 0x06) >> 1) + ((lpy & 0x06) << 1)` — four sub-positions per axis
-across an 8 × 8 cell, so each is **2 × 2 screen pixels**; the 16 variants are a
-4 × 4 *arrangement*, not a 4 × 4 pixel. `tools/generate_gfx_chars.py` draws the
-glyph to match: one multicolour pixel wide (`alt_lines[x]`, 2 screen pixels)
-and two raster lines tall (`char_bytes[y * 2]` and `char_bytes[y * 2 + 1]`).
-
-So the comparison is: **horizontally 1:1** — an X-expanded sprite pixel is 2
-screen pixels and so is a terrain dot, which is the same point made above — and
-**vertically 2:1**, an unexpanded sprite line against the dot's two. One axis,
-one factor of two, against a world the eye has no finer reference for. This is
-not a problem and does not need Y-expansion to fix, which is just as well,
-since §0 rules it out.
-
-For clouds the question does not arise at all: the dither-phase snap in
-[clouds.md](clouds.md) §4 quantises a cloud's vertical position to two raster
-lines, putting it on exactly the terrain's own 2 × 2 lattice.
+Note on granularity: MCCM ground dots sit on a **2 × 2 screen-pixel** lattice, so X-expanded sprites (2 × 1) and dither-snapped clouds ([clouds.md](clouds.md) §4.5) match the viewport's visual scale closely.
 
 ---
 
 ## 4. Colour
 
-**Hires, one colour per sprite, for everything** (§0). Sprite mode is selectable
-per sprite via `$D01C`, and this project does not use it.
+Hires sprites have one colour register each (`$D027–$D02E`):
 
-An earlier draft argued for multicolour clouds — soft blobs that want shading,
-two shared colours plus one per sprite. Shading is instead done with a
-**dither**: a cloud is a white-and-transparent checkerboard, which at 1 bit per
-pixel reads as a light half-tone against the sky and needs no second colour.
-Hires keeps the full horizontal resolution the dither depends on; in
-multicolour the checkerboard would collapse into flat 2-pixel blocks.
-
-- **Clouds** — white, checkerboard-dithered (§6.1).
-- **Aircraft** — one fixed grey, no background test
-  ([planes.md](planes.md) §8).
+| Object | Colour |
+| --- | --- |
+| Clouds | `COLOR_CLOUD` (`kColorWhite`, or `kColorMedGray` at Night in `ppilot`) — 50% checkerboard dither |
+| Sun | `COLOR_SUN` (`kColorYellow`, or `kColorWhite` at Dusk/Night in `ppilot`) |
+| Orientation mark | `kColorWhite` |
+| Back-view tail fin | `COLOR_FIN` (`kColorLightGray` Earth/Desert, `kColorMedGray` Dusk/Night) |
+| Opponents | `kColorOpponentFar` (`kColorBlack`) when far (`d < 8`), `kColorOpponentNear` (`kColorDarkGray` fighters / `kColorBrown` bombers) when near |
+| Tracers | `kColorYellow` |
+| Smoke / ground puff | `kColorBlack` (checkerboard dither) |
 
 ---
 
-## 5. Per-frame cost, which is the actual constraint
+## 5. Per-frame cost
 
-**Measured since.** The whole cloud scan — the 25 hash gates, every group it
-finds and every blob it projects — is 13,824 to 28,283 cycles depending on the
-pose, and `sprites_stack_commit()` is about 250; [clouds.md](clouds.md) §5 has
-the per-step breakdown and [framerate.md](framerate.md) the poses. The debug
-view reports both live as `CLD` and `SPR`. The per-object estimate below was
-close enough that none of the mitigations under it were needed.
+Measured against the ~98,500–153,000-cycle frame budget ([framerate.md](framerate.md)):
+- Clouds (`CLD`): 11.8k–28.3k cycles ([clouds.md](clouds.md) §5).
+- Stack commit (`SPR`): ~250–990 cycles (`sprites_asm.cc`).
+- Opponents + guns (`fpilot` live combat): ~35k–50k cycles on close passes ([planes.md](planes.md) §11).
 
-Each visible object needs `vec_transform_inv` followed by `vec_project`, and
-`vec_project` carries a 16-bit divide. Estimating around **1,000 cycles per
-object**, eight objects is ~8,000 cycles.
+### 5.1 Cheap world-space rejection
 
-> **Correction: the denominator is the sim frame, not the PAL frame.** An
-> earlier draft of this section compared 8,000 cycles against a 19,705-cycle
-> PAL frame and concluded it does not fit. But the viewport is rebuilt once per
-> `flight_advance`, at a wobbling ~10 Hz — five PAL frames, ~98,500 cycles. On
-> that budget eight objects is **8%**, alongside `flight_advance` (up to ~6,000
-> on a re-orthonormalising frame, [flight.md](flight.md) §1) and the grid
-> render. Eight is affordable. See [planes.md](planes.md) §11 for a measured-
-> operation breakdown of the two-aircraft case, which comes to ~7,600 cycles.
-
-That does not make the mitigations below pointless — it makes them optional
-rather than load-bearing, and worth adding when the object count grows past a
-handful of clouds.
-
-Design the mitigations in from the start rather than bolting them on:
-
-1. **Cheap world-space reject before projecting.** A `front · delta` sign test
-   plus a Manhattan distance bound rejects most candidates for roughly three
-   multiplications, well under a tenth of a full projection.
-2. **Round-robin the candidate scan.** *Which* objects are nearby changes
-   slowly; *where they are on screen* changes every frame. Rescan the candidate
-   set at 5–10 Hz and project only the selected few each frame.
-3. **Budget four or five concurrent objects, not eight.** Eight is the hardware
-   ceiling, not the performance target.
-4. **Measure before committing.** `benchmark.h` provides the harness
-   (`__DEBUG_CYCLES__`); when this was written there was exactly one `bm_end`
-   call site, in `world_update_sun_pos`. Done — the cloud scan and the stack
-   commit are the `CLD` and `SPR` counters in the debug view, and the object
-   count was fixed at seven with those numbers in hand. Of the four items here
-   this is the only one that happened; 1 is in `clouds.cc` as the Manhattan
-   reject and the wedge test, and 2 and 3 were not needed.
-
-Do **not** try to save cycles by projecting distant objects on alternate
-frames. Camera rotation moves them across the screen even when they are
-stationary in the world, so a half-rate update reads as jitter, not economy.
+Every sprite client rejects out-of-range and behind-camera objects in cheap integer world/camera space before projecting or rasterising (clouds: 5 × 5 cell scan + 4,096 m cull + staged wedge reject; opponents: staged row-by-row `vec_dot` frustum reject; tracers: staged `_gun_view_round`). Never run position projection at half rate (opponents split only *silhouette refill* across frames while placing the sprite every frame so motion stays smooth).
 
 ---
 
 ## 6. Object classes
 
-### 6.1. Clouds — procedural placement, pre-rendered art
+### 6.1 Clouds
 
-**Positions are procedural; bitmaps are not.** Clouds are the opposite of
-aircraft in this respect, and for a good reason: a cloud has no orientation, so
-its appearance depends on size alone and a short ladder of pre-rendered bitmaps
-covers every case. Aircraft need a shape per attitude, which is why they are
-drawn at runtime ([planes.md](planes.md) §1).
+5 × 5 cell scan (2,048 m cells, 37/128 active), 4,096 m cull, 3-blob groups collapsing to 1 blob past 1,864 m, occupying 14 static sprite blocks at `$D440–$D7BF` (pointers 81–94; block 80 at `$D400` is the orientation mark). Full spec in [clouds.md](clouds.md).
 
-**Art.** A circle filled with a **white-and-transparent checkerboard**. At 1
-bit per pixel the 50% dither reads as a light half-tone against the blue sky —
-softer than solid white, and it lets the sky through so the cloud does not read
-as a cut-out. Hires only, so the checkerboard stays a checkerboard (§4).
+### 6.2 Other aircraft (`fpilot.prg`)
 
-**Ladder.** One sprite (1 × 1) for distant to mid-range clouds, two stacked (1 × 2) when near, all using X-expansion. Extracted from `gfx/ppilot_clouds_concept.png` (upper set) into 10 sizes across 15 sprite blocks:
-- **1 sprite** (4 sizes, pointers 81–84): 5×9, 7×13, 9×17, 11×21 (world width × raster lines). A 3×5 at pointer 80 was dropped: [clouds.md](clouds.md) §3.5 shows the size ladder can never select it, and §1.9's orientation indicator has the block now.
-- **2 sprites stacked** (5 sizes, 10 bitmaps, pointers 85–94 as `[top, bot]` pairs): 13×25, 15×29, 17×33, 19×37, 21×41.
+Filled convex 3D polygon silhouettes rasterised dynamically into **16 sprite blocks at `$D000–$D3FF`** (2 opponents × 2 double-buffered 4-block sets, under I/O, time-shared with map screen RAM and title sprites) plus **1 static dot block (`kOpponentDotBlock`) at `$CFC0`**. Up to 4 sprites for the nearer opponent and 2 for the farther (capped to 2+2 when tracers/smoke/fin tighten the 7/6-slot stack). Full spec in [planes.md](planes.md).
 
-**They occlude the horizon line.** A cloud is drawn in front of the terrain
-like every other sprite, not clipped to the sky. A cloud that cut off at the
-horizon would read as a hole in the world; one that overlaps it reads as
-distance.
+### 6.3 Projectiles & smoke (`fpilot.prg`)
 
-**Placement.** Derive positions by hashing the world tile coordinate. The map
-is 32 × 16 and wraps ([world.h](../c64o/world.h)), so a hash over
-`(tile_x, tile_y)` yields position, size and a fixed altitude band with **zero
-RAM** for the layout and an unbounded number of clouds.
-
-This also gives the nearby-object query for free: a 3 × 3 tile scan around the
-aircraft *is* the candidate set, and it doubles as the cull radius.
-
-Cap draw distance at two to three tiles. Beyond that the 8.8 projection
-shimmers by whole world pixels as the camera rotates. Fade in by stepping up
-the ladder rather than popping the sprite on at full size.
-
-**Where the bitmaps live.** `$D400–$D7BF` — 15 free sprite blocks, pointers
-80–94. That region is RAM under the SID, so writing it needs `$01` banked.
-Cloud bitmaps are written **once at startup**, exactly like the instrument
-needles already there. Writing under I/O once needed interrupts off as well,
-which is why this section used to put the dynamic aircraft buffers in plain
-RAM; the raster interrupt's entry now banks I/O in for itself (`gfx.cc`
-`_gfx_isr`), so the plan for those buffers is under I/O too, in the 1 KB at
-`$D000` that the map view and the title screen already share
-([planes.md](planes.md) §5).
-
-### 6.2. Other aircraft
-
-**Designed in full in [planes.md](planes.md); this section is superseded.**
-
-The reasoning that led here was: aircraft need orientation-dependent
-silhouettes, a full azimuth × elevation set is unaffordable, so approximate it
-with a generic airframe at three sizes plus head-on and tail-on views — six to
-eight bitmaps at 64 bytes each.
-
-The premise is what turned out to be wrong. An aircraft silhouette at sprite
-scale is **three straight lines**, and their endpoints come out of the existing
-projection directly, so the bitmap can be drawn at runtime. There is no bitmap
-count to bound and no azimuth × elevation set to approximate — just two
-double-buffered scratch blocks per aircraft in plain RAM, plus **one** shared
-static block for the far tier, where an aircraft is under 4 px and has no
-silhouette left to draw. That one block lives in `$D400` next to the cloud art
-(§6.1). Nothing needs checking against [memory_map.md](memory_map.md).
-
-### 6.3. Projectiles — do not spend sprites on these
-
-Projectiles have no shape and want to be numerous, which is the opposite of
-what a sprite is good at. `gfx_draw_projected()` already plots a coloured
-point into the character grid: cheaper per projectile, unbounded count, and it
-leaves all eight sprites for objects that need a silhouette.
+Uses at most **2 stack sprites** and **zero new sprite blocks** (`c64o/gun.cc`, [projectiles.md](projectiles.md)):
+- **1 tracer:** reuses the 32 instrument arm bitmaps (pointers 96–127) in `kColorYellow`, optional `ExpandX` when close.
+- **1 smoke/ground-hit puff:** reuses cloud rungs 1–4 (pointers 81–84) in `kColorBlack` with `ExpandX | AlignDither`.
 
 ---
 
-## 7. Known rough edge: the message strip
+## 7. Message strip
 
-**Resolved by keeping the overlap test.** `_sprites_hidden_by_msg()` runs the
-box test once per candidate inside `sprites_stack_add()`, and at the measured
-cost of the scan (§5) the extra comparisons are not worth trading picture for.
-
-The concern was that `_hidden_by_msg` was one box-overlap test against the
-message span, run for the sun alone, and that with eight objects it becomes
-eight tests per frame. The cheap alternative — cull any object sprite whose top
-lands in the message band while a message is up — hides more than necessary and
-was not needed. Moving messages to the bottom of the viewport would remove the
-conflict entirely and is still worth considering separately.
-
----
-
-## 8. Open questions
-
-- ~~Does the projection loop actually cost ~1,000 cycles per object?~~
-  **Answered — measured, and close enough.** The cloud scan runs 13,824 to
-  28,283 cycles across the three poses in [framerate.md](framerate.md), 11% to
-  19% of the render, and `CLD` in the debug view reports it live. The object
-  count is settled at seven ([clouds.md](clouds.md) §1.9) and none of §5's
-  mitigations were needed.
-- ~~Is the 4:1 vertical granularity mismatch (§3) visible enough to matter?~~
-  **Answered — the premise was wrong.** It is 2:1, not 4:1, and only on the
-  vertical axis; §3 has been corrected. Not visible enough to matter, and moot
-  for clouds, which land on the terrain's lattice exactly
-  ([clouds.md](clouds.md) §4.5).
-- ~~Should clouds occlude the horizon line, or is drawing them only above it
-  sufficient and cheaper?~~ **Answered** — they occlude it (§6.1). A cloud
-  clipped at the horizon reads as a hole in the world.
-- ~~How many cloud radii, and at what sizes?~~ **Answered** — a ten-rung
-  ladder over 9 bitmap sets in 14 sprite blocks: 4 single-sprite (5×9 to 11×21,
-  pointers 81–84) and 5 two-sprite stacks (13×25 to 21×41, pointers 85–94)
-  (§6.1). The fifteenth block went to the orientation mark once
-  [clouds.md](clouds.md) §3.5 showed the ladder could never select the smallest
-  rung's own bitmap.
-- ~~Do aircraft need per-object colour at all, or is a single opponent colour
-  enough to free the colour writes in the terrain handler?~~ **Answered** —
-  [planes.md](planes.md) §8: one colour per aircraft at a time, black under
-  about 8 pixels and dark grey nearer, no background test. An
-  above/below-the-horizon switch was designed and dropped, because a target
-  crossing the horizon would change colour mid-manoeuvre. The terrain handler
-  writes all eight colours anyway (§2), so nothing was freed either way.
-- One more thing this document got right and should not be relitigated: §5's
-  warning against projecting distant objects on alternate frames. Camera
-  rotation moves stationary objects across the screen, so half-rate updates
-  read as jitter. [planes.md](planes.md) adopts every-sim-frame updates on that
-  basis.
+Status notices occupy row 13 of the viewport (`msg.cc`). When `msg_active()` is true, `sprites_stack_add()` rejects candidates overlapping row 13 (`_sprites_hidden_by_msg()`) so sprites do not obscure HUD text.

@@ -374,7 +374,7 @@ static const int16_t kFlightLiftSat = 4096;
 //
 // 4 was chosen first, on prototype numbers that turned out to be measuring the
 // harness - a glide read off a run that had never settled, in half density air
-// a long way above the ceiling knee. See docs/flight_aoa.md 4.
+// a long way above the ceiling knee. See docs/flight.md 9.
 static const uint8_t kFlightInducedShift = 6;
 
 // 65536 / V, indexed by V >> 8. The 1/V in "flight path curvature is force
@@ -438,7 +438,7 @@ static const int16_t kFlightMaxStallPitchZ = 224;
 //
 // This is a fudge, and it is here to compensate for a hole in the model rather
 // than because a wing works this way: lift is f(V^2, up.z) and front.z never
-// enters it (flight_review.md A), so rotating the nose cannot make the force
+// enters it (docs/flight.md 2.1), so rotating the nose cannot make the force
 // that lifts the aircraft off. All pitch can do is aim the flight path up and
 // out-climb the sink penalty, and with the one step the rotation used to apply
 // (front.z = 16, ~3.6 deg) that crossover sits at airspeed 1608 - about 40% of
@@ -1585,7 +1585,7 @@ void flight_advance() {
     // units a step per radian, so rot = 2 * L_horizontal / V.
     //
     // What this replaces was `rot = left.z >> 5` - about 1.6 times this at
-    // cruise, and flat in airspeed, which is flight_review.md B4. It also
+    // cruise, and flat in airspeed (docs/flight.md 3.1). It also
     // replaces the bank drag term that used to sit in the speed equation:
     // induced drag is C_L^2 and a banked turn needs more C_L, so the turn
     // pays for itself now.

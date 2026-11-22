@@ -119,14 +119,16 @@ DESCRIPTIONS = {
     },
     'World Model': {
         'Code': 'flight dynamics, physics integration, waypoint checking, '
-                'terrain grid rendering, clouds, opponents and guns (`flight.cc`, '
-                '`world.cc`, `world_asm.h`, `sim.cc`, `world_map.cc`, '
-                '`clouds.cc`, `opponent.cc`, `opponent_asm.cc`, `planes.cc`, '
-                '`planes_asm.cc`, `gun.cc`, `gun_asm.cc`)',
-        'Data': 'orientation matrices (`mat3_rot`), the world '
-                'map, cloud hash and ladder tables, 3D aircraft models and paths',
+                'terrain grid rendering, clouds, opponents, guns and damage '
+                '(`flight.cc`, `world.cc`, `world_asm.h`, `sim.cc`, '
+                '`world_map.cc`, `clouds.cc`, `opponent.cc`, `opponent_asm.cc`, '
+                '`planes.cc`, `planes_asm.cc`, `gun.cc`, `gun_asm.cc`, '
+                '`damage.cc`)',
+        'Data': 'world map, cloud hash and ladder tables, 3D aircraft models '
+                'and opponent paths',
         'BSS': 'flight path history (`flight_path_px/py`), delta transform '
-               'vectors (`_world_dx4`, `_world_dy4`), camera, opponent and gun state',
+               'vectors (`_world_dx4`, `_world_dy4`), camera, opponent, gun '
+               'and damage state',
         'ZP': 'flight state (`flight_eye_x/y/z`, `flight_speed`, '
               '`flight_throttle`, `flight_fuel`, `flight_vspeed`) and triangle '
               'rasteriser registers (`tfill_*`, `tscan_*`)',
@@ -146,16 +148,17 @@ DESCRIPTIONS = {
                 '`$F000-$F17F`), and both screens\' sprite pointers',
     },
     'Menu & Missions': {
-        'Code': 'menu loop, mission cursor, help screen, map view, title '
-                'screen flyby (`menu.cc`, `pmission.cc`, `help.cc`, `map.cc`, '
-                '`title.cc`)',
-        'Data': 'menu and mission text, mission definitions, help text, '
-                'map tiles, the compressed title aircraft bitmaps',
+        'Code': 'menu loop, mission cursor, mission tables, debrief, help '
+                'screen, map view, title flyby (`menu.cc`, `pmission.cc` / '
+                '`fmission.cc`, `debrief.cc`, `help.cc`, `map.cc`, `title.cc`)',
+        'Data': 'menu, debrief and mission text, mission definitions, help '
+                'text, map tiles, the compressed title aircraft bitmaps',
         'BSS': 'the flyby timer',
         'ZP': 'flyby position and state',
         'VRAM': '`$D000-$D3FF`, RAM under I/O, time-shared: the map view\'s '
                 'screen RAM while the map is open, the title aircraft\'s four '
-                'sprite blocks while the menu is',
+                'sprite blocks on the menu, and fpilot\'s 16 opponent sprite '
+                'blocks during flight',
     },
     'Message System': {
         'Code': 'status message timer, line formatter, clear and restore '
@@ -167,8 +170,9 @@ DESCRIPTIONS = {
     },
     'Sound Effects': {
         'Code': 'SID driver, engine generator, stall alarm, wind noise, '
-                'volume control (`sound.cc`)',
-        'Data': 'engine pitch table, wind frequency table, volume names',
+                'combat effects, volume control (`sound.cc`)',
+        'Data': 'engine pitch table, wind frequency table, voice-3 tables, '
+                'volume names',
         'BSS': 'the SID register shadow',
         'ZP': 'PWM phase, generation counters, RNG, voice-3 arbitration, '
               'stall phase',
@@ -177,9 +181,9 @@ DESCRIPTIONS = {
     'Music': {
         'Code': 'playback driver, tick handler, note-to-frequency conversion '
                 '(`music.cc`)',
-        'Data': 'note table, per-row lead and bass streams, chord table, '
-                'volume map and mix matrix, bit-packed gate and drum masks',
-        'BSS': 'voice-3 sweep step',
+        'Data': 'note table, packed lead/bass/chord/gate/drum pools, '
+                'volume map, drum instruments',
+        'BSS': 'PWM phase and voice control shadow',
         'ZP': 'row, bar and frame counters, arpeggio index, voice-3 ownership',
         'VRAM': '',
     },
@@ -199,7 +203,7 @@ DESCRIPTIONS = {
                 '`bcd.cc`, `print.cc`); the boot-only part of it is the boot '
                 'region at `$0860`, which is `box.cc`\'s cache space once it '
                 'has run',
-        'Data': 'startup header, screen row pointer tables, fill patterns',
+        'Data': 'startup header, fill patterns, panel row/column tables',
         'BSS': 'raster IRQ lists, keyboard matrix, CPU probe results',
         'ZP': 'compiler temporaries and kernel flags',
         'VRAM': '',

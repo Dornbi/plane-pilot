@@ -3,10 +3,9 @@
 
 // Prototype: a flight model with an angle of attack.
 //
-// This is not in the game build. It exists to answer the open item at the top
-// of docs/flight_review.md ("Decide the direction for A - either add an AoA
-// term to lift, or keep the speed-and-bank model"), by being the AoA model in
-// enough detail to measure. docs/flight_aoa.md is the write-up; aoa_proto.cc
+// This is not in the game build. It exists to measure an AoA flight model
+// against the shipping arcade model. docs/flight.md 9 summarizes the AoA model
+// and why it was not shipped; aoa_proto.cc
 // drives both this and the shipping flight.cc through the same sweeps and
 // prints the two answers side by side.
 //

@@ -1,862 +1,254 @@
-# Flight Dynamics Model Requirements Specification (`flight.md`)
+# Flight Model (`c64o/flight.cc`)
 
-## 1. Overview & 8-Bit Architecture Constraints
+## 1. Overview & architecture constraints
 
-This document specifies the flight dynamics model requirements for the C64 flight simulator project. The flight model is engineered specifically for performance on 8-bit architecture (MOS 6502 @ 1 MHz).
+Both `ppilot.prg` and `fpilot.prg` ship with the **arcade flight model** (`FLIGHT_AOA ?= 0` in [c64o/Makefile](../c64o/Makefile)). An optional **angle-of-attack (AoA) model** (`FLIGHT_AOA=1`, `-D__FLIGHT_AOA__`, tracked by `c64o/.flight_model`) remains in `flight.cc` (covered by `flight_test` — 63 arcade / 64 AoA tests — and `fpilot_test`), but was reverted because it cannot fly a loop (§9).
 
-### Two models, one build flag
+### Fixed-point scales & conventions
 
-There are two flight models in `flight.cc`, selected by `__FLIGHT_AOA__`. **Both
-games ship the arcade model** (again, since 2026-11-05). The angle-of-attack
-model shipped in both from 2026-11-04 to 2026-11-05 and is still there, built
-with `make prg FLIGHT_AOA=1`, but it cannot fly a loop - its flight path stops
-curving before the vertical and cannot go over the top (`flight_aoa.md` §8) -
-so both went back:
-
-| | arcade (the default) | angle of attack (`FLIGHT_AOA=1`) |
-| :--- | :--- | :--- |
-| Lift | $f(V^2, \text{bank})$; `front.z` never enters it | $f(C_L(\alpha), V^2, \text{up.z})$ |
-| Airspeed points | along the nose, by definition | along its own flight path |
-| Stall | a speed the code is told | an angle; the speeds are derived |
-| A held pull | loops, ~108 steps a loop from cruise | the nose tops out at 50-65 degrees |
-| ppilot's free RAM | 12,885 B | 12,110 B (**775 B** less) |
-| fpilot's main region free | 985 B | 83 B (**902 B** less) |
-
-The angle-of-attack model is the better aeroplane short of the vertical and
-the arcade one is the cheaper, which was the whole of the trade until the loop.
-Both are covered by the host suite - `make -C c64o/test test` runs the arcade
-model, `test-both` both - which carries two sets of expectations because for
-several cases they are opposites, and by a narrowing baseline each.
-
-**ppilot** follows `FLIGHT_AOA`, 0 unless it is set. That path keeps a
-`.flight_model` stamp the binary depends on, because make otherwise sees the
-same sources under the same name and hands back the binary it already had - a
-silent wrong answer, and the worst kind for a flag whose purpose is comparing
-two things. `ppilota.prg`, ppilot with the angle-of-attack model under its own
-name, was built alongside the arcade ppilot until then; with ppilot on the same
-model it went.
-
-**fpilot** follows `FLIGHT_AOA` as ppilot does, on the same stamp, and so do
-its host tests (`opponent_test`, `gun_test`, `fpilot_test`, `mission_test`).
-Until 2026-11-05 it was always the angle-of-attack model. Back on the arcade
-model `fpilot_test`'s stall-warning cases, which hold the angle-of-attack
-model's buffet to not warning, are built only with it, and `mission_test`'s
-dogfight pilot flies the arcade model differently where it has to:
-
-- **Extending climbs only with speed.** Holding the nose up for the 300 m
-  floor bled it to ~800 with 04's pair 50 m behind; it dives to the floor
-  but climbs to it only above 1,800.
-- **Idle on a close tail.** The arcade model sheds speed slowly: at 10 it
-  overran 08's circling fighter, 2,250 against its 1,600, into it.
-- **Bombers from behind only.** Its flight path goes where the nose does, so
-  tracking 06's bombers over the top head-on stood it on its tail at 283.
-
-And one mission changed: 10's hunters fly at 2,400, not 2,700. The arcade
-model has no dive past full throttle's ~2,500, so at 2,700 they ran down a
-player who extended from them.
-
-The switch to the angle-of-attack model, on 2026-11-04, had cost 804 B -
-fpilot went from 2,262 to 1,458 B free, its largest run from 1,532 to 734 B -
-and took retuning the scripted pilots for it, not the missions:
-
-- **Height by climb rate.** Holding height by flicking the nose at it bled
-  ~400 of airspeed through induced drag - level at 5,000 ft the aircraft
-  settled at the recon's own 1,750 instead of ~2,155 - so the pilots now ask
-  for a climb rate in proportion to the height error (`hold_height()`).
-- **Gear up after take-off.** Down, it costs ~140 of top speed.
-- **60 degree turns, not 45.** The turn rate is g tan(bank) / V here, so 45
-  is wide at combat speed.
-- **Extending in a descent.** Level at full throttle the aircraft is only
-  ~10 m/s faster than a fighter, so a fighter 300 m behind stayed in range
-  for half a minute; descending to the pilot's floor clears it, and it
-  turns back at 1.2 km rather than 1.5.
-
-With those, every mission was won as before: the recon caught with 3.3 min
-in hand and shot down at 2.6 min, the bombers down at 3.2 min, the scramble
-at 2.6 min unhit, the head-on pair at 2.0 min with one hit taken.
-
-**Everything from §2 on describes the angle-of-attack model**, which no longer
-ships, unless it says
-otherwise, because that is the model these sections were written against and
-measured on. Where the arcade model differs, the difference is called out - and
-it usually is the difference, since almost every number here moved.
-
-### The shape of the model (`FLIGHT_AOA=1`)
-
-The aircraft has two directions, not one. `flight_cam.front` is where the nose
-points; `flight_gamma` is where the aircraft is actually going. The angle
-between them is the angle of attack, and it is the wing's input:
-
-$$\alpha_{16} = (\text{front.z} \ll 4) - \text{flight\_gamma}, \qquad C_L = \alpha_{16} + \text{camber}$$
-
-Lift is $C_L V^2$, drag is parasite plus $C_L^2 V^2$, and the net vertical
-force integrates into the flight path. The pilot's stick sets the nose; the
-wing sets the path. **Everything else in this document is a consequence of
-that**, including the stall speeds, which the model is never told.
-
-It was not always the only model, and it still is not the default one. The
-arcade model - lift $f(V^2, \text{bank})$ with `front.z` nowhere in it, airspeed
-along the nose by definition, and the stall a speed the code carries as a
-constant - is what `make prg` builds. `docs/flight_aoa.md` is the prototype that
-produced the alternative and the measurements either side.
-
-### 8-Bit Implementation Rules
-
-- **Fixed-Point Precision**:
-  - Aircraft position ($X, Y, Z$): 24.8 fixed-point (`int32_t`), in half
-    metres: a world unit (`>> 16`) is 128 m ([map.md](map.md) §4, "The scale").
-  - **What the airspeed is in the world.** Each step moves the aircraft
-    `flight_speed << 1` of the position's 1/256ths, so 256 of airspeed is 1 m
-    a step. There is one step per rendered frame (two or four under time
-    compression, T: §8), ~6-8 a second on a stock C64, so at 7: the clean stall, 1024, is ~100 km/h; half throttle's 1476
-    ~145; full throttle's ~2430 ~240; and `kMaxSpeed`, 3840, ~380 in a dive.
-  - Velocities ($V_{\text{speed}}, V_{\text{vspeed}}$), angles, and scalars: 8.8 fixed-point (`int16_t` / `uint16_t`).
-  - Orientation matrix: 3x3 orthonormal direction cosine matrix (`mat3_t`), with periodic re-orthonormalization (`vec_orthonormalize`).
-  - **Flight path and angle of attack: 4096 = 1.0**, sixteen times finer than a
-    direction cosine. This is not spare precision, it is the minimum the model
-    works at. The flight path is integrated from a force, so a lift imbalance
-    too small to move one unit of it is an imbalance the aircraft never feels;
-    at the 256 scale that dead band is 6% of the weight, and the flight path
-    could not settle, only hunt across it. At 4096 the smallest step is under
-    0.4% and every steady state in this document is bit-stable.
-- **No Floating Point / No Runtime Division**:
-  - All aerodynamic equations must use integer shifts (`>>`), 8.8 fast multiplications (`vec_fastmul8p8`), and precomputed lookup tables (LUTs).
-  - There is exactly one table, `kFlightRecipV`, sixteen entries of $65536/V$.
-    The lift curve needs none: the lift slope is chosen so that $C_L$ and
-    $\alpha_{16}$ are the same number below the stall.
-  - Longitudinal forces are summed at eight times `flight_speed`'s resolution
-    and divided once, with the remainder carried in `model_dv_rem`. The turn
-    carries its own remainder for the same reason - a 15 degree bank at cruise
-    turns at under one unit a step, and one unit is the smallest rotation
-    `vec_turn3_xy` can be asked for.
-- **Execution Budget**:
-  - A PAL C64 frame at 50 Hz is **19,705 cycles**. `flight_advance()` is one
-    item in a frame that also has to render the 3D view, so its share has to
-    stay small.
-  - The cost splits in two, and the split is most of the story. Measured on an
-    emulated 6510 by `c64o/proto/cycles_probe.cc` (`make -C c64o/proto
-    cycles`), which times single calls with CIA2 timer A and reports the
-    cheapest of sixteen:
-
-| | cycles |
-| --- | ---: |
-| a step that does not re-orthonormalize (trimmed, wings level) | **5,184** |
-| a step that does (any control input, any bank, every ground frame) | **12,186** |
-| `vec_orthonormalize()` alone | 5,754 wings level, ~9,600 banked |
-
-  - So re-orthonormalization is more than half of an expensive step, and it is
-    untouched by the angle-of-attack work. The figure this document carried for
-    the old model's cheap step was ~5,000, which is 5,184 to within the
-    precision it was quoted at - the aerodynamics grew several multiplies and
-    lost the lift-deficit chain, the bank drag term and its `vec_fastsqr8p8`,
-    and the two roughly cancel. `model_need_normalize` is still the thing worth
-    being stingy with.
-  - A like-for-like re-measure of the old build with the same probe was
-    attempted and abandoned: oscar64 aborts on a copy of the tree, and the
-    alternative was overwriting the working one. The old numbers below are the
-    in-game `MDL` readings this document has always carried.
-
----
-
-## 2. Core Aerodynamic & Equilibrium Flight Regimes
-
-### 2.1. Straight & Level Flight Dynamics
-
-> **Throttle convention**: throttle is an integer $0 \dots \text{kMaxThrottle} = \text{0x18} = 24$. Percentages below are of that range, so "50%" means throttle 12.
-
-- **Lift Balance**: $L = W$, and the wing gets there by angle. $\text{lift} =
-  C_L(\alpha) \cdot V^2 \cdot \text{up.z}$, so holding altitude at any airspeed
-  is a question of how much angle of attack the pilot is holding.
-- **What "trim" means here**: the attitude that puts the wing at the angle the
-  weight needs. In level flight the flight path is zero, so the level attitude
-  *is* the angle of attack, and the faster the aircraft goes the less of it it
-  needs.
-- **There is no speed at which level flight is free.** $\text{front.z} = 0$ is a
-  descent at every throttle setting, because a symmetric-ish wing at zero angle
-  makes only its camber's worth of lift. This is the most visible change from
-  the model that came before, where above a trim speed the level attitude was
-  $\text{front.z} = 0$ exactly and no faster level trim existed.
-- **Trim vs. Airspeed & Throttle** (measured, upright, clean, sea level, run to
-  a bit-stable steady state; `kFlightInducedShift` 6, and in brackets 5, what
-  shipped until 2026-11-04):
-
-| Throttle | Level pitch | Angle of attack | Settled airspeed |
-| :--- | ---: | ---: | ---: |
-| 12 (50%) | 16 (23) | 16 (22) | 1673 (1476) |
-| 14 (58%) | 12 (15) | 12 (14) | 1837 (1719) |
-| 16 (67%) | 9 (11) | 9 (10) | 1991 (1906) |
-| 18 (75%) | 7 (8) | 7 (8) | 2126 (2055) |
-| 20 (83%) | 6 (6) | 5 (6) | 2247 (2194) |
-| 24 (100%) | 3 (4) | 3 (3) | 2482 (2436) |
-
-  *Most other figures in §2-§7 - the inverted table, the summary matrix, the
-  accelerated stall's 2290 - were measured at shift 5 and are a little low on
-  speed and high on drag for what ships now.*
-
-- **Below about 50% throttle the only level trims are on the back side of the
-  power curve**, at angles within a few units of the break and airspeeds around
-  1000-1100. They exist - the sweep finds one at 33% - but they are not trims a
-  pilot can hold: a unit of angle either way either stalls the wing or starts a
-  descent that needs more power than there is to arrest. Treat ~50% as the
-  practical floor and the 33% row as a curiosity of the drag curve.
-- With flaps down the picture shifts down and forward: 41% holds level at
-  airspeed 981, and at 67% and above the level attitude is *below* the horizon
-  (-17 at 67%, -27 at full power), because the flap camber makes the weight's
-  worth of lift at a negative angle.
-
-### 2.2. Stall Dynamics & Automatic Recovery
-
-- **The stall is an angle, not a speed.** It triggers when
-  $|\alpha| > \text{kFlightAlphaStall} = 56$ (about 12.6°), airborne, and
-  nothing else. The speeds below are consequences of it and appear nowhere in
-  the code:
-
-| Configuration | $C_{L\max}$ | Stall speed |
-| :--- | ---: | ---: |
-| Clean, upright | 1024 | **1024** |
-| Flaps down | 1536 | **836** |
-| Inverted | 768 | **1182** |
-| Inverted with flaps | 256 | 2048 |
-
-  The clean figure is exactly the `0x0400` the old model had to be handed, and
-  the flapped one is 836 against its `0x0340` = 832. That is the constants
-  falling out of the wing rather than being asserted about it, and it is the
-  result the change exists for.
-- **Past the peak the wing droops** at five eighths, so pulling harder there
-  gets *less* lift: the flight path falls away faster than the nose does and
-  the angle runs away. That is what makes a stall a stall rather than a
-  ceiling.
-- **The break** drives the nose back toward the flight path at
-  $(|\alpha_{16}| - C_{L\text{peak}}) \gg 5$ per step. It needs no "toward the
-  ground" special case at any attitude or either way up: at low speed the
-  flight path is already steeply down, so chasing it *is* the nose drop.
-- **Near-Vertical Dead Spot** ($|\text{front.z}| > \text{kFlightMaxStallPitchZ}
-  = 224$): `front` is a unit vector, so with the nose this high the end-of-frame
-  `vec_orthonormalize` restores nearly all of a direct change to `front.z`.
-  Above the threshold the break is applied as a **body-axis rotation** instead,
-  which is well defined at any attitude. Which rotation is the sign of $\alpha$
-  and not of the nose-down direction - a pitch-down step moves `front.z` by
-  $-\text{up.z}/16$, so the `up.z` in it cancels the one in the angle.
-- **Two stalls the old model could not see.** The accelerated stall: level at
-  airspeed 2816 with the stick full back, the wing breaks at **2290**, 2.2x the
-  1 g stall speed. And the inverted stall, which the camber makes reachable
-  well above the upright stall speed. A speed gate can express neither.
-- **The elevator will not drive the wing deeper into a stall.** A pitch-up
-  input is refused while stalled with a positive angle, and pitch-down while
-  stalled with a negative one. This is a control law, not aerodynamics, and it
-  is there because the pilot has no stick force to feel: one keypress is 3.6
-  degrees of pitch and the break pushes back with a quarter of that, so a held
-  key wins and keeps winning. Holding the stick back through a rotation - the
-  most ordinary thing a player does - stalled the aeroplane at nought feet.
-  Note what it does *not* do: the input that carries the wing from just under
-  the break to just past it is allowed, so the stall is still reachable and the
-  accelerated stall still fires; and nothing stops the flight path from
-  stalling the wing on its own, which is how a stall arrives in a banked turn
-  or a pull-up. The pilot cannot bury it; the aeroplane can.
-- **Recovery** is hands-off and takes about 100 steps (16 s) from a power-off
-  stall, ending in a steep dive with the airspeed back.
-- **The warning is not the stall** (`flight_stall_warning()`, the panel lamp
-  and the warble). A turn held on the pull key sits at the break: the gate
-  above lets the wing over it, the break pushes the nose back off it, and the
-  key carries it over again. At 3,000 ft that is stalled on four steps in five
-  and in and out of it ~40 times a minute, at every bank from 30 to 60
-  degrees on full power and at 45 on cruise - and without losing height. A
-  warning on `flight_stall` itself chattered through every such turn, and so
-  does a dive's pull-out. Those are the buffet, over as soon as the key is let
-  go. So it warns only of a **slow** stall: airspeed under
-  `kFlightStallWarnSpeed` = 1,200, 15% over the 1 g stall speed at sea level,
-  and **holds on for three steps** after one
-  (`kFlightStallWarnSteps` = 4), which turns a stall's own flicker into one
-  steady warning. Measured over a minute each (`test/fpilot_test.cc`):
-
-| Case | Stalled | On every stall | Sinking (until 2026-11-04) | Slow (now) |
-| :--- | ---: | ---: | ---: | ---: |
-| 30° turn, full power, pull held | 322 of 375 steps | ~29 times | never | never |
-| 60° turn, full power, pull held | 301 | ~45 times | never | never |
-| 75° turn, full power, pull held | 308 | ~36 times | once | never |
-| 60° turn, throttle 18, pulling when sinking | 212 | often | once | never |
-| A dive's pull-out, pull held | 5 | once | once | never |
-| Wings level at idle, pull held | 318 | ~29 times | once | twice, 290 steps |
-| A zoom climb's top, full power | 263 | often | never | once, 55 steps |
-
-  The sinking rule it replaced (`flight_gamma` below -256) still warned in
-  combat flying: a 60 degree turn at cruise, every 75 degree turn, every
-  pull-out. The slow rule warns in a held turn only once it has bled the speed
-  to within ~15% of the stall - a 30 degree turn on throttle 18 does, at
-  ~1,110. 1,150 was enough at shift 5; at shift 6 a zoom on full power
-  bottoms out at ~1,180, and it missed that. The 1 g stall rises with height (~1,095 at 5,000 ft, ~1,182 at
-  6,000), but a stalled wing keeps slowing, so an idle stall still warns:
-  3.5 s after it starts low down, 4.6 s at 7,000 ft. A threshold raised with
-  the density penalty to keep pace cost fpilot ~45 B. The arcade model is
-  unchanged: its warning is still `flight_stall`, the stall speed itself.
-
-### 2.3. Climbing & Altitude Mechanics
-
-- **Forward acceleration**: $\Delta V = \text{Thrust} - \text{Drag}_{\text{parasite}} - \text{Drag}_{\text{induced}} - g \sin\gamma$,
-  where $\gamma$ is the **flight path**, not the nose. The difference is
-  exactly the aeroplane that is pointing up while sinking, which is the
-  attitude every approach and every stall entry is flown at.
-- **Best rate of climb** at full throttle is **~+620**, at a held pitch of
-  ~130 (~30°); the arcade model's is ~+640. At shift 5 it was +526 at 118,
-  slower than `TODO.md` asked for, and in a dogfight too slow to get back the
-  speed a turn cost.
-- **Service Ceiling & Altitude Density Decay**: unchanged in mechanism -
-  $\text{alt\_penalty} = (Z - \text{0x080000}) \gg 12$ clamped to 128, and
-  $\text{density} = 256 - \text{alt\_penalty}$ scales thrust and lift. What is
-  gone is the hand-written rule that raised the stall *speed* with altitude:
-  thinner air makes less lift at the same angle and speed, so the wing needs
-  more angle and reaches the break sooner, and the effect now falls out of the
-  same density term as everything else.
-
-### 2.4. Drag
-
-- **Parasite** as before: $\text{speed}^2 \gg 10$, with a further $\gg 12$ each
-  for the gear and the flaps.
-- **Induced**: $(C_L^2 V^2) \gg \text{kFlightInducedShift}$, and this one term
-  replaces three separate stand-ins the old model needed - the lift deficit's
-  $\text{deficit} \gg 10$, the bank term $\text{left.z}^2 \gg 5$, and the
-  implicit inverted penalty. All three were the same thing: the wing being
-  asked for lift it has to work for.
-- The shift sets where the drag curve bottoms out and therefore the throttle
-  needed for level flight, the glide ratio and the climb rate together. 6 is
-  what ships, since 2026-11-04; `flight.cc` carries the measurements either
-  side of it.
-- **What a turn costs** is mostly this term: a level 60° turn asks the wing
-  for 2 g, four times the induced drag. At shift 5 a 60° turn held level on
-  full power settled at ~1,970 and a 75° turn could not be held, losing
-  ~580 m a minute; played, a dogfight bled the speed to the stall. At shift 6
-  the 60° turn settles at ~2,300 (the arcade model's ~2,020), the 75° turn
-  loses ~230 m a minute, and the glide is ~9:1 (`test_optimal_glide_angle`),
-  longer than the arcade model's ~6:1. A turn on the pull key at the break
-  still bleeds to near the stall speed for its load: that is the wing at its
-  limit, and converting speed into climb, whatever the drag. Capping the C_L
-  the drag term sees instead kept level flight as it was but glided ~12:1
-  and held level on a quarter throttle.
-- **Lift is two-sided.** The old model applied a deficit only when positive, so
-  lift in excess of the weight produced no upward force at all. The net
-  vertical force integrates into the flight path in both directions now, which
-  is why flaps make the aircraft balloon and why a pull-up is a pull-up.
-
----
-
-## 3. Maneuvering Flight & Banked Turns
-
-### 3.1. Banked Turn Dynamics
-
-> **Bank percentage convention**: bank is quoted as a percentage of 90°, not as a fraction of `left.z`'s 256 unit range. So 40% bank means 36°, i.e. $\text{left.z} = 256 \sin 36° = 150$; 80% bank means 72°, i.e. $\text{left.z} = 243$.
-
-- **The turn is the horizontal half of lift.** Total lift acts along
-  `flight_cam.up`; its vertical component $L \cdot \text{up.z}$ fights the
-  weight and its horizontal component $L \cdot \text{left.z}$ turns the
-  aircraft. Both go through the same $1/V$:
-
-$$\text{rot} = \frac{2 L \sin\phi}{V}, \qquad \dot\gamma = \frac{L\cos\phi - W}{W}\cdot\frac{g}{V}$$
-
-- **Turn rate depends on airspeed**, which is new and is
-  `flight_review.md` §B4 closed: a level turn's rate is $g\tan\phi/V$, so the
-  slower turn is the tighter one. The old model turned at
-  $\text{left.z} \gg 5$ whatever the wing was doing and at every speed alike.
-  The scale is not free - one unit of `rot` is 1/256 of a radian a step, the
-  weight is `kFlightTrimLift` and gravity is 32 speed units a step per radian,
-  which fixes the shift at seven.
-- **There is a corner speed.** A level 71° turn asks for 3.07 times the weight
-  in lift; below about airspeed 2000 the wing runs out of angle before it can
-  make it, and the turn becomes wing-limited rather than bank-limited. A fixed
-  $\text{left.z} \gg 5$ cannot express that.
-- **Altitude loss in banked flight**: at 36° and 72° of bank with no added
-  pitch, $L_Z < W$ and the aircraft turns and descends. Holding the turn level
-  needs angle of attack, the angle needs $C_L$, and $C_L$ costs induced drag -
-  so a level turn settles slower than level flight at the same throttle, and a
-  steep enough one cannot be held level at all. The old model charged a flat
-  $\text{left.z}^2 \gg 5$ for the bank and had no wing in the loop; that term
-  is gone and induced drag covers it.
-- **Pulling in a turn is how the accelerated stall arrives**, since the extra
-  angle the bank needs is added to whatever the pilot is already holding.
-
-### 3.2. Inverted Flight Dynamics (Flying Upside Down)
-
-- **Angle of attack is a body angle**, so rolling inverted swaps which side of
-  the wing the air arrives from. Upside down, a nose held above the flight path
-  in world terms is air arriving on the canopy side, which is negative $\alpha$
-  and negative lift - and negative lift times a negative `up.z` carries the
-  aeroplane. The whole of that is one line:
-  `alpha16 = up.z >= 0 ? d : -d`.
-- **Inverted flight is expensive because the wing is cambered.**
-  `kFlightCamberCl` is $C_L$ at zero angle; upright it adds to the angle's
-  worth of lift and inverted it fights it. That single constant is the entire
-  inverted penalty, with no `up.z < 0` case anywhere - and it is paired with
-  the stall angle so that upright $C_{L\max}$ stays at 1024 and the clean stall
-  speed stays at exactly `0x0400`. The cost comes out of the inverted side:
-  $C_{L\max}$ there is 768 and the inverted stall speed is 1182.
-- **The nose must be pitched UP relative to the horizon**, and further up than
-  the upright trim at the same throttle. Measured, run to a steady state:
-
-| Throttle | Inverted level pitch | Angle of attack | Settled airspeed | (upright pitch) |
-| :--- | ---: | ---: | ---: | ---: |
-| 12 (50%) | 42 (~9.4°) | −41 | 1457 | 24 |
-| 16 (67%) | 28 (~6.3°) | −27 | 1906 | 12 |
-| 18 (75%) | 26 (~5.8°) | −25 | 2054 | 10 |
-| 24 (100%) | 22 (~4.9°) | −20 | 2429 | 6 |
-
-- The settled airspeeds match the upright ones, because at trim the total $C_L$
-  is fixed by the weight and so is the induced drag it costs. What inverted
-  flight costs is *attitude* and *stall margin*, not throttle: the aircraft is
-  flying nearer its break, and with flaps down the inverted $C_{L\max}$ falls to
-  256 and the stall speed goes to 2048, which is most of the envelope.
-
-## 4. Flight Configuration & Drag Devices
-
-### 4.1. Landing Gear Dynamics
-
-- **Parasite Drag Increase**:
-  - Gear down (`flight_gear == 1`) increases total parasite drag by **25%** ($\Delta \text{Drag}_{\text{gear}} = \text{speed}^2 \gg 12$).
-- **Performance Impact**:
-  - Reduces top level speed.
-  - Increases glide descent angle at idle throttle.
-  - No impact on stall speed or wing lift curve.
-
-### 4.2. Flap Dynamics
-
-- **Flaps are a camber shift, not a multiplier**: $C_L \mathrel{+}=
-  \text{kFlightFlapDeltaCl} = 512$, added to the coefficient rather than
-  scaling it. That one choice is the whole of the flap model, and the sign does
-  the rest:
-  - **Upright** it adds to the lift the angle is making, so $C_{L\max}$ goes to
-    1536 and the stall speed falls to **836** - against the `0x0340` = 832 the
-    old model was told, which is the same wing described two ways.
-  - **Inverted** the attitude needs a negative $C_L$ and the offset fights it,
-    so $C_{L\max}$ falls to 256 and the stall speed rises to 2048. This is the
-    adverse camber penalty of the old §4.2, and it now needs **no `up.z < 0`
-    case at all** - the old model had to carry a separate `0x0480` constant for
-    it.
-- **Drag**: parasite rises by 25% ($\text{speed}^2 \gg 12$) as before, and the
-  induced term follows the total $C_L$, so flaps at high speed are expensive
-  twice over.
-- **Equilibrium impact**: the level attitude drops. At 67% throttle and above
-  the flapped aircraft trims level with the nose *below* the horizon (−17 at
-  67%, −27 at full power), because the camber makes the weight's worth of lift
-  at a negative angle. At low speed flaps buy a genuinely lower floor: 41%
-  throttle holds level at airspeed 981, where the clean wing cannot.
-- **Ballooning is real now.** Lift above the weight pushes the flight path up,
-  so selecting flaps at speed pitches the aircraft into a climb - which the
-  one-sided deficit of the old model discarded.
-
-## 5. Ground Interaction & Transition Physics
-
-### 5.1. On-Ground State Dynamics
-
-- **Attitude & Alignment Locks**:
-  - Altitude is locked to ground plane ($Z = Z_{\text{min}}$).
-  - Pitch attitude is clamped ($\text{front.z} \ge 0$). Negative pitch is prohibited.
-  - Wings are locked level ($\text{left.z} = 0$, $\text{up.z} = 256$).
-- **Ground Steering**:
-  - Roll inputs (J/L) are mapped to nose-wheel steering (yaw left/right), alongside the dedicated yaw inputs (A/S). All four behave identically on the ground.
-  - **Steering requires the wheels to be turning**: all four steering inputs are ignored when $V = 0$. A parked aircraft cannot pivot on the spot.
-  - **Heading is held, not restored.** The wing-levelling rebuild (`left` from `front`, then `up = front \times left`) runs *only when the wings are actually off level*. Running it every frame slowly turned the aircraft back toward whichever axis it was nearest: the 8.8 cross product loses a little length, `vec_orthonormalize` scales `front` back up, and that scaling truncates — so the dominant component gains a unit before the smaller one does. On the runway that walked a 29° heading back to 0 in about 300 frames. Skipping the no-op case also saves a full re-orthonormalization on every frame of taxi and takeoff roll (§1).
-- **Ground Friction & Braking**:
-  - Throttle at 0% applies a constant wheel friction drag of **2 units per frame**, on top of the usual airframe and gear drag, decelerating the aircraft to a full stop. It is not applied while the throttle is open.
-  - **Wheel brake** (`FLIGHT_INPUT_BRAKE`): each input removes **32** from airspeed, flooring at 0. It is a ground-only control — airborne, the input is ignored.
-
-### 5.2. Takeoff Requirements
-
-**The wing decides.** There is no speed gate and no rotation constant. Pitch-up
-on the runway rotates the nose one step at a time up to
-`kFlightMaxGroundPitch = 48` (~10.8°), the rotation makes lift like any other
-angle of attack, and `flight_advance()` unsticks the aircraft on the step where
-$L \cdot \text{up.z}$ exceeds the weight. The liftoff speed is therefore a
-consequence of the attitude the pilot chose:
-
-| Held attitude | Clean | Flaps down |
-| :--- | ---: | ---: |
-| 16 (~3.6°) | 1782 | 1156 |
-| 31 (~7.0°) | 1380 | 1019 |
-| 47 (~10.6°) | 1166 | 947 |
-| 48 (the limit) | **1165** | **943** |
-
-Against a derived stall speed of 1024 clean and 836 flapped, a full rotation
-unsticks with about 14% in hand, which is the margin a real rotation has.
-
-**`kFlightRotatePitchZ` is deleted, not retuned**, exactly as its own comment
-asked: *"If lift ever grows a pitch term this constant should be deleted rather
-than retuned."* It existed because lift had no pitch term, so rotating could
-not make the force that lifts the aircraft off - all pitch could do was aim the
-flight path up and out-climb a sink penalty, which put the crossover at
-airspeed 1608 with a stall speed of 1024. Worse, every frame in between was a
-full airborne→ground cycle: the wheels lifted, the vertical speed came out
-non-positive, the contact check put them back down, and the sound driver heard
-a touchdown once a frame. Both problems are gone at the root. The step that
-lifts off is also the step that integrates a positive net force into a climb -
-which is why the liftoff test sits *ahead* of the flight-path integration - and
-the contact check asks whether the aircraft is descending rather than where it
-is.
-
-**Two bounds on the rotation limit**, and it is wedged between them:
-
-- Above, by `kMaxLandingPitch` = 64. The landing envelope runs on **every**
-  frame at ground level (§5.3) and trigger 7 does not care that the aircraft is
-  taking off rather than arriving. Set equal to it, the takeoff roll crashed:
-  `vec_orthonormalize` puts a unit back and 65 > 64.
-- Below, by `kFlightAlphaStall` = 56. A full rotation has to leave the wing
-  short of the break, or the aeroplane stalls the moment it unsticks.
-
-**Machine independence** is unchanged in kind but now free: every rate scales
-with `flight_step_shift`, so a stock C64 and a SuperCPU take a different number
-of inputs to the same attitude and unstick at the same airspeed. The old model
-had to express the rotation as a target attitude rather than a step count for
-exactly this reason; here nothing special is needed.
-
-### 5.3. Touchdown & Crash Envelope Checks
-
-The check triggers whenever altitude $Z \le Z_{\text{min}}$ — **every frame the aircraft is at ground level, not only on the touchdown frame**. It therefore also polices taxi and takeoff roll: rolling with the gear retracted, or with the wings or nose out of limits, fails immediately. This is intended.
-
-Two triggers must not be applied unchanged during a ground roll:
-
-- **The speed limit**, which is an *impact* limit. Full throttle with the gear down settles at 2290, only 270 under $\text{kMaxLandingSpeed}$, so a normal takeoff run would sit uncomfortably close to crashing.
-- **The runway check**, which is an *arrival* condition. Applied continuously it would crash an aircraft that simply rolled past the end of the runway.
-
-Both are therefore keyed on whether this frame is a touchdown (the aircraft was airborne last frame) or another frame of an existing ground roll:
-
-| State | Speed limit | Runway check |
-| :--- | :--- | :--- |
-| Touchdown (was airborne last frame) | $\text{kMaxLandingSpeed} = \text{0x0A00}$ | applied |
-| Already rolling | $\text{kMaxGroundSpeed} = \text{0x0D00}$ | skipped |
-
-The looser ground limit still rejects nonsense start states from mission data while leaving the takeoff roll ~45% headroom.
-
-- **Crash Triggers**, in the order the code evaluates them. **The order is part of the specification**: the first violation found is the one reported, so it decides which fault the pilot is told about when an arrival breaks several rules at once. It runs from what has to be settled early on the approach to what is trimmed on short final.
-
-  1. **Not On A Runway**: the ground tile under the aircraft is not `MAP_OBJ_RUNWAY`. Checked **only on the touchdown frame**, not during an existing ground roll — once down, the aircraft may roll off the end without a second crash verdict.
-  2. **Belly-Up Arrival**: touchdown while inverted ($\text{up.z} < \text{kMinLandingUpZ} = 0$). Trigger 5 does not cover this — `left.z` returns to ~0 after a full 180° roll, so a wings-level inverted arrival passes the bank check. The threshold is 0 rather than a tight $\cos(\text{roll})$ bound because `up.z` also falls with nose-up pitch, and a legal flare must not trip it.
-  3. **Gear Retracted**: `flight_gear == 0`.
-  4. **Excess Vertical Speed**: sink rate exceeds limit ($V_{\text{vspeed}} < \text{kMaxLandingVSpeed} = -\text{0x00E0} = -224$).
-  5. **Excess Bank Angle**: roll/bank exceeds threshold ($|\text{left.z}| > \text{kMaxLandingRoll} = 32$, approx > 7°).
-  6. **Pitch Too Low**: $\text{front.z} < \text{kMinLandingPitch} = -32$ (steeper than ~-7° nose down).
-  7. **Pitch Too High**: $\text{front.z} > \text{kMaxLandingPitch} = 64$ (more than ~15° of flare).
-  8. **Excess Airspeed**: $V >$ the applicable speed limit from the table above.
-
-  Safe landing pitch range is therefore $-32 \le \text{front.z} \le 64$.
-
-- **Approach warnings**: the *same* envelope test runs non-destructively while the aircraft is airborne, descending, and below $Z = \text{0x4000}$. The first violation is shown as `WARNING: <fault>` instead of crashing, so the pilot is told about a retracted gear or a wrong approach path before the wheels arrive. The warning pass always applies the runway check and the touchdown speed limit, since it is by definition not a ground roll.
-
-- **Successful Landing**:
-  - If all safety thresholds are satisfied: transition to `model_on_ground = true`, zero out vertical speed, level wings, and drop the nose ($\text{front.z} = 0$).
-  - The nose drop happens **once, on the touchdown transition**, not eased in over the rollout. Easing it would mean adjusting the attitude on every frame, and `vec_normalize` truncates when it rescales, so a per-frame nudge would ratchet the heading toward the nearest axis — see §5.1.
-
-#### Where the sink limit comes from (trigger 4)
-
-Vertical speed is the **flight path** times airspeed now, not the nose attitude
-times airspeed, and that changes which arrivals are dangerous.
-
-The rule the pilot used to learn was *"flare and you are safe; arrive nose-down
-and you need airspeed"*, and it was true because nose-up simply could not
-descend fast when the nose *was* the flight path. It is not true any more, and
-losing it is the point of the model rather than a regression: an aeroplane held
-nose-high near the stall is descending steeply whatever the nose is doing. The
-worst arrival in the whole legal envelope is now a **slow** one, not a fast
-one - a flare at 1030, sinking at −903 against a limit of −288.
-
-What survives is the same rule with the speed named:
-
-| Arrival | Worst sink | Verdict |
-| :--- | ---: | :--- |
-| Nose down at airspeed 2048, pitch −24 | −245 | inside the limit |
-| Nose down at airspeed 2048, pitch −32 | −309 | trips trigger 4 |
-| Any flare at or above 1.2 × the stall speed | −176 | always survivable |
-| Flare at 1030 (just above the stall) | −903 | trips trigger 4 |
-
-So: **a flare with speed in hand is safe, and holding it off until the wing
-stops flying is a stall onto the runway** - which is what the classic accident
-is, and what the old model could not represent.
-
-#### What that does to trigger 7 (pitch too high)
-
-It can no longer be reached from the air at all, and this is worth stating
-because it changes what the trigger is for rather than making it dead code.
-
-A *descending* aircraft with the nose above 64 has its flight path below the
-horizon and its nose well above it, so its angle of attack is past the 56 unit
-break by construction - the stall break has already fired, and at that excess
-it trims the nose down by more in one step than the envelope limit is wide. One
-that is *not* stalled at that attitude is climbing, and never arrives. Every
-nose-high arrival is therefore caught by trigger 4 instead, and reported as the
-sink it is.
-
-On the ground neither applies: the runway is the flight path, there is no
-stall, and the nose stays where it is put. **Trigger 7 polices over-rotation on
-the roll now**, which is why `kFlightMaxGroundPitch` has to sit below
-`kMaxLandingPitch` (§5.2), and `test_touchdown_exact_boundary_limits` tests it
-from there.
-
-## 6. Creative Additions & Edge Case Regimes
-
-### 6.1. Vertical Flight & Low-Speed Pitch Recovery
-
-- **No Backward Flight Rule**: airspeed is strictly bounded $V \ge 0$.
-- **Straight Up**: thrust acts against gravity, airspeed bleeds away, the angle
-  of attack runs up as the flight path falls behind the nose, and the break
-  drops the nose into a dive. No special case: the break chases the flight
-  path, and at the top of a zoom the flight path is already going down.
-- **Holding an input is not holding an attitude.** Pitch-down held forever
-  flies an outside loop - the nose keeps rotating, the flight path follows it
-  round, and the aircraft comes over the top and climbs away. In the old model
-  the same input drove it straight into the ground, because its flight path was
-  its attitude. Anything that wants a dive has to hold the *attitude*.
-- **Straight Down**: gravity accelerates the aircraft to terminal velocity,
-  measured with the nose truly straight down. Note that building that frame by
-  writing $\text{front} = (256, 0, -256)$ and normalizing gives a **45°** dive,
-  not a vertical one, which is the obvious way to do it and is wrong:
-
-| Configuration | Terminal velocity |
-| :--- | ---: |
-| Full throttle, clean | **3776** (`0x0EC0`) |
-| Full throttle, gear down | 3392 |
-| Idle throttle, clean | 2857 |
-
-- **Absolute Speed Clamp**: `kMaxSpeed` = `0x0F00` = 3840. Terminal velocity
-  sits under it in every configuration, but the clean dive is now close enough
-  to it to be worth watching.
-
-### 6.2. Engine Failure & Gliding Physics
-
-- **Zero Fuel State**: unchanged - throttle drops to 0%, `OUT OF FUEL` is shown
-  once, and the aircraft becomes a glider.
-- **Optimal Glide**: **7.33 : 1** at $\text{front.z} = -24$ (~ −5.4°), against
-  the old model's 6.13 : 1 at −50. Measured as distance over altitude lost at a
-  pinned altitude, which matters: measured the obvious way, from a great height,
-  the aircraft glides in half-density air above the `0x080000` ceiling knee and
-  reads 3.8 : 1 - thin air needs more $C_L$ for the same weight, and induced
-  drag goes as its square.
-
-| Held pitch | Glide ratio |
-| :--- | ---: |
-| −8 | 4.20 : 1 |
-| −25 | **7.33 : 1** |
-| −50 | 5.54 : 1 |
-| −80 | 4.90 : 1 |
-| −100 | 4.33 : 1 |
-
-- **A glide at a fixed attitude is not always a steady state.** Below the
-  minimum-drag speed the model is on the back side of the power curve: as speed
-  falls the angle of attack rises, induced drag rises as its square, and the
-  aircraft slows further. That is the real shape of a drag polar and it is why
-  the glide table is measured over a run rather than read off a settled
-  airspeed.
-
-## 7. Summary Matrix of Flight Test Cases
-
-Throttle is quoted as a percentage of $\text{kMaxThrottle} = 24$, with the raw
-value in brackets. Figures are measured, not nominal.
-
-| Scenario / Test Case | Throttle | Pitch Angle | Bank | Gear / Flap | Expected Aircraft Behavior |
-| :--- | :---: | :---: | :---: | :---: | :--- |
-| **Cruising Level Flight** | 75% (18) | 10 (~2.2°) | 0° | Clean | Level at airspeed 2054, angle of attack 8. Level flight always needs a positive angle; zero pitch is a descent at every throttle |
-| **Slow Level Flight** | 50% (12) | 24 (~5.4°) | 0° | Clean | Level at airspeed 1476, angle 22 |
-| **Minimum Level Flight** | ~50% (12) | 24 | 0° | Clean | The practical floor. Below it the only level trims are on the back side of the power curve, within a few units of the break |
-| **Power-Off Stall** | 0% | Moderate Nose Up | 0° | Clean | Angle of attack reaches 56, $C_L$ droops, nose drops toward the flight path, ~100 steps to recover in a dive |
-| **Accelerated Stall** | 100% (24) | Stick full back | 0° | Clean | Breaks at airspeed **2290**, 2.2x the 1 g stall speed. The old model could not stall above 1024 at all |
-| **Max Climb** | 100% (24) | 118 (~27°) | 0° | Clean | Best rate of climb +526, slower than the old model's +663 |
-| **Moderate Bank Turn** | 75% (18) | Level trim | 36° | Clean | Turns and descends unless the pilot adds angle; holding it level costs airspeed to induced drag |
-| **Steep Bank Turn** | 100% (24) | High Nose Up | 72° | Clean | Asks 3.07 g of the wing. Below about airspeed 2000 it runs out of angle first and the turn is wing-limited |
-| **Inverted Level Flight** | 75% (18) | 26 (~5.8°) nose up vs the horizon | 180° | Clean | Level at airspeed 2054 - the same speed as upright, because trim $C_L$ is set by the weight. What inverted costs is attitude and stall margin: $C_{L\max}$ is 768 and the stall speed 1182 |
-| **Dirty Configuration** | 67% (16) | −17 (nose **below** the horizon) | 0° | Gear & Flaps | Flap camber makes the weight's worth of lift at a negative angle. Floor drops to 41% |
-| **Clean Touchdown** | Idle (0%) | $-32 \le$ pitch $\le 64$, **with speed in hand** | 0° | Gear Down | Smooth ground transition over a runway tile. A flare at or above 1.2x the stall speed always survives |
-| **Slow Flare** | Idle (0%) | Nose high, near the stall | 0° | Gear Down | **CRASH** (`VERTICAL SPEED`) - the stall onto the runway. New: the old model could not descend fast nose-high |
-| **Off-Runway Touchdown** | Idle (0%) | Touchdown Pitch | 0° | Gear Down | **CRASH** (`NOT ON RUNWAY`) even with a perfect attitude |
-| **Gear-Up Belly Landing** | Idle (0%) | Touchdown Pitch | 0° | Gear Up | **CRASH** upon ground contact |
-| **Inverted Touchdown** | Idle (0%) | Touchdown Pitch | 180° | Gear Down | **CRASH** (`INVERTED`) |
-| **Over-Rotation on the Roll** | any | front.z > 64 | 0° | Gear Down | **CRASH** (`PITCH TOO HIGH`). This is what trigger 7 polices now; it cannot be reached from the air |
-| **Takeoff** | 100% (24) | Rotate to 48 | 0° | Clean | Unsticks at airspeed 1165 against a derived stall speed of 1024. No rotation constant and no speed gate |
-| **Vertical Pitch Up (+90°)** | 100% (24) | Vertical Up | 0° | Clean | Speed bleeds, the flight path falls behind the nose, the break drops the nose into a dive |
-| **Vertical Dive (−90°)** | 100% (24) | Vertical Down | 0° | Clean | Settles at terminal velocity 3776, under the `0x0F00` clamp |
-| **Best Glide** | 0% | −24 (~ −5.4°) | 0° | Clean | 7.33 : 1 |
-
-## 8. The step, and the rate it is taken at
-
-The model has no elapsed time in it. It advances in fixed steps, so what the
-aircraft actually does is **(step size) x (steps per second)** and nothing else.
-Two constants set those, and they are deliberately the same knob:
-
-| | where | effect |
+| Quantity | Type / Format | Range & Physical Meaning |
 | --- | --- | --- |
-| `flight_step_shift` | `flight.h` | divides the step |
-| `kFlightFramesPerStep` | `flight.h`, `8 >> flight_step_shift` | multiplies the rate |
+| Position `flight_eye_{x,y,z}` | `int32_t` (24.8) | Half-metres (`>> 16` = 128 m world unit, `>> 9` = 1 m; `Z = 0x2000` = ground floor `kFlightMinEyeZ`) |
+| Airspeed `flight_speed` | `int16_t` (8.8) | `0 .. kMaxSpeed` (`0x0F00` = 3840); step displacement is `flight_speed << 1` (256 = 1 m/step) |
+| Vertical speed `flight_vspeed` | `int16_t` (8.8) | Signed vertical displacement per whole step |
+| Throttle `flight_throttle` | `uint8_t` | `0 .. kMaxThrottle` (`0x18` = 24) |
+| Orientation `flight_cam` | `mat3_t` (`front`, `left`, `up`) | Orthonormal 8.8 direction cosines (`256 = 1.0`), maintained by `vec_orthonormalize()` |
+| Fuel `flight_fuel` | `int32_t` | Full tank `kFlightFullFuel = 0x21FFF` |
 
-Their product is invariant, so raising the shift buys smoothness and never
-speed. 0 is the C64: one step every 8 raster frames, 6.25 Hz. 2 is a quarter of
-the step four times as often, 25 Hz, which is what a 20 MHz machine can hold.
+### Hardware constraints
 
-**It is measured at boot, not chosen at build time.** `main()` runs `cpu_probe()`
-(`cpu.h`, docs/supercpu.md) and hands the answer to `flight_set_step_shift()`,
-which also rescales the six control rotations — they are ordinary RAM read
-through a pointer, so they can be rebuilt at init. One binary therefore flies
-identically on a stock C64 and on a 20 MHz accelerator, and would do the right
-thing on a 4 MHz Turbo Master nobody has tested it on.
+- **No floating point and no runtime 16-bit division** (enforced by `check_mul_div.py`). All products use quarter-square `vec_fastmul8p8` / `vec_fastsqr8p8`, incremental control rotations use `vec_rotate_step()` (6 multiplies, 6-byte table), and horizontal turns use `vec_turn3_xy()` (6 multiplies).
+- **Cycle budget:** One PAL frame is 19,705 cycles. `flight_advance()` runs ~5,000 cycles straight and level and ~12,000–16,800 cycles when re-orthonormalising (`vec_orthonormalize()` is ~5,750–9,700 cycles).
 
-There is one binary and no build-time alternative to it. There briefly was: a
-`-D__FLIGHT_STEP_SHIFT__` that pinned the shift and folded every scale back to a
-constant shift chain. It existed to measure the run-time path against, that
-measurement is below, and it was removed once taken — a second code path that
-nothing builds and no test covers is a liability, and git has it if the number
-ever needs re-deriving.
+---
 
-**What the run-time path costs**, measured on a stock C64 against that pinned
-build: `flight_advance()` goes from 6,559 to 7,117 cycles. That is 558 cycles a
-step, and at 6.25 steps a second, 0.35% of the machine — plus 295 bytes. The
-helper is `__noinline` because of a second measurement: inlining its ten call
-sites saved 206 cycles a step and cost 217 bytes, and bytes are scarcer here.
+## 2. Core aerodynamics (shipping arcade model)
 
-**It is a shift because every per-step quantity is a power of two.** The rate
-terms are written as shifts already (`speed_sqr >> 10`, `>> 12`, `>> 5`), and
-the six control rotations are matrices whose off-diagonal over 256 is the angle:
-32 is 7.2 degrees of roll, 16 is 3.6 of pitch, 8 is 1.8 of yaw. Halving all of
-those is exact. Dividing them by seven is not, which is why the model rate is a
-power of two times the raster rather than anything matched to a frame rate.
+### 2.1 Level flight & lift
 
-Three terms cannot be divided at all: the flat `-= 2` of ground drag, the floor
-of 1 under the stall break, and the fuel burn. Those are gated on `model_substep
-== 0` instead — applied once per old step and skipped on the substeps — so their
-total over a whole old step is what it always was. At shift 0 the mask is zero,
-every one of them fires on every step, and the arithmetic is bit for bit the
-model this document describes.
+Lift depends on airspeed squared, upright component `up.z`, altitude air density, and flaps — there is **no angle-of-attack term** (`front.z` does not enter lift):
 
-**One model step per rendered frame.** `sim.cc` calls `flight_advance()` exactly
-once per iteration of the simulation loop. The model carries no elapsed time, so
-the aircraft covers the same ground per frame however long the frame took, and
-airspeed through the world moves with what is on screen.
+```text
+raw_lift = vec_fastmul8p8(speed_sqr >> 2, up.z)
+lift     = vec_fastmul8p8(raw_lift, density)
+if (flight_flaps) lift += lift >> 1
+```
 
-**Time compression is the one exception, and the pilot asks for it.** T cycles
-2x, 4x and off, and while it is on `sim_run()` takes 2 or 4 whole steps between
-renders: `flight_advance()`, `opponent_step()` and `gun_step()` in turn, each
-time. So everything that happens in the world's time - the waypoints, the crash
-and touchdown checks, the opponents, every round and its hit tests - still runs
-once a step and nothing is stepped over. The held controls are part of the
-step too: the held-key table is read before each one, so a held roll, the
-throttle and the brakes do 2 or 4 times as much a frame and exactly as much a
-step, each input seeing the state the step before left. N frames at 4x end
-bit for bit where 4N frames at 1x with the same keys do, attitude, position and
-throttle (checked in VICE in both games). What runs in the player's time does
-not: the toggles (F, G, N) act once a press, and the message timers, the hit
-flash, the panel and the sound stay once a frame. The sound reads one event set
-a frame and each step's publish replaces the last, so the loop ORs the frame's
-sets together and publishes that (sound.md, "Handoff without a race").
+Trim lift is `kFlightTrimLift = 0x1000` (4096), corresponding to level upright clean trim speed `0x0800` (2048). The lift deficit is **one-sided**:
 
-The bounded cost above is given up on purpose there: a frame's model time is 2
-or 4 steps, so it renders more slowly, and the world goes by at a bit under
-2x or 4x. Every mission start and R set it back to off, and so do pausing and
-resuming: there is nothing left on screen to say compression is on once its
-message has gone, and coming back from a pause at 4x would be a trap.
+```text
+deficit = kFlightTrimLift - lift
+if (deficit > 0):
+    sink_penalty = deficit >> 4
+    induced_drag = deficit >> 10
+else:
+    sink_penalty = 0
+    induced_drag = 0
+```
 
-That is a deliberate choice and it was not always this one. Between
-`bfc81c2` (18 August 2026) and `9b31591` the timebase was the raster:
-`gfx_frame_count`, bumped by the handler at line 250, with a step taken per
-`kFlightFramesPerStep` of them in a catch-up loop. That version held airspeed
-constant across scenes and machines, and the measurements it was built on are
-kept below because they are the honest statement of what the render timebase
-costs. It was reverted because the cost landed in the wrong place:
+Above `0x0800`, holding `front.z = 0` flies level (`vspeed = 0`) regardless of throttle. Below `0x0800`, positive pitch is required to cancel `sink_penalty`.
 
-| | per model step, holding roll | worst frame |
-| --- | ---: | ---: |
-| raster timebase | 22,339 | **44,678** (two steps owed) |
-| one step per render | 20,922 | 20,922 |
-| and with `vec_turn3_xy()` (below) | **16,769** | **16,769** |
+Measured clean sea-level trim (arcade):
 
-Those three are in-game `MDL` readings taken against the model that came before
-the angle of attack, on mission 02 on final with the roll held. They are kept
-because the comparison between them is the point of this section and is
-unaffected by the change. For what a step costs now, see the bench figures in
-§1: they were taken in isolation and are not comparable to the numbers in this
-table.
+| Throttle | % | Pitch (`front.z`) | Speed |
+| ---: | ---: | ---: | ---: |
+| 11 | 46% | 20 (~4.5°) | 1535 |
+| 12 | 50% | 8 (~1.8°) | 1846 |
+| 16 | 67% | 0 (0°) | 2111 |
+| 20 | 83% | 0 (0°) | 2290 |
+| 24 | 100% | 0 (0°) | 2509 |
 
-Mission 02 on final, holding roll left, stock C64 in `x64sc`, read off `MDL:`
-in the debug view. A frame that overran its budget was also the frame that owed
-the model a second step, so the catch-up loop made the worst frame worse - which
-is the opposite of what a frame-rate budget wants. One step per render bounds
-the model's cost by construction, and the debt that modal screens used to
-accumulate cannot exist at all.
+Minimum level-flight throttle: **46%** (thr 11) clean, **37%** (thr 9) with flaps.
 
-**What it costs.** Airspeed through the world now varies with the scene: about
-13% between the runway and cruise on a stock C64, and across the three poses in
-[framerate.md](framerate.md) whose frame rates run 6.27 to 8.35 fps, up to a
-third. The aircraft flies slowest where the view is busiest, which is on final
-with the runway filling the viewport. On an accelerated machine the step *size*
-still scales with `cpu_step_shift` but the step *rate* no longer does, so the
-two halves of that knob no longer cancel: at the 50.1 fps `xscpu64` reaches in
-[supercpu.md](supercpu.md) against a stock 7.0, a quarter-size step at shift 2
-leaves the aircraft roughly 1.8x fast. That is arithmetic from those two frame
-rates, not a measurement - it is the open item on this section. Keeping the
-shift is still much better than dropping it, which is the 4.67x the same
-document records.
+### 2.2 Stall & recovery
 
-**Where the step actually goes.** Measured by ablation, same pose and harness,
-cycles per `flight_advance()`:
+Airborne stall speed rises with altitude penalty:
 
-| | per step |
+```text
+stall_speed = base_stall_speed + (alt_penalty << 1)
+```
+
+| Configuration | `base_stall_speed` |
 | --- | ---: |
-| model arithmetic, attitude not changing | 4,934 |
-| + the roll-induced turn, as a general 3x3 | +7,089 |
-| + `vec_orthonormalize()` | +9,705 |
-| **banked and turning** | **22,339** |
+| Clean | `0x0400` (1024) |
+| Flaps, upright (`up.z >= 0`) | `0x0340` (832) |
+| Flaps, inverted (`up.z < 0`) | `0x0480` (1152) |
 
-Straight and level with no control input the same step is 5,031. That is the
-whole spread: `MDL` is bimodal on *whether the attitude is changing*, not on
-anything about the timebase.
+- `flight_stall = (!model_on_ground && flight_speed < stall_speed)`; `flight_stall_warning()` returns `flight_stall` (arcade).
+- **Stall break:** Drops the nose toward the ground:
+  - If `front.z > kFlightMaxStallPitchZ` (224, ~61°), pitches through `vec_rotate_step(up.z < 0 ? PITCH_UP : PITCH_DOWN)` to avoid degenerating `front`.
+  - Otherwise subtracts `max(whole_step ? 1 : 0, flight_step_s(stall_speed - flight_speed) >> 5)` from `front.z` and re-orthonormalises.
 
-**The turn is now `vec_turn3_xy()`** and the step is 16,769. The matrix it
-replaced was the identity carrying `front.y = rot` and `left.x = -rot`, and the
-general routine paid a `vec_fastmul8p8` for all nine entries plus an 18-byte
-transposed copy - 27 multiplies where 6 do the work. The replacement is bit for
-bit identical, not merely close, and `test/host_vec.cc` sweeps 16 rotations
-against 2,197 attitudes to keep it that way; vec.h records the three
-`vec_fastmul8p8` identities that make the exactness hold rather than
-approximately hold.
+### 2.3 Climb & altitude density
 
-**What is left.** `vec_orthonormalize()` is now 58% of the step, and about
-4,000 of its cycles were six `vec_div8p8` calls at 554-729 each (`vectest`).
-In October 2026 `vec_div8p8` became an exact restoring division, about 520-580
-cycles for these fractions. That changed the rounding, and the rounding of this
-routine is load bearing: the old one was a reciprocal multiply that came out
-low (64 / 64 gave 255), and renormalizing every frame swallowed most of each
-small yaw step. Shallow banks barely turned - four roll steps held for 60
-frames turned 1/48 of a circle, and in the AOA model 0/48 - where exact
-division turns them at the rate the model's equations give (5/48 and 3/48). It
-still truncates, which is what the wing-levelling and nose-wheel comments above
-are guarding against. Building without the orthonormalize at all crashes the
-aircraft within seconds, so the numerical margin here is not large.
+- Vertical speed: `flight_vspeed = vec_fastmul8p8(front.z, flight_speed) - sink_penalty`.
+- Gravity acceleration along nose: `flight_speed -= flight_step_s(front.z) >> 3`.
+- **Altitude density:** Flat (`density = 256`) up to `Z = 0x080000` (4,000 ft); above that:
+  - `alt_penalty = min(128, (Z - 0x080000) >> 12)`
+  - `density = 256 - alt_penalty` (halved at service ceiling)
+  - Scales both thrust (`vec_fastmul8p8(throttle, density)`) and lift, and adds `alt_penalty << 1` to `stall_speed`.
 
-The same "identity plus one antisymmetric pair" shape describes all six
-`kVec*` control matrices, so `vec_transform3()` on the input path had the
-identical 27-for-6 win available, measured at **6,191 cycles a frame** while a
-control key is held, against a frame of about 146,000. It is taken now:
-`vec_rotate_step()` moves the two rows each step turns, bit for bit the same
-answer (test/host_vec.cc), and the six matrices left fpilot and ppilot along
-with it (about 200 B). vecdemo and planedemo still use the matrices.
+### 2.4 Drag
 
-**How the scaled model is checked.** Not by `flight_test`: that suite counts
-steps — "roll for six frames, then assert the bank" — so a quarter-size step
-does not reach the same attitude in the same number of them, and it refuses to
-build scaled. It is the reference for the model at shift 0 and it passes there
-unchanged. The shift is checked the only way that means anything, by flying the
-same four seconds of wall clock from mission 02's start and comparing where the
-aeroplane ended up. Distance covered, in world units:
+Total drag subtracted per step (`speed_sqr = vec_fastsqr8p8(flight_speed)`):
 
-| build | C64 | SuperCPU | ratio |
-| --- | ---: | ---: | ---: |
-| once per render (before) | 96,122 | 448,602 | **4.67** |
-| shift 0, raster timebase | 69,480 | 72,200 | 1.04 |
-| shift 2, 25 Hz | 71,838 | 73,229 | 1.02 |
-| **one binary, shift measured** | **69,480** | **73,229** | **1.05** |
+- **Parasite drag:** `speed_sqr >> 10`
+- **Landing gear:** `+ (speed_sqr >> 12)` (+25% parasite)
+- **Flaps:** `+ (speed_sqr >> 12)` (+25% parasite)
+- **Bank drag (airborne):** `vec_fastsqr8p8(left.z) >> 5`
+- **Lift-deficit drag:** `deficit >> 10` when `deficit > 0`
 
-The last row is the same binary run twice. Its two numbers are not merely close
-to the pinned builds above, they are identical to them — the run-time path picks
-the same shift each machine would have been compiled with, and then does the
-same arithmetic.
+---
 
-The residual few percent is truncation: a quarter-size step loses a little on
-every shift, which shows up as slightly less drag and so slightly more speed.
+## 3. Maneuvering flight
 
-**The C64 got slower, on purpose.** Pinning to 8 raster frames costs about a
-quarter of the distance flown at poses where the render was finishing in 6 —
-that is exactly the inconsistency being paid off. `kFlightFramesPerStep` is the
-one constant to move if it feels sluggish, but only multiples of 4 keep the
-halving exact.
+### 3.1 Banked turns & loops
 
+- Horizontal turn rate is purely bank-dependent (speed-independent): `rot = flight_step_s(left.z) >> 5` (`|rot| <= 8`), applied via `vec_turn3_xy(rot, &flight_cam)`.
+- Banking reduces `up.z`, lowering lift, creating sink penalty, deficit drag, and bank drag (`left.z^2 >> 5`).
+- A sustained pull from cruise cleanly completes a full 360° vertical loop (~108 whole steps).
+
+### 3.2 Inverted flight (`up.z < 0`)
+
+Inverted, `lift` is negative, so `deficit = kFlightTrimLift - lift` is roughly doubled. Sustaining level inverted flight requires nose-up pitch relative to the horizon and high throttle:
+
+- Level inverted floor: **71%** (thr 17, `front.z = 82`, speed 1049).
+- Thr 18: `front.z = 78`, speed 1144. Thr 24 (100%): `front.z = 68`, speed 1698.
+
+---
+
+## 4. Configuration & drag devices
+
+### 4.1 Landing gear (`G`)
+
+- Adds `+25%` parasite drag (`speed_sqr >> 12`).
+- **Ground lockout:** `FLIGHT_INPUT_TOGGLE_GEAR` is ignored while `model_on_ground == true` (cannot retract gear on the runway).
+
+### 4.2 Flaps (`F`)
+
+- Adds `+25%` parasite drag (`speed_sqr >> 12`).
+- Applies signed `lift += lift >> 1` (+50% lift upright, deepens negative lift when inverted).
+- Changes `base_stall_speed` to `0x0340` (832) upright and `0x0480` (1152) inverted.
+
+---
+
+## 5. Ground interaction & touchdown envelope
+
+### 5.1 On-ground physics
+
+- Clamped to `Z = kFlightMinEyeZ` (`0x2000`) with `front.z >= 0`.
+- Wings are levelled only when `left.z != 0` (avoiding a `vec_normalize` heading drift ratchet when already level).
+- `J`/`L` and `A`/`S` steer yaw while `flight_speed > 0`.
+- Rolling friction at zero throttle subtracts `2` per `whole_step`; wheel brakes (`B`, ground-only) subtract `32` per input.
+- **Refuel & rearm on halt:** Transitioning from moving to stopped (`model_on_ground && flight_speed == 0`) refills `flight_fuel = kFlightFullFuel` (`0x21FFF`) and in `fpilot` calls `gun_rearm()` (0 rounds in unarmed mission 09).
+
+### 5.2 Takeoff
+
+On the ground, `PITCH_UP` is gated by `flight_speed > stall_speed` (`0x0400` clean / `0x0340` flaps). Once above stall speed, pulling up rotates in a loop (up to `kFlightMaxRotateSteps = 16` iterations) until `front.z >= kFlightRotatePitchZ` (`47`, ~10.6°), clears `model_on_ground`, and lifts off.
+
+### 5.3 Touchdown, crash envelope & approach advisories
+
+Evaluated whenever `Z <= kFlightMinEyeZ`. Speed limit is `kFlightMaxLandingSpeed = 0x0A00` (2560) on touchdown and `kFlightMaxGroundSpeed = 0x0D00` (3328) while rolling (full-throttle ground top speed is 2290).
+
+Faults are checked in strict priority order (`_flight_landing_fault()`):
+
+| Priority | Fault condition | `kFlightFaultText` | Checked on |
+| ---: | --- | --- | --- |
+| 1 | Not over a runway (`!_flight_on_runway()`) | `NOT ON RUNWAY` | Touchdown only |
+| 2 | `up.z < 0` | `INVERTED` | Touchdown & roll & advisory |
+| 3 | `!flight_gear` | `GEAR RETRACTED` | Touchdown & roll & advisory |
+| 4 | `flight_vspeed < kFlightMaxLandingVSpeed` (`-0x0120` = -288) | `SINK RATE` | Touchdown & advisory |
+| 5 | `|left.z| > 32` (~7.2°) | `BANK ANGLE` | Touchdown & roll & advisory |
+| 6 | `front.z < -32` (~-7.2°) | `PITCH TOO LOW` | Touchdown & roll & advisory |
+| 7 | `front.z > 64` (~14.5°) | `PITCH TOO HIGH` | Touchdown & roll & advisory |
+| 8 | `flight_speed > speed_limit` | `TOO FAST` | Touchdown & roll & advisory |
+
+- On fault at `Z <= 0x2000`, status becomes `FLIGHT_CRASH_*`, HUD shows `CRASHED: <fault>`, and `FLIGHT_EV_CRASH` fires.
+- **`fpilot` combat crashes:** `FLIGHT_CRASH_SHOT_DOWN` (`SHOT DOWN`) and `FLIGHT_CRASH_COLLISION` (`COLLISION`).
+- **Clean touchdown:** Sets `model_on_ground = true`, `flight_vspeed = 0`, snaps `front.z = 0`, and emits `FLIGHT_EV_TOUCHDOWN`.
+- **Approach warnings:** While airborne with `flight_vspeed < 0` and `Z <= 0x4000`, `_flight_landing_fault(kFlightMaxLandingSpeed, false)` runs with **`check_runway = false`** (so low passes off-runway do not nag) and displays `WARNING: <fault>`.
+
+---
+
+## 6. Edge cases, fuel, pause & combat hooks
+
+### 6.1 Vertical flight & speed clamp
+
+`flight_speed` clamps to `[0, kMaxSpeed (0x0F00 = 3840)]`. Vertical dive terminal speeds: **3693** clean full throttle, **3319** gear down, **2710** idle.
+
+### 6.2 Fuel & gliding
+
+- Burns `flight_throttle` per `whole_step` (doubled when `kDamageFuel` is active in `fpilot`).
+- Reaching `0` displays `OUT OF FUEL` once and forces `flight_throttle = 0`.
+- Optimal power-off glide (`front.z = -50`, ~-11°): **6.13:1** at sea level (**4.982:1** at high altitude `Z = 0x0400000` in `flight_test`).
+
+### 6.3 Pause, completion, events & `fpilot` damage hooks
+
+- **Control lockout:** While paused, crashed (`flight_status >= FLIGHT_CRASH_ROLL`), or falling (`damage_down()`), all inputs except `FLIGHT_INPUT_TOGGLE_NAV` are ignored.
+- **Mission completion (`FLIGHT_MISSION_COMPLETED`):** Does **not** stop physics; the player can keep flying and land.
+- **Events & trail:** One-shot events (`FLIGHT_EV_TOUCHDOWN`, `GEAR`, `FLAPS`, `CRASH`, `GUN`, `HIT`) publish into `flight_events` alongside incrementing `flight_gen` for `sound.cc` ([sound.md](sound.md) §5). The map flight trail records 128 positions (`kFlightPathLen`) on `whole_step` into sprite scratch RAM.
+- **Damage hooks (`fpilot`):** `damage.h` gates throttle (`kDamageEngine`), doubles fuel burn (`kDamageFuel`), cuts engine on oil seizure (`kDamageSeized`), locks flaps/gear (`kDamageHydraulics`), skips every other control step (`kDamageControls`), and hands shot-down airborne aircraft to `_flight_fall()` (dives to `front.z = -222` with optional spin until `FLIGHT_CRASH_SHOT_DOWN` on ground impact; see [opponent_ai.md](opponent_ai.md) §8).
+
+---
+
+## 7. Summary matrix (shipping arcade model)
+
+| Metric | Clean | Flaps / Gear |
+| --- | --- | --- |
+| Stall speed (sea level, upright) | `0x0400` (1024) | `0x0340` (832) flaps / `0x0480` (1152) flaps inverted |
+| Trim speed (`front.z = 0`) | `0x0800` (2048) | — |
+| Top level speed (sea level, thr 24) | 2509 | — |
+| Min level-flight throttle | 46% (thr 11) | 37% (thr 9, flaps) |
+| Min inverted level throttle | 71% (thr 17) | — |
+| Ground full-throttle top speed | 2290 | — |
+| Touchdown speed / sink limits | `0x0A00` (2560) / `-0x0120` (-288) | — |
+| Optimal glide ratio (`front.z = -50`) | 6.13:1 (sea level) / 4.982:1 (high alt) | — |
+| Terminal vertical dive speed | 3693 (thr 24) / 2710 (idle) | 3319 (gear down, thr 24) |
+| Vertical loop from cruise | ~108 whole steps | — |
+
+---
+
+## 8. Timebase, substepping & time compression
+
+### One step per rendered frame
+
+`sim_run()` runs **one flight step per rendered frame** (or a fixed 2 or 4 under time compression). An earlier raster-clock catch-up loop (`kFlightFramesPerStep`) was reverted because a slow frame provoked two consecutive model steps, creating a spiral of uneven frame pacing; `kFlightFramesPerStep` remains declared in `flight.h` but is unused.
+
+### Boot-time SuperCPU substepping (`cpu_step_shift`)
+
+`ppilot.cc` calls `cpu_probe()` before `mem_init()` and `flight_set_step_shift(cpu_step_shift)` afterwards (`shift = 0` on a stock 1 MHz C64, `shift = 2` on a 20 MHz SuperCPU; see [supercpu.md](supercpu.md)):
+
+- Sets `flight_step_shift` (`0..2`), `kFlightSubstepMask` (`(1 << shift) - 1`), and calls `vec_set_rotation_shift(shift)` (rescaling the 6-byte `vec_rotate_step()` angle table).
+- Continuous per-step accelerations and displacements scale via `__noinline flight_step_s(v)` (`v >> shift`).
+- Discrete/non-divisible terms (ground rolling friction `-2`, stall break floor `1`, fuel burn, map trail sampling) run only when `whole_step = (model_substep == 0)`.
+
+### Time compression (`T`)
+
+Pressing `T` in flight cycles `sim_time_steps` through `1 → 2 → 4 → 1` (`TIME COMPRESSION 2X`, `4X`, `OFF`). Each rendered frame executes `sim_time_steps` full model steps (`flight_advance()`, plus `opponent_step()` and `gun_step(trigger)` in `fpilot`), re-polling held keys before each extra step and ORing `flight_events` across the steps. Resets to `1` on mission start, `R`, and pause/resume (`P`).
+
+---
+
+## 9. Optional angle-of-attack model (`FLIGHT_AOA=1`)
+
+Compiled into `flight.cc` under `-D__FLIGHT_AOA__` (`make prg FLIGHT_AOA=1`, tested via `make -C c64o/test test-both`).
+
+### Key differences from arcade
+
+- Tracks flight-path sine `flight_gamma` and angle of attack `alpha = front.z - flight_gamma` (world-plane approximation).
+- Lift coefficient piece-wise linear with camber and flaps up to `kFlightAlphaStall = 56`, peaking at `kFlightClPeak = 896`, with `kFlightCamberCl = 128`, `kFlightFlapDeltaCl = 512`, `kFlightLiftSat = 4096`, and induced drag scaled by `kFlightInducedShift = 6` (`~9:1` glide).
+- Uses a 16-entry `kFlightRecipV` table for `1/V` in path-angle updates and bank-turn scaling.
+- Ground pitch capped at `kFlightMaxGroundPitch = 48`; adds a pre-stall slow-speed warning (`kFlightStallWarnSpeed = 1200`, `kFlightStallWarnSteps = 4`) returned by `flight_stall_warning()`, and an elevator stall-deepening lock.
+- Cycle probe: ~5,184 cy straight / ~12,186 cy re-orthonormalising.
+
+### Why it was reverted (cannot loop)
+
+Three small-angle assumptions prevent the AoA model from flying over the top of a vertical loop:
+1. Vertical acceleration computes `lift * up.z - W` instead of `L - W cos(gamma)`, reversing sign inconsistently past the vertical.
+2. `flight_gamma` stores `sin(gamma)` clamped to `±4096` with no past-vertical branch (`cos(gamma) < 0` is unrepresentable).
+3. The stall-deepening elevator lock holds the nose ~15° above the stalled path, preventing pitch-over.
+
+Additional minor limits: world-plane `alpha` understates steep-bank AoA, and horizontal speed uses full `V` rather than `V cos(gamma)`.
+
+### Prototype harness (`c64o/proto/`)
+
+`c64o/proto/` (`aoa.h`, `aoa.cc`, `aoa_proto.cc`, `cycles_probe.cc`, `size_probe.cc`) is a standalone development harness used while exploring the AoA model. It is not part of `make prg`, and its defaults (`kAoaAlphaStall = 64`, `kAoaCamberCl = 0`, `kAoaInducedShift = 4`, `kAoaMaxGroundPitch = 64`) predate `flight.cc`'s tuned `__FLIGHT_AOA__` constants.

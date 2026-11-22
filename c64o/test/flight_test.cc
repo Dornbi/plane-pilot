@@ -2159,7 +2159,7 @@ static void test_rollout_stays_on_ground() {
 // a worst upright sink of -301, inside the -0x0180 limit. So trigger 2 is
 // only reachable inverted - where lift acts downward and the deficit doubles -
 // and it is reachable there precisely because the bank check looks at left.z,
-// which is ~0 after a full 180 degree roll. See docs/flight_review.md C5.
+// which is ~0 after a full 180 degree roll. See docs/flight.md 5.3.
 
 #ifdef __FLIGHT_AOA__
 static void test_landing_envelope_sink_rate() {
@@ -2251,7 +2251,7 @@ static void test_landing_envelope_sink_rate() {
 // a worst upright sink of -301, inside the -0x0180 limit. So trigger 2 is
 // only reachable inverted - where lift acts downward and the deficit doubles -
 // and it is reachable there precisely because the bank check looks at left.z,
-// which is ~0 after a full 180 degree roll. See docs/flight_review.md C5.
+// which is ~0 after a full 180 degree roll. See docs/flight.md 5.3.
 static void test_landing_envelope_sink_rate() {
   printf("Running test_landing_envelope_sink_rate...\n");
 
@@ -2651,7 +2651,7 @@ static void _turn_over(int roll_steps, int16_t speed, int frames) {
 //
 // This test used to assert the opposite of its own name's replacement: that
 // the turn rate did *not* depend on airspeed, because the old model turned at
-// `left.z >> 5` whatever the wing was doing (flight_review.md B4). The turn is
+// `left.z >> 5` whatever the wing was doing (docs/flight.md 3.1). The turn is
 // now L sin(bank) over momentum, the same equation and the same 1/V as the
 // flight path, so it depends on both - and a level turn's rate is g tan(bank)
 // / V, which falls as the aircraft goes faster.

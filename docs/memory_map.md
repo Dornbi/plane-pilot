@@ -1,317 +1,153 @@
-# Plane Pilot RAM Footprint & Memory Map
+# RAM Footprint & Memory Map
 
-A breakdown of RAM usage by feature area and segment for **Plane Pilot
-(`ppilot.prg`)**, and a walk of the whole 64 KB address space.
+A breakdown of RAM usage by feature area and segment for **Plane Pilot (`ppilot.prg`)** and **Fighter Pilot (`fpilot.prg`)**, plus the 64 KB address-space walk.
 
-Every number below is generated from the compiled link map
-(`c64o/ppilot.map`) by `tools/analyze_ram.py`, and last refreshed on
-**3 October 2026**. Regenerate the tables with:
+Every number below is generated from the compiled link maps (`c64o/ppilot.map` and `c64o/fpilot.map`) by `tools/analyze_ram.py` (refreshed **20 November 2026**). Regenerate with:
 
 ```bash
-python3 tools/analyze_ram.py --markdown
+make pram                                           # ppilot.map (text)
+make fram                                           # fpilot.map (text)
+python3 tools/analyze_ram.py c64o/ppilot.map --markdown
+python3 tools/analyze_ram.py c64o/fpilot.map --markdown
+python3 tools/analyze_ram.py c64o/fpilot.map --verbose
 ```
 
-## Read the two tables differently
+## Reading the tables
 
-They count different things, and the difference is the point.
-
-The **feature table** answers "what does this part of the program cost". It
-adds up the symbols in the link map, plus the fixed allocations in the tool's
-`FIXED` table, and attributes each to a feature. It is only ever as complete
-as those two inputs.
-
-The **address space walk** answers "how much room is left". It covers all
-65,536 bytes and reconciles to exactly that, so a symbol nobody thought to
-categorise shows up as memory missing from the walk rather than as free space.
-Free RAM is read off the walk and nowhere else.
-
-That distinction is not academic. This document used to report 18,142 bytes
-free by subtracting the feature total from 64 KB, at a time when the real
-figure was 6,154. Four allocations were simply not in the model: the
-3,904-byte panel bitmap at `$F000`, the 3,072 bytes of sprite bitmaps at
-`$D400`, 256 bytes of character RAM, and the 1,024-byte map screen buffer
-under I/O. A fifth, "Sprite Data RAM at `$E700-$E7FF`", was in the model but
-does not exist - those addresses hold character definitions 224-255
-(`kGfxGroundPoints` and `kGfxColorPoints`).
-
-Segments:
-
-- **Code** - executable instructions (`code`, `startup`).
-- **Data** - read-only tables, compressed assets, constants (`data`,
-  `data_box`, `data_compr`).
-- **BSS** - uninitialised variables and scratch buffers (`bss`, `bss2`, and
-  the software stack frames at `$0200`).
-- **ZP** - zero page, `$0060-$00FF`.
-- **VRAM** - allocations the linker never sees, written at absolute addresses
-  by `mem.h`, `view.cc`, `gfx.cc` and `map.cc`. These are the ones that have
-  to be kept in sync by hand: the `FIXED` table at the top of
-  `tools/analyze_ram.py` is the list, and each entry names the source that
-  places it.
+- **Feature table** sums linker symbols plus hand-placed `FIXED` VRAM ranges by feature area (`Code`, `Data`, `BSS`, `ZP`, `VRAM`).
+- **Address space walk** covers all **65,536 bytes** and reconciles to exactly that. Free RAM is read from the walk, never from `65536 - feature_total`.
+  - **free** — inside a linker region; usable by the compiler. Since `bss2` runs through `$085F` (`mem.h` `MEM_BSS2_END`), it reuses the BASIC link byte (`$0800`) and oscar64 startup stub (`$0801–$0852`), both dead once `main()` starts.
+  - **stack headroom** — unused portion of `#pragma stacksize` (`$0200–$0240` in `ppilot`, `$0200–$0220` in `fpilot`). Static call frames grow down from the top; exceeding the region fails at link time (oscar64 error 3034).
+  - **boot headroom** — spare bytes inside the `$0860–$0A5F` boot region (reused as `box.cc` `kBootScratch` after `_boot()` returns).
+  - **free (orphan)** — outside every linker region (`$EBE8`, `$EFE8`, `$FFF8`); reachable only by hand-placing.
+- **Color RAM (`$D800–$DBE7`, 1,000 × 4 bits)** is separate SRAM inside the I/O block, not part of the 64 KB DRAM (the DRAM behind `$D800` is the sprite bitmap block), so it is reported off budget.
+- **Map view bitmap (`$E000–$FF3F`)** reuses character RAM, both screens, and the panel bitmap; only `$D000–$D3FF` is charged to it.
 
 ---
 
-## Footprint by feature area
+## Plane Pilot (`ppilot.prg`)
 
 | Feature Area | Code | Data | BSS | ZP | VRAM | **Total Footprint** |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **1. Horizon Graphics** | 3,728 B | 8,470 B | 14 B | 37 B | 4,176 B | **16,425 B (16.0 KB)** |
-| **2. Polygon Graphics** | 5,451 B | 1,260 B | 335 B | 20 B | 0 B | **7,066 B (6.9 KB)** |
-| **3. World Model** | 6,394 B | 357 B | 337 B | 59 B | 0 B | **7,147 B (7.0 KB)** |
-| **4. Instrument Panel** | 3,252 B | 1,381 B | 298 B | 2 B | 6,992 B | **11,925 B (11.6 KB)** |
-| **5. Menu & Missions** | 3,225 B | 3,381 B | 2 B | 5 B | 1,024 B | **7,637 B (7.5 KB)** |
-| **6. Message System** | 475 B | 13 B | 0 B | 2 B | 0 B | **490 B (0.5 KB)** |
-| **7. Sound Effects** | 1,093 B | 92 B | 30 B | 6 B | 0 B | **1,221 B (1.2 KB)** |
-| **8. Music** | 884 B | 791 B | 2 B | 11 B | 0 B | **1,688 B (1.6 KB)** |
-| **9. Debug Messages & Overlay** | 956 B | 0 B | 0 B | 5 B | 0 B | **961 B (0.9 KB)** |
-| **10. Benchmarks & Timing** | 331 B | 0 B | 8 B | 0 B | 0 B | **339 B (0.3 KB)** |
-| **11. Core System & Drivers** | 5,225 B | 375 B | 217 B | 13 B | 0 B | **5,830 B (5.7 KB)** |
-| **TOTAL** | **31,014 B** | **16,120 B** | **1,243 B** | **160 B** | **12,192 B** | **60,729 B (59.3 KB)** |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **1. Horizon Graphics** | 2,605 B | 6,837 B | 25 B | 29 B | 4,176 B | **13,672 B (13.4 KB)** |
+| **2. Polygon Graphics** | 4,229 B | 1,158 B | 312 B | 20 B | 0 B | **5,719 B (5.6 KB)** |
+| **3. World Model** | 6,248 B | 375 B | 350 B | 67 B | 0 B | **7,040 B (6.9 KB)** |
+| **4. Instrument Panel** | 2,461 B | 1,224 B | 170 B | 1 B | 6,992 B | **10,848 B (10.6 KB)** |
+| **5. Menu & Missions** | 2,568 B | 2,828 B | 0 B | 7 B | 1,024 B | **6,427 B (6.3 KB)** |
+| **6. Message System** | 370 B | 11 B | 0 B | 2 B | 0 B | **383 B (0.4 KB)** |
+| **7. Sound Effects** | 685 B | 139 B | 28 B | 9 B | 0 B | **861 B (0.8 KB)** |
+| **8. Music** | 749 B | 380 B | 1 B | 10 B | 0 B | **1,140 B (1.1 KB)** |
+| **9. Debug Messages & Overlay** | 988 B | 0 B | 0 B | 5 B | 0 B | **993 B (1.0 KB)** |
+| **10. Benchmarks & Timing** | 349 B | 0 B | 8 B | 0 B | 0 B | **357 B (0.3 KB)** |
+| **11. Core System & Drivers** | 3,670 B | 427 B | 85 B | 10 B | 0 B | **4,192 B (4.1 KB)** |
+| **TOTAL** | **24,922 B** | **13,379 B** | **979 B** | **160 B** | **12,192 B** | **51,632 B (50.4 KB)** |
 
-Color RAM is deliberately absent from the VRAM column. It is a separate
-1000 x 4 bit array inside the I/O block, not part of the 64 KB of DRAM - the
-DRAM behind `$D800` is the sprite bitmap block. Counting it here would book
-the same addresses twice.
-
----
-
-## Address space walk
-
-Every byte of the 64 KB, in order. Three kinds of free space, because they
-are not equally reachable:
-
-- **free** - inside a linker region, so the compiler can still use it. This is
-  the number that matters when deciding whether a feature fits. Since
-  2026-11-05 bss2 runs on to `$085F` (mem.h `MEM_BSS2_END`), over the BASIC
-  link byte at `$0800` and oscar64's startup stub at `$0801-$0852`, both dead
-  once `main()` runs, so the walk counts them free; the table below predates
-  that.
-- **stack headroom** - the unused part of the software stack region. oscar64's
-  software stack grows _down_ from the end of its region, so the `sections`
-  line reports what was never reached: `$0200 - $020D` on a `$0200..$0240`
-  region means 51 bytes in use and 13 spare, not the other way round. Only
-  the static frames ever use it - nothing reaches the dynamic stack - so the
-  region was cut from `$0280` to `$0240` on 2026-10-17 and bss2 lowered to
-  match (fpilot's `_opponent_f`, `_opponent_axes_m` and `_planes_off` live in
-  `tscratch` so fpilot shares the `$0200..$0240` ceiling). Should the frames
-  outgrow it, the link fails with oscar64 error 3034. The table below predates
-  that cut.
-- **free (orphan)** - outside every linker region. Real RAM, but only
-  reachable by placing something there by hand, the way `mem.h` and `view.cc`
-  already do.
+### Address space walk (`ppilot.map`)
 
 | Range | Bytes | State | Contents |
 | :--- | ---: | :--- | :--- |
 | `$0000-$0001` | 2 | used | 6510 processor port |
-| `$0002-$005F` | 94 | used | oscar64 runtime zero page (reserved; headroom checked by check_zeropage.py) |
-| `$0060-$00FF` | 160 | used | linker-allocated: code, data, bss, zero page, stack frames |
+| `$0002-$005F` | 94 | used | oscar64 runtime zero page (checked by `check_zeropage.py`) |
+| `$0060-$00FF` | 160 | used | linker-allocated zero page |
 | `$0100-$01FF` | 256 | used | 6502 hardware stack |
-| `$0200-$024B` | 76 | stack headroom | software stack headroom (see #pragma stacksize in mem.h) |
-| `$024C-$02F9` | 174 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$02FA-$02FF` | 6 | free | free, inside a linker region |
-| `$0300-$03FD` | 254 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$03FE-$03FF` | 2 | free | free, inside a linker region |
-| `$0400-$04E7` | 232 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$04E8-$04FF` | 24 | free | free, inside a linker region |
-| `$0500-$0537` | 56 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$0538-$07FF` | 712 | free | free, inside a linker region |
-| `$0800-$0800` | 1 | used | BASIC link byte |
-| `$0801-$0852` | 82 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$0853-$085F` | 13 | free | free, inside a linker region |
-| `$0860-$0A50` | 497 | used | boot-only code (mem.h boot region), reused once main() is past it as kBootScratch |
-| `$0A51-$0A5F` | 15 | boot headroom | boot region headroom, for boot-only code (mem.h MEM_BOOT_END) |
-| `$0A60-$BFFD` | 46,494 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$BFFE-$BFFF` | 2 | free | free, inside a linker region |
-| `$C000-$C0F5` | 246 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$C0F6-$C0FF` | 10 | free | free, inside a linker region |
-| `$C100-$C1FB` | 252 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$C1FC-$C1FF` | 4 | free | free, inside a linker region |
-| `$C200-$C22F` | 48 | used | linker-allocated: code, data, bss, zero page, stack frames |
-| `$C230-$CFFF` | 3,536 | free | free, inside a linker region |
-| `$D000-$D3FF` | 1,024 | used | map view screen RAM, time-shared with the title aircraft's 4 sprite blocks, under I/O (map.cc kMapScreenRam, mem.h kTitleSpriteData) |
-| `$D400-$DFFF` | 3,072 | used | sprite bitmaps, 48 blocks (mem.cc kSpriteData) |
-| `$E000-$E7FF` | 2,048 | used | character RAM, 256 chars (mem.h kCharRam) |
-| `$E800-$EBE7` | 1,000 | used | main screen RAM (mem.h kScreenRamMain) |
-| `$EBE8-$EBF7` | 16 | free (orphan) | free, but outside every linker region |
+| `$0200-$0221` | 34 | stack headroom | software stack headroom (`#pragma stacksize(0x40)`) |
+| `$0222-$057B` | 833 used / 25 free | mixed | static stack frames + `bss2` (page-aligned holes: 1 B, 20 B, 4 B) |
+| `$057C-$085F` | 740 | free | `bss2` free tail (reuses `$0800-$0852` startup stub after boot) |
+| `$0860-$0A31` | 466 | used | boot-only code (`boot` region), reused as `kBootScratch` |
+| `$0A32-$0A5F` | 46 | boot headroom | boot region headroom (`MEM_BOOT_END`) |
+| `$0A60-$9E77` | 37,885 used / 27 free | mixed | main region code, data, BSS (27 B alignment hole at `$3A49`) |
+| `$9E78-$CFFF` | 12,680 | free | main region free tail |
+| `$D000-$D3FF` | 1,024 | used | RAM under I/O: map screen RAM / title aircraft 4 sprite blocks |
+| `$D400-$DFFF` | 3,072 | used | sprite bitmaps, 48 blocks (`mem.cc kSpriteData`) |
+| `$E000-$E7FF` | 2,048 | used | character RAM, 256 chars (`kCharRam`) |
+| `$E800-$EBE7` | 1,000 | used | main screen RAM (`kScreenRamMain`) |
+| `$EBE8-$EBF7` | 16 | free (orphan) | gap before sprite pointers |
 | `$EBF8-$EBFF` | 8 | used | main screen sprite pointers |
-| `$EC00-$EFE7` | 1,000 | used | alt screen RAM (mem.h kScreenRamAlt) |
-| `$EFE8-$EFF7` | 16 | free (orphan) | free, but outside every linker region |
+| `$EC00-$EFE7` | 1,000 | used | alt screen RAM (`kScreenRamAlt`) |
+| `$EFE8-$EFF7` | 16 | free (orphan) | gap before sprite pointers |
 | `$EFF8-$EFFF` | 8 | used | alt screen sprite pointers |
-| `$F000-$FF3F` | 3,904 | used | panel bitmap, incl. the four heading strips at $F000 (view.cc, gfx.cc) |
-| `$FF40-$FFBF` | 128 | used | back view's tail fin, 2 sprite blocks (mem.h kFinSpriteData) |
-| `$FFC0-$FFCD` | 14 | used | the generated raster IRQ handler, the panel top's (mem.h `irqcode` region, gfx.cc `_rirq_buf`) |
-| `$FFCE-$FFF7` | 42 | free | free, inside the `irqcode` region |
-| `$FFF8-$FFF9` | 2 | free (orphan) | free, but outside every linker region |
+| `$F000-$FF3F` | 3,904 | used | panel bitmap, incl. heading strips at `$F000` |
+| `$FF40-$FFBF` | 128 | used | back view's tail fin, 2 sprite blocks (`kFinSpriteData`) |
+| `$FFC0-$FFCD` | 14 | used | generated raster IRQ stub (`irqcode`, `gfx.cc _rirq_buf`) |
+| `$FFCE-$FFF7` | 42 | free | free inside `irqcode` region |
+| `$FFF8-$FFF9` | 2 | free (orphan) | gap before hardware vectors |
 | `$FFFA-$FFFF` | 6 | used | NMI / RESET / IRQ vectors |
 
 ```
-Used                       61,046 B   93.1%
-Free, allocatable           4,309 B   largest run 3,536 B at $C230
-Free, stack headroom           76 B   reachable by lowering #pragma stacksize
-Free, orphan fragments         90 B   only reachable by hand-placing
-Free, boot headroom            15 B   only for boot-only code (mem.h MEM_BOOT_END)
-Free, total                 4,490 B   6.9%
-```
+Used                       51,908 B   79.2%
+Free, allocatable          13,514 B   largest run 12,680 B at $9E78
+Free, stack headroom           34 B
+Free, orphan fragments         34 B
+Free, boot headroom            46 B
+Free, total                13,628 B   20.8%
 
-```
-Feature table total        60,729 B
-+ machine-owned ranges        359 B   processor port, runtime ZP, hardware stack, BASIC link
-- addresses counted twice      42 B   oscar64 overlays call frames that cannot be live together
-= address space, used      61,046 B
+Feature table total        51,632 B
++ machine-owned ranges        358 B   processor port, runtime ZP, hardware stack
+- startup stub in bss2         82 B   mem.h bss2 over $0801: dead once main() runs
+= address space, used      51,908 B
 ```
 
 ---
 
-## Detail by feature area
+## Fighter Pilot (`fpilot.prg`)
 
-### 1. Horizon Graphics (16,425 B)
+`fpilot.prg` drops the `D` debug view and colour schemes and adds opponents, 3D plane rasteriser, guns, damage, and debrief. Key layout differences from `ppilot.prg`:
 
-* **Code (3,728 B)**: viewport horizon rendering, cell filling, box generation, slot drawing (`render.cc`, `box.cc`, `roll.cc`, `roll_asm.cc`).
-* **Data (8,470 B)**: box definitions (`boxdefs`), character definitions (`chardefs`), roll multiply and slope tables, compressed charset (`kGfxCharsCompressed`).
-* **BSS (14 B)**: which box each charset slot holds (`_slot_def`); the per-slot caches themselves live in the boot region (`mem.h` `kBootScratch`) and are not counted here.
-* **ZP (37 B)**: roll and render registers (`roll_dx`, `roll_dy`, `roll_period`, `render_cx_pixels`, ...).
-* **VRAM (4,176 B)**: character RAM `$E000-$E7FF`, main screen `$E800`, alt screen `$EC00` - the two double-buffered VIC screens - and the back view's tail fin at `$FF40-$FFBF`, the two sprite blocks that fit between the panel bitmap and the vectors.
+- `#pragma stacksize(0x20)` (`$0200–$021F`, 2 B headroom); `bss2` starts at `$0220`.
+- Main region ends at `$CFC0` so `$CFC0–$CFFF` (64 B) holds `kOpponentDotBlock` outside I/O.
+- `$D000–$D3FF` (1,024 B under I/O) is also time-shared with fpilot's 16 dynamic opponent sprite blocks during flight.
+- `scratch` / `tscratch` overlay **420 B** of main screen RAM rows 14–24 (`$EA30–$EBE7`), which are covered by the MCBM instrument panel during flight.
 
-### 2. Polygon Graphics (7,066 B)
+| Feature Area | Code | Data | BSS | ZP | VRAM | **Total Footprint** |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **1. Horizon Graphics** | 2,594 B | 6,837 B | 39 B | 15 B | 4,176 B | **13,661 B (13.3 KB)** |
+| **2. Polygon Graphics** | 4,288 B | 1,470 B | 0 B | 20 B | 0 B | **5,778 B (5.6 KB)** |
+| **3. World Model** | 16,644 B | 1,367 B | 549 B | 80 B | 64 B | **18,704 B (18.3 KB)** |
+| **4. Instrument Panel** | 2,790 B | 1,218 B | 171 B | 0 B | 6,992 B | **11,171 B (10.9 KB)** |
+| **5. Menu & Missions** | 2,495 B | 3,088 B | 7 B | 1 B | 1,024 B | **6,615 B (6.5 KB)** |
+| **6. Message System** | 394 B | 11 B | 2 B | 0 B | 0 B | **407 B (0.4 KB)** |
+| **7. Sound Effects** | 698 B | 139 B | 34 B | 3 B | 0 B | **874 B (0.9 KB)** |
+| **8. Music** | 774 B | 380 B | 6 B | 5 B | 0 B | **1,165 B (1.1 KB)** |
+| **11. Core System & Drivers** | 5,062 B | 614 B | 139 B | 36 B | 0 B | **5,851 B (5.7 KB)** |
+| **TOTAL** | **35,739 B** | **15,124 B** | **947 B** | **160 B** | **12,256 B** | **64,226 B (62.7 KB)** |
 
-* **Code (5,451 B)**: polygon pipeline, edge scan conversion, near and screen clipping, fixed-point vector math (`poly.cc`, `vec.cc`, `vec_asm.cc`, `fmath.cc`).
-* **Data (1,260 B)**: sine and cosine tables, inverse-Z LUT, the quarter-square multiply tables (`vec_sqr_lo`, `vec_sqr_hi`).
-* **BSS (335 B)**: scratch vertex buffers (`poly_verts`, `clip3_buf`, `proj_buf`, `clip2_buf1/2`, `final_verts`).
-* **ZP (20 B)**: vector registers (`vec_v`, `vec_sx`, `vec_sy`).
+```
+Used                       63,682 B   97.2%
+Free, allocatable           1,769 B   largest run 896 B at $CC40 (plus 800 B in bss2 at $0540)
+Free, stack headroom            2 B   ($0200-$0201)
+Free, orphan fragments         34 B
+Free, boot headroom            49 B   ($0A2F-$0A5F)
+Free, total                 1,854 B   2.8%
 
-### 3. World Model (7,147 B)
-
-* **Code (6,394 B)**: flight dynamics, physics integration, waypoint checking, terrain grid rendering (`flight.cc`, `world.cc`, `sim.cc`, `world_map.cc`, `clouds.cc`).
-* **Data (357 B)**: orientation matrices (`mat3_rot`), the world map, cloud hash and ladder tables.
-* **BSS (337 B)**: flight path history (`flight_path_px/py`), delta transform vectors (`_world_dx4`, `_world_dy4`), camera state.
-* **ZP (59 B)**: flight state (`flight_eye_x/y/z`, `flight_speed`, `flight_throttle`, `flight_fuel`, `flight_vspeed`).
-
-### 4. Instrument Panel (11,925 B)
-
-* **Code (3,252 B)**: viewport split raster handlers, gauge updates, the sprite stack and hardware controller (`view.cc`, `panel.cc`, `sprites.cc`, `spritedef.cc`).
-* **Data (1,381 B)**: compressed panel image and sprite bitmaps, character and color LUTs.
-* **BSS (298 B)**: raster IRQ split structures, the sprite candidate stack and the two committed sprite frames.
-* **ZP (2 B)**: sprite index and pointers.
-* **VRAM (6,992 B)**: sprite bitmaps `$D400-$DFFF`, panel bitmap `$F000-$FF3F` (the four heading strips live in its off-screen head at `$F000-$F17F`), and both screens' sprite pointers.
-
-### 5. Menu & Missions (7,637 B)
-
-* **Code (3,225 B)**: menu loop, mission cursor, help screen, map view, title screen flyby (`menu.cc`, `pmission.cc`, `help.cc`, `map.cc`, `title.cc`).
-* **Data (3,381 B)**: menu and mission text, mission definitions, help text, map tiles, the compressed title aircraft bitmaps.
-* **BSS (2 B)**: the flyby timer.
-* **ZP (5 B)**: flyby position and state.
-* **VRAM (1,024 B)**: `$D000-$D3FF`, RAM under I/O, time-shared: the map view's screen RAM while the map is open, the title aircraft's four sprite blocks while the menu is.
-
-### 6. Message System (490 B)
-
-* **Code (475 B)**: status message timer, line formatter, clear and restore (`msg.cc`, `screen.cc` notices).
-* **Data (13 B)**: format strings and delays.
-* **BSS (0 B)**: the active message buffer.
-* **ZP (2 B)**: notice countdown and length.
-
-### 7. Sound Effects (1,221 B)
-
-* **Code (1,093 B)**: SID driver, engine generator, stall alarm, wind noise, volume control (`sound.cc`).
-* **Data (92 B)**: engine pitch table, wind frequency table, volume names.
-* **BSS (30 B)**: the SID register shadow.
-* **ZP (6 B)**: PWM phase, generation counters, RNG, voice-3 arbitration, stall phase.
-
-### 8. Music (1,688 B)
-
-* **Code (884 B)**: playback driver, tick handler, note-to-frequency conversion (`music.cc`).
-* **Data (791 B)**: note table, per-row lead and bass streams, chord table, volume map and mix matrix, bit-packed gate and drum masks.
-* **BSS (2 B)**: voice-3 sweep step.
-* **ZP (11 B)**: row, bar and frame counters, arpeggio index, voice-3 ownership.
-
-### 9. Debug Messages & Overlay (961 B)
-
-* **Code (956 B)**: the `D` view: camera basis, eye position, CPU probe and flight readouts (`panel.cc`, `print.cc`).
-* **ZP (5 B)**.
-
-### 10. Benchmarks & Timing (339 B)
-
-* **Code (331 B)**: CIA2 stage counters behind the `D` view (`benchmark.cc`).
-* **BSS (8 B)**.
-
-### 11. Core System & Drivers (5,830 B)
-
-* **Code (5,225 B)**: entry point, VIC setup, raster IRQ core, LZO decompressor, keyboard, CPU speed probe, oscar64 runtime (`ppilot.cc`, `mem.cc`, `gfx.cc`, `screen.cc`, `keys.cc`, `cpu.cc`, `bcd.cc`, `print.cc`); the boot-only part of it is the boot region at `$0860`, which is `box.cc`'s cache space once it has run.
-* **Data (375 B)**: startup header, screen row pointer table, fill patterns.
-* **BSS (217 B)**: raster IRQ lists, keyboard matrix, CPU probe results.
-* **ZP (13 B)**: compiler temporaries and kernel flags.
-* **Off budget (1,000 B)**: color RAM $D800-$DBE7: 1000 x 4 bits inside the I/O block, not DRAM.
-
-The map view also borrows `$E000-$FF3F` for its bitmap, on top of character
-RAM, both screen buffers and the panel. That is reuse, not extra memory, and
-only `$D000-$D3FF` is charged to it above.
+Feature table total        64,226 B
++ machine-owned ranges        358 B   processor port, runtime ZP, hardware stack
+- addresses counted twice     400 B   oscar64 overlays non-overlapping call frames
+- screen rows as scratch      420 B   mem.h scratch: main screen rows 14-24, dead in flight
+- startup stub in bss2         82 B   mem.h bss2 over $0801: dead once main() runs
+= address space, used      63,682 B
+```
 
 ---
 
-## The ROM window, before mem_init()
+## Feature area contents
 
-The main region is `$0A60-$D000`, above the boot region at `$0860`, and the
-linker places globals anywhere in it. But the C64 powers on with **BASIC ROM at `$A000-$BFFF`** and KERNAL at
-`$E000-$FFFF` banked in, and `mem_init()` is what calls
-`mmap_set(MMAP_NO_ROM)` to make those addresses plain RAM.
-
-Until that call the two directions disagree. A **write** to a global in the
-BASIC window reaches the RAM underneath, so it looks like it worked. A **read**
-of the same address returns a ROM byte.
-
-This has bitten once, and it took a long time to find because it is invisible
-until the linker happens to move a variable into the window:
-
-* `cpu_probe()` correctly stored the measured shift into `cpu_step_shift`.
-* The linker had placed `cpu_step_shift` at `$AC9D`.
-* `ppilot.cc` read it before `mem_init()` and got `$A5` -- a BASIC ROM byte --
-  instead of `0`.
-* `flight_set_step_shift(165)` left `kFlightSubstepMask` at 31 and
-  `kFlightFramesPerStep` at 1, so the catch-up loop `sim_run()` had at the time
-  (`while ((uint8_t)(gfx_frame_count - model_last_frame) >= kFlightFramesPerStep)`)
-  stopped terminating.
-* The simulation froze on its first frame while the raster interrupt kept
-  running, so the picture was static, the controls dead, and the engine still
-  audible.
-
-That loop is gone — `sim.cc` takes exactly one step per rendered frame now,
-or a fixed 2 or 4 under time compression ([flight.md](flight.md) §8) — so this particular symptom is no longer
-reachable. The hazard it came from is, which is the point of the check below.
-
-Because it depends only on where one variable lands, unrelated changes to bss2
-or to the data layout made it appear and disappear. That is what makes it worth
-a build check rather than a comment.
-
-`tools/check_rom_window.py` runs on every link of `ppilot` and `polydemo`. It
-walks `main()` and everything it calls up to the `mem_init()` call, and fails
-the build on any absolute *read* from `$A000-$BFFF` or `$E000-$FFFF`. Stores
-are allowed, since they reach RAM.
-
-The rule for new code: **nothing that runs before `mem_init()` may read a
-global.** Pass the value in a register, or move the work after `mem_init()`.
+1. **Horizon Graphics:** `render.cc`, `render_asm.cc`, `box.cc`, `roll.cc`, `roll_asm.cc`; `boxdefs`, `chardefs`, roll tables, compressed charset; char RAM `$E000–$E7FF`, main/alt screen RAM `$E800`/`$EC00`, back-view fin `$FF40–$FFBF`. Per-slot caches live in `kBootScratch` (`$0860–$0A5F`).
+2. **Polygon Graphics:** `poly.cc`, `poly_asm.h`, `vec.cc`, `vec_asm.cc`, `fmath.cc`; trig, inverse-Z, quarter-square LUTs; vertex scratch buffers.
+3. **World Model:** `flight.cc`, `world.cc`, `world_asm.h`, `sim.cc`, `world_map.cc`, `clouds.cc`, and in `fpilot`: `opponent.cc`, `opponent_asm.cc`, `planes.cc`, `planes_asm.cc`, `gun.cc`, `gun_asm.cc`, `damage.cc`, plus `kOpponentDotBlock` at `$CFC0`.
+4. **Instrument Panel:** `view.cc`, `panel.cc`, `sprites.cc`, `sprites_asm.cc`, `spritedef.cc`; compressed panel/sprite art; sprite bitmaps `$D400–$DFFF`, panel bitmap `$F000–$FF3F`, sprite pointers.
+5. **Menu & Missions:** `menu.cc`, `pmission.cc`/`fmission.cc`, `debrief.cc`, `help.cc`, `map.cc`, `title.cc`; text, mission tables, map tiles, title sprites; `$D000–$D3FF` time-shared under I/O.
+6. **Message System:** `msg.cc` and `screen.cc` notices.
+7. **Sound Effects:** `sound.cc`, pitch/wind/V3 tables, 25 B SID shadow.
+8. **Music:** `music.cc`, packed `musicdef.cc` pools, note/drum tables.
+9. **Debug / 10. Benchmarks (`ppilot` only):** `panel.cc` `D` overlay, `benchmark.cc` CIA2 counters.
+11. **Core System & Drivers:** `ppilot.cc`, `mem.cc`, `gfx.cc`, `screen.cc`, `keys.cc`, `cpu.cc`, `bcd.cc`, `print.cc`, oscar64 runtime; boot region at `$0860`; off-budget color RAM `$D800–$DBE7`.
 
 ---
 
-## Tool usage
+## The ROM window before `mem_init()`
 
-Both binaries, which is what the build runs:
+At power-on, BASIC ROM is banked in at `$A000–$BFFF` and KERNAL at `$E000–$FFFF`. Until `mem_init()` calls `mmap_set(MMAP_NO_ROM)`, stores to those ranges write RAM underneath while loads read ROM bytes. A global placed in `$A000–$BFFF` by the linker therefore writes cleanly and reads back garbage ROM bytes — a layout-dependent trap that once froze `ppilot` when `cpu_step_shift` landed at `$AC9D`.
 
-```bash
-make pram
-```
+**Rule:** nothing that runs before `mem_init()` may read a global in `$A000–$BFFF` or `$E000–$FFFF`. Pass values in registers or move the work after `mem_init()`.
 
-One map:
-
-```bash
-python3 tools/analyze_ram.py [c64o/ppilot.map]
-```
-
-Every individual symbol with its size, by category and segment:
-
-```bash
-python3 tools/analyze_ram.py --verbose
-```
-
-The tool asserts that the walk reconciles to 65,536 and that the feature table
-bridges to it, so a layout change the `FIXED` table has not been told about
-fails loudly instead of quietly inflating the free figure. It warns when
-pointed at a map that is not a `-D__MAX_RAM__` build (`vecdemo`, `vectest`),
-where those fixed addresses do not apply.
+`tools/check_rom_window.py` enforces this automatically on every link of `ppilot`, `fpilot`, and `polydemo`, walking `main()` and its callees up to `mem_init()` and failing the build on any absolute load from `$A000–$BFFF` or `$E000–$FFFF`.

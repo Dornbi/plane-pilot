@@ -3,7 +3,7 @@
 const uint8_t kBit[8] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80};
 
 // Left to the outliner (-Oo): _get_ratio() runs at most three times a frame,
-// so its JSR/RTS pairs cost nothing measurable (codesize.md §3.1).
+// so its JSR/RTS pairs cost nothing measurable.
 
 // Calculates the ratio of |y| to |x| + |y|,
 // scaled by a factor of 64 to return a value between 0 and 64.

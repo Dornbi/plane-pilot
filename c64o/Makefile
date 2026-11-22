@@ -4,7 +4,7 @@ OSCAR64_INCLUDE=../../../oscar64-main/include
 # arcade model ships, in both. The angle-of-attack model shipped from
 # 2026-10 to 2026-11-05 and is still in flight.cc, behind __FLIGHT_AOA__, and
 # still covered by the host suite - `make -C c64o/test test-both` - but it
-# cannot fly a loop (docs/flight_aoa.md 8), so it is back to the arcade one.
+# cannot fly a loop (docs/flight.md 9), so it is back to the arcade one.
 #
 #   make prg               the arcade model
 #   make prg FLIGHT_AOA=1  both with the angle-of-attack model

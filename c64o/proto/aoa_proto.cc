@@ -3,7 +3,7 @@
 //
 // Everything printed here is measured, in the sense flight.md uses the word:
 // the model is run to a steady state and read, never predicted. The tables in
-// docs/flight_aoa.md are this program's output.
+// See docs/flight.md 9 for the AoA model summary.
 //
 //   make -C c64o/proto run
 //

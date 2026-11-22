@@ -1,348 +1,85 @@
-# Projectiles (`projectiles.md`)
+# Projectiles, Ammo, Tracers & Smoke (`projectiles.md`)
 
-Guns for fpilot, the player's first and the opponents' provided for.
-*Since 2026-10-24* §9's phases 1–3 are built (`c64o/gun.cc`, `c64o/gun_asm.cc`),
-with smoke and an end-to-end test: see §11 and §12.
-The rest of this is the plan they follow. Everything here is fpilot only (`__FPILOT__`);
-ppilot does not change. Lengths are on the current scale, 128 m to the
-world unit ([map.md](map.md) §4, "The scale").
+Shipped in `fpilot.prg` (`c64o/gun.{h,cc}`, `c64o/gun_asm.{h,cc}`). Handles player and opponent gunfire, hit/near-miss/collision detection, finite ammo and debrief tallies, gun audio, yellow tracer sprites, and black smoke/ground-impact puffs.
 
-## 1. What it has to do
+---
 
-- The player fires with **Space** (free in flight; only the map uses it, to
-  exit). Rounds leave the wings alternately and converge ahead.
-- A round that passes close enough to an opponent hits it. Enough hits set
-  its `_opponent_down` bit, which already completes `WP_TARGETS_DOWN`.
-- **One hardware sprite** for all of it, whoever fired.
-- Opponents can fire through the same code later: a round has an owner, and
-  a round from an opponent can hit the player.
+## 1. Overview
 
-## 2. Rounds are state, the sprite is a view of one
+- **Trigger:** `Space` fires alternating converging wing streams (armed only after `Space` is released once on mission start via `_gun_armed`, preventing accidental fire from menu/map exits).
+- **Pool:** 8 shared round slots (`kRoundMax = 8`) for both player and opponent rounds.
+- **Sprites:** At most **2 viewport stack sprites** (1 tracer + 1 smoke/ground puff) using **zero new sprite blocks** (reusing gauge arms 96–127 and cloud rungs 1–4).
 
-The rounds and the sprite are separate. Rounds are a small pool flown in
-world space every model step, hit-tested whether or not they are drawn.
-Each frame at most one of them is offered to the sprite stack. That is how
-one sprite carries a burst: the hits are the rounds', the picture is a
-tracer.
+---
 
-```c
-struct round_t {
-  int32_t x, y, z;     // flight_eye_*'s 24.8 half metres
-  int16_t vx, vy, vz;  // per model step, the same 1/256ths
-  uint8_t age;         // steps flown; 0 = free
-  uint8_t owner;       // kRoundPlayer, or 1 + opponent slot
-};
-static round_t _rounds[kRoundMax];  // 8 x 20 bytes
-```
+## 2. Round state & physics (`gun.cc`, `gun_asm.cc`)
 
-- **Velocity fits int16.** A round at 48 m a step plus the player's 15 at
-  `kMaxSpeed` is 63 m, 32,256 of the 1/256ths. So muzzle speed is capped
-  near 48 m a step, about 340 m/s at 7 steps a second. That is slower than a
-  real gun, which is what lets a tracer be seen for more than two frames.
-- **Life:** `kRoundSteps` ≈ 12 at 48 m a step, so about 600 m of range,
-  then the slot is freed.
-- **Pool:** player fire every second step while Space is held, alternating
-  wings, needs 6 slots for 12 steps of life. 8 slots, shared, with the
-  oldest replaced when full, leave room for an opponent's burst.
-- **Steps:** advance in `opponent_step()`'s place in the loop, after
-  `flight_advance()`, under `flight_step_shift` like everything else that
-  moves (`_flight_step_s()`).
+All round positions and velocities are stored **relative to the player's eye** as `int16_t` in **1/16 m** (range ±2,048 m), packed in flat `__striped` arrays (`_round_p[24]`, `_round_v[24]`, 48 B each), plus `gun_z_t _gun_z` (14 B zeroed by one loop in `gun_reset()`), `_round_owner[8]` (8 B), `_gun_eye[3]` (12 B), `_gun_prev[6]` (12 B), `_gun_last` (1 B), and `_gun_puff[3]` (6 B).
 
-### Firing from the wings
+- **Eye tracking (`_gun_track_all()`):** Steps `_gun_eye[0..2]` across `flight_eye_*` in exact 32-sub-unit quanta (drift-free) and subtracts eye motion from every active round.
+- **Ballistics:**
+  - Muzzle speed `kGunMuzzle = 768` (**48 m/step**, chosen to keep rounds visible for several frames at ~8–10 fps).
+  - Lifetime `kRoundLife = 12` whole steps (~600 m range).
+  - Player firing interval `kGunInterval = 2` whole steps, alternating left/right wings: `kGunAhead = 320` (20 m forward), `kGunWing = 64` (±4 m span), `kGunDrop = 24` (1.5 m below eye), `kGunConverge = 15` (`768 / 50`, harmonised at **200 m**), plus player motion `>> 5`.
+- **Enemy slot allocation (`_gun_store_enemy_round()`):** Picks a free slot or evicts the oldest enemy round — never displaces a player round.
 
-At fire time, in the player's camera frame (`flight_cam`):
+---
 
-```
-start = eye + front * 20 m + left * (±4 m) - up * 1.5 m
-v     = player velocity + front * kMuzzle - left * (±4 m / kConverge) * kMuzzle
-```
+## 3. Hit, near-miss & collision tests
 
-- The ± alternates per round: the wings in turn.
-- `kConverge` ≈ 200 m is the harmonisation range, where both streams cross
-  the boresight.
-- 20 m ahead clears the renderer's near cull (`C.x <= 64` eighth metres is
-  8 m). At that range 4 m to the side and 1.5 m down projects about 51 px
-  out and 19 px below the centre, so the round appears from the lower left
-  or right of the viewport and runs in towards the mark.
-- **Fallback, if the wings look wrong:** set the side offset to 0 and every
-  round leaves from the middle, under the mark. Nothing else changes. Wings
-  are the choice (§10).
+- **Swept hit & provoke (`_gun_hits(r, box)`):** Scales velocity by `flight_step_shift`, applies a whole-step reach rejection, then tests **4 substeps** against an AABB:
+  - Hit box: `kRoundHit = 160` (**10 m** half-side) for both opponents and the player.
+  - Near-miss provoke box: `kRoundNear = 640` (**40 m** half-side) wakes calm `Provoked` opponents.
+- **Mid-air collision (`_gun_collides()`):** Tests both current opponent offset and midpoint with `_gun_prev` against `kGunCollide = 192` (**±12 m** box) → `opponent_collide(i)`.
+- **Exact `gun_step()` ordering** (prevents newly fired enemy rounds from hitting their own shooter or skipping a check):
+  1. Raise `FLIGHT_EV_GUN` if trigger held, armed, and ammo > 0.
+  2. `_gun_track_all()` (shift all live rounds by eye delta).
+  3. Test live enemy rounds against player (`damage_hit(++gun_player_hits)`).
+  4. Poll `opponent_fires()` and store new enemy rounds.
+  5. `_gun_hit_opponents()` (mid-air collisions + player rounds vs opponents; 5 hits down an opponent into `_opponent_fall()`).
+  6. `_gun_step_rounds()` (advance positions; `z < 0` spawns ground puff `kPuffFrames = 10` and retires round; age out expired rounds).
+  7. `damage_step()` (oil-leak countdown).
+  8. Fire next player round if trigger held, armed, interval elapsed, and ammo > 0.
 
-## 3. Hitting
+---
 
-Per step, for every live round and every opponent in the near range:
+## 4. Tracer rendering (`gun_add_sprites()`)
 
-- `rel = opponent - round`, in half metres, int16. Rounds never get past
-  ~600 m, so both are near.
-- `u` is the round's unit direction, kept at fire time in 8.8.
-- `t = clamp(rel · u, 0, step length)`.
-- Hit if `|rel|² - t² < r²`.
+- **Selection (`_gun_shown()`):** Displays `_gun_last` (the player's newest live round) if active, else the youngest enemy round.
+- **Staged projection (`_gun_view_round()` + `_gun_vel_round()`):** Row-by-row camera transform (`front` → `x > 64`, `up` → `|z| < x` + `vec_frac8`, `left` → `|y| < x` + `vec_frac8`), sharing `frac_d = x` and deferring velocity projection until the round passes frustum culling.
+- **Orientation (`_gun_dir()`):** Computes the exact screen-space tangent `(y·vx − vy·x, z·vx − vz·x)` and quantises into 16 arm directions using `kTracerTan[4] = {25, 78, 137, 210}`.
+- **Size & colour:**
+  - `x < kTracerExpand` (`1200`, ~150 m): long arm + `kSpriteFlagExpandX` (`dx >>= 1`).
+  - `x < kTracerLong` (`2400`, ~300 m): long arm (1×).
+  - Farther: short arm (1×).
+  - All tracers (player and opponent) draw in **`kColorYellow`**.
 
-This is a segment test, not a point test, because a round moves 48 m a step
-and would jump straight over a 20 m aircraft.
+---
 
-- **Hit radius `r`:** about 10 m against the ~20 m span (`kOpponentKn`
-  156), generous for 6–8 fps.
-- **Cost:** about 8 rounds × 2 opponents, each a dot product and two
-  squares in 32-bit, so 5,000–8,000 cycles a step.
-- **On a hit:** free the round, count the hit (`_opponent_hits[i]`), and
-  past `kHitsToDown` (3) set the down bit.
-- **Down for now means gone:** the cull skips it. Smoke and a fall are the
-  "smoke and damage" item that follows.
-- **Rounds against the player** (owner ≠ player): the same test against the
-  eye, radius ~6 m, counting `flight_hits`. What a hit does to the player
-  is left to that later item; the counter is the provision.
+## 5. Smoke & ground-impact puff (`_gun_smoke`)
 
-## 4. The tracer: the instrument arms, reused
+Draws at most **1 black dithered sprite** (`kColorBlack`, `kSpriteFlagExpandX | kSpriteFlagAlignDither`) reusing cloud rungs 1–4 via `__striped kSmokeRungX[3] = {2344, 1832, 1496}` (1/8 m: rung 4 `< 186 m` down to rung 1 `> 292 m`):
+- Prefers active opponent smoke (`opponent_smoke()`: 25 m behind heading, 4 m up; `kSmokeHit = 14` frames on hit, `kSmokeDown = 35` frames on kill/fall).
+- Falls back to ground-impact puff `_gun_puff` (`kPuffFrames = 10` frames, 4 m up) when no aircraft is smoking.
 
-The needle bitmaps are already lines at 16 angles over half a turn
-(`kSpriteDefLongArm`, 14 px, blocks 96–111; `kSpriteDefShortArm`, 10 px,
-112–127; [spritedef.h](../c64o/spritedef.h)). A tracer is a short line along
-its own motion on screen, so it needs only a choice among those blocks,
-never new art. The blocks are in the bank the viewport band points at, since
-the panel band shows them from the same video matrix.
+---
 
-Per frame, for the round being drawn:
+## 6. Ammo, sound & tallies
 
-1. **Position:** project it like an opponent: world relative in eighth
-   metres, `vec_transform_inv(&world_cam, ...)`, centre by `vec_fracn()`.
-   Factor the opponent's near-range half of `_opponent_camera()` into a
-   helper both can call.
-2. **Direction:** the line from the round's screen point towards the
-   vanishing point of its velocity, which is `v` projected as a direction
-   `(cx0 - 256·vy/vx, cy0 - 256·vz/vx)` in camera space. A line is
-   symmetric, so half a turn is enough. Quantise to 16 steps of 11.25° with
-   an octant fold and four tangent thresholds (×256: 25, 77, 137, 210). That
-   costs compares and one multiply, no atan table.
-3. **Stretch, near:** inside ~150 m, set `kSpriteFlagExpandX` with the long
-   arm, so a just-fired round is a 28 px streak. Expanding doubles x, so
-   pick the bitmap for slope `2·dy/dx` (halve dx before quantising), and
-   the stretched line comes out on the true slope. Plain long arm out to
-   ~300 m, then the short arm.
-4. **Offer it:** `sprites_stack_add(depth, x, y, 12, 10, block, NB, colour,
-   flags)`. The pivot is the arm's centre, `kSpriteDefArmCenterX/Y`, not its
-   hub: the line is drawn centred on the round. Depth in the clouds' 1 m
-   units, so it sorts with everything else and, being near, takes a low
-   index and draws in front. The message strip and the culls come with
-   `sprites_stack_add()`.
+- **Ammo (`gun_ammo[3]`):** Three decimal digits starting at **`600`** (60 trigger rounds × 10 displayed on `fpanel` via `gfx_update_ammo()` when `!gun_ammo_shown`; **`000`** in mission 09 `kMissionUnarmed`). Refilled by `gun_rearm()` when halted on a runway.
+- **Tallies (`gun_tally[10]`):** Two 5-digit decimal counters (`kGunTallyFired` and `kGunTallyHits`, counted in tens) read by `debrief.cc` ([opponent_ai.md](opponent_ai.md) §8).
+- **Sound:** `FLIGHT_EV_GUN` triggers voice-3 decaying noise (`V3_GUN`, [sound.md](sound.md) §6).
 
-**Which round gets the sprite:** the player's youngest live round while
-firing, then the nearest opponent round in view. Holding Space and firing
-every other step, the youngest alternates wings, so the picture is streaks
-from left and right in turn. That is the one-sprite alternation asked for,
-and it needs no rule of its own.
+---
 
-Colour: yellow for the player's (`kColorSun`'s), light red for an
-opponent's, so incoming fire reads as incoming.
+## 7. Sprite budget
 
-## 5. The sprite budget
+`gun_tracer_up()` and `gun_puff_up()` report active sprites to `_opponent_cap()` ([planes.md](planes.md) §13) so both opponents cap to 2 sprites when tracers/smoke/tail fin would otherwise exceed the 7-slot (front/side) or 6-slot (back) stack.
 
-The stack has 7 slots in front (1–7) and 6 behind the fin (2–7).
+---
 
-| | Front | Back |
-| :--- | ---: | ---: |
-| Two aircraft, 4 + 2 | 6 | 6 |
-| + tracer | 7, fits | 7, one too many |
+## 8. 6502 assembly, RAM & tests (pass 152)
 
-The stack drops the farthest entry. Behind, an incoming round sits between
-the player and the near aircraft, so it would cost the far aircraft whole.
-
-**Provision:** `_opponent_cap()` learns whether a tracer is up this frame.
-In the back view with a tracer, the nearer aircraft is held to two as well
-(2 + 2 + 1 = 5). That is the rule 5e2f33e removed, back only while it is
-needed. In front nothing changes: the sun and clouds go first, as now.
-
-## 6. Opponents firing (provided, not switched on)
-
-- **Owner:** in `round_t` from the start, and the hit test already looks at
-  both directions (§3).
-- **Gun state:** `_opponent_gun[i]`, a cooldown, and a per-path flag in
-  `opponent_path_t` (`guns`), 0 for every current mission.
-- **Fire rule,** for when it is switched on: the player within ~6° of the
-  opponent's nose (`head · dir ≥ cos`) and within ~500 m. Bursts of 3
-  rounds a second step apart, then a cooldown of ~20 steps. Rounds start
-  from the opponent's position plus its own front, with its velocity
-  added. Parked aircraft never fire.
-- **Aiming:** none at first, only straight ahead, so a pilot who stays off
-  its nose is safe. Lead is a later refinement.
-- **Back view:** incoming tracers are what makes it worth having. §5 keeps
-  them from costing the far aircraft its sprites.
-
-## 7. Sound
-
-A gun one-shot on voice 3, the transient voice ([sound.md](sound.md) §6): a
-short noise burst per round, through `flight_events` like the other
-one-shots. In voice 3's priority order it goes below the stall warning and
-the crash, so a stall still sounds while firing.
-
-## 8. Cost
-
-- **RAM:** the pool is 160 bytes, plus ~10 for hits and gun state. Code is
-  probably 1.0–1.5 KB: rounds, hit test, tracer, cap change, sound.
-- **Budget:** fpilot has 4,610 bytes free, enough, but this is the biggest
-  feature since the opponents, so measure after each phase.
-- **Per step:** 5,000–8,000 cycles for the hit tests while rounds are live,
-  nothing when not.
-- **Per frame:** one projection and one stack entry, ~2,000 cycles.
-
-## 9. Order of work
-
-1. **Rounds and hits, no picture.** Pool, Space to fire, wing alternation,
-   convergence, segment test, hit counts, down bits. A host
-   `test/projectile_test.cc` covers:
-   - streams converge at `kConverge`;
-   - a round aimed at a crossing target hits, and a round off by more than
-     `r` misses;
-   - no round jumps an aircraft at full closing speed;
-   - three hits set the bit, and `mission_test` can complete 04 by shooting.
-2. **The tracer.** Projection helper shared with `opponent.cc`, direction
-   quantiser, arm choice and stretch, stack entry. Host test the quantiser
-   at all 16 directions and the expanded slopes. VICE shot of a burst.
-3. **Budget.** The tracer flag into `_opponent_cap()`, and the
-   `opponent_test` budget check with a tracer in the back view.
-4. **Sound.** The voice 3 one-shot.
-5. **Opponent guns.** Fire rule, cooldowns, hits on the player, behind a
-   path flag that no mission sets yet.
-
-## 10. Decided
-
-- **Muzzle speed favours visibility.** About 48 m a step, slower than a real
-  gun, so a tracer is seen for ~12 frames rather than two or three.
-- **5 hits to down** (3 until 2026-11-06). The 10 m hit radius is still a starting point for
-  play.
-- **Unlimited ammunition** for now, so nothing on the panel.
-- **Wings, not middle.** The difference is only at fire time:
-  - Wings add a side offset to the start and an inward term to the
-    velocity. That is six multiplies, ~1,000 cycles per round, so ~500 a
-    step while firing.
-  - It costs ~60–80 bytes of code and one byte for the alternation.
-  - Moving the rounds, the hit test and the tracer cost the same either way.
-    Opponent rounds need the general direction choice anyway, so the middle
-    would save none of it.
-  - From the middle, a round starts 19 px under the mark and shrinks into
-    it, so a tracer barely travels on screen. From a wing it crosses ~50 px
-    inwards, which is what reads as gunfire.
-
-## 11. As built (phases 1 and 2)
-
-- **`gun.cc`, `gun_asm.cc`, `gun_asm.h`, `gun.h`.** Space fires; `gun_step()`
-  runs after `opponent_step()`, and `gun_add_sprites()` after
-  `opponent_add_sprites()`. On the C64, eye tracking, world-to-eye wrapping,
-  swept-box hit and collision tests, per-step round advancement, active-tracer
-  selection, staged camera-cone projection (`vec_frac8`), and 16-angle needle
-  quantisation (`vec_mul8`) run as 6502 assembly in `gun_asm.cc` (verified by
-  `test/target_test.cc`), while `gun.cc` keeps the C counterparts under
-  `#ifndef __OSCAR64__` for `test/gun_test.cc` and `test/mission_test.cc`.
-  `opponent.cc` gives it `opponent_target()` and `opponent_strike()`.
-  `kOpponentHitsToDown` is 5 (3 until 2026-11-06), and a downed aircraft is no longer drawn
-  ("OPPONENT SHOT DOWN").
-- **Rounds relative to the eye, not in world space.** A round stays within a
-  kilometre or so of the player, so its position is kept relative to the eye
-  in sixteenths of a metre, int16, good to 2 km. Each step the eye's own
-  movement is taken off every round, and what the shift drops is kept, so
-  nothing drifts. Velocities are in the same units: 48 m a step is 768.
-  - World positions as planned in §2 cost twice the code: 32-bit arithmetic
-    per axis.
-  - The arrays are flat and `__striped`, round r's axis c at `[c * 8 + r]`,
-    which avoids the multiply a `[3][8]` table costs.
-- **Hit test as planned (§3)**, with the box tested at four points per step.
-  Targets are taken the short way round the world, so a round still hits
-  across the x seam.
-- **The tracer as planned (§4).** In VICE a burst shows as yellow streaks
-  from the lower left and right in turn, running in towards the mark.
-  - The direction is the exact rate of change of the round's screen point
-    along its velocity: `(y vx - vy x, z vx - vz x)` in camera space.
-  - It was first the line to where the round would be a step on. A far
-    round moves a pixel or less a step, so whole pixels stood its needle
-    upright.
-  - `gun_test` now holds every drawn needle, near and far, to the exact
-    motion within one step of the 16.
-- **Cost.** fpilot went from 4,601 to 2,152 bytes free, 2,449 in all, the
-  help line included; ppilot is unchanged. That is about 2.2 KB of code,
-  more than §8's estimate:
-  - most of it is `gun_step()`, `_gun_camera()`, `_gun_fire()` and
-    `gun_add_sprites()`, at ~260–350 bytes each;
-  - the rounds take 96 bytes, plus ~40 of state.
-- **Tests.**
-  - `test/gun_test.cc` checks:
-    - the wings in turn;
-    - the streams crossing 190–250 m ahead;
-    - the life;
-    - the world course held while the eye moves;
-    - hits on the boresight, and a miss 30 m off;
-    - no round jumping a target head-on at full closing speed;
-    - the x seam;
-    - an incoming round hitting the player;
-    - all 16 needle angles;
-    - the tracer offered.
-  - `test/opponent_test.cc` checks the strikes.
-- **Still to do:** see §12.
-
-## 12. Smoke, the ground, and end to end
-
-*Added 2026-10-24.*
-
-- **Smoke.** A hit aircraft trails smoke for `kSmokeHit`, 14 frames
-  (~2 s), and each hit starts the count again. It is one sprite in all,
-  behind the last aircraft hit.
-  - The sprite is a cloud blob drawn black (`kColorBlack`, X-expanded and
-    dithered like a cloud). It uses the ladder's single-sprite rungs 1–4,
-    sized for a ~16 m puff: rung 4 inside ~186 m, down to rung 1 past
-    ~292 m.
-  - It sits 25 m behind the aircraft along its heading and 4 m above.
-  - `opponent.cc` keeps the state and reports it (`opponent_smoke()`);
-    `gun.cc` draws it through the tracer's projection, in
-    `gun_add_sprites()`.
-  - A downed aircraft stops where it is, and its smoke hangs there for
-    `kSmokeDown`, 35 frames (~5 s), so a kill shows as well as a hit.
-  - Both are counted in rendered frames, one a call of `opponent_step()`,
-    not in whole model steps, so a faster machine shows it for less time.
-    The seconds are at the 6–8 frames a second of a stock C64.
-  - Nothing is drawn past ~2 km, the range of the rounds' frame.
-- **The sprite budget,** phase 3 brought forward because the smoke needs it
-  without any opponent firing. `_opponent_cap()` counts the smoke and a
-  tracer (`gun_tracer_up()`): 4 + 2 aircraft still fit in front with one of
-  them, but not with both, and not behind with either. Then both aircraft
-  are held to two sprites.
-- **Rounds stop at the ground.** A round below z 0 is freed. The eye's
-  height comes through the same helper that takes targets into the rounds'
-  frame; above ~2 km no round can reach the ground anyway.
-- **End to end,** in `test/mission_test.cc`, which now includes `gun.cc`:
-  - mission 01's chase pilot also aims inside 400 m, nose on the recon in
-    height as well as bearing;
-  - it holds Space while the recon is within 500 m and about 3.5° of the
-    nose;
-  - it shoots the recon down at 3.5 min, before it leaves;
-  - flight.cc then records the mission's goals as completed
-    (`mission_completed[0] == kMissionGoals`).
-- **The heap.** The first smoke build failed to link with "Cannot place heap
-  section" while the map still showed ~1.2 KB free.
-  - oscar64 always keeps 1,024 bytes of heap at the end of the main region,
-    and nothing here calls `malloc()`. `mem.h` now sets `#pragma
-    heapsize(0)`.
-  - `tools/analyze_ram.py` counts the heap as free, so every free figure
-    before this was a kilobyte more than code could use.
-- **Cost.** fpilot 2,152 → 1,487 bytes free, now real: 665 for the smoke,
-  the budget rule and the ground. ppilot is unchanged at 11,080, which is
-  likewise now real.
-- **Two bugs found in play, fixed 2026-10-24.**
-  - *Nothing was hit on the C64,* though every host test hit. oscar64
-    miscompiled the per-step eye update: a loop over the axes passed the
-    axis to a helper in A and, from the second time round, left the loop's
-    byte offset there instead. So the y axis read the eye's z, and the
-    rounds' eye jumped half a unit, 64 m, sideways for good. The tracers
-    were drawn from the same eye and so still looked right. `_gun_track()`
-    was called once an axis with the eye spelled out (now stepped across all
-    three axes via `kFlightEye` by `_gun_track_all()` in `gun_asm.cc`).
-  - `gun_test` now starts the eye half a unit into y, as missions do, and
-    checks the rounds' eye keeps up on every axis.
-  - A VICE run with a target placed dead ahead confirms it: smoke, "TARGET
-    DOWN", "GOALS COMPLETED!".
-  - *Space fired as soon as a mission started,* because the same Space
-    started it from the menu and was still held. The guns now fire only
-    after the trigger has been let go once since the mission started
-    (`_gun_armed`).
-- **Still to do:**
-  - phase 4, the gun's sound;
-  - phase 5, opponent guns;
-  - what a hit on the player does.
+- **`c64o/gun_asm.cc` (`#ifndef __OSCAR64__` C mirrors in `gun.cc`):** `_gun_track_all`, `_gun_rel_from`, `_gun_hits`, `_gun_collides`, `_gun_store_enemy_round`, `_gun_step_rounds`, `_gun_shown`, `_gun_dir`, `_gun_view_round`, `_gun_vel_round`.
+- **Footprint:** **2,673 B** main (2,654 B code + 19 B data), **162 B** `bss2`, **56 B** `tscratch`, **2 B** ZP.
+- **Tests:** `c64o/test/gun_test.cc`, `mission_test.cc`, and on-target 6510 `target_test.cc` test 18 (`gun_asm.cc`).

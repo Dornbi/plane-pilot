@@ -9,7 +9,7 @@ Plane Pilot and Fighter Pilot are 3D flight simulators for the C64.
 ## History and motivation
 
 Plane Pilot and Fighter Pilot show how modern compilers and AI tools can
-be used in to create something retro in 2026. It is also an attempt
+be used to create something retro in 2026. It is also an attempt
 to push the boundaries of the machine in a somewhat non-typical genre -
 3D simulations - something the C64 was absolutely not designed to do.
 
@@ -34,20 +34,20 @@ This project would not have been possible without:
 There are many online and offline C64 emulators.
 One of the easiest: https://ty64.krissz.hu/
 
-Click the web icon and paste the URL:
+Click the web icon and paste either URL:
 
 ```
 https://github.com/Dornbi/plane-pilot/raw/refs/heads/main/bin/ppilot.prg
 ```
 
 ```
-https://github.com/Dornbi/plane-pilot/raw/refs/heads/main/bin/ppilot.prg
+https://github.com/Dornbi/plane-pilot/raw/refs/heads/main/bin/fpilot.prg
 ```
 
 Alternatively, download the binary and upload it to any of the online or offline emulators:
 
-- [ppilot.prg](bin/ppilot.prg) — the whole game: sound effects, music, the arcade flight model, and the debug view behind `D`
-- [fpilot.prg](bin/fpilot.prg) — Fighter Pilot, a combat variant in the making: ten missions against fighters and bombers - some in waves - that hunt you, strafe the airfield and shoot back, with damage that builds up hit by hit; the arcade flight model, and no debug view
+- [ppilot.prg](bin/ppilot.prg) — Plane Pilot: 10 peaceful missions, per-mission colour schemes, sound effects, music, the arcade flight model, and the debug view behind `D`
+- [fpilot.prg](bin/fpilot.prg) — Fighter Pilot: 10 combat missions against fighters and bombers (some in waves) that hunt you, strafe the airfield, and shoot back, with progressive aircraft damage, debrief screen, and no debug view
 
 Emulators:
 
@@ -104,7 +104,7 @@ To fly the plane you can use the following keys:
 | `P`             | Pause / Resume flight                 |
 | `T`             | Time compression: 2x / 4x / off       |
 | `V`             | Volume: full / low / off (any screen) |
-| `D`             | Toggle debug view                     |
+| `D`             | Toggle debug view (Plane Pilot only)  |
 | `H`             | Show the help screen                  |
 | `Q`             | Quit to menu (fpilot: debrief first)  |
 

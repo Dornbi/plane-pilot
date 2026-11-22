@@ -533,7 +533,7 @@ __striped static const int16_t kOpponentScatter[8] = {-28, -20, -12, -4,
 static const uint8_t kOpponentNearD = 8;
 
 // Smoke: one sprite, behind the last aircraft hit, which gun.cc draws
-// (docs/projectiles.md §12). kOpponentNoSmoke when none has been: 0, so that
+// (docs/projectiles.md §5). kOpponentNoSmoke when none has been: 0, so that
 // the zeroed bss means none.
 static const uint8_t kOpponentNoSmoke = 0;
 // Frames the smoke lasts: ~2 s after a hit, ~5 s where a downed aircraft

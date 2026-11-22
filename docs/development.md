@@ -1,351 +1,144 @@
-# Plane Pilot
-
-## Background
-
-Plane Pilot came to be from an idea to vibe-code a game demo on C64 using an agent.
-At the end it is probably 50-60% was vibe coded using [Antigravity](https://antigravity.google/) and Gemini.
-
-About the “game”: the goal was to create something a different than most C64 games.
-There are many great platformers, scrolling, and shooting games on the platform.
-Plane Pilot is something the C64 is not great for: a “3D” flight sim, with reasonable frame rate.
+# Development Guide
 
 ## Compiling the C64 code
 
-The C64 code is mostly written in C. The files have a .cc extenstion because they
-use some C++ features. oscar64 can optimize code pretty well, so only the most critical parts
-are written in assembly.
-
-Compiling the C64 code needs the install the [oscar64](https://github.com/drmortalwombat/oscar64/blob/main/README.md) cross-compiler and `make`. You may need to adjust `OSCAR64_INCLUDE` in the [c64o/Makefile](../c64o/Makefile).
+The C64 code in [c64o/](../c64o) is written in C with a few C++ features (`.cc` extension) and targeted 6502 `__asm` in hot paths. Building requires the [oscar64](https://github.com/drmortalwombat/oscar64) cross-compiler and `make` (adjust `OSCAR64_INCLUDE` in [c64o/Makefile](../c64o/Makefile) if needed):
 
 ```bash
 make prg
 ```
 
-If everything goes well it builds these executables into `c64o/`:
+This builds six programs into `c64o/` (and runs the host and target tests):
 
-- `ppilot.prg`: The game. Sound, music, the arcade flight model and the debug
-  view behind `D`. `make prg FLIGHT_AOA=1` builds it, and fpilot, with the
-  angle-of-attack model instead ([flight.md](flight.md) §1).
-- `fpilot.prg`: Fighter Pilot, the combat variant. Built from the same
-  `ppilot.cc` with `-D__FPILOT__`, which swaps the mission table for the one
-  in `fmission.cc` (ten missions), renames the menu, and adds the other
-  aircraft of [planes.md](planes.md) (`opponent.cc`, `opponent_asm.cc`;
-  `-D__NO_OPPONENT__` leaves them out). It has no debug view: the build leaves out `-D__ENABLE_DEBUG__`,
-  for the RAM.
-- `polydemo.prg`: Polygon rendering prototype.
-- `vecdemo.prg`: Simple character mode prototype of the dots on the ground.
-- `vectest.prg`: Correctness test and cycle count for 3D vector operations.
+| Binary | Description |
+| --- | --- |
+| `ppilot.prg` | Plane Pilot: 10 peaceful missions, colour schemes, sound, music, arcade flight model, and the `D` debug view. |
+| `fpilot.prg` | Fighter Pilot: built from `ppilot.cc` with `-D__FPILOT__` (`fmission.cc`, `opponent*`, `planes*`, `gun*`, `damage.cc`, `debrief.cc`, `fpanel`); no debug view and no colour schemes. |
+| `polydemo.prg` | Filled-polygon renderer prototype. |
+| `vecdemo.prg` | Character-mode ground-dot prototype. |
+| `vectest.prg` | 3D vector correctness and cycle benchmark. |
+| `planedemo.prg` | Standalone 3D opponent-sprite renderer demo (`planedemo_prof.prg` adds per-step timing). |
 
-`ppilot.prg` is one binary: sound effects, the title tune and the `D` debug
-view with its per-stage cycle counters all ship in it. Three make variables
-each take a feature back out, which is how what a feature costs gets measured
-rather than guessed:
+### Build flags
+
+Feature dials let you measure what each subsystem costs or switch flight models:
 
 ```bash
-make -C c64o SOUND=      # no sound effects, no music
-make -C c64o DEBUG=      # no debug view, no benchmark counters
-make -C c64o CLOUDS=     # no clouds
+make prg FLIGHT_AOA=1              # build ppilot and fpilot with the AoA flight model (flight.md §9)
+make -C c64o SOUND=                # omit sound effects and title music
+make -C c64o DEBUG=                # omit debug view and CIA2 benchmark counters (ppilot only)
+make -C c64o CLOUDS=               # omit clouds
+make -C c64o COLOR_SCHEMES=        # omit per-mission colour schemes (ppilot only)
 ```
 
-## Running a build in an emulator
+Passing `-D__NO_OPPONENT__` in `fpilot` leaves opponents out. Every `ppilot`/`fpilot`/`polydemo` link automatically runs five post-link checks (`check_zeropage.py`, `check_irq_zp.py`, `check_mul_div.py`, `check_rom_window.py`, `check_boot_region.py`).
 
-`x64sc` runs the real `.prg` headlessly, which is how the cycle counts and the
-pixel-identical comparisons in [clouds.md](clouds.md) were arrived at rather
-than argued about. `tools/vice_shot.sh` takes a screenshot, `tools/vice_dump.sh`
-reads a number out of memory. See [emulator.md](emulator.md) for the
-method and [framerate.md](framerate.md) for what the frame is currently
-spent on.
+## Releasing binaries
 
-## Releasing a build
-
-`c64o/*.prg` is build output and gitignored. The copies in [bin/](../bin) are the
-checked-in ones that README links to for the online emulators, so a build only
-reaches anyone after it is published there:
+`c64o/*.prg` files are gitignored build outputs; [bin/](../bin) holds the checked-in binaries linked from [README.md](../README.md):
 
 ```bash
 make release
 ```
 
-This builds and then copies the four `.prg` files into `bin/`, reporting which
-ones actually changed. Check the result with `git status bin/` and commit it
-along with the source change that produced it — otherwise the downloadable
-binary drifts behind the code.
+This runs `make prg` and publishes the five release binaries (`ppilot`, `fpilot`, `polydemo`, `vecdemo`, `vectest`) into `bin/`, reporting which ones changed.
 
-## Debug info
+## Running in an emulator & benchmarking
 
-With the `D` key the instrument panel shows debug info instead of the instrument panel.
+Headless `x64sc` (VICE) drives on-target tests, deterministic screenshots, and cycle benchmarks:
 
-The left hand side show the state of the plane:
+- `tools/vice_shot.sh` / `tools/make_shots.sh` — capture 15 CRT screenshots in `screens/` (`make shots`).
+- `tools/vice_dump.sh` — halt on an instruction and read globals from C64 RAM.
+- `tools/bench.sh` — measure exact cycle counts across 10 `fpilot` scenes.
+- `tools/ram_loop.sh` — unattended RAM/cycle optimisation loop backed by [ram-loop.md](ram-loop.md).
 
-| Label          | Value        |
-| -------------- | ------------ |
-| `FX` `FY` `FZ` | Front vector |
-| `LX` `LY` `LZ` | Left vector  |
-| `UX` `UY` `UZ` | Up vector    |
-| `EX` `EY` `EZ` | Eye position |
+See [emulator.md](emulator.md) for setup and [framerate.md](framerate.md) for current cycle figures.
 
-The cycle counters run down the right hand side, in the order the frame
-executes them, with `UPD` and its two sub-counters in a second column:
+## Debug view (`D`, Plane Pilot only)
 
-| Label | Value                                        |
-| ----- | -------------------------------------------- |
-| `MDL` | Model the plane state (motion etc.)          |
-| `SNP` | "Snap" the view vector to screen coordinates |
-| `BGR` | Draw the background without the sky gradient |
-| `CHR` | Copy the relevant characters to char RAM     |
-| `DRW` | Draw the tiles                               |
-| `GRD` | Draw the grid dots on the ground             |
-| `COL` | Copy to the color RAM                        |
-| `UPD` | Camera, roll state, cloud scan, sprite stack |
-| `TOT` | The sum of the eight stages above            |
+Pressing `D` replaces the instrument panel with live state and CIA2 cycle counters.
 
-`TOT` is the sum of those eight and nothing else. The key scan, the panel
-instruments, `sound_update()` and the wait for the flip window are outside
-every counter, so `TOT` is less than the frame period rather than equal to it.
+**Left side (aircraft state):** `FX FY FZ` (front), `LX LY LZ` (left), `UX UY UZ` (up), `EX EY EZ` (eye position), plus `ROL`, `HDG`, `CPU`, `CSHIFT`, `SPD`, `VSP`.
 
-One wrinkle when checking that sum by hand: `bm_total()` prints and clears the
-accumulator *before* `mem_switch_buffer()` runs, so the `COL` inside `TOT` is
-the previous frame's, not the one displayed beside it. They are usually the
-same value and the column adds up exactly; when `COL` moves between frames the
-sum reads a few dozen cycles out, and that is why.
+**Right side (cycle counters, in execution order):**
 
-Three more counters are a **breakdown** of two of the stages above rather than
-extra terms beside them, so they are never added into `TOT`. Each sits directly
-under its parent: `PLY` below `GRD` in the right hand column, `CLD` and `SPR`
-below `UPD` in the second one.
+| Label | Measures |
+| --- | --- |
+| `MDL` | Flight model step (`flight_advance`) |
+| `SNP` | Snap horizon centre to screen coordinates |
+| `BGR` | Fill sky/ground background without horizon gradient |
+| `CHR` | Copy active `boxdef` characters to char RAM (`box_prepare`) |
+| `DRW` | Draw horizon gradient tiles |
+| `GRD` | Terrain grid dots and 3D polygons (`PLY` below it is the `poly_draw_3d` subset) |
+| `COL` | Copy colour RAM during buffer swap |
+| `UPD` | Camera, roll state, cloud scan (`CLD`), sprite stack commit (`SPR`) |
+| `TOT` | Sum of the eight top-level stages (`MDL`..`UPD`) |
 
-| Label | Value                                                 |
-| ----- | ----------------------------------------------------- |
-| `PLY` | `poly_draw_3d()` over the whole frame - part of `GRD` |
-| `CLD` | `clouds_add_candidates()` - part of `UPD`             |
-| `SPR` | `sprites_stack_commit()` - part of `UPD`              |
-
-`PLY` accumulates, since the grid walk calls it once per object on screen. The
-other two are single calls. All three print five digits, so a stage that ever
-passed 99,999 cycles in one frame would wrap silently - `PLY` is the only one
-near that, and the largest yet seen is 43,064.
-
-Two readings to calibrate against, both in `x64sc` with the aircraft frozen and
-the debug view up:
-
-| pose | `MDL` | `SNP` | `BGR` | `CHR` | `DRW` | `GRD` | `PLY` | `COL` | `UPD` | `CLD` | `SPR` | `TOT` |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| mission 01, on the runway | 2,721 | 1,067 | 6,755 | 405 | 13,826 | 81,236 | **43,064** | 7,899 | 17,653 | 11,761 | 725 | 131,562 |
-| mission 02, on final | 3,841 | 924 | 5,304 | 475 | 12,922 | 52,522 | 15,597 | 7,511 | 19,559 | 13,430 | 989 | 103,095 |
-
-The runway row reconciles to the cycle; the other is 37 out, which is the `COL`
-lag above. `PLY` is inside `GRD` and `CLD` + `SPR` inside `UPD` in both. On the
-runway the single runway polygon is 53% of the grid walk and a third of
-everything measured, which is the finding [framerate.md](framerate.md) arrived
-at by hand and this now reports live.
-
-`CHR` is small in both because a frozen pose keeps the same box definition
-every frame and `box_prepare()` takes its early return - 405 cycles of
-`boxdef_set_main()` copying a `boxdef_t`, and nothing more. Rolling, where the
-definition changes every frame, it runs 10,000 to 15,000.
+Notes:
+- `PLY`, `CLD`, and `SPR` are breakdowns of `GRD` and `UPD`, not added to `TOT`.
+- Key scan, panel updates, `sound_update()`, and the vsync flip wait are outside `TOT`.
+- `bm_total()` prints before `mem_switch_buffer()`, so the `COL` inside `TOT` is from the previous frame.
+- All counters print five digits (wrapping above 99,999). On a frozen pose `CHR` stays ~400 cycles because `box_prepare()` returns early; while rolling it runs ~10,000–15,000 cycles.
 
 ![Debug info](../screens/debug_crt.png)
 
-## Python prototype and scripts
+## Python tools and `Makefile` targets
 
-The Python library is in [lib/](../lib), and the command line tools that drive it
-are in [tools/](../tools). The most important ones:
+Python library modules live in [lib/](../lib) and CLI scripts in [tools/](../tools). Prefer the root [Makefile](../Makefile) targets so canonical generator flags are preserved:
 
-- [generate_frame.py](../tools/generate_frame.py): Generates a single reference frame as PNG.
+| Target | Script(s) & output |
+| --- | --- |
+| `make data` | Runs `chardefs`, `gfx-chars`, `sprites`, `clouds`, `map-tiles`, `music` |
+| `make chardefs` | `tools/generate_all.py` → `lib/{chardefs,boxdefs}.py`, `c64o/{chardefs,boxdefs}.{h,cc}`, `reference_frames/` |
+| `make gfx-chars` | `tools/generate_gfx_chars.py` → `c64o/gfx_chars.bin` |
+| `make sprites` | `tools/generate_sprites.py` → `c64o/{spritedef,titledef}.*`, `lib/{spritedef,titledef}.py` |
+| `make clouds` | `tools/generate_clouds.py` → `c64o/clouddef.{h,cc}`, `lib/clouddef.py` ([clouds.md](clouds.md) §7) |
+| `make map-tiles` | `tools/generate_map_tiles.py` → `c64o/mapdefs.{h,cc}` from `gfx/ppilot_map_tiles.png` ([map.md](map.md)) |
+| `make panel` | `ppanel` + `fpanel` via `tools/png2koa.py` → `c64o/{p,f}panel.{koa,*_lzo}` (pins 5 lamp cells and heading/ammo slots) |
+| `make music` | `tools/generate_music.py` → `c64o/musicdef.{h,cc}` and [sid-intro-theme.html](sid-intro-theme.html) ([music.md](music.md)) |
+| `make planes` | `tools/generate_planes.py` → `c64o/planedef.h` from `lib/planes.py` ([planes.md](planes.md)) |
+| `make map-preview` | `tools/render_map_preview.py` → `out/map_preview.png` |
+| `make cloud-preview` | `tools/render_cloud_preview.py` → `out/cloud_preview.png` + density/slot report |
+| `make render` | `tools/render_all.py` → `out/rendered_frames/` (all roll angles) |
+| `make demo` | `tools/flight_demo.py` — interactive roll/pitch preview (`pygame`) |
+| `make pram` / `make fram` | `tools/analyze_ram.py` on `c64o/ppilot.map` / `c64o/fpilot.map` ([memory_map.md](memory_map.md)) |
+| `make test` | Python test suite (`python3 -m unittest discover -s tests`) |
 
-- [generate_all.py](../tools/generate_all.py): Generates reference frames that match the C64 graphics
-  capabilities at all roll angles as PNG, and turns them into:
-  - [chardefs.py](../lib/chardefs.py): The character set used to render the sky gradient.
-  - [boxdefs.py](../lib/boxdefs.py): The tiles used to render the sky gradient.
-
-- [render_frame.py](../tools/render_frame.py): Renders a single frame using the generated chardefs and boxdefs.
-
-- [render_all.py](../tools/render_all.py): Renders frame using the generated chardefs and boxdefs.
-
-- [flight_demo.py](../tools/flight_demo.py): A more interactive demo to test roll and pitch usiing
-  the chardefs and boxdefs.
-
-- [generate_sprites.py](../tools/generate_sprites.py): Generates sprite data for the C64 code —
-  the instrument needles, the sun, the orientation mark, the title aircraft and the
-  cloud bitmaps.
-
-- [generate_clouds.py](../tools/generate_clouds.py): Emits the cloud placement
-  constants — hash tables, size ladder, group patterns — into `c64o/clouddef.{h,cc}`
-  and `lib/clouddef.py`, all derived from four numbers at the top of the script.
-  See [clouds.md](clouds.md) §7.
-
-- [render_cloud_preview.py](../tools/render_cloud_preview.py): Renders the cloud
-  layout to `out/cloud_preview.png` and prints the density and sprite-slot demand.
-  Retune the density here rather than in the emulator; it answers in a second.
-
-- [generate_music.py](../tools/generate_music.py): Turns [lib/music.py](../lib/music.py)
-  into `c64o/musicdef.{cc,h}` and the browser reference page
-  [sid-intro-theme.html](sid-intro-theme.html). See [music.md](music.md).
-
-- [png2koa.py](../tools/png2koa.py): Converts the instrument panel art
-  `gfx/ppilot_panel_40.png` into `c64o/ppanel.koa` (ppilot) and
-  `gfx/fpilot_panel_40.png` into `c64o/fpanel.koa` (fpilot), with a lossless
-  slot optimizer. It also writes the three slices `view.cc` embeds, already
-  compressed (`c64o/ppanel_bitmap.lzo` and so on): the same format as
-  `#embed ... lzo`, parsed optimally, about 2% smaller.
-  The `--pin-color-ram` flags in the root Makefile are load bearing — see the
-  comment on the `panel` target.
-
-- [analyze_ram.py](../tools/analyze_ram.py): Reads `c64o/ppilot.map` and reports
-  RAM by feature area and a walk of the whole address space. `--markdown`
-  regenerates the tables in [memory_map.md](memory_map.md).
-
-- [generate_map_tiles.py](../tools/generate_map_tiles.py): Turns the map view's
-  tile sheet, [gfx/ppilot_map_tiles.png](../gfx/ppilot_map_tiles.png), into
-  `c64o/mapdefs.{cc,h}`. The PNG is the source of truth — edit it in GIMP and
-  re-run `make map-tiles`. See [map.md](map.md) for the format and the color
-  budget the generator enforces.
-
-- [make_map_tiles_draft.py](../tools/make_map_tiles_draft.py): Lays down the
-  first version of that tile sheet from ASCII art. It refuses to overwrite an
-  existing sheet without `--force`, since the PNG outranks it once drawn.
-
-- [render_map_preview.py](../tools/render_map_preview.py): Composites the
-  generated tiles over `kWorldMap` to `out/map_preview.png`, so the tile sheet
-  can be judged as a whole map. A verification tool, not part of the build.
-
-The tools take their canonical flags from the [Makefile](../Makefile) in the repo
-root, so prefer the make targets over calling the scripts by hand:
-
-```bash
-make data          # chardefs, boxdefs, gfx chars, sprites, clouds, map tiles, music
-make map-tiles     # just the map tiles, after editing the tile sheet
-make map-preview   # render out/map_preview.png from the current tiles
-make cloud-preview # render out/cloud_preview.png and report the cloud density
-make render        # render all roll angles to out/
-make prg           # build the C64 binaries via c64o/Makefile
-make pram          # RAM breakdown by feature from c64o/ppilot.map
-make fram          # the same for c64o/fpilot.map
-make help          # list everything
-```
+Helper scripts also include `tools/generate_frame.py`, `tools/render_frame.py`, and `tools/make_map_tiles_draft.py` (refuses to overwrite `gfx/ppilot_map_tiles.png` without `--force`). Generated previews go to gitignored `out/`.
 
 ### Python dependencies
 
-The scripts target a plain Python 3 install plus:
+Plain Python 3 (`unittest` is in the standard library) plus:
 
-| Package  | Needed by                                              |
-| -------- | ------------------------------------------------------ |
-| `pillow` | everything that reads or writes a PNG — most of `lib/` and `tools/` |
-| `pytest` | `make test`                                            |
-| `pygame` | `make demo` only                                       |
+- `pillow` — required by PNG generators/renderers and tests
+- `pygame` — `make demo` only
+- `pytest` — optional alternative runner
 
-```bash
-pip install pillow pytest pygame
-```
-
-Generated images and frames are written to `out/`, which is gitignored. The
-scripts anchor their own paths to the repo root, so they work from any directory.
-
-There are unit tests for the Python side in the [tests](../tests) directory:
+## Testing
 
 ```bash
-make test
+make test                               # Python unit tests (tests/)
+make -C c64o test                       # all 16 C++ host suites + narrowing check + target_test
+make -C c64o/test test-both             # run host suites for both arcade and FLIGHT_AOA=1
+make -C c64o/test target-test           # on-target 6510 suite in VICE only
+make -C c64o/test TARGET_TEST= test     # host suites without VICE
+make -C c64o/test narrowing-update      # update narrowing baseline after review
 ```
 
-The C64 code has host test suites of its own in [c64o/test](../c64o/test) —
-`flight_test`, `poly_test`, `sound_test`, `music_test`, `sprites_test`,
-`map_test`, `msg_test`, `mul_test` and `cpu_test`. They compile the real `.cc`
-files with `g++` and run them off the C64, which works because `vic.h`, `sid.h`
-and `mem.h` point their hardware addresses at plain arrays when `__OSCAR64__` is
-not defined. `make prg` runs them as part of the build; on their own:
+The 16 host C++ suites in [c64o/test/](../c64o/test) compile the real `.cc` files under `g++` (mocking hardware registers via `vic.h`, `sid.h`, `mem.h`): `flight_test`, `msg_test`, `map_test`, `sound_test`, `music_test`, `mul_test`, `sprites_test`, `cpu_test`, `poly_test`, `planes_test`, `planes_edge_test`, `opponent_test`, `gun_test`, `fpilot_test`, `mission_test`, and `asm_c_test`.
 
-```bash
-make -C c64o test
-```
+### The 16-bit `int` trap
 
-### The 16-bit problem, and the two things that answer it
+oscar64's `int` is **16 bits** while the host's is **32 bits**. C promotes narrower operands to `int`, so intermediate expressions can wrap on the 6510 without wrapping under `g++`:
 
-**oscar64's `int` is 16 bits and the host's is 32.** C promotes every operand
-narrower than `int` before it does any arithmetic, so an intermediate that wraps
-on the 6510 does not wrap under `g++`, and a host test can pass against
-arithmetic the target never performed. Measured, by compiling one file both ways
-and reading the C64's globals back with `vice_dump.sh`:
-
-| expression | host | C64 |
+| Expression | Host (32-bit `int`) | C64 (16-bit `int`) |
 | --- | ---: | ---: |
-| `(sx + 2) >> 2`, `sx = 32767` | 8192 | **−8192** |
-| `a * b`, `a = b = 300` | 24464 | 24464 |
-| `(int16_t)(-cy) << 8 >> 8`, `cy = −128` | 128 | **−128** |
+| `(sx + 2) >> 2`, `sx = 32767` | `8192` | **`-8192`** |
+| `a * b`, `a = b = 300` | `24464` | `24464` |
+| `(int16_t)(-cy) << 8 >> 8`, `cy = -128` | `128` | **`-128`** |
 
-The middle row is the trap: it agrees, because the value is narrowed at the
-assignment. Only *intermediates* diverge — which is why the rows either side of
-it were both real bugs, the first in `poly.cc` ([project.md](project.md) §5) and
-the third in the horizon term (`mul_test.cc`).
+Two defences cover this:
+1. [c64o/test/int16.h](../c64o/test/int16.h) provides `i16()`/`u16()` for explicit host truncation, and `make -C c64o/test narrowing` ratchets implicit narrowings against `narrowing.baseline` (or `narrowing-aoa.baseline`).
+2. [c64o/test/target_test.cc](../c64o/test/target_test.cc) compiles with oscar64 and executes on the real 6510 in `x64sc` via `tools/run_target_test.sh` (automatically skipped if `oscar64` or `x64sc` is absent).
 
-Two things address it, and neither is a substitute for the other.
-
-[`c64o/test/int16.h`](../c64o/test/int16.h) gives a host test `i16()` / `u16()`
-to model the target's width by hand, applied at each step the 6510 would have
-truncated at rather than once at the end. `make -C c64o/test narrowing` ratchets
-on how many implicit narrowings the host build performs, against the reviewed
-counts in `narrowing.baseline`, so a new one has to be looked at deliberately.
-Read the head of that baseline before trusting it: the check both over-reports
-and, more importantly, is blind to the first row of the table above, whose
-*result* fits an `int16_t` on both machines.
-
-[`c64o/test/target_test.cc`](../c64o/test/target_test.cc) is the exact answer.
-It is built by oscar64 and run in VICE, so the arithmetic happens on a real
-6510 at the real width; its expected values are literals, and it reports by
-writing a failure count into a global that `tools/run_target_test.sh` reads back
-with `vice_dump.sh`. `make -C c64o test` runs it and skips with a line when
-oscar64 or `x64sc` is missing, so the other nine suites still work without them.
-
-```bash
-make -C c64o/test target-test         # just the on-target cases
-make -C c64o/test narrowing-update    # after reviewing a new narrowing
-make -C c64o/test TARGET_TEST=  test  # skip the emulator run
-```
-
-This is an example reference frame from [generate_frame.py](../tools/generate_frame.py) for roll `r16u1`:
-
-![Reference frame](../screens/flight_frame_c160_96_01_r16u1.png)
-
-## Design considerations
-
-Rendering the horizon gradient at a reasonable frame rate has been an important consideration
-from the start. To speed things up, it uses multicolor charater mode (MCCM), with pre-rendered
-characters and tiles for the 60 fixed roll angles. Each tile is somewhere between 4x5 and 6x16
-characters, and each tile uses up to 32 unique characters. All in all:
-
-- There are 60 roll angles.
-- There are 68 `boxdef`s: 60 for one of each roll angle,
-  and 8 alternate ones with some of the angles. For example for the horizontal horizon,
-  the main `boxdef` aligns with the character boundary, while the alternate goes through
-  the middle of the character.
-- The sum of tile size for the 68 `boxdef`s 3268 characters.
-- They use 333 unique characters across all `boxdef`s. Since this is more than 256,
-  the characters for the current `boxdef` are constantly being copied into the character RAM
-  (up to 32 chars at a time).
-- 107 of those are another one turned upside down, so the C64 stores 224 of them
-  (`chardefs.cc`; the solid ground and sky are not copied at all) and copies the
-  flipped ones backwards. The 224 overlap inside one 728 B byte stream.
-  See `boxdefs.cc` / `box.cc`
-  in [project.md](project.md).
-
-Another consideration was the colors to use. In MCCM, 3 colors are fixed for the whole screen,
-and the fourth color can be customized using the color RAM. To achieve a reasonable gradient,
-4 colors are used: green, cyan, light blue and blue. Sticking with these 4 colors in the entire
-viewport would make things easier, but also would make the entire color
-space a bit flat. Instead, it uses a fifth color (orange) for the dots
-on the ground. Since the color ram is a fixed address ad $D800, this
-means it has to be copied to the VIC II chip every frame. With the current
-scheme other objects using the first 8 colors of the paletter would
-be relatively easy to add, for example black or white.
-
-Double buffering is achieved by switching the screen RAM, and copying
-the color RAM at every frame. In addition, alternate frames use a different
-region of the character RAM, with 32 characters each.
-
-The instrument panel is rendered in multicolor bitmap model (MCBM).
-The switch between the two modes is done at a raster interrupt.
-
-`ppilot.prg` is 47,607 bytes as currently built, and about 3.3 KB of
-allocatable RAM is left below `$D000`. [memory_map.md](memory_map.md) has the
-breakdown by feature and the walk of the whole address space;
-[codesize.md](codesize.md) is a measured survey of where the code size is and
-what is worth trimming.
+See [project.md](project.md) for engine architecture and [memory_map.md](memory_map.md) for the full 64 KB layout.

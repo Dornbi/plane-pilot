@@ -27,7 +27,7 @@
 
 // Muzzle velocity, kGunMuzzle (gun.h), 48 m a step: slower than a real gun,
 // so a tracer is seen for a dozen frames rather than two
-// (docs/projectiles.md §10).
+// (docs/projectiles.md §2).
 // Where a round starts, in the aircraft's frame: 20 m ahead of the eye -
 // clear of the renderer's 8 m near cull - 4 m out on the wing that fires it
 // and 1.5 m below, so it enters from the lower left or right.

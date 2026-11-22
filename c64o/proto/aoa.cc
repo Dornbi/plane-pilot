@@ -1,5 +1,5 @@
 // Prototype AoA flight model. See aoa.h for what it is and why, and
-// docs/flight_aoa.md for the measurements.
+// See docs/flight.md 9 for the AoA model summary.
 //
 // Deliberately *not* a copy of flight.cc with a term added. Everything that
 // only exists because the shipping model has no flight path is left out, so
