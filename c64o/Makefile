@@ -57,6 +57,8 @@ PPILOT_SRC = \
 		clouddef.cc \
 		clouds.h \
 		clouds.cc \
+		clouds_asm.h \
+		clouds_asm.cc \
 		color.h \
 		fmath.h \
 		fmath.cc \

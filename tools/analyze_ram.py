@@ -121,7 +121,7 @@ DESCRIPTIONS = {
         'Code': 'flight dynamics, physics integration, waypoint checking, '
                 'terrain grid rendering, clouds, opponents, guns and damage '
                 '(`flight.cc`, `world.cc`, `world_asm.h`, `sim.cc`, '
-                '`world_map.cc`, `clouds.cc`, `opponent.cc`, `opponent_asm.cc`, '
+                '`world_map.cc`, `clouds.cc`, `clouds_asm.cc`, `opponent.cc`, `opponent_asm.cc`, '
                 '`planes.cc`, `planes_asm.cc`, `gun.cc`, `gun_asm.cc`, '
                 '`damage.cc`)',
         'Data': 'world map, cloud hash and ladder tables, 3D aircraft models '

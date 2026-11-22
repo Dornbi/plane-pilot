@@ -1,6 +1,6 @@
 # Viewport Sprite Objects (`sprite_objects.md`)
 
-Shipped design for all hardware-sprite objects in the 3D viewport: **clouds**, **sun**, **orientation mark**, **tail fin**, and in `fpilot.prg`, **3D opponent aircraft**, **tracers**, and **smoke**. Implementation lives in `c64o/sprites.{h,cc}`, `c64o/sprites_asm.{h,cc}`, `c64o/clouds.cc`, `c64o/opponent.cc`, and `c64o/gun.cc`.
+Shipped design for all hardware-sprite objects in the 3D viewport: **clouds**, **sun**, **orientation mark**, **tail fin**, and in `fpilot.prg`, **3D opponent aircraft**, **tracers**, and **smoke**. Implementation lives in `c64o/sprites.{h,cc}`, `c64o/sprites_asm.{h,cc}`, `c64o/clouds.{h,cc}`, `c64o/clouds_asm.{h,cc}`, `c64o/opponent.{h,cc}`, `c64o/opponent_asm.{h,cc}`, `c64o/gun.{h,cc}`, and `c64o/gun_asm.{h,cc}`.
 
 ---
 

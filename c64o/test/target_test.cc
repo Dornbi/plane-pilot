@@ -51,6 +51,8 @@
 //   19  vec_asm.cc vec_div8p8 / vec_frac16 / vec_fracn & planes_asm.cc planes_centre
 //   20  sprites_asm.cc sprites_stack_add, sprites_stack_commit,
 //       _sprites_set_instrument_sprite & sprites_set_alt against C ref
+//   21  clouds_asm.cc _clouds_build_basis, _clouds_dot, _clouds_apply_offset,
+//       _clouds_scan_init & _clouds_scan_next against C ref
 
 #include <stdint.h>
 
@@ -64,20 +66,26 @@
 #pragma region(stackregion, 0x0200, 0x0400, , , {heap, stack})
 #pragma section(gun_bss, 0, , , bss)
 #pragma section(opp_bss, 0, , , bss)
+#pragma section(cld_bss, 0, , , bss)
 #pragma region(bssregion, 0x0400, 0x0800, , , {bss, gun_bss})
-#pragma region(oppbssreg, 0xE000, 0xE800, , , {opp_bss})
+#pragma region(oppbssreg, 0xE000, 0xE800, , , {opp_bss, cld_bss})
 // And the zero page the programs under test get from -xz: vec_asm.cc's
 // routines keep their operands there.
-#pragma region(zeropage, 0x68, 0x100, , , {zeropage})
+#pragma region(zeropage, 0x78, 0x100, , , {zeropage})
 
 #include "../planedef.h"
 #include "../planes.h"
 #include "../planes_asm.h"
+#include "../vec.h"
+#ifdef __TARGET_TEST_PLANES__
+#include "planes_target_cases.h"
+#else
 #include "../poly_asm.h"
 #include "../render_asm.h"
-#include "../vec.h"
 #include "../world_asm.h"
-#include "planes_target_cases.h"
+static const int16_t kTargetCx0 = 160, kTargetCy0 = 56;
+static const int16_t kTargetCut1 = 89, kTargetCut2 = 68;
+#endif
 
 #pragma optimize(push, nooutline)
 
@@ -112,6 +120,7 @@ static __noinline void expect_id(int16_t got, int16_t want) {
 }
 
 // Opaque to the optimiser, so a case cannot be folded into its own answer.
+#ifndef __TARGET_TEST_PLANES__
 volatile int16_t v_sx = 32767;
 volatile int8_t v_cy = -128;
 
@@ -172,6 +181,7 @@ static void test_mul_against_16bit_product(void) {
     }
   }
 }
+#endif // !__TARGET_TEST_PLANES__
 #pragma optimize(pop)
 #pragma optimize(push, outline)
 
@@ -183,6 +193,7 @@ static void test_mul_against_16bit_product(void) {
 // would and compared byte for byte.
 static uint8_t (*const _planes_sets)[4][kPlaneBlockStride] =
     (uint8_t (*)[4][kPlaneBlockStride])0xF000;
+#ifdef __TARGET_TEST_PLANES__
 static uint8_t _planes_dot[kPlaneBlockBytes];
 static planes_state_t *const _tp_state = (planes_state_t *)0xFD00;
 #pragma bss(opp_bss)
@@ -303,6 +314,7 @@ static void test_planes_sweep(void) {
     expect((uint16_t)(2000 + n), (int16_t)(((uint16_t)_sum2 << 8) | _sum1), (int16_t)pc->check);
   }
 }
+#else
 
 // 8. vec_div8p8 answers a divisor of 64 or -64 with a shift instead of its
 // loop (the near clip's lifted vertices, poly.cc). 2a / 128 is the same
@@ -1165,7 +1177,7 @@ static __noinline void _check_steer(uint8_t slot, int16_t d, int16_t dy_in,
   }
 }
 
-static void test_opponent_world_delta_asm(void) {
+static __noinline void test_opponent_world_delta_asm(void) {
   _cur_id = 17;
   __striped static const int32_t kEyes[3][3] = {
       {0x00102000L, 0x00204000L, 0x00041000L},
@@ -1357,7 +1369,7 @@ static bool _ref_gun_collides(uint8_t k, bool prev, int16_t *prev_buf) {
   return now || mid;
 }
 
-static void test_gun_asm(void) {
+static __noinline void test_gun_asm(void) {
   _cur_id = 18;
   // _gun_track_all: sub-quantum preservation, positive/negative borrow across
   // bit 16, exact d >> 5 in _gun_moved, and _gun_t zeroed.
@@ -1604,7 +1616,7 @@ static void test_gun_asm(void) {
   kFlightSubstepMask = 0;
   expect_id((int16_t)((vz[0] << 8) | vz[12]), kPuffFrames - 1);
   expect_id(_gun_last, kRoundNone);
-  expect_id(_gun_puff[0], 329);
+  expect_id((int16_t)(((uint16_t)vp[3] << 8) | vp[0]), 329);
 }
 
 // 19. vec_asm.cc restoring division (vec_div8p8, vec_frac16, vec_fracn across
@@ -2005,7 +2017,7 @@ static __noinline void _run_cull(int16_t d, const CullCase *c) {
   expect_id(g ? 1 : 0, w ? 1 : 0);
 }
 
-static void test_sprites_asm(void) {
+static __noinline void test_sprites_asm(void) {
   _cur_id = 20;
   static const CullPreset kCP[7] = {
       {12, 10, 95, 0xFF, 7, 0},    {12, 10, 81, 0xFF, 1, 0x01},
@@ -2182,6 +2194,194 @@ static void test_sprites_asm(void) {
     expect_id(gi, _sprites_instrument_idx[0]);
   }
 }
+
+// 21. clouds_asm.cc: _clouds_build_basis, _clouds_dot, _clouds_apply_offset,
+// _clouds_scan_init, and _clouds_scan_next against 16-bit C references.
+#pragma bss(cld_bss)
+int32_t flight_eye_x;
+int32_t flight_eye_y;
+int32_t flight_eye_z;
+#pragma bss(bss)
+#include "../clouds_asm.h"
+
+static bool _ref_clouds_outside(int16_t v, int16_t r) {
+  return (uint16_t)(v + r) > (uint16_t)(r << 1);
+}
+
+static __noinline void test_clouds_asm(void) {
+  _cur_id = 21;
+
+  // 21a. _clouds_build_basis exhaustively over all 513 values in [-256, 256].
+  int16_t *cam_elem = &world_cam.front.x;
+  for (int16_t base = -256; base <= 256; base += 9) {
+    for (uint8_t k = 0; k < 9; ++k) {
+      int16_t v = base + k;
+      cam_elem[k] = v > 256 ? 256 : v;
+    }
+    _clouds_build_basis();
+    for (uint8_t k = 0; k < 9; ++k) {
+      expect_id(_clouds_half_basis[k], vec_fastmul8p8(cam_elem[k], 16));
+    }
+  }
+
+  // 21b. _clouds_dot across 0, +-256, general +-1..255, cold & cached z.
+  static const mat3_t kCloudCams[] = {
+      {{256, 0, 0}, {0, 256, 0}, {0, 0, 256}},
+      {{-256, 0, 0}, {0, -256, 0}, {0, 0, -256}},
+      {{204, 153, -17}, {-153, 204, 42}, {33, -29, 252}},
+      {{1, -255, 128}, {-127, 64, -193}, {255, -1, 0}},
+  };
+  static const int16_t kDotV[] = {-4096, -2049, -256, -1, 0, 1, 256, 1777, 4096};
+  static const int16_t kDotDz[] = {-1200, -1, 0, 700};
+  for (uint8_t ci = 0; ci < sizeof(kCloudCams) / sizeof(kCloudCams[0]); ++ci) {
+    world_cam = kCloudCams[ci];
+    for (uint8_t di = 0; di < sizeof(kDotDz) / sizeof(kDotDz[0]); ++di) {
+      _clouds_dz = kDotDz[di];
+      _clouds_z_valid[0] = 0;
+      _clouds_z_valid[1] = 0;
+      _clouds_z_valid[2] = 0;
+      for (uint8_t vi = 0; vi < sizeof(kDotV) / sizeof(kDotV[0]); ++vi) {
+        vec_v.x = kDotV[vi];
+        vec_v.y = kDotV[(uint8_t)(vi + 3) % (sizeof(kDotV) / sizeof(kDotV[0]))];
+        for (uint8_t a = 0; a < 3; ++a) {
+          const vec3_t *row = &world_cam.front + a;
+          int16_t want = vec_fastmul8p8(row->z, _clouds_dz) +
+                         vec_fastmul8p8(row->x, vec_v.x) +
+                         vec_fastmul8p8(row->y, vec_v.y);
+          expect_id(_clouds_dot(a), want);
+        }
+      }
+    }
+  }
+
+  // 21c. _clouds_apply_offset across all 4 patterns x 3 blobs & carry edges.
+  static const vec3_t kCentres[] = {
+      {0, 0, 0},
+      {255, -256, 1024},
+      {16, 256, -1},
+      {4096, -4096, 512},
+  };
+  world_cam = kCloudCams[2];
+  _clouds_build_basis();
+  for (uint8_t ci = 0; ci < sizeof(kCentres) / sizeof(kCentres[0]); ++ci) {
+    _clouds_centre = kCentres[ci];
+    for (uint8_t p = 0; p < kCloudPatternCount; ++p) {
+      _clouds_pat_off = (uint8_t)(p * 9);
+      for (uint8_t b = 0; b < kCloudBlobsPerGroup; ++b) {
+        int16_t wx = _clouds_centre.x;
+        int16_t wy = _clouds_centre.y;
+        int16_t wz = _clouds_centre.z;
+        for (uint8_t ax = 0; ax < 3; ++ax) {
+          int8_t c = kCloudGroupOffset[p][b][ax];
+          wx += (int16_t)c * (int16_t)_clouds_half_basis[ax + 0];
+          wy += (int16_t)c * (int16_t)_clouds_half_basis[ax + 3];
+          wz += (int16_t)c * (int16_t)_clouds_half_basis[ax + 6];
+        }
+        int16_t ret_x = _clouds_apply_offset();
+        expect_id(ret_x, wx);
+        expect_id(*(volatile int16_t *)&vec_v.x, wx);
+        expect_id(*(volatile int16_t *)&vec_v.y, wy);
+        expect_id(*(volatile int16_t *)&vec_v.z, wz);
+        expect_id(*(volatile uint8_t *)&_clouds_pat_off,
+                  (int16_t)(p * 9 + (b + 1) * 3));
+      }
+    }
+  }
+
+  // 21d. Full _clouds_scan_init + _clouds_scan_next across diverse poses.
+  static const int32_t kScanEyes[][3] = {
+      {0x00200000L, 0x00400000L, 0x00010000L},
+      {0x00371234L, 0x00589ABCL, 0x00028000L},
+      {0x00000200L, 0x00000000L, 0x00080000L},
+      {0x007FFFE0L, 0x00FFF010L, 0x00002000L},
+  };
+  for (uint8_t pi = 0; pi < sizeof(kScanEyes) / sizeof(kScanEyes[0]); ++pi) {
+    flight_eye_x = kScanEyes[pi][0];
+    flight_eye_y = kScanEyes[pi][1];
+    flight_eye_z = kScanEyes[pi][2];
+    world_cam = kCloudCams[pi];
+
+    _clouds_scan_init();
+
+    // Independent C reference scan matching pre-Pass 153 clouds.cc.
+    const uint16_t mx = (uint16_t)((uint32_t)flight_eye_x >> 9);
+    const uint16_t my = (uint16_t)((uint32_t)flight_eye_y >> 9);
+    const int16_t rdz = kCloudDeckU - (int16_t)((uint32_t)flight_eye_z >> 9);
+    expect_id(_clouds_dz, rdz);
+    const uint16_t frac_x = (uint16_t)-(int16_t)(mx & (kCloudCellU - 1));
+    const uint16_t frac_y = (uint16_t)-(int16_t)(my & (kCloudCellU - 1));
+    uint8_t cx = (uint8_t)(mx >> kCloudCellShift) - kCloudScanRadius;
+    const uint8_t start_cy =
+        (uint8_t)(my >> kCloudCellShift) - kCloudScanRadius;
+    for (uint8_t ux_hi = 0; ux_hi < 80; ux_hi += 16, ++cx) {
+      const uint8_t hx = kCloudHashX[cx & kCloudCellMaskX];
+      uint8_t cy = start_cy;
+      for (uint8_t uy_hi = 0; uy_hi < 80; uy_hi += 16, ++cy) {
+        const uint8_t idx = (hx ^ kCloudHashY[cy & kCloudCellMaskY]) & 31;
+        const uint8_t ha = kCloudHashA[idx];
+        if ((ha & kCloudGateBits) >= kCloudGateLimit) {
+          continue;
+        }
+        const uint8_t hb = kCloudHashB[idx];
+        const uint16_t ox =
+            frac_x + ((uint16_t)(ux_hi | (hb & 0x0F)) << kCloudJitterShift);
+        if (ox > (uint16_t)(kCloudCullU << 1)) {
+          continue;
+        }
+        const uint16_t oy =
+            frac_y + ((uint16_t)(uy_hi | (hb >> 4)) << kCloudJitterShift);
+        if (oy > (uint16_t)(kCloudCullU << 1)) {
+          continue;
+        }
+        int16_t vx = (int16_t)(ox - kCloudCullU);
+        int16_t vy = (int16_t)(oy - kCloudCullU);
+        int16_t rx = vec_fastmul8p8(world_cam.front.z, rdz) +
+                     vec_fastmul8p8(world_cam.front.x, vx) +
+                     vec_fastmul8p8(world_cam.front.y, vy);
+        if (rx <= 8 || rx > kCloudRungDepth[0]) {
+          continue;
+        }
+        int16_t vert = (rx >> 2) + 128;
+        int16_t rz = vec_fastmul8p8(world_cam.up.z, rdz) +
+                     vec_fastmul8p8(world_cam.up.x, vx) +
+                     vec_fastmul8p8(world_cam.up.y, vy);
+        if (_ref_clouds_outside(rz, vert)) {
+          continue;
+        }
+        int16_t lat = (rx >> 1) + (vert >> 1) + 64;
+        int16_t ry = vec_fastmul8p8(world_cam.left.z, rdz) +
+                     vec_fastmul8p8(world_cam.left.x, vx) +
+                     vec_fastmul8p8(world_cam.left.y, vy);
+        if (_ref_clouds_outside(ry, lat)) {
+          continue;
+        }
+        uint8_t wrung = 0;
+        while (wrung < kCloudRungCount - 1 &&
+               rx <= kCloudRungDepth[wrung + 1]) {
+          ++wrung;
+        }
+
+        uint8_t got_rung = _clouds_scan_next();
+        expect_id(got_rung, wrung);
+        expect_id(*(volatile int16_t *)&_clouds_centre.x, rx);
+        expect_id(*(volatile int16_t *)&_clouds_centre.y, ry);
+        expect_id(*(volatile int16_t *)&_clouds_centre.z, rz);
+        if (wrung < kCloudRungCollapsed) {
+          expect_id(*(volatile int16_t *)&vec_v.x, rx);
+          expect_id(*(volatile int16_t *)&vec_v.y, ry);
+          expect_id(*(volatile int16_t *)&vec_v.z, rz);
+        } else {
+          expect_id(*(volatile uint8_t *)&_clouds_pat_off,
+                    (int16_t)((ha >> 6) * 9));
+          expect_id(*(volatile uint8_t *)&_clouds_basis_valid, 1);
+        }
+      }
+    }
+    expect_id(_clouds_scan_next(), 0xFF);
+    expect_id(_clouds_scan_next(), 0xFF);
+  }
+}
+#endif // __TARGET_TEST_PLANES__
 #pragma optimize(pop)
 
 int main(void) {
@@ -2197,12 +2397,14 @@ int main(void) {
   g_first_fail = 0;
   g_cases = 0;
 
+#ifdef __TARGET_TEST_PLANES__
+  test_planes();
+  test_planes_sweep();
+#else
   test_poly_rounding();
   test_int8_negate_then_shift();
   test_fastmul_edges();
   test_mul_against_16bit_product();
-  test_planes();
-  test_planes_sweep();
   test_div_by_64();
   test_fastmul_short();
   test_poly_frustum_asm();
@@ -2216,6 +2418,8 @@ int main(void) {
   test_gun_asm();
   test_vec_div_and_planes_centre_asm();
   test_sprites_asm();
+  test_clouds_asm();
+#endif
 
   // Something for vice_dump.sh's @spin to break on. Everything above has
   // landed in the globals by the time the loop is reached.
