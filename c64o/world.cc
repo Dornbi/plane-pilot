@@ -37,17 +37,21 @@ __zeropage vec3_t _world_vec_v;
 mat3_t world_cam;
 
 // Rebuilt at the start of every world_render_grid() and only read inside it,
-// so fpilot keeps them, and _world_render_object()'s poly_verts, in the main
-// screen's dead rows (mem.h scratch).
+// so fpilot keeps them, and _world_render_object()'s _world_poly_verts, in the
+// main screen's dead rows (mem.h scratch). _world_d4[0..8] is _world_dx4 and
+// _world_d4[9..17] is _world_dy4 so 6502 asm can index both with X.
 #ifdef __FPILOT__
 #pragma bss(scratch)
 #endif
-static vec3_t _world_dx4[9];
-static vec3_t _world_dy4[9];
+vec3_t _world_d4[18];
+vec3_t _world_poly_verts[kPolyMaxVertices];
 #pragma bss(bss2)
 __striped int16_t _world_mitch_x[16];
 __striped int16_t _world_mitch_y[16];
 __striped int16_t _world_mitch_z[16];
+
+#ifndef __OSCAR64__
+uint8_t _world_obj_idx;
 
 // Mitchell's Best-Candidate algorithm to maximize distance between points
 // while maintaining an organic, non-linear distribution.
@@ -70,16 +74,7 @@ static const uint8_t kMitchellPointsY[16] = {
 
 static inline int16_t _down_shift(uint32_t val) { return (int16_t)(val >> 9); }
 
-// __noinline keeps this in one copy instead of being expanded into both
-// call sites in _world_init_start_dx_dy. Verified byte-identical codegen
-// with and without optimize(3), so no pragma region is needed here.
 static __noinline void _world_split_vec(vec3_t *v, vec3_t d9[9]) {
-  // This version needs half vectors -> more additions and subtractions and
-  // more code. However, this means that dots and objects are closer to the
-  // center of the grid cell which means fewer grid cells are needed.
-  // vec3_t is three contiguous int16_t, so loop over the components instead
-  // of expanding the split inline three times (saves code size; only called
-  // twice per frame).
   int16_t *vp = (int16_t *)v;
   int16_t *dp = (int16_t *)d9;
   for (uint8_t i = 0; i < 3; ++i) {
@@ -101,7 +96,6 @@ static __noinline void _world_split_vec(vec3_t *v, vec3_t d9[9]) {
   }
 }
 
-#ifndef __OSCAR64__
 // Host C counterpart of world_asm.cc's _world_draw_box_points().
 void _world_draw_box_points(uint8_t start_idx, uint8_t num_points,
                             uint8_t color) {
@@ -124,7 +118,6 @@ void _world_draw_box_points(uint8_t start_idx, uint8_t num_points,
     idx = (idx + 1) & 0x0F;
   }
 }
-#endif // !__OSCAR64__
 
 // Radius 2 uses [0..2] (total 72 = 4 + 2*9 + 2*25); radius 3 uses [0..3]
 // (total 96 = 4 + 2*9 + 25 + 49).
@@ -133,17 +126,10 @@ static const uint8_t kNumPoints3[] = {8, 4, 2, 1};
 static const uint8_t kNumPoints4[] = {4, 2, 2, 1, 1};
 static const uint8_t *_num_points_per_radius;
 
-// One axis of the grid, 0 for x and 1 for y. Sets the axis' step vector, its
-// split table, and which way and from which cell the walk goes, and returns
-// the start point's coordinate along the axis, in the world frame. Shared
-// rather than written out per axis, and it takes the axis rather than its
-// operands, because passing those twice cost more than the code it shares.
+// One axis of the grid, 0 for x and 1 for y.
 static __noinline int16_t _world_init_axis(uint8_t axis, int16_t grid_spacing) {
-  // The camera's front, left and up components along the axis.
   const int16_t *cam = &world_cam.front.x + axis;
   vec3_t *dvec = axis ? &_world_dy_vec : &_world_dx_vec;
-  // The order is such that when _vec_v.x becomes < 0, we can break the loop
-  // along both axes.
   dvec->x = cam[0];
   dvec->y = cam[3];
   dvec->z = cam[6];
@@ -170,13 +156,9 @@ static __noinline int16_t _world_init_axis(uint8_t axis, int16_t grid_spacing) {
   return p - (int16_t)(m - ((uint16_t)grid << 10));
 }
 
+// Host C counterpart of world_asm.cc's _world_init_start_dx_dy().
 void _world_init_start_dx_dy() {
   static const uint16_t kGridSpacing = 0x400;
-  // Half the top bit of eye_z >> 9, clamped to 2..4: 4 from 256 up, 3 from
-  // 64, else 2. Two compares rather than finding the bit and clamping it.
-  // kMinHeight (  ~16m) = 0x002000  5 --> 2
-  // default    (  ~64m) = 0x008000  7 --> 3
-  //            ( ~256m) = 0x020000  9 --> 4
   uint16_t n = (uint16_t)(flight_eye_z >> 9);
   uint8_t radius = 2;
   const uint8_t *num_points = kNumPoints3;
@@ -191,13 +173,10 @@ void _world_init_start_dx_dy() {
   _num_points_per_radius = num_points;
   int16_t grid_spacing = kGridSpacing * radius;
 
-  // Pre-calculate delta vectors for step in X and step in Y, and the start
-  // point relative to the eye.
   _world_p_start.x = _world_init_axis(0, grid_spacing);
   _world_p_start.y = _world_init_axis(1, grid_spacing);
   _world_p_start.z = -_down_shift(flight_eye_z);
 
-  // Precompute Mitchell combinations
   for (uint8_t i = 0; i < 16; ++i) {
     const vec3_t *dx =
         (const vec3_t *)((const uint8_t *)_world_dx4 + kMitchellPointsX[i]);
@@ -208,49 +187,63 @@ void _world_init_start_dx_dy() {
     _world_mitch_z[i] = dx->z + dy->z;
   }
 
-  // The radius-4 start coords reach ~4600, which used to need a halving
-  // workaround around the old quarter-square multiply (it overflowed once
-  // |a| + |b| exceeded 4095). The assembly vec_fastmul8p8 is exact for all
-  // int16 inputs, so the transform can run at full precision.
   vec_transform_inv(&world_cam, &_world_p_start, &_world_p_start);
 }
 
-void _world_render_object(WorldMapType object_type) {
-#ifdef __FPILOT__
-#pragma bss(scratch)
-#endif
-  static vec3_t poly_verts[kPolyMaxVertices];
-#pragma bss(bss2)
-  uint8_t obj_idx = object_type - kWorldMapObjStart;
+// Host C counterpart of world_asm.cc's _world_build_obj_verts().
+uint8_t _world_build_obj_verts(uint8_t obj_idx) {
   uint8_t num_verts = kWorldObjNumVerts[obj_idx];
   uint8_t k = kWorldObjFirstVert[obj_idx];
+  bool any_in = false;
   for (uint8_t i = 0; i < num_verts; ++i, ++k) {
-    // kWorldObjX/Y hold byte offsets into the tables (world_map.cc).
     const vec3_t *dx =
         (const vec3_t *)((const uint8_t *)_world_dx4 + kWorldObjX[k]);
     const vec3_t *dy =
         (const vec3_t *)((const uint8_t *)_world_dy4 + kWorldObjY[k]);
-    poly_verts[i].x = _world_vec_v.x + dx->x + dy->x;
-    poly_verts[i].y = _world_vec_v.y + dx->y + dy->y;
-    poly_verts[i].z = _world_vec_v.z + dx->z + dy->z;
+    int16_t vx = _world_vec_v.x + dx->x + dy->x;
+    _world_poly_verts[i].x = vx;
+    if (vx >= 8) {
+      any_in = true;
+    }
+  }
+  if (!any_in) {
+    return 0;
+  }
+  k = kWorldObjFirstVert[obj_idx];
+  for (uint8_t i = 0; i < num_verts; ++i, ++k) {
+    const vec3_t *dx =
+        (const vec3_t *)((const uint8_t *)_world_dx4 + kWorldObjX[k]);
+    const vec3_t *dy =
+        (const vec3_t *)((const uint8_t *)_world_dy4 + kWorldObjY[k]);
+    _world_poly_verts[i].y = _world_vec_v.y + dx->y + dy->y;
+    _world_poly_verts[i].z = _world_vec_v.z + dx->z + dy->z;
+  }
+  return num_verts;
+}
+#endif // !__OSCAR64__
+
+void _world_render_object_cur(void) {
+  uint8_t obj_idx = _world_obj_idx;
+  uint8_t num_verts = _world_build_obj_verts(obj_idx);
+  if (num_verts == 0) {
+    return;
   }
   // Just the draw, not the vertex build above it, so this stays comparable
   // with the by-hand figure in docs/framerate.md.
   bm_sub_start();
-  poly_draw_3d(poly_verts, num_verts, kWorldObjChars[obj_idx],
+  poly_draw_3d(_world_poly_verts, num_verts, kWorldObjChars[obj_idx],
                WORLD_OBJ_COLORS[obj_idx]);
   bm_sub_end(BM_SUB_POLY);
 }
 
-__noinline void world_render_grid() {
-  bm_model_start();
-  _world_init_start_dx_dy();
+void _world_render_object(WorldMapType object_type) {
+  _world_obj_idx = (uint8_t)(object_type - kWorldMapObjStart);
+  _world_render_object_cur();
+}
 
-  // If the current vec_v.x falls below this value, we can abort. The tests
-  // below subtract and look at the sign rather than compare: x is at most the
-  // grid's reach plus the altitude, far inside int16, and bailout is -512 at
-  // the least, so the difference cannot overflow, and oscar64's signed
-  // 16-bit compare is twice the code.
+#ifndef __OSCAR64__
+// Host C counterpart of world_asm.cc's _world_render_grid_walk().
+void _world_render_grid_walk(void) {
   int16_t bailout = -_max16(_abs16(_world_dx4[0].x), _abs16(_world_dy4[0].x));
   uint8_t cx = _world_start_cx;
   for (int8_t x = -(int8_t)_world_grid_radius;;) {
@@ -273,7 +266,7 @@ __noinline void world_render_grid() {
       }
       ++y;
       cy += _world_step_y;
-      //  Step along Y axis
+      // Step along Y axis
       vec_add(&_world_vec_v, &_world_dy_vec);
       if ((int16_t)(_world_vec_v.x - bailout) < 0) {
         break;
@@ -290,7 +283,13 @@ __noinline void world_render_grid() {
       break;
     }
   }
+}
+#endif // !__OSCAR64__
 
+__noinline void world_render_grid() {
+  bm_model_start();
+  _world_init_start_dx_dy();
+  _world_render_grid_walk();
   bm_model_end(830, "GRD:");
 
 #ifdef __ENABLE_DEBUG__

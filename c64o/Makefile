@@ -132,6 +132,7 @@ PPILOT_SRC = \
 		world.h \
 		world.cc \
 		world_asm.h \
+		world_asm.cc \
 		world_map.cc
 
 # Other aircraft (docs/planes.md): fpilot only, see opponent.h.
@@ -192,6 +193,7 @@ POLYDEMO_SRC = \
 		world.h \
 		world.cc \
 		world_asm.h \
+		world_asm.cc \
 		world_map.cc
 
 VECDEMO_PROGRAM = vecdemo

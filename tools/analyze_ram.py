@@ -120,14 +120,14 @@ DESCRIPTIONS = {
     'World Model': {
         'Code': 'flight dynamics, physics integration, waypoint checking, '
                 'terrain grid rendering, clouds, opponents, guns and damage '
-                '(`flight.cc`, `world.cc`, `world_asm.h`, `sim.cc`, '
+                '(`flight.cc`, `world.cc`, `world_asm.cc`, `sim.cc`, '
                 '`world_map.cc`, `clouds.cc`, `clouds_asm.cc`, `opponent.cc`, `opponent_asm.cc`, '
                 '`planes.cc`, `planes_asm.cc`, `gun.cc`, `gun_asm.cc`, '
                 '`damage.cc`)',
         'Data': 'world map, cloud hash and ladder tables, 3D aircraft models '
                 'and opponent paths',
         'BSS': 'flight path history (`flight_path_px/py`), delta transform '
-               'vectors (`_world_dx4`, `_world_dy4`), camera, opponent, gun '
+               'vectors (`_world_d4`), camera, opponent, gun '
                'and damage state',
         'ZP': 'flight state (`flight_eye_x/y/z`, `flight_speed`, '
               '`flight_throttle`, `flight_fuel`, `flight_vspeed`) and triangle '

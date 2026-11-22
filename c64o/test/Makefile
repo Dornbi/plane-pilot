@@ -252,7 +252,7 @@ planes_target_cases.h: ../../tools/generate_planes.py ../../lib/planes.py
 
 target_test.prg: target_test.cc int16.h ../vec.h ../vec.cc ../vec_lut.cc \
 		../planes.h ../planes.cc ../planes_asm.h ../planes_asm.cc ../planedef.h \
-		../poly_asm.h ../world_asm.h ../opponent_asm.h ../opponent_asm.cc ../gun_asm.h ../gun_asm.cc \
+		../poly_asm.h ../world_asm.h ../world_asm.cc ../opponent_asm.h ../opponent_asm.cc ../gun_asm.h ../gun_asm.cc \
 		../sprites.h ../sprites_asm.h ../sprites_asm.cc ../spritedef.h ../spritedef.cc \
 		../clouddef.h ../clouddef.cc ../clouds_asm.h ../clouds_asm.cc \
 		../render_asm.h ../render_asm.cc

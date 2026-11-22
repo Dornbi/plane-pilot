@@ -53,6 +53,8 @@
 //       _sprites_set_instrument_sprite & sprites_set_alt against C ref
 //   21  clouds_asm.cc _clouds_build_basis, _clouds_dot, _clouds_apply_offset,
 //       _clouds_scan_init & _clouds_scan_next against C ref
+//   22  world_asm.cc _world_init_start_dx_dy, _world_build_obj_verts &
+//       _world_render_grid_walk against 16-bit C ref
 
 #include <stdint.h>
 
@@ -391,10 +393,112 @@ vec3_t _poly_clip3_buf[10];
 uint8_t _poly_min_x[2 * kViewportHeight];
 uint8_t _poly_max_x[2 * kViewportHeight];
 
+__zeropage uint8_t _world_grid_radius;
+__zeropage uint8_t _world_start_cx;
+__zeropage uint8_t _world_start_cy;
+__zeropage vec3_t _world_p_start;
+__zeropage vec3_t _world_dx_vec;
+__zeropage vec3_t _world_dy_vec;
+__zeropage int8_t _world_step_x;
+__zeropage int8_t _world_step_y;
+__zeropage vec3_t _world_vec_v;
+#pragma bss(cld_bss)
+vec3_t _world_d4[18];
+vec3_t _world_poly_verts[kPolyMaxVertices];
+#pragma bss(bss)
 __striped int16_t _world_mitch_x[16];
 __striped int16_t _world_mitch_y[16];
 __striped int16_t _world_mitch_z[16];
-__zeropage vec3_t _world_vec_v;
+
+// Minimal test world map + object tables matching world_map.cc layouts.
+const uint8_t KWorldDotColors[7] = {0, kGfxDotGround, 0, 1, 3, 6, 7};
+const uint8_t kWorldObjX[kWorldObjVerts] = {
+    0,  48, 48, 0,  0,  24, 48, 12, 0,  12, 48, 18,
+    6,  30, 42, 36, 12, 0,  12, 36, 48, 30, 12};
+const uint8_t kWorldObjY[kWorldObjVerts] = {
+    24, 24, 18, 18, 12, 0,  30, 48, 36, 0,  18, 48,
+    18, 6,  24, 36, 42, 18, 0,  6,  24, 42, 48};
+const uint8_t kWorldObjFirstVert[kWorldObjDim] = {0, 4, 4, 8, 8, 12, 17, 8, 17};
+const uint8_t kWorldObjNumVerts[kWorldObjDim] = {4, 4, 4, 4, 4, 5, 6, 4, 6};
+// Mix of MAP_NOTHING (0), dot types (1..6), and object types (7..15).
+const uint8_t kWorldMap[kWorldMapHeight][kWorldMapWidth / 2] = {
+    {0x10, 0x23, 0x74, 0x85, 0x96, 0x10, 0x20, 0x31, 0x42, 0x53, 0x64, 0x75,
+     0x86, 0x90, 0xA1, 0xB2},
+    {0xC3, 0xD4, 0xE5, 0xF6, 0x01, 0x12, 0x23, 0x34, 0x45, 0x56, 0x60, 0x71,
+     0x82, 0x93, 0xA4, 0xB5},
+    {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC,
+     0xDD, 0xEE, 0xFF, 0x00},
+    {0x07, 0x18, 0x29, 0x3A, 0x4B, 0x5C, 0x6D, 0x7E, 0x8F, 0x90, 0x01, 0x12,
+     0x23, 0x34, 0x45, 0x56},
+    {0x21, 0x43, 0x65, 0x07, 0x81, 0xA2, 0xC3, 0xE4, 0x15, 0x36, 0x50, 0x71,
+     0x92, 0xB3, 0xD4, 0xF5},
+    {0x10, 0x32, 0x54, 0x76, 0x98, 0xBA, 0xDC, 0xFE, 0x01, 0x23, 0x45, 0x67,
+     0x89, 0xAB, 0xCD, 0xEF},
+    {0x61, 0x52, 0x43, 0x34, 0x25, 0x16, 0x00, 0x71, 0x82, 0x93, 0xA4, 0xB5,
+     0xC6, 0xD0, 0xE1, 0xF2},
+    {0x00, 0x11, 0x02, 0x13, 0x04, 0x15, 0x06, 0x17, 0x08, 0x19, 0x0A, 0x1B,
+     0x0C, 0x1D, 0x0E, 0x1F},
+    {0x10, 0x23, 0x74, 0x85, 0x96, 0x10, 0x20, 0x31, 0x42, 0x53, 0x64, 0x75,
+     0x86, 0x90, 0xA1, 0xB2},
+    {0xC3, 0xD4, 0xE5, 0xF6, 0x01, 0x12, 0x23, 0x34, 0x45, 0x56, 0x60, 0x71,
+     0x82, 0x93, 0xA4, 0xB5},
+    {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC,
+     0xDD, 0xEE, 0xFF, 0x00},
+    {0x07, 0x18, 0x29, 0x3A, 0x4B, 0x5C, 0x6D, 0x7E, 0x8F, 0x90, 0x01, 0x12,
+     0x23, 0x34, 0x45, 0x56},
+    {0x21, 0x43, 0x65, 0x07, 0x81, 0xA2, 0xC3, 0xE4, 0x15, 0x36, 0x50, 0x71,
+     0x92, 0xB3, 0xD4, 0xF5},
+    {0x10, 0x32, 0x54, 0x76, 0x98, 0xBA, 0xDC, 0xFE, 0x01, 0x23, 0x45, 0x67,
+     0x89, 0xAB, 0xCD, 0xEF},
+    {0x61, 0x52, 0x43, 0x34, 0x25, 0x16, 0x00, 0x71, 0x82, 0x93, 0xA4, 0xB5,
+     0xC6, 0xD0, 0xE1, 0xF2},
+    {0x00, 0x11, 0x02, 0x13, 0x04, 0x15, 0x06, 0x17, 0x08, 0x19, 0x0A, 0x1B,
+     0x0C, 0x1D, 0x0E, 0x1F},
+};
+
+// Records visible object callbacks from _world_render_grid_walk() (after
+// _world_build_obj_verts() + 3D frustum test, matching poly_draw_3d()).
+static volatile uint16_t _test_wg_obj_hash;
+static volatile uint8_t _test_wg_obj_cnt;
+
+static bool _test_poly_visible(const vec3_t *v, uint8_t n) {
+  uint8_t out3 = 0x0f;
+  bool any_in = false;
+  for (uint8_t i = 0; i < n; ++i) {
+    int32_t vx = v[i].x;
+    int32_t vy = v[i].y;
+    int32_t vz4 = (int32_t)v[i].z << 2;
+    if (vx >= 8) {
+      any_in = true;
+    }
+    uint8_t c = 0;
+    if (vy > vx) {
+      c |= 1;
+    }
+    if (vy < -vx) {
+      c |= 2;
+    }
+    if (vz4 > vx) {
+      c |= 4;
+    }
+    if (vz4 < -vx) {
+      c |= 8;
+    }
+    out3 &= c;
+  }
+  return any_in && out3 == 0;
+}
+
+void _world_render_object_cur(void) {
+  uint8_t n = _world_build_obj_verts(_world_obj_idx);
+  if (n && _test_poly_visible(_world_poly_verts, n)) {
+    ++_test_wg_obj_cnt;
+    _test_wg_obj_hash =
+        (uint16_t)((_test_wg_obj_hash * 31) ^ _world_obj_idx ^
+                   (uint16_t)_world_poly_verts[0].x ^
+                   (uint16_t)_world_poly_verts[0].y);
+  }
+}
 
 uint8_t _render_sky_rows;
 int8_t render_cx_chars;
@@ -2381,6 +2485,277 @@ static __noinline void test_clouds_asm(void) {
     expect_id(_clouds_scan_next(), 0xFF);
   }
 }
+
+// ---------------------------------------------------------------------------
+// 22. world_asm.cc: _world_init_start_dx_dy, _world_build_obj_verts,
+//     _world_render_grid_walk against exact 16-bit C references.
+// ---------------------------------------------------------------------------
+static void _ref_world_split_vec(vec3_t *v, vec3_t d9[9]) {
+  int16_t *vp = (int16_t *)v;
+  int16_t *dp = (int16_t *)d9;
+  for (uint8_t i = 0; i < 3; ++i) {
+    int16_t val = *vp;
+    int16_t hlf = val >> 1;
+    int16_t dbl = val << 1;
+    dp[0 * 3] = -dbl;
+    dp[1 * 3] = -val - hlf;
+    dp[2 * 3] = -val;
+    dp[3 * 3] = -hlf;
+    dp[4 * 3] = 0;
+    dp[5 * 3] = hlf;
+    dp[6 * 3] = val;
+    dp[7 * 3] = val + hlf;
+    dp[8 * 3] = dbl;
+    *vp = dbl << 1;
+    ++vp;
+    ++dp;
+  }
+}
+
+static const uint8_t kRefMitchX[16] = {0, 36, 0,  12, 36, 12, 24, 0,
+                                       36, 24, 0, 12, 24, 24, 12, 24};
+static const uint8_t kRefMitchY[16] = {0, 0,  36, 12, 24, 36, 0,  12,
+                                       36, 24, 24, 0, 12, 12, 24, 36};
+static const uint8_t kRefNumPts3[4] = {8, 4, 2, 1};
+static const uint8_t kRefNumPts4[5] = {4, 2, 2, 1, 1};
+
+static __noinline void test_world_grid_asm(void) {
+  // 4 orthonormal-ish 8.8 camera poses covering positive, negative, and zero
+  // front.{x,y}, level flight, banked roll, and nose-down pitch, across all
+  // three altitude radii (2, 3, 4).
+  static const struct {
+    mat3_t cam;
+    int32_t ex, ey, ez;
+  } kCases[4] = {
+      // Case 0: radius 2 (low), front.x > 0, front.y == 0
+      {{{256, 0, 0}, {0, 256, 0}, {0, 0, 256}}, 0x105E83, 0x17802A, 0x004000},
+      // Case 1: radius 3 (mid), pitched down + rolled, front.x < 0, front.y > 0
+      {{{-177, 177, -51}, {-181, -181, 0}, {-36, 36, 251}},
+       0x223456,
+       0x345678,
+       0x010000},
+      // Case 2: radius 4 (high), level diagonal, front.x > 0, front.y < 0
+      {{{181, -181, 0}, {181, 181, 0}, {0, 0, 256}},
+       0x400000,
+       0x580200,
+       0x038000},
+      // Case 3: radius 3 (mid), front.x == 0, front.y < 0, steep roll
+      {{{0, -256, 0}, {222, 0, -128}, {128, 0, 222}},
+       0x051234,
+       0x0A5678,
+       0x018000},
+  };
+
+#pragma bss(cld_bss)
+  static vec3_t ref_d4[18];
+  static int16_t ref_mx[16], ref_my[16], ref_mz[16];
+#pragma bss(bss)
+  _init_row_ptrs();
+
+  for (uint8_t ci = 0; ci < 4; ++ci) {
+    world_cam = kCases[ci].cam;
+    flight_eye_x = kCases[ci].ex;
+    flight_eye_y = kCases[ci].ey;
+    flight_eye_z = kCases[ci].ez;
+
+    // 1. Run ASM _world_init_start_dx_dy().
+    _world_init_start_dx_dy();
+
+    // Compute exact C reference.
+    uint16_t nz = (uint16_t)((uint32_t)flight_eye_z >> 9);
+    uint8_t ref_r = (nz >= 256) ? 4 : (nz >= 64) ? 3 : 2;
+    int16_t spacing = (int16_t)(0x400 * ref_r);
+    vec3_t ref_dx = {0, 0, 0}, ref_dy = {0, 0, 0}, ref_ps = {0, 0, 0};
+    int8_t ref_sx = 0, ref_sy = 0;
+    uint8_t ref_cx = 0, ref_cy = 0;
+
+    for (uint8_t ax = 0; ax < 2; ++ax) {
+      const int16_t *cam = &world_cam.front.x + ax;
+      vec3_t dv = {cam[0], cam[3], cam[6]};
+      _ref_world_split_vec(&dv, ax ? (ref_d4 + 9) : ref_d4);
+      uint16_t m =
+          (uint16_t)((uint32_t)(ax ? flight_eye_y : flight_eye_x) >> 9);
+      uint8_t grid = (uint8_t)((m + 512) >> 10);
+      int16_t p = spacing;
+      int8_t st = -1;
+      uint8_t stc = (uint8_t)(grid + ref_r);
+      if (cam[0] > 0) {
+        dv.x = -dv.x;
+        dv.y = -dv.y;
+        dv.z = -dv.z;
+      } else {
+        p = -p;
+        st = 1;
+        stc = (uint8_t)(grid - ref_r);
+      }
+      int16_t coord = p - (int16_t)(m - ((uint16_t)grid << 10));
+      if (ax == 0) {
+        ref_dx = dv;
+        ref_sx = st;
+        ref_cx = stc;
+        ref_ps.x = coord;
+      } else {
+        ref_dy = dv;
+        ref_sy = st;
+        ref_cy = stc;
+        ref_ps.y = coord;
+      }
+    }
+    ref_ps.z = -(int16_t)nz;
+    for (uint8_t i = 0; i < 16; ++i) {
+      const vec3_t *dx =
+          (const vec3_t *)((const uint8_t *)ref_d4 + kRefMitchX[i]);
+      const vec3_t *dy =
+          (const vec3_t *)((const uint8_t *)(ref_d4 + 9) + kRefMitchY[i]);
+      ref_mx[i] = dx->x + dy->x;
+      ref_my[i] = dx->y + dy->y;
+      ref_mz[i] = dx->z + dy->z;
+    }
+    vec_transform_inv(&world_cam, &ref_ps, &ref_ps);
+
+    expect(22, _world_grid_radius, ref_r);
+    expect(22, _world_step_x, ref_sx);
+    expect(22, _world_step_y, ref_sy);
+    expect(22, _world_start_cx, ref_cx);
+    expect(22, _world_start_cy, ref_cy);
+    expect(22, _world_dx_vec.x, ref_dx.x);
+    expect(22, _world_dx_vec.y, ref_dx.y);
+    expect(22, _world_dx_vec.z, ref_dx.z);
+    expect(22, _world_dy_vec.x, ref_dy.x);
+    expect(22, _world_dy_vec.y, ref_dy.y);
+    expect(22, _world_dy_vec.z, ref_dy.z);
+    expect(22, _world_p_start.x, ref_ps.x);
+    expect(22, _world_p_start.y, ref_ps.y);
+    expect(22, _world_p_start.z, ref_ps.z);
+    for (uint8_t i = 0; i < 18; ++i) {
+      expect(22, _world_d4[i].x, ref_d4[i].x);
+      expect(22, _world_d4[i].y, ref_d4[i].y);
+      expect(22, _world_d4[i].z, ref_d4[i].z);
+    }
+    for (uint8_t i = 0; i < 16; ++i) {
+      expect(22, _world_mitch_x[i], ref_mx[i]);
+      expect(22, _world_mitch_y[i], ref_my[i]);
+      expect(22, _world_mitch_z[i], ref_mz[i]);
+    }
+
+    // 2. Test _world_build_obj_verts() across all 9 object types (both visible
+    //    and all-behind x < 8 early-reject).
+    for (uint8_t oi = 0; oi < kWorldObjDim; ++oi) {
+      for (uint8_t behind = 0; behind < 2; ++behind) {
+        _world_vec_v.x = behind ? -1500 : 400;
+        _world_vec_v.y = (int16_t)(ci * 130 - 200);
+        _world_vec_v.z = -90;
+        uint8_t got_n = _world_build_obj_verts(oi);
+        uint8_t nv = kWorldObjNumVerts[oi];
+        uint8_t k = kWorldObjFirstVert[oi];
+        bool any_in = false;
+        vec3_t rv[kPolyMaxVertices];
+        for (uint8_t vi = 0; vi < nv; ++vi, ++k) {
+          const vec3_t *dx =
+              (const vec3_t *)((const uint8_t *)ref_d4 + kWorldObjX[k]);
+          const vec3_t *dy =
+              (const vec3_t *)((const uint8_t *)(ref_d4 + 9) + kWorldObjY[k]);
+          rv[vi].x = _world_vec_v.x + dx->x + dy->x;
+          rv[vi].y = _world_vec_v.y + dx->y + dy->y;
+          rv[vi].z = _world_vec_v.z + dx->z + dy->z;
+          if (rv[vi].x >= 8) {
+            any_in = true;
+          }
+        }
+        uint8_t want_n = any_in ? nv : 0;
+        expect(22, got_n, want_n);
+        if (want_n) {
+          for (uint8_t vi = 0; vi < nv; ++vi) {
+            expect(22, _world_poly_verts[vi].x, rv[vi].x);
+            expect(22, _world_poly_verts[vi].y, rv[vi].y);
+            expect(22, _world_poly_verts[vi].z, rv[vi].z);
+          }
+        }
+      }
+    }
+
+    // 3. Test _world_render_grid_walk() end-to-end against exact C reference:
+    //    both dot rendering into screen/color RAM and visible object dispatch.
+    _clear_test_screens(kCharSolidGround, 0x55);
+    _test_wg_obj_hash = 0;
+    _test_wg_obj_cnt = 0;
+    _world_init_start_dx_dy();
+    _world_render_grid_walk();
+    uint16_t got_oh = _test_wg_obj_hash;
+    uint8_t got_oc = _test_wg_obj_cnt;
+
+    // Run pure C reference walk using ref_ps/ref_dx/ref_dy/ref_d4.
+    int16_t a0 = ref_d4[0].x < 0 ? -ref_d4[0].x : ref_d4[0].x;
+    int16_t b0 = ref_d4[9].x < 0 ? -ref_d4[9].x : ref_d4[9].x;
+    int16_t bailout = -(a0 > b0 ? a0 : b0);
+    const uint8_t *npts = (ref_r == 4) ? kRefNumPts4 : kRefNumPts3;
+    uint16_t ref_oh = 0;
+    uint8_t ref_oc = 0;
+    vec3_t ps = ref_ps;
+    uint8_t cx = ref_cx;
+    for (int8_t gx = -(int8_t)ref_r;;) {
+      _world_vec_v = ps;
+      uint8_t ax = (uint8_t)(gx < 0 ? -gx : gx);
+      const uint8_t *row = kWorldMap[cx & 0x0F];
+      uint8_t cy = ref_cy;
+      for (int8_t gy = -(int8_t)ref_r;;) {
+        uint8_t col = cy & 0x1F;
+        uint8_t pair = row[col >> 1];
+        uint8_t mt = (col & 1) ? (uint8_t)(pair >> 4) : (uint8_t)(pair & 0x0F);
+        if (mt >= kWorldMapObjStart) {
+          uint8_t oi = (uint8_t)(mt - kWorldMapObjStart);
+          uint8_t nv = kWorldObjNumVerts[oi];
+          uint8_t k = kWorldObjFirstVert[oi];
+          vec3_t rv[kPolyMaxVertices];
+          for (uint8_t vi = 0; vi < nv; ++vi, ++k) {
+            const vec3_t *dx =
+                (const vec3_t *)((const uint8_t *)ref_d4 + kWorldObjX[k]);
+            const vec3_t *dy =
+                (const vec3_t *)((const uint8_t *)(ref_d4 + 9) + kWorldObjY[k]);
+            rv[vi].x = _world_vec_v.x + dx->x + dy->x;
+            rv[vi].y = _world_vec_v.y + dx->y + dy->y;
+            rv[vi].z = _world_vec_v.z + dx->z + dy->z;
+          }
+          if (_test_poly_visible(rv, nv)) {
+            ++ref_oc;
+            ref_oh = (uint16_t)((ref_oh * 31) ^ oi ^ (uint16_t)rv[0].x ^
+                                (uint16_t)rv[0].y);
+          }
+        } else if (mt != 0) {
+          uint8_t ay = (uint8_t)(gy < 0 ? -gy : gy);
+          uint8_t d = ax > ay ? ax : ay;
+          _ref_world_draw_box_points((uint8_t)((cx << 1) + cy), npts[d],
+                                     KWorldDotColors[mt]);
+        }
+        if (gy == (int8_t)ref_r) {
+          break;
+        }
+        ++gy;
+        cy = (uint8_t)(cy + ref_sy);
+        _world_vec_v.x += ref_dy.x;
+        _world_vec_v.y += ref_dy.y;
+        _world_vec_v.z += ref_dy.z;
+        if ((int16_t)(_world_vec_v.x - bailout) < 0) {
+          break;
+        }
+      }
+      if (gx == (int8_t)ref_r) {
+        break;
+      }
+      ++gx;
+      cx = (uint8_t)(cx + ref_sx);
+      ps.x += ref_dx.x;
+      ps.y += ref_dx.y;
+      ps.z += ref_dx.z;
+      if ((int16_t)(ps.x - bailout) < 0) {
+        break;
+      }
+    }
+    _check_screens(22);
+    expect(22, got_oc, ref_oc);
+    expect(22, (int16_t)got_oh, (int16_t)ref_oh);
+  }
+}
 #endif // __TARGET_TEST_PLANES__
 #pragma optimize(pop)
 
@@ -2419,6 +2794,7 @@ int main(void) {
   test_vec_div_and_planes_centre_asm();
   test_sprites_asm();
   test_clouds_asm();
+  test_world_grid_asm();
 #endif
 
   // Something for vice_dump.sh's @spin to break on. Everything above has

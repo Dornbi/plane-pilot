@@ -124,10 +124,10 @@ Fixed-point 8.8 vector and 3×3 matrix math (zero hardware multiply/divide, enfo
 - **Exact restoring division (`vec_frac8`)** in `vec_asm.cc` for perspective projection and opponent rendering.
 - **Perspective & rotation:** `vec_project()`, `vec_transform_inv()`, `vec_rotate_step()` (6-multiply incremental rotation from a 6-byte table), `vec_turn3_xy()` (horizontal yaw), and `vec_orthonormalize()`.
 
-### `world.cc` / `world_asm.h` / `world_map.cc` — ground detail
+### `world.cc` / `world_asm.cc` / `world_map.cc` — ground detail
 
 - `world_map.cc` defines the 32×16-cell repeating world (each cell = 8×8 world units = 1,024 m; total 32.8×16.4 km).
-- `world.cc` walks visible cells around the aircraft, projecting ground grid dots via hand-assembled `_world_draw_box_points()` (`world_asm.h`) with horizontal viewport pre-culling, and dispatching map objects (runways, towns, cities, lakes, fields) to `poly_draw_3d()`.
+- `world.cc` / `world_asm.cc` build the per-frame grid basis (`_world_init_start_dx_dy()`), walk visible cells around the aircraft with 8-bit high-byte 3D frustum culling (`_world_render_grid_walk()`), project ground grid dots via `_world_draw_box_points()`, and build/dispatch map objects (`_world_build_obj_verts()`, runways, towns, cities, lakes, fields) to `poly_draw_3d()`. Host builds retain exact C counterparts in `world.cc`.
 - `world_update_objects()` feeds sprites into the viewport sprite stack: clouds (`clouds.cc`), sun, and in `fpilot`, opponents (`opponent.cc`) and tracers/smoke (`gun.cc`).
 
 ### `poly.cc` / `poly_asm.h` — filled polygons
