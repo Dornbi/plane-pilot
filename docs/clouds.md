@@ -31,20 +31,20 @@ Hardware sprite 0 draws in front of 1, ..., in front of 7. Candidates are insert
 - `sprite_cand_t` is **9 B** (`int16_t depth, x; uint8_t y, bitmap, bitmap2, color, flags;`); `_sprites_cand[8]` = 72 B, indexed by byte offset `_sprites_cand_end` (`0..72`, step 9).
 - `sprite_frame_t` is **37 B** (`pos[16]`, `ptr[8]`, `color[8]`, `msbx`, `expand`, `expand_y`, `enable`, `last`).
 - `volatile sprite_frame_t _sprites_frames[2]` (74 B in `bss2`) holds `_sprites_frame_a` and `_sprites_frame_b`, **synchronised directly with `mem_using_alt_buffer`** (no separate flip flag): `sprites_stack_commit()` writes frame B when `mem_using_alt_buffer` is true (else frame A), and the terrain raster handler reads the opposite committed frame. Declaring `_sprites_frames` `volatile` prevents oscar64 from hoisting or reordering writes across the IRQ boundary.
-- `sprites_stack_add()`, `sprites_stack_commit()`, `_sprites_set_instrument_sprite()`, `sprites_set_alt()`, and `sprites_set_vspeed()` are hand-assembled 6502 `__asm` in `c64o/sprites_asm.cc` (with `#ifndef __OSCAR64__` C mirrors in `c64o/sprites.cc` for host `sprites_test.cc`, verified bit-for-bit by `target_test.cc` test 20).
+- `sprites_stack_add()` and `sprites_stack_commit()` (plus the test-covered `_sprites_set_instrument_sprite()`, `sprites_set_alt()`, and `sprites_set_vspeed()` helpers) are hand-assembled 6502 `__asm` in `c64o/sprites_asm.cc` (with `#ifndef __OSCAR64__` C mirrors in `c64o/sprites.cc` for host `sprites_test.cc`, verified bit-for-bit by `target_test.cc` test 20). On C64 builds (`__OSCAR64__`), the per-frame instrument panel update `panel_update_instruments()` runs directly as hand-assembled 6502 in `c64o/panel_asm.cc` with per-arm/altitude change caching and a closed-form roll dial (verified by `target_test.cc` test 29 in `target_planes_test.prg`).
 
-### 1.4 Raster handlers & IRQ zero-page rule (`gfx.cc`, `sprites.cc`)
+### 1.4 Raster handlers & IRQ zero-page rule (`gfx.cc`, `sprites_asm.h`, `sprites.cc`)
 
-There are **three raster IRQs** (`-DNUM_IRQS=3`):
+There are **three direct chained raster IRQs** dispatched through a 3-byte `JMP` trampoline (`_gfx_irq_vec` in `$FFC0`, no `rasterirq.c`):
 
 | Slot | Raster | Mechanism | Handler work |
 | ---: | ---: | --- | --- |
-| 0 | **161** | 14 B `RIRQCode` stub (`_rirq_buf` in `$FFC0`) | 12 NOPs (C64) / 19 NOPs + 1 MHz (SuperCPU) → MCBM switch + `sprites_show_panel_top_sprites()` (`$D015=$FF`, clears `$D01D`/`$D017`, restores sprite 0 colour, parks 1–7, places sprite 0 on `kScreenRamAlt`) |
-| 1 | **187** | Direct ISR call | `sprites_show_panel_bottom_sprites()` (panel-bottom gauge sprites on `kScreenRamAlt`) |
-| 2 | **252** | Direct ISR call | `sprites_show_terrain_sprites()` → `$D021 = COLOR_GRAD2`, `$D011 = $1B`, `$D018`, `sound_blit()` |
+| 0 | **161** | Direct ISR (`_gfx_switch_to_panel_top`) | Spins until line 162, slows SuperCPU, `PHA/PLA` blanking delay → MCBM switch + `sprites_show_panel_top_sprites()` (clears `$D01D`/`$D017`/`$D010`; enables only sprite 0 in `VIEW_CENTER`, `$D015=0` otherwise). Chains straight to terrain in `VIEW_BACK` / debug mode. |
+| 1 | **186** | Direct ISR (`_switch_to_panel_bottom`) | `sprites_show_panel_bottom_sprites()` (enables only visible needles: 1–7 in `VIEW_CENTER`, 7 in `VIEW_LEFT`, 6 in `VIEW_RIGHT`, skipped in `VIEW_BACK`) |
+| 2 | **251** | Direct ISR (`_gfx_switch_to_terrain`) | `sprites_show_terrain_sprites()` → `$D021 = COLOR_GRAD2`, `$D011 = $1B`, `$D018`, `sound_blit()` |
 
-- **Enable-first + `last` trim:** `_sprites_program_frame()` writes `vic.spr_enable = frame.enable` **first** so unused sprites parked at `y = 0` are disabled before raster 256 (preventing ~100 cy/slot of lower-border DMA fetches), copies all 16 `pos[]` bytes downward, copies `ptr[]`/`color[]` only for `0..last`, then writes `msbx`, `expand_x`, `expand_y`. Each band writes pointers only to its own screen RAM (`kScreenRamMain` or `kScreenRamAlt`).
-- **IRQ zero-page rule:** Raster handlers run over main-line code and must never touch oscar64 runtime ZP `< $60` (enforced on every link by `tools/check_irq_zp.py`). Keeping `_sprites_frame_a`/`_sprites_frame_b` at constant link-time addresses and copying `pos[16]` downward in a single indexed loop keeps the ISR completely ZP-free.
+- **Enable-first + active-only `0..last` copy:** `sprites_show_terrain_sprites()` writes `vic.spr_enable = frame.enable` **first** so unused sprites are disabled before raster 256 (preventing lower-border DMA fetches), early-exits when `enable == 0`, and copies `ptr[]`, `color[]`, and `pos[]` only for active indices `0..last`. Each band writes pointers only to its own screen RAM (`kScreenRamMain` or `kScreenRamAlt`).
+- **IRQ zero-page rule:** Raster handlers run over main-line code and must never touch oscar64 runtime ZP `< $60` (enforced on every link by `tools/check_irq_zp.py`). Indexing `_sprites_frames[2]` directly with `X`/`Y` in 6502 `__asm` keeps all three handlers completely ZP-free.
 
 ### 1.5 Register initialisation
 

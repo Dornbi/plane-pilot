@@ -68,8 +68,8 @@ python3 tools/analyze_ram.py c64o/fpilot.map --verbose
 | `$EFF8-$EFFF` | 8 | used | alt screen sprite pointers |
 | `$F000-$FF3F` | 3,904 | used | panel bitmap, incl. heading strips at `$F000` |
 | `$FF40-$FFBF` | 128 | used | back view's tail fin, 2 sprite blocks (`kFinSpriteData`) |
-| `$FFC0-$FFCD` | 14 | used | generated raster IRQ stub (`irqcode`, `gfx.cc _rirq_buf`) |
-| `$FFCE-$FFF7` | 42 | free | free inside `irqcode` region |
+| `$FFC0-$FFC3` | 4 | used | direct raster IRQ trampoline & SuperCPU flag (`irqcode`, `gfx.cc _gfx_irq_vec`, `_gfx_panel_fast`) |
+| `$FFC4-$FFF7` | 52 | free | free inside `irqcode` region |
 | `$FFF8-$FFF9` | 2 | free (orphan) | gap before hardware vectors |
 | `$FFFA-$FFFF` | 6 | used | NMI / RESET / IRQ vectors |
 
@@ -133,11 +133,11 @@ Feature table total        64,226 B
 
 1. **Horizon Graphics:** `render.cc`, `render_asm.cc`, `box.cc`, `box_asm.cc`, `roll.cc`, `roll_asm.cc`; `boxdefs`, `chardefs`, roll tables, compressed charset; char RAM `$E000–$E7FF`, main/alt screen RAM `$E800`/`$EC00`, back-view fin `$FF40–$FFBF`. Per-slot caches live in `kBootScratch` (`$0860–$0A5F`).
 2. **Polygon Graphics:** `poly.cc`, `poly_asm.h`, `poly_asm.cc`, `vec.cc`, `vec_asm.cc`, `fmath.cc`; trig, inverse-Z, quarter-square LUTs; vertex scratch buffers.
-3. **World Model:** `flight.cc`, `world.cc`, `world_asm.cc`, `sim.cc`, `world_map.cc`, `clouds.cc`, `clouds_asm.cc`, and in `fpilot`: `opponent.cc`, `opponent_asm.cc`, `planes.cc`, `planes_asm.cc`, `gun.cc`, `gun_asm.cc`, `damage.cc`, plus `kOpponentDotBlock` at `$CFC0`.
+3. **World Model:** `flight.cc`, `flight_asm.cc`, `world.cc`, `world_asm.cc`, `sim.cc`, `world_map.cc`, `clouds.cc`, `clouds_asm.cc`, and in `fpilot`: `opponent.cc`, `opponent_asm.cc`, `planes.cc`, `planes_asm.cc`, `gun.cc`, `gun_asm.cc`, `damage.cc`, plus `kOpponentDotBlock` at `$CFC0`.
 4. **Instrument Panel:** `view.cc`, `panel.cc`, `sprites.cc`, `sprites_asm.cc`, `spritedef.cc`; compressed panel/sprite art; sprite bitmaps `$D400–$DFFF`, panel bitmap `$F000–$FF3F`, sprite pointers.
 5. **Menu & Missions:** `menu.cc`, `pmission.cc`/`fmission.cc`, `debrief.cc`, `help.cc`, `map.cc`, `title.cc`; text, mission tables, map tiles, title sprites; `$D000–$D3FF` time-shared under I/O.
 6. **Message System:** `msg.cc` and `screen.cc` notices.
-7. **Sound Effects:** `sound.cc`, pitch/wind/V3 tables, 25 B SID shadow.
+7. **Sound Effects:** `sound.cc`, `sound_asm.cc`, pitch/wind/V3 tables, 25 B SID shadow.
 8. **Music:** `music.cc`, packed `musicdef.cc` pools, note/drum tables.
 9. **Debug / 10. Benchmarks (`ppilot` only):** `panel.cc` `D` overlay, `benchmark.cc` CIA2 counters.
 11. **Core System & Drivers:** `ppilot.cc`, `mem.cc`, `gfx.cc`, `screen.cc`, `keys.cc`, `cpu.cc`, `bcd.cc`, `print.cc`, oscar64 runtime; boot region at `$0860`; off-budget color RAM `$D800–$DBE7`.

@@ -36,7 +36,7 @@ Shipped in both **`ppilot.prg`** and **`fpilot.prg`** behind `-D__ENABLE_SOUND__
 
 ### Main-line compute → shadow → IRQ blit
 
-- **`sound_update()`** (`sim.cc`) computes all 3 voices, writes `sound_shadow[25]` through volatile `_sound_poke()` (which also feeds the host test interleaving observer), and calls `sound_mark_dirty()`.
+- **`sound_update()`** (`sim.cc`; 6502 assembly in `sound_asm.cc` on C64, matching pure C counterpart in `sound.cc` on host) computes all 3 voices, writes `sound_shadow[25]` (on host through volatile `_sound_poke()` to feed the test interleaving observer), and calls `sound_mark_dirty()`.
 - **Torn-read safety:** `sound_update()` never runs a blanking `memset` over `sound_shadow[]` and always writes each voice's **`Ctrl` register last** — an IRQ landing mid-update never latches a stale sustain or gate-off glitch.
 - **`sound_blit()`** (inlined in `gfx.cc:_gfx_switch_to_terrain` at raster 252):
   - Clean tick (`!sound_dirty`): 1 load + branch (**6 cy** `ppilot`, **7 cy** `fpilot`).
@@ -53,17 +53,17 @@ Shipped in both **`ppilot.prg`** and **`fpilot.prg`** behind `-D__ENABLE_SOUND__
 
 ---
 
-## 4. Budgets (current `ppilot.map` / `fpilot.map`, pass 152)
+## 4. Budgets (current `ppilot.map` / `fpilot.map`, pass 161)
 
 | Segment | `ppilot.prg` | `fpilot.prg` | Contents |
 | --- | ---: | ---: | --- |
-| Code (`sound.cc`) | 673 B | 686 B | `sound_update` (579/588), `_sound_pick_v3` (38), `sound_silence` (24), `_sound_next_rand` (17/21), `sound_cycle_volume` (15) |
+| Code (`sound.cc`, `sound_asm.cc`) | 571 B | 585 B | `sound_update` (532/546), `sound_silence` (24), `sound_cycle_volume` (15) |
 | Inlined `sound_blit()` | 51 B | 56 B | Inside `_gfx_switch_to_terrain` |
-| Data + strings | 170 B | 170 B | `kSoundEngineFreq` (50), `kSoundWindFreq` (32), `kSoundV3*` tables (47), labels/strings (37), `kMasterVolume` (3), `sound_volume` (1) |
-| BSS | 25 B | 31 B | `sound_shadow[25]` (+ 6 state bytes moved out of ZP in `fpilot`) |
-| ZP | 9 B | 3 B | `_sound_v3_effect/frames`, `_sound_stall_phase` (+ `sound_gen*`, `sound_dirty`, `_sound_pwm_phase`, `_sound_rng`, `_sound_flight_gen_seen` in `ppilot`) |
+| Data + strings | 170 B | 170 B | `kSoundEngineFreqLo/Hi` (50), `kSoundWindFreqLo/Hi` (32), `kSoundV3*` tables (47), labels/strings (37), `kMasterVolume` (3), `sound_volume` (1) |
+| BSS | 29 B | 35 B | `sound_shadow[25]` in `bss2` (+ state bytes in main BSS) |
+| ZP | 8 B | 2 B | `_sound_v3_effect`, `_sound_v3_frames` (+ remaining state bytes in `ppilot`) |
 | `@stack` | **0 B** | **0 B** | Zero software stack frames (`sound_blit` has none) |
-| **Total** | **928 B** | **946 B** | ZP headroom: **6 B** (`ppilot`, `$59`), **4 B** (`fpilot`, `$5B`) |
+| **Total** | **829 B** | **848 B** | ZP headroom: **11 B** (`ppilot`, `$54`), **10 B** (`fpilot`, `$55`) |
 
 ---
 
@@ -82,14 +82,14 @@ Shipped in both **`ppilot.prg`** and **`fpilot.prg`** behind `-D__ENABLE_SOUND__
 
 ### Voice 1 — Engine (Pulse, while `_sound_flying`)
 
-- **Pitch:** 25-entry geometric PAL table `kSoundEngineFreq[25]` (`$0353`–`$06FC`, 50–105 Hz, 0.54 semitones/throttle step).
-- **Roughness:** Proportional pitch jitter via `vec_fastmul8p8` with `amp = base >> 5` (`kSoundEngineJitterShift = 5`, ±3.1% peak), driven by an 8-bit Galois LFSR (`taps 0xB8`, `seed 0xA5`, 2 draws/frame).
+- **Pitch:** 25-entry geometric PAL table `kSoundEngineFreqLo/Hi[25]` (`$0353`–`$06FC`, 50–105 Hz, 0.54 semitones/throttle step).
+- **Roughness:** Proportional pitch jitter via `vec_mul8` on C64 (`vec_fastmul8p8` on host) with `amp = base >> 5` (`kSoundEngineJitterShift = 5`, ±3.1% peak), driven by an 8-bit Galois LFSR (`taps 0xB8`, `seed 0xA5`, 2 draws/frame).
 - **PWM sweep:** Triangle wave over `$0400..$0BF0` (`_sound_pwm_phase` stepped by `6 + (r_pw & 3)`, plus `r_pw & 0x7F` jitter).
 - **ADSR:** `AttDec = 0x10`, `SusRel = 0xF0` (fast attack, full sustain).
 
 ### Voice 2 — Wind (Noise, while `_sound_flying && flight_speed >= 0x0080`)
 
-- **Brightness:** 16-entry geometric table `kSoundWindFreq[16]` indexed by `flight_speed >> 8` (`$0600`–`$1800`).
+- **Brightness:** 16-entry geometric table `kSoundWindFreqLo/Hi[16]` indexed by `flight_speed >> 8` (`$0600`–`$1800`).
 - **ADSR:** `AttDec = 0x60` (A=6 ~68 ms), `SusRel = 0xA6` (S=10, R=6 ~204 ms) — soft onset and tail below the engine.
 
 ### Voice 3 — Transients & alarms (table-driven via `kSoundV3*` + `_sound_pick_v3`)
@@ -116,6 +116,7 @@ Shipped in both **`ppilot.prg`** and **`fpilot.prg`** behind `-D__ENABLE_SOUND__
 
 ## 7. Testing
 
-`c64o/test/sound_test.cc` compiles `sound.cc` natively with `g++` (stubbing the 9 flight/music globals and `sid.h`):
+`c64o/test/sound_test.cc` compiles `sound.cc` and `sound_asm.cc` natively with `g++` (stubbing the 9 flight/music globals and `sid.h`):
 - Verifies silence predicates, `V`-key downward cycle (`2 → 1 → 0 → 2`), `music_playing` guard in `sound_silence()`, engine pitch/PWM/LFSR bounds, wind threshold/table, V3 priority and preemption (incl. gun, hit, and crash), and full `sound_shadow_observer` interleaving sweeps confirming Ctrl-last torn-read safety.
-- Target-side build verification (`c64o/Makefile`): `check_irq_zp.py` verifies zero runtime ZP in `_gfx_switch_to_terrain` / `sound_blit()`, and `check_mul_div.py` ensures `sound.cc` links no 16-bit multiply/divide runtime.
+- Emulated 6510 equivalence (`c64o/test/target_test.cc` Test 30, in `target_planes_test.prg`): tests `sound_asm.cc`'s `sound_update()` against a pure-C reference across throttle/speed clamps, PWM triangle wrap, pause/volume/fuel silence, Voice 3 priority/preemption, stall warble, and crash sweep/abort.
+- Target-side build verification (`c64o/Makefile`): `check_irq_zp.py` verifies zero runtime ZP in `_gfx_switch_to_terrain` / `sound_blit()`, and `check_mul_div.py` ensures `sound.cc`/`sound_asm.cc` link no 16-bit multiply/divide runtime.

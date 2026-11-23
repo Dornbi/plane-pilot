@@ -56,19 +56,15 @@ struct poly_state_t {
   uint8_t src_base;       // 13
   uint8_t dst_base;       // 14
   uint8_t src_end;        // 15
-  volatile uint8_t flag;  // 16 (volatile: C inits 0, __asm updates)
+  volatile uint8_t flag;  // 16 (volatile: C reads after __asm updates)
   uint8_t mag_or;         // 17 (other_off in _poly_clip_2d_edge)
   uint8_t axis_off;       // 18 (axis_off in _poly_clip_2d_edge)
-  int16_t arg_a;          // 19
-  int16_t arg_b;          // 21
-  int16_t arg_d;          // 23
-  int16_t res;            // 25
-  uint8_t nx;             // 27 (nx, nx_hi, py, pz = contiguous 6-byte vec3_t)
-  uint8_t nx_hi;          // 28 (always 0 during _poly_clip_near_mixed)
-  int16_t py;             // 29 (also saved prev+other_off in _poly_clip_2d_edge)
-  int16_t pz;             // 31
-  int16_t dy;             // 33
-  int16_t dz;             // 35
+  uint8_t nx;             // 19 (nx, nx_hi, py, pz = contiguous 6-byte vec3_t)
+  uint8_t nx_hi;          // 20 (always 0 during _poly_clip_near_mixed)
+  int16_t py;             // 21 (also saved prev+other_off in _poly_clip_2d_edge)
+  int16_t pz;             // 23
+  int16_t dy;             // 25
+  int16_t dz;             // 27
 };
 
 static poly_state_t _ps;
@@ -92,16 +88,12 @@ static poly_state_t _ps;
 #define PS_FLAG 16
 #define PS_MAG_OR 17
 #define PS_NX 18
-#define PS_ARG_A 19
-#define PS_ARG_B 21
-#define PS_ARG_D 23
-#define PS_RES 25
-#define PS_OUT_X 27
-#define PS_OUT_X_HI 28
-#define PS_PY 29
-#define PS_PZ 31
-#define PS_DY 33
-#define PS_DZ 35
+#define PS_OUT_X 19
+#define PS_OUT_X_HI 20
+#define PS_PY 21
+#define PS_PZ 23
+#define PS_DY 25
+#define PS_DZ 27
 
 static_assert(offsetof(poly_state_t, in_lo) == PS_IN_LO &&
                   offsetof(poly_state_t, in_hi) == PS_IN_HI &&
@@ -122,10 +114,6 @@ static_assert(offsetof(poly_state_t, in_lo) == PS_IN_LO &&
                   offsetof(poly_state_t, flag) == PS_FLAG &&
                   offsetof(poly_state_t, mag_or) == PS_MAG_OR &&
                   offsetof(poly_state_t, axis_off) == PS_NX &&
-                  offsetof(poly_state_t, arg_a) == PS_ARG_A &&
-                  offsetof(poly_state_t, arg_b) == PS_ARG_B &&
-                  offsetof(poly_state_t, arg_d) == PS_ARG_D &&
-                  offsetof(poly_state_t, res) == PS_RES &&
                   offsetof(poly_state_t, nx) == PS_OUT_X &&
                   offsetof(poly_state_t, nx_hi) == PS_OUT_X_HI &&
                   offsetof(poly_state_t, py) == PS_PY &&
@@ -137,10 +125,6 @@ static_assert(offsetof(poly_state_t, in_lo) == PS_IN_LO &&
 #pragma bss(bss)
 
 static const uint8_t kPolyClipLim[4] = {0, 79, 0, 27};
-
-// Defined in vec_asm.cc (exposed in the C call graph via _poly_clip_2d_edge's
-// vec_frac16() call).
-extern void vec_frac16_run(void);
 
 // Shared 3D frustum early-reject core.
 // Reads _ps.end3 bytes (6 per vertex) from (_ps.in_lo, _ps.in_hi).
@@ -266,55 +250,17 @@ bool _poly_frustum_all_out(uint8_t end3) {
   return _poly_frustum_core() != 0;
 }
 
-// Adds vec_mulfrac((frac_q1 << 8) | frac_q0, delta) to base in _ps for axis
-// offset off (0 = y: py/dy, 2 = z: pz/dz), skipping the multiply when delta == 0.
-static __noinline void _poly_add_mulfrac(uint8_t off) {
-  // clang-format off
-  __asm {
-        ldx off;
-        lda _ps+PS_DY+0, x;
-        sta _ps+PS_ARG_D+0;
-        lda _ps+PS_DY+1, x;
-        sta _ps+PS_ARG_D+1;
-  }
-  // clang-format on
-  if (!_ps.arg_d) {
-    return;
-  }
-  _ps.res = vec_mulfrac(((uint16_t)frac_q1 << 8) | frac_q0, _ps.arg_d);
-  // clang-format off
-  __asm {
-        ldx off;
-        clc;
-        lda _ps+PS_PY+0, x;
-        adc _ps+PS_RES+0;
-        sta _ps+PS_PY+0, x;
-        lda _ps+PS_PY+1, x;
-        adc _ps+PS_RES+1;
-        sta _ps+PS_PY+1, x;
-  }
-  // clang-format on
-}
-
 // Clips mixed 3D polygon (_ps.in_lo/hi, length _ps.end3) against x = 8 into
 // _poly_clip3_buf, then points _ps.in_lo/hi at _poly_clip3_buf and updates
 // _ps.end3 to the clipped byte length.
 static __noinline void _poly_clip_near_mixed(void) {
-  _ps.flag = 0; // 0=init, 1=resume(skip curr), 2=resume(copy curr)
-  for (;;) {
-    // clang-format off
-    __asm {
+  // clang-format off
+  __asm {
         lda _ps+PS_IN_LO;
         sta vec_proj_mul_a+0;
         lda _ps+PS_IN_HI;
         sta vec_proj_mul_a+1;
-        lda _ps+PS_FLAG;
-        beq L_cn_init;
-        lsr;
-        bcs L_cn_adv;           // flag==1 -> curr_in==0, just advance
-        bcc L_cn_copy;          // flag==2 -> curr_in==1, copy curr then advance
 
-    L_cn_init:
         lda _ps+PS_END3;
         sec;
         sbc #$06;
@@ -374,9 +320,7 @@ static __noinline void _poly_clip_near_mixed(void) {
         sta _ps+PS_CURR;
         cmp _ps+PS_END3;
         bne L_cn_loop;
-        lda #$00;
-        sta _ps+PS_FLAG;
-        jmp L_cn_scan_done;
+        jmp L_cn_finish;
 
     L_cn_mag:
         bpl L_cn_mag_pos;
@@ -384,6 +328,28 @@ static __noinline void _poly_clip_near_mixed(void) {
     L_cn_mag_pos:
         ora vec_proj_tmp1;
         sta vec_proj_tmp1;
+        rts;
+
+    // Adds vec_mulfrac((frac_q1 << 8) | frac_q0, _ps.dy[X]) to _ps.py[X]
+    // (X = 0 for Y, 2 for Z), skipping zero deltas and preserving frac_q0/q1.
+    L_cn_add_mf:
+        lda _ps+PS_DY+0, x;
+        sta vec_sx+0;
+        lda _ps+PS_DY+1, x;
+        sta vec_sx+1;
+        ora vec_sx+0;
+        beq L_cn_amf_ret;
+        stx vec_sy+0;
+        jsr vec_mulfrac_core;
+        ldx vec_sy+0;
+        clc;
+        lda _ps+PS_PY+0, x;
+        adc vec_mul_res+0;
+        sta _ps+PS_PY+0, x;
+        lda _ps+PS_PY+1, x;
+        adc vec_mul_res+1;
+        sta _ps+PS_PY+1, x;
+    L_cn_amf_ret:
         rts;
 
     L_cn_cross:
@@ -484,38 +450,23 @@ static __noinline void _poly_clip_near_mixed(void) {
     L_cn_nolift:
         stx _ps+PS_OUT_X;
 
-        // Skip vec_frac16_run and both vec_mulfrac calls when dy == 0 && dz == 0
+        // Skip vec_frac16_run and both vec_mulfrac_core calls when dy == 0 && dz == 0
         // (e.g. runway side edges aligned with camera X on level ground).
         lda _ps+PS_DY+0;
         ora _ps+PS_DY+1;
         ora _ps+PS_DZ+0;
         ora _ps+PS_DZ+1;
-        beq L_cn_zero_d;
+        beq L_cn_emit_start;
         // t = vec_frac16(a, dx) -> (frac_q0, frac_q1).
         lda vec_v+2;
         ldy vec_v+3;
         jsr vec_frac16_run;
-        lda #$01;
-        bne L_cn_setf;
-    L_cn_zero_d:
-        lda #$02;
-    L_cn_setf:
-        sta _ps+PS_FLAG;
-    L_cn_scan_done:
-    }
-    // clang-format on
+        ldx #$00;
+        jsr L_cn_add_mf;
+        ldx #$02;
+        jsr L_cn_add_mf;
 
-    uint8_t fl = _ps.flag;
-    if (!fl) {
-      break;
-    }
-
-    if (fl == 1) {
-      _poly_add_mulfrac(0);
-      _poly_add_mulfrac(2);
-    }
-    // clang-format off
-    __asm {
+    L_cn_emit_start:
         ldx _ps+PS_OUT_OFF;
         ldy #$00;
     L_cn_emit:
@@ -526,17 +477,20 @@ static __noinline void _poly_clip_near_mixed(void) {
         cpy #$06;
         bne L_cn_emit;
         stx _ps+PS_OUT_OFF;
+        // Reload input pointer (vec_mul_ab clobbered vec_proj_mul_a).
+        lda _ps+PS_IN_LO;
+        sta vec_proj_mul_a+0;
+        lda _ps+PS_IN_HI;
+        sta vec_proj_mul_a+1;
         lda _ps+PS_CURR_IN;
         sta _ps+PS_PREV_IN;
-        clc;
-        adc #$01;               // 1 if curr_in==0 (adv), 2 if curr_in==1 (copy)
-        sta _ps+PS_FLAG;
-    }
-    // clang-format on
-  }
+        lsr;
+        bcc L_cn_to_adv;
+        jmp L_cn_copy;
+    L_cn_to_adv:
+        jmp L_cn_adv;
 
-  // clang-format off
-  __asm {
+    L_cn_finish:
         lda #<_poly_clip3_buf;
         sta _ps+PS_IN_LO;
         lda #>_poly_clip3_buf;
@@ -552,31 +506,12 @@ static __noinline void _poly_clip_near_mixed(void) {
 // buf[_ps.dst_base ..) and updating _ps.cnt. Uses unified _poly_2d_lo/hi[48]
 // (X at +0, Y at +24) so all four edges share one compact clipping body.
 static __noinline void _poly_clip_2d_edge(void) {
-  _ps.flag = 0; // 0=init, 1=resume(skip curr), 2=resume(copy curr)
-  for (;;) {
-    // clang-format off
-    __asm {
-        // Cache hot loop constants in free vec_v ZP.
-        lda _ps+PS_EDGE_ID;
-        sta vec_v+0;
-        lda _ps+PS_FLAG;
-        beq L_c2_init;
-        sta vec_v+1;
-        lda _ps+PS_PREV_IN;
-        sta vec_v+2;
-        lda _ps+PS_SRC_END;
-        sta vec_v+3;
-        ldx _ps+PS_CURR;
-        ldy _ps+PS_OUT_OFF;
-        lsr vec_v+1;
-        bcs L_c2_to_next;       // flag==1 -> curr_in==0, just advance
-        jmp L_c2_copy;          // flag==2 -> curr_in==1, copy curr then advance
-    L_c2_to_next:
-        jmp L_c2_next;
-
-    L_c2_init:
-        // Precompute axis_off -> _ps.nx, other_off -> _ps.mag_or, lim -> _ps.idx.
-        ldx vec_v+0;
+  // clang-format off
+  __asm {
+        // Cache hot loop constants in free vec_v ZP (preserved by vec_div_core,
+        // vec_mul_ab, vec_frac16_run, and vec_mulfrac_core).
+        ldx _ps+PS_EDGE_ID;
+        stx vec_v+0;
         lda kPolyClipLim, x;
         sta _ps+PS_IDX;
         lda #$00;
@@ -668,9 +603,7 @@ static __noinline void _poly_clip_2d_edge(void) {
         cpx vec_v+3;
         bne L_c2_loop;
         sty _ps+PS_OUT_OFF;
-        lda #$00;
-        sta _ps+PS_FLAG;
-        jmp L_c2_scan_done;
+        jmp L_c2_done;
 
     L_c2_cross:
         sta _ps+PS_CURR_IN;
@@ -697,37 +630,32 @@ static __noinline void _poly_clip_2d_edge(void) {
         adc _ps+PS_MAG_OR;
         sta _ps+PS_PY;
         tay;
-        // arg_d = other[curr] - other[prev]; classify into _ps.flag:
-        //   1: arg_d == 0 (_ps.res already zeroed, skip arg_a/arg_b and div/mul)
-        //   2: 0 < |arg_d| <= 255 (fast 8.8 path)
-        //   3: |arg_d| >= 256 (exact 16-bit frac path)
+        // d = other[curr] - other[prev] -> vec_sx (preserved by vec_div_core / vec_frac16_run).
         sec;
         lda _poly_2d_lo, x;
         sbc _poly_2d_lo, y;
-        sta _ps+PS_ARG_D+0;
+        sta vec_sx+0;
         lda _poly_2d_hi, x;
         sbc _poly_2d_hi, y;
-        sta _ps+PS_ARG_D+1;
+        sta vec_sx+1;
         beq L_c2_d0;
         cmp #$ff;
         bne L_c2_dbig;
-        ldx _ps+PS_ARG_D+0;
+        ldx vec_sx+0;
         bne L_c2_dsm;
     L_c2_dbig:
         lda #$03;
         bne L_c2_df;
     L_c2_d0:
-        ldx _ps+PS_ARG_D+0;
+        ldx vec_sx+0;
         bne L_c2_dsm;
-        stx _ps+PS_RES+0;
-        stx _ps+PS_RES+1;
-        inx;
-        stx _ps+PS_FLAG;
-        bne L_c2_scan_done;
+        stx vec_mul_res+0;
+        stx vec_mul_res+1;
+        jmp L_c2_store_other;
     L_c2_dsm:
         lda #$02;
     L_c2_df:
-        sta _ps+PS_FLAG;
+        sta vec_sy+1;
 
         // Y = prev + axis_off, X = curr + axis_off.
         lda _ps+PS_CURR;
@@ -738,42 +666,48 @@ static __noinline void _poly_clip_2d_edge(void) {
         clc;
         adc _ps+PS_NX;
         tay;
-        // arg_a = lim - axis[prev]
+        // arg_a = lim - axis[prev] -> (frac_r0, vec_sy+0).
         sec;
         lda _ps+PS_IDX;
         sbc _poly_2d_lo, y;
-        sta _ps+PS_ARG_A+0;
+        sta frac_r0;
         lda #$00;
         sbc _poly_2d_hi, y;
-        sta _ps+PS_ARG_A+1;
-        // arg_b = axis[curr] - axis[prev]
+        sta vec_sy+0;
+        // arg_b = axis[curr] - axis[prev] -> (frac_d0, Y).
         sec;
         lda _poly_2d_lo, x;
         sbc _poly_2d_lo, y;
-        sta _ps+PS_ARG_B+0;
+        sta frac_d0;
         lda _poly_2d_hi, x;
         sbc _poly_2d_hi, y;
-        sta _ps+PS_ARG_B+1;
+        tay;
 
-    L_c2_scan_done:
-    }
-    // clang-format on
+        lda vec_sy+1;
+        cmp #$02;
+        bne L_c2_big_frac;
+        // Fast 8.8 path: vec_fastmul8p8(vec_div8p8(arg_a, arg_b), d).
+        lda vec_sy+0;
+        jsr vec_div_core;
+        lda frac_q0;
+        sta vec_proj_mul_a+0;
+        lda frac_q1;
+        sta vec_proj_mul_a+1;
+        lda vec_sx+0;
+        sta vec_proj_mul_b+0;
+        lda vec_sx+1;
+        sta vec_proj_mul_b+1;
+        jsr vec_mul_ab;
+        jmp L_c2_store_other;
 
-    uint8_t fl = _ps.flag;
-    if (!fl) {
-      break;
-    }
+    L_c2_big_frac:
+        // Exact 16-bit frac path: vec_mulfrac(vec_frac16(arg_a, arg_b), d).
+        lda vec_sy+0;
+        jsr vec_frac16_run;
+        jsr vec_mulfrac_core;
 
-    if (fl == 2) {
-      _ps.res = vec_fastmul8p8(vec_div8p8(_ps.arg_a, _ps.arg_b), _ps.arg_d);
-    } else if (fl == 3) {
-      _ps.res = vec_mulfrac(vec_frac16(_ps.arg_a, _ps.arg_b), _ps.arg_d);
-    }
-
-    // Store dest[other] = prev[other] + _ps.res, advance out_off, and set
-    // prev_in = curr_in and flag = curr_in + 1 (1=advance, 2=copy+advance).
-    // clang-format off
-    __asm {
+    L_c2_store_other:
+        // Store dest[other] = prev[other] + vec_mul_res, advance out_off.
         ldx _ps+PS_PY;
         lda _ps+PS_OUT_OFF;
         clc;
@@ -781,22 +715,29 @@ static __noinline void _poly_clip_2d_edge(void) {
         tay;
         clc;
         lda _poly_2d_lo, x;
-        adc _ps+PS_RES+0;
+        adc vec_mul_res+0;
         sta _poly_2d_lo, y;
         lda _poly_2d_hi, x;
-        adc _ps+PS_RES+1;
+        adc vec_mul_res+1;
         sta _poly_2d_hi, y;
         inc _ps+PS_OUT_OFF;
         lda _ps+PS_CURR_IN;
-        sta _ps+PS_PREV_IN;
-        clc;
-        adc #$01;
-        sta _ps+PS_FLAG;
-    }
-    // clang-format on
-  }
+        sta vec_v+2;
+        ldx _ps+PS_CURR;
+        ldy _ps+PS_OUT_OFF;
+        lsr;
+        bcc L_c2_to_next;
+        jmp L_c2_copy;
+    L_c2_to_next:
+        jmp L_c2_next;
 
-  _ps.cnt = (uint8_t)(_ps.out_off - _ps.dst_base);
+    L_c2_done:
+        lda _ps+PS_OUT_OFF;
+        sec;
+        sbc _ps+PS_DST_BASE;
+        sta _ps+PS_CNT;
+  }
+  // clang-format on
 }
 
 // Full 3D-to-2D polygon clipping & projection pipeline:

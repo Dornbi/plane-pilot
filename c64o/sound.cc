@@ -6,404 +6,22 @@
 
 #include "flight.h"
 #include "music.h"
+#include "sound_asm.h"
 #include "vec.h"
-
-#pragma bss(bss2)
-uint8_t sound_shadow[kSoundRegCount];
-#pragma bss(bss)
-uint8_t sound_gen;
-uint8_t sound_gen_seen;
-volatile uint8_t sound_dirty;
 
 // Not reset by sound_init(): see the comment in sound.h. This is the only
 // piece of driver state that outlives a flight.
 uint8_t sound_volume = kSoundVolumeDefault;
 
-// What each step of the V key puts in $D418. This is the only volume the SID
-// has - it is global, not per voice - so the mix *between* voices is still set
-// entirely by waveform and envelope, and this scales all of them together.
-// See ../docs/sound.md section 2.
-//
-// 7 rather than 8 for the middle step: it is half amplitude, about -6 dB, and
-// it stays clear of the bottom of the range where the 6581 in particular gets
-// noisy. Step 0 does reach the chip: silence is expressed as gates clear and
-// master volume zero rather than as a blanked shadow, for the torn-read reason
-// in section 3.
-static const uint8_t kMasterVolume[kSoundVolumeSteps] = {0, 7, 15};
+// Shared shadow/state variables and SID lookup tables (kMasterVolume,
+// kSoundEngineFreqLo/Hi, kSoundWindFreqLo/Hi, kSoundV3*) live in sound_asm.cc
+// so both the 6502 sound_update() (sound_asm.cc) and the host C counterpart
+// below share one copy. See sound_asm.h for the parameter constants and
+// ../docs/sound.md for the audio design rationale.
 
-// --- Voice 1: engine -------------------------------------------------------
+// --- Driver ----------------------------------------------------------------
 
-// Voice 1 frequency for each throttle step, as a SID frequency register value.
-//
-// A propeller's fundamental is blade passing, and the harmonic stack above it
-// is what makes a pulse wave read as an engine rather than as a tone. The span
-// here is 50 Hz at idle to 105 Hz at full, which is the roughly 2:1 ratio a
-// light aircraft covers between idle and takeoff power.
-//
-// The steps are geometric, not linear: 105/50 spread evenly across 25 steps is
-// 0.54 semitones each. A linear ramp over the same span would put more than
-// half its frequency change in the bottom third of the throttle and leave the
-// last five or six steps sounding identical - which is the audible half of why
-// section 3 chose a table. The other half is that a table is also cheaper than
-// the multiply a linear map needs.
-//
-// Values are f * 16777216 / 985248, the PAL conversion. On NTSC the same
-// numbers come out about 3.8% sharp, which for an engine drone with no
-// reference pitch is not perceptible and does not justify a second table.
-__striped static const uint16_t kSoundEngineFreq[kMaxThrottle + 1] = {
-    0x0353, 0x036E, 0x038A, 0x03A6, 0x03C3, //  0.. 4   50.0 ..  56.6 Hz
-    0x03E2, 0x0401, 0x0421, 0x0442, 0x0465, //  5.. 9   58.4 ..  66.0 Hz
-    0x0488, 0x04AC, 0x04D2, 0x04F9, 0x0521, // 10..14   68.1 ..  77.1 Hz
-    0x054A, 0x0574, 0x05A0, 0x05CD, 0x05FC, // 15..19   79.5 ..  90.0 Hz
-    0x062C, 0x065E, 0x0691, 0x06C6, 0x06FC, // 20..24   92.8 .. 105.0 Hz
-};
-
-// A held drone, so the envelope only ever plays its attack and then sits on
-// sustain. Attack 1 is about 8 ms - long enough not to click when the engine
-// comes back after a pause, short enough not to be heard as a fade. Decay 0
-// and sustain 15 mean the level never moves once it is up; release 0 makes the
-// engine stop with the gate rather than trailing after a screen change.
-static const uint8_t kSoundEngineAttDec = 0x10; // attack 1, decay 0
-static const uint8_t kSoundEngineSusRel = 0xF0; // sustain 15, release 0
-
-// Pulse width sweep. Swept independently of RPM, which is the entire reason a
-// constant-throttle cruise - most of any flight - does not degenerate into a
-// dead drone. Duty cycle is what a pulse wave's harmonic content is made of,
-// so moving it moves the timbre without moving the pitch.
-//
-// The sweep is a triangle over kSoundPwmMin .. kSoundPwmMin + 0x7F8, staying
-// well clear of both ends of the 12-bit range: at 0 and at 0xFFF the pulse
-// degenerates to DC and the voice goes silent.
-//
-// kSoundPwmStep is per frame, and the phase is 8 bits, so a full cycle is
-// around 40 frames, about 4 seconds at the ~10 Hz frame rate.
-static const uint16_t kSoundPwmMin = 0x0400;
-static const uint8_t kSoundPwmStep = 6;
-
-static uint8_t _sound_pwm_phase;
-
-// --- Voice 2: wind ---------------------------------------------------------
-
-// Wind intensity rises with airspeed, and section 2 established that the
-// natural mechanism for "louder" is not available: $D418 is master only, and
-// modulating a voice's sustain works downward but not upward without a
-// retrigger. Of the three candidates in section 6 this is option 3, noise
-// frequency as brightness. Higher noise frequency reads as brighter and more
-// intense; it is not literally louder, but for "wind rises with speed" it
-// sells, and it costs one register, no retrigger and no dependence on the
-// filter - which section 3 spent a page arguing against relying on.
-//
-// The register means the same thing here as it would on any noise voice: it
-// clocks the LFSR, which shifts at freq * 985248 / 2^20, or roughly freq
-// hertz. This table spans 1443 to 5773 shifts per second - fast enough at
-// every setting to be heard as a hiss rather than as the individual steps.
-//
-// Note that these values overlap the engine table numerically, and that this
-// means nothing. The same register is a pitch on a pulse voice and an LFSR
-// clock on a noise voice, a factor of 16 apart in the rate they produce, so
-// comparing the two tables entry for entry is a category error. What does
-// matter is the ratio the two sounds come out at, and sound_test.cc asserts
-// that: the slowest wind is over ten times the fastest engine fundamental, so
-// wind can never be mistaken for a chug.
-//
-// Indexed by flight_speed >> kSoundWindSpeedShift, geometric between the
-// endpoints for the same reason the engine table is - a linear ramp would spend
-// most of its range in the bottom of the envelope, where an aircraft rarely is.
-static const uint8_t kSoundWindSpeedShift = 8;
-static const uint8_t kSoundWindSteps = (kMaxSpeed >> kSoundWindSpeedShift) + 1;
-
-__striped static const uint16_t kSoundWindFreq[kSoundWindSteps] = {
-    0x0600, 0x0695, 0x0738, 0x07EB, //  0.. 3  1443 .. 1905 shifts/sec
-    0x08AF, 0x0986, 0x0A72, 0x0B75, //  4.. 7  2089 .. 2756
-    0x0C91, 0x0DC9, 0x0F1E, 0x1095, //  8..11  3023 .. 3989
-    0x1230, 0x13F3, 0x15E2, 0x1800, // 12..15  4375 .. 5773
-};
-
-// Below this there is no airspeed worth hearing, and voice 2 gates off. A
-// stationary aircraft on the runway hissing at itself is the first thing
-// anyone would notice, and brightness alone cannot fix it: option 3 changes
-// the colour of the wind, never its level, so the bed at speed zero would be
-// just as loud as the bed at cruise.
-//
-// 0x0080 is about 3% of the speed envelope, below any speed the aircraft can
-// sustain in the air and below a brisk taxi.
-static const uint16_t kSoundWindMinSpeed = 0x0080;
-
-// Attack 6 is about 68 ms, slow enough that crossing the threshold on the
-// takeoff roll swells rather than clicks. Release 6 is about 200 ms, so it
-// fades on the way back down too.
-//
-// Sustain is the mix. It is deliberately below the engine's 15, because $D418
-// is global (section 2) and a static sustain difference is the only balance
-// control the chip offers - wind has to sit under the engine as a bed, and
-// noise reads louder than a pulse tone at equal envelope level. Static is also
-// what keeps this safe: sustain can be lowered at will but only rises on a
-// retrigger, and a value that never changes never needs one.
-static const uint8_t kSoundWindAttDec = 0x60; // attack 6, decay 0
-static const uint8_t kSoundWindSustain = 10;
-static const uint8_t kSoundWindSusRel = (kSoundWindSustain << 4) | 0x06;
-
-// --- Voice 3: stall warning and one-shots ----------------------------------
-//
-// The transient voice. Everything on it is a burst with a beginning and an
-// end, which is what lets one voice carry four unrelated sounds.
-//
-// Nothing on this voice decays. Every effect is attack 0, decay 0, sustain 15
-// - straight to full level and held there - and ends by being gated off, with
-// the release nibble giving it a tail. Length is always a frame count.
-//
-// An earlier version made the stall a decaying beep and the one-shots a
-// plateau, on the theory that a repeating alarm wants to end itself. In
-// practice a decay is just a quieter sound: the level is falling for most of
-// the time the effect is audible, and it is competing with an engine at
-// sustain 15 and a wind bed at 10 that never decay. That is what made gear and
-// flap almost inaudible, and the same argument applies to a warning horn.
-//
-// The consequence for the stall is that its gap is now expressed by the gate
-// rather than implied by the decay: the warble gates ON for kSoundStallOnFrames
-// and OFF for the rest of kSoundStallPeriodFrames. That is more honest - the
-// silence between beeps is the information, so it should be something the code
-// states rather than a side effect of an envelope running out.
-//
-// It also means no effect on voice 3 relies on sustain 0 under a set gate, so
-// section 7's interleaving invariant now covers all three voices rather than
-// excusing this one. Anything added here that *does* decay to zero would have
-// to re-open that exemption.
-//
-// sound_gen is still bumped at the start of every burst. Gating off between
-// beeps already produces an edge on its own, so for the warble the bump is
-// belt and braces; it earns its keep for one-shots, where two events in
-// consecutive frames would otherwise leave the gate continuously set and the
-// second sound would never restart its envelope.
-
-// The stall warning. A pulse tone rather than noise: it has to be
-// distinguishable from the wind bed on voice 2, and near the stall the wind is
-// the loudest thing it is competing with.
-//
-// ~840 Hz, which is up where the engine's harmonic stack is thin. Section 10
-// records why that is the lever to reach for rather than ducking the engine -
-// $D418 is master only, so ducking one voice is not available at all.
-static const uint16_t kSoundStallFreq = 0x3800;
-static const uint16_t kSoundStallPw = 0x0800;  // square, the most cutting duty
-static const uint8_t kSoundStallAttDec = 0x00; // attack 0, decay 0 -> sustain
-static const uint8_t kSoundStallSusRel = 0xF3; // sustain 15, release 3 (72 ms)
-
-// The warble, in frames: gated on for kSoundStallOnFrames, off for the
-// remainder of kSoundStallPeriodFrames. At the wobbling ~10 Hz frame rate that
-// is about 200 ms of tone and 200 ms of silence, so 2.5 Hz - cockpit warner
-// territory.
-//
-// The gap is the point. A tone held continuously stops being information after
-// about two seconds: the ear adapts and it becomes a drone under the engine
-// that no longer means anything. Re-onset does not adapt.
-//
-// The release above has to fit inside the gap or the beeps run together. 72 ms
-// of tail into a 200 ms silence leaves plenty; shortening the gap is the thing
-// to be careful about when retuning these.
-static const uint8_t kSoundStallOnFrames = 2;
-static const uint8_t kSoundStallPeriodFrames = 4;
-
-// The one-shots. All noise-family, which separates them from the stall tone by
-// waveform as well as by rhythm.
-//
-// Unlike the stall these hold a PLATEAU rather than decaying to nothing: decay
-// 0 and sustain 15, so the envelope goes straight to full and stays there
-// until the voice is gated off, at which point the release nibble gives it a
-// tail. Length is therefore a frame count, not a decay rate.
-//
-// The first version used the same decay-to-zero envelope as the stall, and the
-// gear and flap clicks were almost inaudible. Two reasons, both fixed here.
-// The burst began decaying 2 ms after it started, so its *average* level over
-// the sound was a fraction of its peak - and it was competing with an engine
-// held at sustain 15 and a wind bed at 10, neither of which ever decays. Flap
-// in particular was decay 3, gone in 72 ms.
-static const uint8_t kSoundOneShotAttDec = 0x00; // attack 0, decay 0 -> sustain
-
-// Frequencies. On a noise voice these clock the LFSR (see the wind table), so
-// low is a rumble and high is a hiss.
-//
-// Gear is the lowest, per section 6 - mechanical, not impact - but no longer
-// as low as it was. 0x0300 put its energy under about 360 Hz, right on top of
-// the engine's fundamental and first harmonics, which is the worst place to
-// put a sound that has to be noticed over the engine.
-static const uint16_t kSoundTouchdownFreq = 0x1800; // bright, an impact
-static const uint16_t kSoundGearFreq = 0x0900;      // low, mechanical
-static const uint16_t kSoundFlapFreq = 0x0C00;      // between the two
-
-// Sustain 15 on all three: they are brief, and the whole complaint was that
-// they could not be heard against the continuous voices. The release nibble is
-// the tail after the gate drops.
-static const uint8_t kSoundTouchdownSusRel = 0xF5; // release 5 (168 ms)
-static const uint8_t kSoundGearSusRel = 0xF6; // release 6 (204 ms), longest
-static const uint8_t kSoundFlapSusRel = 0xF4; // release 4 (114 ms)
-
-// How many frames each one-shot holds the voice. At the wobbling ~10 Hz frame
-// rate these are roughly 300, 500 and 400 ms - all comfortably past the 200 ms
-// the first version was aiming at, and that was the other half of why they
-// went unheard.
-//
-// Gear is the longest, which is also what keeps it distinguishable from flap
-// now that both sit at full sustain: section 6 asks for flap to be "shorter
-// and quieter", and quieter is still not available on a chip with no per-voice
-// volume, so shorter carries the whole difference along with pitch.
-static const uint8_t kSoundTouchdownFrames = 3;
-static const uint8_t kSoundGearFrames = 5;
-static const uint8_t kSoundFlapFrames = 4;
-
-// fpilot's two, FLIGHT_EV_GUN and FLIGHT_EV_HIT; ppilot never raises them.
-//
-// Both are modelled on recorded examples the user picked, measured in 5 ms
-// windows (docs/sound.md section 6), and both decay, unlike the one-shots
-// above: they are a shot and an impact, and the fall is what makes them
-// punch. A one-shot held at full level and then cut is a hiss.
-//
-// The gun is a low thump, one a frame while the guns fire (gun.cc raises
-// the event on every frame the trigger holds them, not only on the steps a
-// round leaves): the example has three quarters of its energy under 800 Hz.
-// Attack 0, then down to nothing at decay 5, which puts it 10 dB down at
-// ~40 ms and 20 dB down at ~80 ms, as the example is. That is over inside the
-// one frame its gate is held, so the cut at the frame's end is not heard, and
-// each frame's shot is retriggered from silence.
-//
-// A hit is a bright crack, the example's energy mostly 1.6-6.4 kHz: a 16 ms
-// attack, a fall over ~100 ms to sustain 1 (-23.5 dB), and that held as the
-// tail for the rest of its two frames. It outranks a burst in progress, so a
-// hit while firing is heard.
-static const uint16_t kSoundGunFreq = 0x0800;
-static const uint16_t kSoundHitFreq = 0x2400;
-static const uint8_t kSoundGunAttDec = 0x05; // attack 0, decay 5 (168 ms)
-static const uint8_t kSoundGunSusRel = 0x00; // sustain 0: decays to nothing
-static const uint8_t kSoundHitAttDec = 0x26; // attack 2 (16 ms), decay 6 (204 ms)
-static const uint8_t kSoundHitSusRel = 0x10; // sustain 1, the tail
-static const uint8_t kSoundGunFrames = 1;
-static const uint8_t kSoundHitFrames = 2;
-
-// The crash. The one sound that outlives the aircraft, and the only effect on
-// this voice that plays while _flying() is false.
-//
-// It has the chip to itself, and that changes what is worth doing with it. The
-// engine and the wind are gated off the moment flight_crashed() goes true, so
-// none of the "stay out of the engine's fundamental" reasoning that pushed
-// gear up to $0900 applies here - the crash can be as low as it likes.
-//
-// It also sweeps. The noise clock falls from kSoundCrashFreqStart to
-// kSoundCrashFreqEnd across the burst, so the rumble collapses rather than
-// sitting on one note, which is the difference between an impact and a long
-// hiss. Amplitude still does not fall: this is a pitch sweep under a held
-// sustain, not a decay.
-//
-// 16 frames is around 1.6 s at the wobbling ~10 Hz frame rate. A power of two
-// so the interpolation below is a shift; the arithmetic stays in 16 bits
-// because the span times the frame count is 3584 * 16 = 57344.
-static const uint8_t kSoundCrashFrames = 16;
-static const uint8_t kSoundCrashShift = 4; // log2(kSoundCrashFrames)
-static const uint16_t kSoundCrashFreqStart =
-    0x1000;                                        // 3850 shifts/sec, a crunch
-static const uint16_t kSoundCrashFreqEnd = 0x0200; //  481 shifts/sec, a rumble
-
-// The sweep below is written as (n << 8) - (n << 5), which is only the right
-// interpolation while the span per frame is exactly 256 - 32. Retuning either
-// endpoint or the frame count without checking this is an easy mistake, and it
-// would go unnoticed - the sound would still sweep, just to the wrong places.
-static_assert(((kSoundCrashFreqStart - kSoundCrashFreqEnd) >>
-               kSoundCrashShift) == 256 - 32,
-              "crash sweep constants no longer match the shift form");
-static_assert((1u << kSoundCrashShift) == kSoundCrashFrames,
-              "kSoundCrashShift must be log2(kSoundCrashFrames)");
-static const uint8_t kSoundCrashAttDec = 0x00; // attack 0, decay 0 -> sustain
-static const uint8_t kSoundCrashSusRel = 0xF9; // sustain 15, release 9 (750 ms)
-
-// Which effect owns voice 3 right now.
-enum Voice3Effect {
-  V3_NONE = 0,
-  V3_STALL,
-  V3_CRASH,
-  V3_TOUCHDOWN,
-  V3_GEAR,
-  V3_FLAP,
-  V3_GUN,
-  V3_HIT,
-};
-
-// What each effect puts on voice 3, indexed by enum Voice3Effect. V3_NONE is
-// all zeros. The crash's frequency is a sweep computed in sound_update(); its
-// entry here is only a placeholder.
-static const uint8_t kSoundV3FreqHi[V3_HIT + 1] = {
-    0,
-    (uint8_t)(kSoundStallFreq >> 8),
-    0,
-    (uint8_t)(kSoundTouchdownFreq >> 8),
-    (uint8_t)(kSoundGearFreq >> 8),
-    (uint8_t)(kSoundFlapFreq >> 8),
-    (uint8_t)(kSoundGunFreq >> 8),
-    (uint8_t)(kSoundHitFreq >> 8)};
-static const uint8_t kSoundV3Ctrl[] = {
-    0,
-    SID_CTRL_RECT | SID_CTRL_GATE,
-    SID_CTRL_NOISE | SID_CTRL_GATE,
-    SID_CTRL_NOISE | SID_CTRL_GATE,
-    SID_CTRL_NOISE | SID_CTRL_GATE,
-    SID_CTRL_NOISE | SID_CTRL_GATE,
-    SID_CTRL_NOISE | SID_CTRL_GATE,
-    SID_CTRL_NOISE | SID_CTRL_GATE,
-};
-static const uint8_t kSoundV3SusRel[] = {0,
-                                         kSoundStallSusRel,
-                                         kSoundCrashSusRel,
-                                         kSoundTouchdownSusRel,
-                                         kSoundGearSusRel,
-                                         kSoundFlapSusRel,
-                                         kSoundGunSusRel,
-                                         kSoundHitSusRel};
-static_assert(sizeof(kSoundV3SusRel) == V3_HIT + 1,
-              "one voice 3 table entry per effect");
-static_assert(sizeof(kSoundV3Ctrl) == V3_HIT + 1,
-              "one voice 3 ctrl entry per effect");
-static_assert((kSoundStallPw & 0xFF) == 0,
-              "voice 3 PwLo is assumed zero from sound_silence()");
-static const uint8_t kSoundV3AttDec[] = {0,
-                                         kSoundStallAttDec,
-                                         kSoundCrashAttDec,
-                                         kSoundOneShotAttDec,
-                                         kSoundOneShotAttDec,
-                                         kSoundOneShotAttDec,
-                                         kSoundGunAttDec,
-                                         kSoundHitAttDec};
-static_assert(sizeof(kSoundV3AttDec) == V3_HIT + 1,
-              "one voice 3 AttDec entry per effect");
-
-static uint8_t _sound_v3_effect;   // enum Voice3Effect
-static uint8_t _sound_v3_frames;   // frames left before a one-shot releases
-static uint8_t _sound_stall_phase; // counts frames within one warble cycle
-static uint8_t _sound_flight_gen_seen;
-
-// --- Roughness -------------------------------------------------------------
-//
-// A clean pitch table plus a clean triangle sweep is audibly a synthesizer
-// holding a note: too steady to be a machine with moving parts. Both are
-// therefore perturbed every frame from a pseudo-random source.
-//
-// What this can and cannot be is set by where it runs. sound_update() is on
-// the main line at ~10 Hz, so this is a *flutter* - an engine running rough -
-// and not a texture. Real per-cycle grit would have to happen at audio rate,
-// which means in the blit, and section 3 requires the blit to stay a flat
-// store sequence with no state. The two alternatives that would have given
-// genuine noise were both rejected: RECT|NOISE as a combined waveform zeroes
-// the 6581's noise LFSR and silences the voice until TEST is toggled, which is
-// exactly the chip-revision dependency section 3 spent a page avoiding; and
-// putting the engine on a noise waveform outright collides with voice 2, which
-// is noise already (wind, phase 3).
-//
-// An 8-bit Galois LFSR with the taps of x^8 + x^6 + x^5 + x^4 + 1. Maximal
-// length, so it cycles through all 255 non-zero states before repeating -
-// about 25 seconds at the frame rate, long enough that the engine never
-// audibly loops. Zero is the one state it cannot enter and cannot leave, which
-// is why sound_init() seeds it non-zero.
-static const uint8_t kSoundRngTaps = 0xB8;
-static const uint8_t kSoundRngSeed = 0xA5;
-
-static uint8_t _sound_rng;
-
+#ifndef __OSCAR64__
 static uint8_t _sound_next_rand(void) {
   bool lsb = _sound_rng & 1;
   _sound_rng >>= 1;
@@ -413,37 +31,18 @@ static uint8_t _sound_next_rand(void) {
   return _sound_rng;
 }
 
-// --- Driver ----------------------------------------------------------------
-
-#ifndef __OSCAR64__
 void (*sound_shadow_observer)(void) = nullptr;
 #define SHADOW_OBSERVE()                                                       \
   do {                                                                         \
     if (sound_shadow_observer)                                                 \
       sound_shadow_observer();                                                 \
   } while (0)
-#else
-#define SHADOW_OBSERVE()                                                       \
-  do {                                                                         \
-  } while (0)
-#endif
 
-// Every write into the shadow goes through here. On the C64 build it is a
-// plain store; on the host it additionally notifies the test observer, so a
-// test can simulate the raster interrupt landing between any two stores.
-//
-// The store is through a volatile pointer, and that is load-bearing rather
-// than decorative. The safety of a torn read (see _sound_set_voice) depends on
-// the order these stores actually happen in, and nothing else in the program
-// can tell the difference - so an optimiser is entitled to reorder or coalesce
-// them. Volatile stores may not be reordered against each other, which pins
-// the order without making sound_shadow volatile outright: that would also
-// make all 25 of sound_blit()'s reads volatile, and the blit's code generation
-// is the one thing in this module that must not be disturbed.
 static void _sound_poke(uint8_t idx, uint8_t val) {
   ((volatile uint8_t *)sound_shadow)[idx] = val;
   SHADOW_OBSERVE();
 }
+#endif
 
 // Writes the chip directly, bypassing the shadow. Only for sound_silence()
 // below, which runs when sound_blit() either has not started yet or is about
@@ -510,9 +109,11 @@ static inline void _sound_write_through(void) {
 // Hard silence: nothing plays at all, not even the crash. Both terms are the
 // player's own doing - the volume key and the pause key - which is what makes
 // this the level at which "no sound" means no sound.
+#ifndef __OSCAR64__
 static bool _sound_driver_live(void) {
   return sound_volume != 0 && !flight_paused;
 }
+#endif
 
 // The aircraft is in a state that makes flying noises. The continuous voices
 // key off this; voice 3 does not, because the crash sound has to outlive it.
@@ -522,9 +123,11 @@ static bool _sound_driver_live(void) {
 // this function holds whatever value it had at the moment of the crash - a
 // stalled aircraft that hits the ground would otherwise leave its engine and
 // its stall warning running forever.
+#ifndef __OSCAR64__
 static bool _sound_flying(bool driver_live) {
   return driver_live && !flight_crashed() && flight_fuel != 0;
 }
+#endif
 
 // Cycling up and wrapping, so from the default of full the first press is
 // silence.
@@ -556,11 +159,13 @@ void sound_cycle_volume(void) {
   }
 }
 
+#ifndef __OSCAR64__
 uint16_t sound_engine_base_freq(uint8_t throttle) {
   if (throttle > kMaxThrottle) {
     throttle = kMaxThrottle;
   }
-  return kSoundEngineFreq[throttle];
+  return (uint16_t)((uint16_t)kSoundEngineFreqHi[throttle] << 8) |
+         kSoundEngineFreqLo[throttle];
 }
 
 __forceinline uint16_t sound_wind_freq(int16_t speed) {
@@ -571,12 +176,14 @@ __forceinline uint16_t sound_wind_freq(int16_t speed) {
   if (idx >= kSoundWindSteps) {
     idx = kSoundWindSteps - 1;
   }
-  return kSoundWindFreq[idx];
+  return (uint16_t)((uint16_t)kSoundWindFreqHi[idx] << 8) |
+         kSoundWindFreqLo[idx];
 }
 
 bool sound_wind_audible(int16_t speed) {
   return speed >= (int16_t)kSoundWindMinSpeed;
 }
+#endif
 
 void sound_init(void) {
   sound_gen = 0;
@@ -621,15 +228,7 @@ void sound_silence(void) {
   _sound_write_through();
 }
 
-static const uint8_t kSoundV3Ev[] = {
-    FLIGHT_EV_TOUCHDOWN, FLIGHT_EV_HIT, FLIGHT_EV_GUN, FLIGHT_EV_GEAR,
-    FLIGHT_EV_FLAP};
-static const uint8_t kSoundV3Id[] = {
-    V3_TOUCHDOWN, V3_HIT, V3_GUN, V3_GEAR, V3_FLAP};
-static const uint8_t kSoundV3Dur[] = {
-    kSoundTouchdownFrames, kSoundHitFrames, kSoundGunFrames, kSoundGearFrames,
-    kSoundFlapFrames};
-
+#ifndef __OSCAR64__
 static bool _sound_pick_v3(uint8_t events, uint8_t from, uint8_t to) {
   if (events == 0) {
     return false;
@@ -883,5 +482,6 @@ void sound_update(void) {
   // The shadow is whole again: the next sound_blit() takes it (sound.h).
   sound_mark_dirty();
 }
+#endif // !__OSCAR64__
 
 #endif // __ENABLE_SOUND__

@@ -132,7 +132,7 @@ static const uint16_t kViewPanelCells =
 // panel out, whatever the bitmap under it happens to hold.
 //
 // In multicolor bitmap mode the panel's four bit pairs come from $d021 (00,
-// which the split's _gfx_panel_top_writes() sets to black on every frame), the
+// which the split's _gfx_switch_to_panel_top() sets to black on every frame), the
 // screen RAM nybbles at $ee30 (01 and 10) and the color RAM at $da30 (11), so
 // zeroing those 880 bytes is the whole of it. That is about 6000 cycles,
 // comfortably inside one frame, against the two to four frames the bitmap work

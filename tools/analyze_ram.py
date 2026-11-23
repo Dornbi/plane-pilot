@@ -120,7 +120,7 @@ DESCRIPTIONS = {
     'World Model': {
         'Code': 'flight dynamics, physics integration, waypoint checking, '
                 'terrain grid rendering, clouds, opponents, guns and damage '
-                '(`flight.cc`, `world.cc`, `world_asm.cc`, `sim.cc`, '
+                '(`flight.cc`, `flight_asm.cc`, `world.cc`, `world_asm.cc`, `sim.cc`, '
                 '`world_map.cc`, `clouds.cc`, `clouds_asm.cc`, `opponent.cc`, `opponent_asm.cc`, '
                 '`planes.cc`, `planes_asm.cc`, `gun.cc`, `gun_asm.cc`, '
                 '`damage.cc`)',
@@ -137,7 +137,8 @@ DESCRIPTIONS = {
     'Instrument Panel': {
         'Code': 'viewport split raster handlers, gauge updates, the sprite '
                 'stack and hardware controller (`view.cc`, `panel.cc`, '
-                '`sprites.cc`, `sprites_asm.cc`, `spritedef.cc`)',
+                '`panel_asm.cc`, `sprites.cc`, `sprites_asm.cc`, '
+                '`spritedef.cc`)',
         'Data': 'compressed panel image and sprite bitmaps, character and '
                 'color LUTs',
         'BSS': 'raster IRQ split structures, the sprite candidate stack and '
@@ -170,7 +171,7 @@ DESCRIPTIONS = {
     },
     'Sound Effects': {
         'Code': 'SID driver, engine generator, stall alarm, wind noise, '
-                'combat effects, volume control (`sound.cc`)',
+                'combat effects, volume control (`sound.cc`, `sound_asm.cc`)',
         'Data': 'engine pitch table, wind frequency table, voice-3 tables, '
                 'volume names',
         'BSS': 'the SID register shadow',

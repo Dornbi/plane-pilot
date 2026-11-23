@@ -1,6 +1,7 @@
 #ifndef SPRITES_ASM_H
 #define SPRITES_ASM_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "bool.h"
@@ -8,8 +9,10 @@
 #include "sprites.h"
 #include "vec.h"
 #ifndef __TARGET_TEST__
+#include "color.h"
 #include "mem.h"
 #include "msg.h"
+#include "view.h"
 #else
 static const uint16_t kScreenWidthPixels = 320;
 static const uint16_t kViewportEndYPixels = 112;
@@ -224,6 +227,210 @@ inline void sprites_set_vspeed(int16_t vspeed) {
   // clang-format on
   _sprites_set_instrument_sprite(kSpriteIdxVSpeed, vec_proj_tmp1);
 }
+
+#if !defined(__TARGET_TEST__) || defined(__TARGET_TEST_PLANES__)
+// Raster-IRQ sprite programmers (zero runtime ZP < $60 touched; verified by
+// tools/check_irq_zp.py and target_planes_test.prg). Host C counterparts live
+// in sprites.cc under #ifndef __OSCAR64__.
+#ifndef __TARGET_TEST__
+static_assert(VIEW_UNKNOWN == 0 && VIEW_LEFT == 1 && VIEW_CENTER == 2 &&
+                  VIEW_RIGHT == 3 && VIEW_BACK == 4,
+              "sprites_asm view_state_t values");
+static_assert(kColorInstrument == 1, "sprites_asm kColorInstrument");
+#endif
+static_assert(kSpriteIdxVSpeed == 0 && kSpriteIdxThrottle == 6 &&
+                  kSpriteIdxFuel == 7,
+              "sprites_asm instrument indices");
+static_assert(offsetof(sprite_frame_t, pos) == 0 &&
+                  offsetof(sprite_frame_t, ptr) == 16 &&
+                  offsetof(sprite_frame_t, color) == 24 &&
+                  offsetof(sprite_frame_t, msbx) == 32 &&
+                  offsetof(sprite_frame_t, expand) == 33 &&
+                  offsetof(sprite_frame_t, expand_y) == 34 &&
+                  offsetof(sprite_frame_t, enable) == 35 &&
+                  offsetof(sprite_frame_t, last) == 36 &&
+                  sizeof(sprite_frame_t) == 37,
+              "sprites_asm sprite_frame_t layout");
+
+// Programs the active terrain frame (Frame A -> $EBF8 when drawing into alt,
+// Frame B -> $EFF8 when drawing into main). Writes $D015 first so unused
+// sprites are disabled before raster 256, skips all register copies when
+// enable == 0, and copies only active indices 0..last.
+inline void sprites_show_terrain_sprites(void) {
+  // clang-format off
+  __asm {
+        lda mem_using_alt_buffer;
+        bne L_st_a;
+        ldx #37;                    // _sprites_frame_b offset
+        lda #$ef;                   // hi byte of $EFF8 (kScreenRamAlt + 1016)
+        bne L_st_go;
+    L_st_a:
+        ldx #0;                     // _sprites_frame_a offset
+        lda #$eb;                   // hi byte of $EBF8 (kScreenRamMain + 1016)
+    L_st_go:
+        sta L_st_ptr_st + 2;
+        lda _sprites_frames + 35, x; // enable
+        sta $d015;
+        beq L_st_done;
+
+        lda _sprites_frames + 32, x; // msbx
+        sta $d010;
+        lda _sprites_frames + 33, x; // expand_x
+        sta $d01d;
+        lda _sprites_frames + 34, x; // expand_y
+        sta $d017;
+
+        ldy _sprites_frames + 36, x; // Y = last (0..7)
+        txa;
+        clc;
+        adc _sprites_frames + 36, x; // base + last (<= 44)
+        tax;
+    L_st_pc:
+        lda _sprites_frames + 16, x;
+    L_st_ptr_st:
+        sta $ebf8, y;
+        lda _sprites_frames + 24, x;
+        sta $d027, y;
+        dex;
+        dey;
+        bpl L_st_pc;
+
+        inx;                        // X = base (0 or 37)
+        lda _sprites_frames + 36, x; // last (0..7)
+        asl;                        // 2 * last (0..14), C = 0
+        tay;                        // Y = 2 * last
+        txa;                        // base, C = 0
+        adc _sprites_frames + 36, x; // base + last, C = 0
+        adc _sprites_frames + 36, x; // base + 2 * last
+        tax;
+    L_st_pos:
+        lda _sprites_frames + 1, x;
+        sta $d001, y;
+        lda _sprites_frames, x;
+        sta $d000, y;
+        dex;
+        dex;
+        dey;
+        dey;
+        bpl L_st_pos;
+    L_st_done:
+  }
+  // clang-format on
+}
+
+inline void sprites_show_no_sprites(void) {
+  // clang-format off
+  __asm {
+        lda #0;
+        sta $d015;
+        sta $d01d;
+        sta $d017;
+        sta $d010;
+  }
+  // clang-format on
+}
+
+// Top panel band (rasters 163..186): only sprite 0 (vertical speed needle) is
+// shown in VIEW_CENTER; all other views disable sprites via $D015 so disabled
+// sprites pay zero VIC-II DMA.
+inline void sprites_show_panel_top_sprites(void) {
+  // clang-format off
+  __asm {
+        ldy #0;
+        sty $d01d;                  // spr_expand_x = 0
+        sty $d017;                  // spr_expand_y = 0
+        sty $d010;                  // spr_msbx = 0
+        lda view_state;
+        cmp #2;                     // VIEW_CENTER
+        beq L_pt_center;
+        sty $d015;                  // disable all sprites
+        bne L_pt_done;              // always taken (Z = 0 from cmp #2)
+    L_pt_center:
+        lda #1;                     // (1 << kSpriteIdxVSpeed) == kColorInstrument
+        sta $d015;
+        sta $d027;
+        lda _sprites_instrument_xy;
+        sta $d000;
+        lda _sprites_instrument_xy + 1;
+        sta $d001;
+        lda _sprites_instrument_idx;
+        sta $eff8;
+    L_pt_done:
+  }
+  // clang-format on
+}
+
+// Bottom panel band (rasters 187..250): enables only the sprites visible in the
+// current view (1..7 + VSpeed 0 in VIEW_CENTER, Fuel 7 in VIEW_LEFT, Throttle 6
+// in VIEW_RIGHT, none in VIEW_BACK).
+inline void sprites_show_panel_bottom_sprites(void) {
+  // clang-format off
+  __asm {
+        lda view_state;
+        cmp #2;                     // VIEW_CENTER
+        beq L_pb_center;
+        cmp #1;                     // VIEW_LEFT
+        beq L_pb_left;
+        cmp #3;                     // VIEW_RIGHT
+        bne L_pb_done;
+
+        // VIEW_RIGHT: Throttle (sprite 6); $d010 is already 0 from panel top.
+        lda #1;                     // kColorInstrument
+        sta $d02d;
+        lda _sprites_instrument_xy + 12;
+        sta $d00c;
+        lda _sprites_instrument_xy + 13;
+        sta $d00d;
+        lda _sprites_instrument_idx + 6;
+        sta $effe;
+        lda #$40;                   // 1 << kSpriteIdxThrottle
+        sta $d015;
+        bne L_pb_done;
+
+    L_pb_left:
+        // VIEW_LEFT: Fuel (sprite 7)
+        lda #1;                     // kColorInstrument
+        sta $d02e;
+        lda _sprites_instrument_xy + 14;
+        sta $d00e;
+        lda _sprites_instrument_xy + 15;
+        sta $d00f;
+        lda _sprites_instrument_idx + 7;
+        sta $efff;
+        lda #$80;                   // 1 << kSpriteIdxFuel
+        sta $d010;
+        sta $d015;
+        bne L_pb_done;
+
+    L_pb_center:
+        ldx #14;
+    L_pb_pos:
+        lda _sprites_instrument_xy + 1, x;
+        sta $d001, x;
+        lda _sprites_instrument_xy, x;
+        sta $d000, x;
+        dex;
+        dex;
+        bne L_pb_pos;
+
+        ldx #7;
+    L_pb_pc:
+        lda _sprites_instrument_idx, x;
+        sta $eff8, x;
+        lda #1;                     // kColorInstrument
+        sta $d027, x;
+        dex;
+        bne L_pb_pc;
+
+        lda #$40;                   // 1 << kSpriteIdxThrottle
+        sta $d010;
+        lda #$ff;
+        sta $d015;
+    L_pb_done:
+  }
+  // clang-format on
+}
+#endif
 
 #pragma compile("sprites_asm.cc")
 #endif

@@ -50,17 +50,17 @@ Exact per-feature byte totals and the 64 KB address-space walk live in [memory_m
 | `$EC00–$EFE7` / `$EFF8–$EFFF` | Alt screen RAM + sprite pointers |
 | `$F000–$FF3F` | MCBM panel bitmap (rows 12–13 hold off-screen heading strips & ammo digits; rows 14–24 visible) |
 | `$FF40–$FFBF` | Back-view vertical tail fin (2 sprite blocks, pointers 253–254) |
-| `$FFC0–$FFF7` | `irqcode` region (14 B `_rirq_buf` raster stub) |
+| `$FFC0–$FFF7` | `irqcode` region (4 B `_gfx_irq_vec` trampoline + `_gfx_panel_fast`) |
 | `$FFFA–$FFFF` | Hardware NMI / RESET / IRQ vectors |
 
 ### Screen layout & raster split
 
 - Rows 0–13 (rasters 50–161): 3D viewport in MCCM, double-buffered between `$E800` and `$EC00`.
 - Rows 14–24 (rasters 162–249): MCBM instrument panel (or text debug view in `ppilot`).
-- **Three raster IRQs** (`-DNUM_IRQS=3`, `gfx.cc` `kGfxRasterRows[3]`):
-  1. **Raster 161** — `RIRQCode` stub (`_rirq_buf` at `$FFC0`) switches to MCBM panel top (`12` NOPs stock C64 / `19` NOPs SuperCPU in 1 MHz mode) and shows panel-top sprites.
-  2. **Raster 187** — direct ISR switches to panel-bottom sprites.
-  3. **Raster 252** — direct ISR switches back to MCCM terrain, commits terrain sprites, and runs `sound_blit()` when `sound_dirty` is set.
+- **Three direct chained raster IRQs** (`gfx.cc`, dispatched through `_gfx_irq_vec` at `$FFC0`):
+  1. **Raster 161** — `_gfx_switch_to_panel_top` spins to line 162, slows SuperCPU, pads with `PHA/PLA`, switches to MCBM panel top, enables only sprite 0 in `VIEW_CENTER` (`$D015=0` otherwise), and chains straight to terrain in `VIEW_BACK` / debug mode.
+  2. **Raster 186** — `_switch_to_panel_bottom` enables only the visible panel-bottom needles (skipped in `VIEW_BACK`).
+  3. **Raster 251** — `_gfx_switch_to_terrain` copies active terrain sprites `0..last` (skipping all copies when `enable == 0`), switches back to MCCM terrain, and runs `sound_blit()` when `sound_dirty` is set.
 
 ### Character RAM layout (`$E000–$E7FF`)
 
@@ -136,9 +136,9 @@ Fixed-point 8.8 vector and 3×3 matrix math (zero hardware multiply/divide, enfo
 1. 6502 `__asm` 3D-to-2D projection & clipping (`poly_asm.cc`: `_poly_project_vertices`, `_poly_clip_near_mixed`, `_poly_frustum_core`, `_poly_clip_2d_edge`), with exact host C counterparts in `poly.cc`: fast near-plane pre-scan (skips copying all-in polygons), near-plane clipping with zero-delta fast paths, tightened `0.75·x` / `0.25·x` 3D frustum early-reject, perspective projection directly into unified striped 2D buffers, and 2D Sutherland–Hodgman viewport clipping.
 2. 6502 `__asm` rasteriser (`poly_asm.h`): `_poly_bounds_and_clear`, `_poly_trace_edges`, and `_poly_scan_lines2` (solid interior fills + 2×2 fringe characters at edges).
 
-### `flight.cc` — flight model
+### `flight.cc` / `flight_asm.cc` — flight model
 
-Arcade flight model (shipping in both `ppilot` and `fpilot`; optional angle-of-attack model under `FLIGHT_AOA=1`). Handles lift/drag, stall, banked turns, ground roll/takeoff/landing/crash envelope, fuel/refuel, waypoints, SuperCPU substepping (`cpu_step_shift`), and `fpilot` damage/falling hooks. Full specification in [flight.md](flight.md); missions in [missions.md](missions.md).
+Arcade flight model (shipping in both `ppilot` and `fpilot`; optional angle-of-attack model under `FLIGHT_AOA=1`). On the C64 (`__OSCAR64__`), `flight_asm.cc` hand-assembles the arcade model's per-step speed/drag/lift/stall/ground-attitude/eye integration (`_flight_physics_move_asm`), 32-bit fuel burn (`_flight_fuel_step_asm`), and airborne turn rate (`_flight_turn_rot_asm`) over shared `vec_mul_ab` and ZP scratch, with exact host C counterparts in `flight.cc`. Handles lift/drag, stall, banked turns, ground roll/takeoff/landing/crash envelope, fuel/refuel, waypoints, SuperCPU substepping (`cpu_step_shift`), and `fpilot` damage/falling hooks. Full specification in [flight.md](flight.md); missions in [missions.md](missions.md).
 
 ---
 
@@ -201,7 +201,7 @@ Mission definitions, start poses, waypoints, navpoints, and (`pmission.cc` only)
 ## 8. Support modules
 
 - `fmath.cc` — closed-form integer heading and roll-angle approximations (no LUTs).
-- `sound.cc` — 3-voice SID flight SFX (`sound_update` → 25 B shadow → 22-reg `sound_blit` gated by `sound_dirty`). See [sound.md](sound.md).
+- `sound.cc`, `sound_asm.cc` — 3-voice SID flight SFX (6502 `sound_update` → 25 B shadow → 22-reg `sound_blit` gated by `sound_dirty`). See [sound.md](sound.md).
 - `music.cc` / `musicdef.cc` — 50 Hz PAL title tune player and packed 24-bar D-minor data. See [music.md](music.md).
 - `cpu.cc` — boot-time CIA2 speed probe for SuperCPU detection ([supercpu.md](supercpu.md)).
 - `keys.cc` — direct CIA1 keyboard matrix and Port 2 joystick scanner (`joy2_state`).

@@ -99,6 +99,9 @@ extern uint8_t frac_q0, frac_q1, frac_r0, frac_r1, frac_d0, frac_d1;
 void vec_mul_ab(void);
 void vec_project_mul(void);
 void vec_frac8(void);
+void vec_frac16_run(void);
+void vec_div_core(void);
+void vec_mulfrac_core(void);
 #endif
 #endif
 

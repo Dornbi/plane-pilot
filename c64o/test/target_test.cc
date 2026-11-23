@@ -63,6 +63,24 @@
 //       _opponent_cull_slot against 16-bit C ref
 //   27  render_asm.cc _render_pull_and_snap_asm & _render_fill_sky_ground_asm
 //       against byte-for-byte C reference (level + tilted, main/alt, sky rows)
+//   28  flight_asm.cc _flight_physics_move_asm, _flight_fuel_step_asm &
+//       _flight_turn_rot_asm against pure-C arcade flight model reference
+//       (in target_planes_test.prg alongside Tests 11-12)
+//   29  panel_asm.cc panel_update_instruments (all 6 dial arms + caching,
+//       closed-form roll, pitch bar, heading strip, 5 lamps, ammo counter &
+//       view states) against pure-C reference (in target_planes_test.prg)
+//   30  sound_asm.cc sound_update (LFSR roughness, PWM triangle sweep,
+//       quarter-square engine jitter, wind speed clamp/gating, Voice 3
+//       arbitration/priority/stall warble/crash sweep, volume clamp, and
+//       sound_dirty) against pure-C reference (in target_planes_test.prg)
+//   31  opponent_asm.cc _opponent_ai_step_asm, _opponent_fly_and_move_asm,
+//       _opponent_fall_asm & _opponent_cap_asm against 16-bit C references
+//       (in target_planes_test.prg)
+//   32  sprites_asm.h direct raster ISR sprite programming (in target_planes_test.prg)
+//   33  vec_asm.cc vec_negate, vec_turn_xy, vec_mul_ab bh==0/al==0/bl==0,
+//       vec_mulfrac & vec_mulfrac_core, vec_normalize (incl. L2 in 256..260
+//       fast-path & isqrt), vec_orthonormalize, vec_project_once &
+//       vec_project_nocull against 16-bit C references (in target_planes_test.prg)
 
 #include <stdint.h>
 
@@ -88,6 +106,10 @@
 #include "../planes_asm.h"
 #include "../vec.h"
 #ifdef __TARGET_TEST_PLANES__
+#include "../flight_asm.h"
+#include "../opponent_asm.h"
+#include "../panel_asm.h"
+#include "../sound_asm.h"
 #include "planes_target_cases.h"
 #else
 #include "../poly_asm.h"
@@ -3891,6 +3913,1637 @@ static void test_render_pull_and_fill_asm(void) {
 }
 
 #endif // __TARGET_TEST_PLANES__
+
+#ifdef __TARGET_TEST_PLANES__
+
+// ---------------------------------------------------------------------------
+// 28. flight_asm.cc _flight_physics_move_asm, _flight_fuel_step_asm &
+//     _flight_turn_rot_asm against exact pure-C arcade model reference.
+// ---------------------------------------------------------------------------
+uint8_t flight_step_shift;
+bool model_on_ground;
+bool model_need_normalize;
+mat3_t flight_cam;
+int16_t flight_speed;
+int16_t flight_vspeed;
+uint8_t flight_throttle;
+uint32_t flight_fuel;
+uint8_t flight_flap;
+uint8_t flight_gear;
+uint8_t flight_stall;
+int32_t flight_eye_x;
+int32_t flight_eye_y;
+int32_t flight_eye_z;
+
+static int16_t _ref_flight_step_s(int16_t v) {
+  for (uint8_t n = flight_step_shift; n != 0; --n) {
+    v >>= 1;
+  }
+  return v;
+}
+
+static uint8_t _ref_flight_physics_move(uint8_t whole_step, mat3_t *cam,
+                                        int16_t *spd, int16_t *vspd,
+                                        uint8_t *stall, bool *need_norm,
+                                        int32_t *ex, int32_t *ey, int32_t *ez) {
+  uint8_t alt_penalty = 128;
+  uint16_t z8 = (uint16_t)(*ez >> 8);
+  if ((uint8_t)(*ez >> 24) == 0 && z8 < 0x1010) {
+    alt_penalty = z8 < 0x0800 ? 0 : (uint8_t)((z8 - 0x0800) >> 4);
+  }
+  uint16_t density = 256 - alt_penalty;
+
+  uint16_t speed_sqr = vec_fastsqr8p8(*spd);
+  const uint16_t drag = (uint16_t)_ref_flight_step_s((int16_t)(speed_sqr >> 1));
+  const uint16_t extra = drag >> 11;
+  *spd -= (int16_t)(drag >> 9);
+  if (flight_gear) {
+    *spd -= (int16_t)extra;
+  }
+  if (flight_flap) {
+    *spd -= (int16_t)extra;
+  }
+  if (!model_on_ground) {
+    *spd -= _ref_flight_step_s((int16_t)vec_fastsqr8p8(cam->left.z)) >> 5;
+  }
+  *spd -= _ref_flight_step_s(cam->front.z) >> 3;
+  if (flight_fuel > 0) {
+    *spd += _ref_flight_step_s(vec_fastmul8p8(flight_throttle, (int16_t)density));
+  }
+
+  int16_t sink_penalty = 0;
+  uint16_t stall_speed = 0;
+  if (!model_on_ground) {
+    int16_t raw_lift = vec_fastmul8p8((int16_t)(speed_sqr >> 2), cam->up.z);
+    int16_t lift = vec_fastmul8p8(raw_lift, (int16_t)density);
+    if (flight_flap) {
+      lift += lift >> 1;
+    }
+    int16_t deficit = kFlightAsmTrimLift - lift;
+    if (deficit > 0) {
+      sink_penalty = deficit >> 4;
+      *spd -= _ref_flight_step_s(deficit) >> 10;
+    }
+    uint16_t base_stall_speed;
+    if (flight_flap) {
+      base_stall_speed =
+          (cam->up.z >= 0) ? kFlightAsmStallWithFlaps : 0x0480;
+    } else {
+      base_stall_speed = kFlightAsmStallWithoutFlaps;
+    }
+    stall_speed = base_stall_speed + ((uint16_t)alt_penalty << 1);
+  } else if (whole_step && flight_throttle == 0 && *spd > 0) {
+    *spd -= 2;
+  }
+
+  if (*spd < 0) {
+    *spd = 0;
+  } else if (*spd > (int16_t)kMaxSpeed) {
+    *spd = (int16_t)kMaxSpeed;
+  }
+
+  *stall = (uint16_t)*spd < stall_speed ? 1 : 0;
+  if (*stall) {
+    if (cam->front.z > kFlightAsmMaxStallPitchZ) {
+      vec_rotate_step(cam->up.z < 0 ? VEC_STEP_PITCH_UP : VEC_STEP_PITCH_DOWN,
+                      cam);
+    } else {
+      uint8_t s =
+          (uint8_t)(_ref_flight_step_s((int16_t)(stall_speed - (uint16_t)*spd)) >> 5);
+      if (s == 0) {
+        s = whole_step ? 1 : 0;
+      }
+      cam->front.z -= s;
+      if (cam->front.z < -256) {
+        cam->front.z = -256;
+      }
+    }
+    *need_norm = true;
+  }
+
+  if (!model_on_ground) {
+    *vspd = vec_fastmul8p8(cam->front.z, *spd) - sink_penalty;
+  } else {
+    if (cam->front.z < 0) {
+      cam->front.z = 0;
+      *need_norm = true;
+    }
+    if (cam->left.z != 0) {
+      cam->left.x = -cam->front.y;
+      cam->left.y = cam->front.x;
+      cam->left.z = 0;
+      vec_cross(&cam->front, &cam->left, &cam->up);
+      *need_norm = true;
+    }
+    *vspd = 0;
+  }
+
+  int16_t fspeed = (int16_t)(*spd << 1);
+  *ex += _ref_flight_step_s(vec_fastmul8p8(cam->front.x, fspeed));
+  *ey += _ref_flight_step_s(vec_fastmul8p8(cam->front.y, fspeed));
+  *ez += _ref_flight_step_s(*vspd);
+  if (*ez <= (int32_t)kFlightAsmMinEyeZ) {
+    *ez = (int32_t)kFlightAsmMinEyeZ;
+    return 1;
+  }
+  return 0;
+}
+
+static __noinline void _expect_u32(uint16_t id, uint32_t got, uint32_t want) {
+  expect(id, (int16_t)(got & 0xFFFFu), (int16_t)(want & 0xFFFFu));
+  expect((uint16_t)(id + 1), (int16_t)(got >> 16), (int16_t)(want >> 16));
+}
+
+static __noinline void test_flight_asm(void) {
+  static const struct FlightCase {
+    int16_t fx, fy, fz, lx, ly, lz, ux, uy, uz;
+    int16_t speed;
+    uint8_t throttle, flap, gear, on_ground, whole_step;
+    uint32_t fuel;
+    int32_t ex, ey, ez;
+  } kCases[] = {
+      // 0: level cruise at low altitude
+      {256, 0, 0, 0, 256, 0, 0, 0, 256, 0x0800, 18, 0, 0, 0, 1, 0x10000L,
+       0x100000L, 0x200000L, 0x040000L},
+      // 1: climbing banked turn with gear & flaps, mid altitude decay
+      {180, 120, 140, -100, 200, 128, -80, -60, 230, 0x0600, 24, 1, 1, 0, 1,
+       0x00100L, 0x010000L, -0x020000L, 0x0C3400L},
+      // 2: inverted with flaps, high altitude cap (0x100000)
+      {200, -160, -40, 160, 200, -40, 0, 0, -256, 0x0470, 10, 1, 0, 0, 1,
+       0x00001L, 0x000000L, 0x000000L, 0x100000L},
+      // 3: altitude boundary 0x07FFFF (penalty 0) & fuel == 0
+      {256, 0, 0, 0, 256, 0, 0, 0, 256, 0x0700, 20, 0, 0, 0, 1, 0L,
+       0x000000L, 0x000000L, 0x07FFFFL},
+      // 4: altitude boundary 0x080000 (penalty 0) & 0x0FFFFF
+      {256, 0, 0, 0, 256, 0, 0, 0, 256, 0x0900, 24, 0, 0, 0, 1, 10L,
+       0x000000L, 0x000000L, 0x0FFFFFL},
+      // 5: altitude > 0x01000000 (byte 3 nonzero -> penalty 128), top speed clamp
+      {256, 0, -256, 0, 256, 0, 256, 0, 0, 0x0EFE, 24, 0, 0, 0, 1, 10L,
+       0x000000L, 0x000000L, 0x01020000L},
+      // 6: stall direct break with s > 0 and front.z clamp to -256
+      {0, 10, -250, 0, 256, 0, 256, 0, 10, 0x0100, 0, 0, 0, 0, 1, 0L,
+       0x000000L, 0x000000L, 0x050000L},
+      // 7: stall direct break with s == 0, whole_step = 0 vs 1
+      {256, 0, 10, 0, 256, 0, 0, 0, 256, 0x03F8, 0, 0, 0, 0, 0, 0L,
+       0x000000L, 0x000000L, 0x050000L},
+      // 8: stall dead-spot front.z > 224, up.z >= 0 (PITCH_DOWN)
+      {100, 0, 235, 0, 256, 0, -235, 0, 100, 0x0200, 0, 0, 0, 0, 1, 0L,
+       0x000000L, 0x000000L, 0x050000L},
+      // 9: stall dead-spot front.z > 224, up.z < 0 (PITCH_UP)
+      {-100, 0, 235, 0, -256, 0, -235, 0, -100, 0x0200, 0, 0, 0, 0, 1, 0L,
+       0x000000L, 0x000000L, 0x050000L},
+      // 10: ground mode, wheel friction + speed clamp < 0 + negative front.z + tilted left.z
+      {200, 150, -30, -150, 200, 40, 0, 0, 256, 1, 0, 1, 1, 1, 1, 0L,
+       0x000000L, 0x000000L, 0x002000L},
+      // 11: ground mode parked (speed == 0)
+      {256, 0, 0, 0, 256, 0, 0, 0, 256, 0, 0, 0, 1, 1, 1, 0x20000L,
+       0x005000L, 0x006000L, 0x002000L},
+      // 12: floor clamp boundary (diving through 0x2000)
+      {256, 0, -100, 0, 256, 0, 0, 0, 256, 0x0500, 10, 0, 0, 0, 1, 10L,
+       0x000000L, 0x000000L, 0x002010L},
+      // 13: floor clamp exact 0x2000 vs 0x2001 (level, vspeed 0)
+      {256, 0, 0, 0, 256, 0, 0, 0, 256, 0x0800, 18, 0, 0, 0, 1, 10L,
+       0x000000L, 0x000000L, 0x002001L},
+  };
+
+  for (uint8_t sh = 0; sh <= 2; ++sh) {
+    flight_step_shift = sh;
+    vec_set_rotation_shift(sh);
+    for (uint8_t i = 0; i < sizeof(kCases) / sizeof(kCases[0]); ++i) {
+      const struct FlightCase *tc = &kCases[i];
+      mat3_t ref_cam = {{tc->fx, tc->fy, tc->fz},
+                        {tc->lx, tc->ly, tc->lz},
+                        {tc->ux, tc->uy, tc->uz}};
+      flight_cam = ref_cam;
+      flight_speed = tc->speed;
+      flight_vspeed = 0x1234;
+      flight_throttle = tc->throttle;
+      flight_flap = tc->flap;
+      flight_gear = tc->gear;
+      flight_stall = 0;
+      flight_fuel = tc->fuel;
+      model_on_ground = tc->on_ground != 0;
+      model_need_normalize = false;
+      flight_eye_x = tc->ex;
+      flight_eye_y = tc->ey;
+      flight_eye_z = tc->ez;
+
+      int16_t ref_spd = tc->speed;
+      int16_t ref_vspd = 0x1234;
+      uint8_t ref_stall = 0;
+      bool ref_norm = false;
+      int32_t ref_ex = tc->ex, ref_ey = tc->ey, ref_ez = tc->ez;
+
+      uint8_t got_floor = _flight_physics_move_asm(tc->whole_step);
+      uint8_t want_floor = _ref_flight_physics_move(
+          tc->whole_step, &ref_cam, &ref_spd, &ref_vspd, &ref_stall, &ref_norm,
+          &ref_ex, &ref_ey, &ref_ez);
+
+      uint16_t id = (uint16_t)(28000 + sh * 400 + i * 20);
+      expect(id + 0, got_floor, want_floor);
+      expect(id + 1, flight_speed, ref_spd);
+      expect(id + 2, flight_vspeed, ref_vspd);
+      expect(id + 3, flight_stall, ref_stall);
+      expect(id + 4, model_need_normalize ? 1 : 0, ref_norm ? 1 : 0);
+      expect(id + 5, flight_cam.front.x, ref_cam.front.x);
+      expect(id + 6, flight_cam.front.y, ref_cam.front.y);
+      expect(id + 7, flight_cam.front.z, ref_cam.front.z);
+      expect(id + 8, flight_cam.left.x, ref_cam.left.x);
+      expect(id + 9, flight_cam.left.y, ref_cam.left.y);
+      expect(id + 10, flight_cam.left.z, ref_cam.left.z);
+      expect(id + 11, flight_cam.up.x, ref_cam.up.x);
+      expect(id + 12, flight_cam.up.y, ref_cam.up.y);
+      expect(id + 13, flight_cam.up.z, ref_cam.up.z);
+      _expect_u32((uint16_t)(id + 14), (uint32_t)flight_eye_x, (uint32_t)ref_ex);
+      _expect_u32((uint16_t)(id + 16), (uint32_t)flight_eye_y, (uint32_t)ref_ey);
+      _expect_u32((uint16_t)(id + 18), (uint32_t)flight_eye_z, (uint32_t)ref_ez);
+    }
+  }
+  flight_step_shift = 0;
+  vec_set_rotation_shift(0);
+
+  // Part B: _flight_fuel_step_asm across 32-bit borrow & exhaustion edges.
+  static const struct FuelCase {
+    uint32_t fuel;
+    uint8_t fc;
+  } kFuelCases[] = {
+      {0x021FFFL, 24},
+      {0x01000000L, 1},
+      {0x00010000L, 1},
+      {0x00000100L, 1},
+      {0x00000105L, 10},
+      {0x00000019L, 24},
+      {0x00000018L, 24},
+      {0x00000005L, 24},
+      {0x00000000L, 0},
+      {0x00000000L, 10},
+      {0x00000001L, 0},
+  };
+  for (uint8_t i = 0; i < sizeof(kFuelCases) / sizeof(kFuelCases[0]); ++i) {
+    flight_fuel = kFuelCases[i].fuel;
+    flight_throttle = 18;
+    uint8_t fc = kFuelCases[i].fc;
+    uint8_t got_dry = _flight_fuel_step_asm(fc);
+
+    uint32_t want_fuel = kFuelCases[i].fuel;
+    uint8_t want_thr = 18;
+    uint8_t want_dry = 0;
+    if (want_fuel > fc) {
+      want_fuel -= fc;
+    } else {
+      want_dry = (want_fuel != 0) ? 1 : 0;
+      want_fuel = 0;
+      want_thr = 0;
+    }
+    uint16_t id = (uint16_t)(29500 + i * 4);
+    expect(id + 0, got_dry, want_dry);
+    expect(id + 1, *(volatile uint8_t *)&flight_throttle, want_thr);
+    _expect_u32((uint16_t)(id + 2), flight_fuel, want_fuel);
+  }
+
+  // Part C: _flight_turn_rot_asm across ground/air, sign edges, step shifts.
+  static const int16_t kLeftZ[] = {-256, -128, -33, -32, -31, -1, 0, 1, 31, 32, 33, 128, 256};
+  for (uint8_t gnd = 0; gnd <= 1; ++gnd) {
+    model_on_ground = gnd != 0;
+    for (uint8_t sh = 0; sh <= 2; ++sh) {
+      flight_step_shift = sh;
+      for (uint8_t i = 0; i < sizeof(kLeftZ) / sizeof(kLeftZ[0]); ++i) {
+        flight_cam.left.z = kLeftZ[i];
+        int8_t got_rot = _flight_turn_rot_asm();
+        int8_t want_rot = gnd ? 0 : (int8_t)(_ref_flight_step_s(kLeftZ[i]) >> 5);
+        expect((uint16_t)(28600 + gnd * 100 + sh * 20 + i), got_rot, want_rot);
+      }
+    }
+  }
+  flight_step_shift = 0;
+}
+
+// --- Test 29: panel_asm.cc panel_update_instruments() ---
+uint16_t msg_span_x0;
+uint16_t msg_span_x1;
+bool msg_active(void) { return false; }
+bool mem_using_alt_buffer;
+
+uint8_t flight_true_heading;
+uint8_t flight_nav_heading;
+uint8_t roll_angle;
+view_state_t view_state;
+uint8_t _gfx_heading_bitmap_cache;
+uint8_t gun_ammo[kGunAmmoDigits];
+bool gun_ammo_shown;
+const char kGfxAmmoDigits[80] = {
+    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+    0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+    0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
+    0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
+    0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57,
+    0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67,
+    0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77,
+    0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87,
+    0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97,
+    0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7,
+};
+
+static const uint8_t _ref_roll_to_bitmap[30] = {
+    8,  7,  7,  6,  6,  5,  5,  4,  4,  3,  3,  2,  2,  1,  1,
+    0,  15, 15, 14, 14, 13, 13, 12, 12, 11, 11, 10, 10, 9,  9};
+
+static void _ref_set_arm(uint8_t idx, uint8_t dir, uint8_t *rx, uint8_t *ry,
+                         uint8_t *ri) {
+  uint8_t arm_idx = dir & 0x0F;
+  uint8_t off = (uint8_t)(arm_idx << 1);
+  int8_t px, py;
+  uint8_t bm;
+  if (idx == kSpriteIdxSpeed || idx == kSpriteIdxAlt1) {
+    px = ((const int8_t *)kSpriteDefLongArm)[off];
+    py = ((const int8_t *)kSpriteDefLongArm)[off + 1];
+    bm = kSpriteDefLongArmBitmap;
+  } else {
+    px = ((const int8_t *)kSpriteDefShortArm)[off];
+    py = ((const int8_t *)kSpriteDefShortArm)[off + 1];
+    bm = kSpriteDefShortArmBitmap;
+  }
+  if (dir & 0x10) {
+    px = (int8_t)(24 - px);
+    py = (int8_t)(20 - py);
+  }
+  rx[idx] = (uint8_t)(kSpriteInstrumentPivotX[idx] - px);
+  ry[idx] = (uint8_t)(kSpriteInstrumentPivotY[idx] - py);
+  ri[idx] = (uint8_t)(bm + arm_idx);
+}
+
+static void _ref_panel_sprites(uint8_t *rx, uint8_t *ry, uint8_t *ri) {
+  _ref_set_arm(kSpriteIdxSpeed, (uint8_t)((uint8_t)(flight_speed >> 6) >> 1),
+               rx, ry, ri);
+  uint16_t alt = (uint16_t)(flight_eye_z >> 8);
+  uint16_t a = alt >> 4;
+  _ref_set_arm(kSpriteIdxAlt1, (uint8_t)a, rx, ry, ri);
+  _ref_set_arm(kSpriteIdxAlt2,
+               (uint8_t)(((uint8_t)vec_fastmul8p8((int16_t)a, 205)) >> 3), rx,
+               ry, ri);
+  int16_t vs = flight_vspeed;
+  if (vs > 0x300) {
+    vs = 0x300;
+  } else if (vs < -0x300) {
+    vs = -0x300;
+  }
+  _ref_set_arm(kSpriteIdxVSpeed, (uint8_t)(0x18 + (vs >> 6)), rx, ry, ri);
+  rx[kSpriteIdxRoll] = 0xAC;
+  ry[kSpriteIdxRoll] = 0xD8;
+  uint8_t r = roll_angle;
+  if (r >= 30) {
+    r -= 30;
+  }
+  ri[kSpriteIdxRoll] = (uint8_t)(0x60 + _ref_roll_to_bitmap[r]);
+  rx[kSpriteIdxPitch] = 0xAC;
+  int8_t pa = (int8_t)(flight_cam.front.z >> 2);
+  ry[kSpriteIdxPitch] = (uint8_t)(0xD8 - (pa >> 2));
+  ri[kSpriteIdxPitch] = 0x68;
+  _ref_set_arm(kSpriteIdxThrottle, (uint8_t)(0x14 + flight_throttle), rx, ry,
+               ri);
+  _ref_set_arm(kSpriteIdxFuel,
+               (uint8_t)(0x18 + ((uint16_t)(flight_fuel >> 8) >> 5)), rx, ry,
+               ri);
+}
+
+static void _check_panel_sprites(uint16_t base_id) {
+  uint8_t rx[8], ry[8], ri[8];
+  _ref_panel_sprites(rx, ry, ri);
+  for (uint8_t i = 0; i < 8; ++i) {
+    expect((uint16_t)(base_id + i * 3 + 0), _sprites_instrument_xy[i].x, rx[i]);
+    expect((uint16_t)(base_id + i * 3 + 1), _sprites_instrument_xy[i].y, ry[i]);
+    expect((uint16_t)(base_id + i * 3 + 2), _sprites_instrument_idx[i], ri[i]);
+  }
+}
+
+static void test_panel_asm(void) {
+  // Seed the four heading strip sources ($F000-$F17F) with distinct bytes.
+  volatile uint8_t *hdg_src = (volatile uint8_t *)0xF000;
+  for (uint16_t i = 0; i < 0x180; ++i) {
+    hdg_src[i] = (uint8_t)((i * 37 + (i >> 5) * 13 + 7) & 0xFF);
+  }
+  volatile uint8_t *hdg_dst = (volatile uint8_t *)0xF5C8;
+  volatile uint8_t *ammo_c = (volatile uint8_t *)0xF6B0;
+  volatile uint8_t *ammo_l = (volatile uint8_t *)0xF7B0;
+
+  panel_asm_reset_cache();
+  _gfx_heading_bitmap_cache = 0xFF;
+  gun_ammo[0] = 0;
+  gun_ammo[1] = 6;
+  gun_ammo[2] = 0;
+  gun_ammo_shown = true;
+  view_state = VIEW_CENTER;
+  flight_speed = 0x0880;
+  flight_eye_z = 0x040000L;
+  flight_vspeed = 0;
+  flight_throttle = 12;
+  flight_fuel = 0x00800000UL;
+  flight_cam.front.z = 0;
+  flight_true_heading = 0;
+  flight_nav_heading = 0;
+  flight_stall = 0;
+  flight_flap = 0;
+  flight_gear = 0;
+
+  // 1) Sweep all 60 roll angles (checks closed-form roll formula + init).
+  for (uint8_t r = 0; r < 60; ++r) {
+    roll_angle = r;
+    panel_update_instruments();
+    _check_panel_sprites((uint16_t)(29000 + r));
+  }
+
+  // 2) Sweep pitch values across [-256, 256].
+  static const int16_t kPitchZ[] = {-256, -255, -128, -17, -16, -4, -1,
+                                    0,    1,    15,   16,  128, 255, 256};
+  for (uint8_t i = 0; i < 14; ++i) {
+    flight_cam.front.z = kPitchZ[i];
+    panel_update_instruments();
+    _check_panel_sprites((uint16_t)(29100 + i));
+  }
+  flight_cam.front.z = 0;
+
+  // 3) Sweep speed, altitude (incl. a_hi == 0 and a_hi > 0), vspeed edges,
+  // throttle, fuel, plus repeated identical calls (cache hits) and single-
+  // gauge changes (cache misses).
+  static const int16_t kSpd[] = {0, 0x0080, 0x03C0, 0x0880, 0x0E80, 0x0F00};
+  static const int32_t kAlt[] = {0x000000L, 0x002000L, 0x041234L,
+                                 0x0FF000L, 0x100000L, 0x15A300L};
+  static const int16_t kVsp[] = {-0x400, -0x301, -0x300, -0x180, -1,
+                                 0,      0x040,  0x2FF,  0x300,  0x500};
+  static const uint32_t kFuel[] = {0x000000UL, 0x002000UL, 0x01E000UL,
+                                   0x03FFFFUL, 0x054321UL, 0x0F8000UL};
+  for (uint8_t i = 0; i < 6; ++i) {
+    flight_speed = kSpd[i];
+    flight_eye_z = kAlt[i];
+    flight_throttle = (uint8_t)(i * 4);
+    flight_fuel = kFuel[i];
+    panel_update_instruments();
+    _check_panel_sprites((uint16_t)(29200 + i * 30));
+    // Repeat unchanged: cache hit path must preserve every sprite byte.
+    panel_update_instruments();
+    _check_panel_sprites((uint16_t)(29215 + i * 30));
+  }
+  for (uint8_t i = 0; i < 10; ++i) {
+    flight_vspeed = kVsp[i];
+    panel_update_instruments();
+    _check_panel_sprites((uint16_t)(29400 + i * 25));
+  }
+  // Altitude fine change within same (flight_eye_z >> 12) vs next step.
+  flight_eye_z = 0x123000L;
+  panel_update_instruments();
+  _check_panel_sprites(29700);
+  flight_eye_z = 0x123FF0L;
+  panel_update_instruments();
+  _check_panel_sprites(29730);
+  flight_eye_z = 0x124000L;
+  panel_update_instruments();
+  _check_panel_sprites(29760);
+
+  // 4) Heading strip copy (all 4 sub-char shifts + wrap across 96) + cache.
+  static const uint8_t kHdg[] = {0, 1, 2, 3, 35, 36, 37, 44, 47};
+  static const uint16_t kHdgBase[4] = {0xF120, 0xF0C0, 0xF060, 0xF000};
+  for (uint8_t hi = 0; hi < 9; ++hi) {
+    uint8_t h = kHdg[hi];
+    flight_true_heading = h;
+    panel_update_instruments();
+    uint8_t ch = (uint8_t)((h >> 2) + 3);
+    if (ch >= 12) {
+      ch -= 12;
+    }
+    uint8_t s = (uint8_t)(ch << 3);
+    const volatile uint8_t *src =
+        (const volatile uint8_t *)kHdgBase[h & 3];
+    for (uint8_t d = 0; d < 48; ++d) {
+      expect((uint16_t)(29800 + hi * 50 + d), hdg_dst[d], src[s]);
+      if (++s == 96) {
+        s = 0;
+      }
+    }
+  }
+  // Cache skip test: overwrite hdg_dst[0] and re-call with same heading.
+  hdg_dst[0] = 0x55;
+  panel_update_instruments();
+  expect(30300, hdg_dst[0], 0x55);
+
+  // 5) All 5 color-RAM lamps across nav_heading boundaries + stall/flap/gear.
+  static const uint8_t kNav[] = {0, 1, 23, 24, 25, 47};
+  for (uint8_t ni = 0; ni < 6; ++ni) {
+    uint8_t nh = kNav[ni];
+    flight_nav_heading = nh;
+    flight_stall = (ni & 1);
+    flight_flap = ((ni >> 1) & 1);
+    flight_gear = ((ni >> 2) & 1);
+    panel_update_instruments();
+    uint8_t want_l = (nh == 0 || nh > 24) ? 0x0A : 0x00;
+    uint8_t want_r = (nh < 24) ? 0x0A : 0x00;
+    expect((uint16_t)(30310 + ni * 5 + 0),
+           (*(volatile uint8_t *)0xDA6D) & 0x0F, want_l);
+    expect((uint16_t)(30310 + ni * 5 + 1),
+           (*(volatile uint8_t *)0xDA6E) & 0x0F, want_r);
+    expect((uint16_t)(30310 + ni * 5 + 2),
+           (*(volatile uint8_t *)0xDA66) & 0x0F, flight_stall ? 0x0A : 0x00);
+    expect((uint16_t)(30310 + ni * 5 + 3),
+           (*(volatile uint8_t *)0xDAB6) & 0x0F, flight_flap ? 0x0A : 0x00);
+    expect((uint16_t)(30310 + ni * 5 + 4),
+           (*(volatile uint8_t *)0xDADE) & 0x0F, flight_gear ? 0x0A : 0x00);
+  }
+
+  // 6) Ammo counter in VIEW_CENTER (3 digits at $F6B0) and VIEW_LEFT (2 at $F7B0),
+  // plus VIEW_RIGHT / VIEW_BACK skipping heading, lamps, and ammo.
+  for (uint8_t i = 0; i < 24; ++i) {
+    ammo_c[i] = 0xEE;
+  }
+  for (uint8_t i = 0; i < 16; ++i) {
+    ammo_l[i] = 0xDD;
+  }
+  gun_ammo[0] = 1;
+  gun_ammo[1] = 7;
+  gun_ammo[2] = 4;
+  gun_ammo_shown = false;
+  view_state = VIEW_CENTER;
+  panel_update_instruments();
+  expect(30400, *(volatile uint8_t *)&gun_ammo_shown, 1);
+  for (uint8_t dig = 0; dig < 3; ++dig) {
+    for (uint8_t b = 0; b < 8; ++b) {
+      expect((uint16_t)(30401 + dig * 8 + b), ammo_c[dig * 8 + b],
+             (uint8_t)kGfxAmmoDigits[gun_ammo[dig] * 8 + b]);
+    }
+  }
+  // Cache skip when gun_ammo_shown == true.
+  ammo_c[0] = 0xCC;
+  panel_update_instruments();
+  expect(30430, ammo_c[0], 0xCC);
+
+  // VIEW_LEFT: 2 digits at $F7B0, lamps untouched.
+  *(volatile uint8_t *)0xDA66 = 0x05;
+  flight_stall = 1;
+  gun_ammo[0] = 9;
+  gun_ammo[1] = 2;
+  gun_ammo[2] = 5;
+  gun_ammo_shown = false;
+  view_state = VIEW_LEFT;
+  panel_update_instruments();
+  expect(30440, *(volatile uint8_t *)&gun_ammo_shown, 1);
+  expect(30441, (*(volatile uint8_t *)0xDA66) & 0x0F, 0x05);
+  for (uint8_t dig = 0; dig < 2; ++dig) {
+    for (uint8_t b = 0; b < 8; ++b) {
+      expect((uint16_t)(30442 + dig * 8 + b), ammo_l[dig * 8 + b],
+             (uint8_t)kGfxAmmoDigits[gun_ammo[dig] * 8 + b]);
+    }
+  }
+
+  // VIEW_RIGHT and VIEW_BACK: gun_ammo_shown stays false.
+  gun_ammo_shown = false;
+  view_state = VIEW_RIGHT;
+  panel_update_instruments();
+  expect(30470, *(volatile uint8_t *)&gun_ammo_shown, 0);
+  view_state = VIEW_BACK;
+  panel_update_instruments();
+  expect(30471, *(volatile uint8_t *)&gun_ammo_shown, 0);
+}
+
+// ---------------------------------------------------------------------------
+// 30. sound_asm.cc sound_update() against a pure C reference across all
+//     engine/wind/Voice 3 paths (throttle & speed clamps, LFSR + PWM wrap,
+//     pause/volume/fuel/crash silence, touchdown/hit/gun/gear/flap priority,
+//     stall warble on/gap/wrap, crash sweep 16..0 & R-restart abort).
+// ---------------------------------------------------------------------------
+bool flight_paused;
+enum FlightStatus flight_status;
+uint8_t flight_events;
+uint8_t flight_gen;
+uint8_t sound_volume;
+
+static uint8_t _sref_shadow[kSoundRegCount];
+static uint8_t _sref_gen;
+static uint8_t _sref_pwm_phase;
+static uint8_t _sref_rng;
+static uint8_t _sref_v3_effect;
+static uint8_t _sref_v3_frames;
+static uint8_t _sref_stall_phase;
+static uint8_t _sref_flight_gen_seen;
+
+static uint8_t _ref_sound_rand(void) {
+  bool lsb = (_sref_rng & 1) != 0;
+  _sref_rng >>= 1;
+  if (lsb) {
+    _sref_rng ^= kSoundRngTaps;
+  }
+  return _sref_rng;
+}
+
+static bool _ref_pick_v3(uint8_t events, uint8_t from, uint8_t to) {
+  if (events == 0) {
+    return false;
+  }
+  for (uint8_t i = from; i < to; ++i) {
+    if (events & kSoundV3Ev[i]) {
+      _sref_v3_effect = kSoundV3Id[i];
+      _sref_v3_frames = kSoundV3Dur[i];
+      return true;
+    }
+  }
+  return false;
+}
+
+static __noinline void _ref_sound_update(void) {
+  uint8_t r_pw = _ref_sound_rand();
+  uint8_t r_pitch = _ref_sound_rand();
+  _sref_pwm_phase = (uint8_t)(_sref_pwm_phase + kSoundPwmStep + (r_pw & 3));
+
+  bool driver_live = (sound_volume != 0 && !flight_paused);
+  bool flying =
+      driver_live && (flight_status < FLIGHT_CRASH_ROLL) && (flight_fuel != 0);
+
+  uint8_t tri = (uint8_t)(_sref_pwm_phase << 1);
+  if (_sref_pwm_phase & 0x80) {
+    tri ^= 0xFE;
+  }
+  uint16_t pw = (uint16_t)(kSoundPwmMin + ((uint16_t)tri << 3) +
+                           (r_pw & kSoundPwmJitterMask));
+
+  uint8_t thr = flight_throttle > kMaxThrottle ? kMaxThrottle : flight_throttle;
+  uint16_t base = (uint16_t)(((uint16_t)kSoundEngineFreqHi[thr] << 8) |
+                             kSoundEngineFreqLo[thr]);
+  uint8_t amp = (uint8_t)(base >> kSoundEngineJitterShift);
+  uint16_t prod =
+      (uint16_t)((uint16_t)(amp << 1) * (uint16_t)((r_pitch & 0x1F) << 3)) >> 8;
+  uint16_t freq = (uint16_t)((int16_t)base + (int16_t)prod - (int16_t)amp);
+
+  uint8_t events = 0;
+  if (flight_gen != _sref_flight_gen_seen) {
+    _sref_flight_gen_seen = flight_gen;
+    events = flight_events;
+  }
+  bool retrigger = false;
+  bool stall_gap = false;
+  if (_sref_v3_frames != 0) {
+    --_sref_v3_frames;
+  }
+  if (!driver_live) {
+    _sref_v3_effect = V3_NONE;
+    _sref_v3_frames = 0;
+  } else if (events & FLIGHT_EV_CRASH) {
+    _sref_v3_effect = V3_CRASH;
+    _sref_v3_frames = kSoundCrashFrames;
+    retrigger = true;
+  } else if (_sref_v3_effect == V3_CRASH) {
+    if (_sref_v3_frames == 0 || flight_status < FLIGHT_CRASH_ROLL) {
+      _sref_v3_effect = V3_NONE;
+      _sref_v3_frames = 0;
+    }
+  } else if (!flying) {
+    _sref_v3_effect = V3_NONE;
+    _sref_v3_frames = 0;
+  } else if (_ref_pick_v3(events, 0, 2)) {
+    retrigger = true;
+  } else if (_sref_v3_frames != 0 && _sref_v3_effect != V3_STALL) {
+  } else if (flight_stall) {
+    if (_sref_v3_effect != V3_STALL) {
+      _sref_stall_phase = 0;
+    }
+    _sref_v3_effect = V3_STALL;
+    uint8_t sp = _sref_stall_phase;
+    if (sp == 0) {
+      retrigger = true;
+    }
+    stall_gap = sp >= kSoundStallOnFrames;
+    ++sp;
+    _sref_stall_phase = sp >= kSoundStallPeriodFrames ? 0 : sp;
+  } else if (_ref_pick_v3(events, 2, 5)) {
+    retrigger = true;
+  } else if (_sref_v3_frames == 0) {
+    _sref_v3_effect = V3_NONE;
+  }
+  if (retrigger) {
+    ++_sref_gen;
+  }
+
+  uint8_t eff = _sref_v3_effect;
+  uint16_t v3_freq = (uint16_t)((uint16_t)kSoundV3FreqHi[eff] << 8);
+  if (eff == V3_CRASH) {
+    uint8_t m = (uint8_t)((_sref_v3_frames << 3) - _sref_v3_frames +
+                          (kSoundCrashFreqEnd >> 5));
+    v3_freq = ((uint16_t)((uint16_t)m << 8)) >> 3;
+  }
+  _sref_shadow[14] = (uint8_t)v3_freq;
+  _sref_shadow[15] = (uint8_t)(v3_freq >> 8);
+  _sref_shadow[17] = eff == V3_STALL ? (uint8_t)(kSoundStallPw >> 8) : 0;
+  _sref_shadow[19] = kSoundV3AttDec[eff];
+  _sref_shadow[20] = kSoundV3SusRel[eff];
+  _sref_shadow[18] = stall_gap ? SID_CTRL_RECT : kSoundV3Ctrl[eff];
+
+  _sref_shadow[0] = (uint8_t)freq;
+  _sref_shadow[1] = (uint8_t)(freq >> 8);
+  _sref_shadow[2] = (uint8_t)pw;
+  _sref_shadow[3] = (uint8_t)(pw >> 8) & 0x0F;
+  _sref_shadow[5] = kSoundEngineAttDec;
+  _sref_shadow[6] = kSoundEngineSusRel;
+  _sref_shadow[4] = flying ? (SID_CTRL_RECT | SID_CTRL_GATE) : SID_CTRL_RECT;
+
+  int16_t spd = flight_speed < 0 ? 0 : flight_speed;
+  uint8_t widx = (uint8_t)((uint16_t)spd >> kSoundWindSpeedShift);
+  if (widx >= kSoundWindSteps) {
+    widx = kSoundWindSteps - 1;
+  }
+  _sref_shadow[7] = kSoundWindFreqLo[widx];
+  _sref_shadow[8] = kSoundWindFreqHi[widx];
+  _sref_shadow[12] = kSoundWindAttDec;
+  _sref_shadow[13] = kSoundWindSusRel;
+  _sref_shadow[11] = (flying && flight_speed >= (int16_t)kSoundWindMinSpeed)
+                         ? (SID_CTRL_NOISE | SID_CTRL_GATE)
+                         : SID_CTRL_NOISE;
+
+  uint8_t vol = sound_volume < kSoundVolumeSteps ? sound_volume
+                                                 : kSoundVolumeDefault;
+  _sref_shadow[24] = (flying || eff != V3_NONE) ? kMasterVolume[vol] : 0;
+}
+
+static __noinline void _check_sound_step(uint16_t id) {
+  sound_dirty = 0;
+  sound_update();
+  _ref_sound_update();
+  expect(id, *(volatile uint8_t *)&sound_dirty, 1);
+  expect((uint16_t)(id + 1), sound_gen, _sref_gen);
+  expect((uint16_t)(id + 2), _sound_pwm_phase, _sref_pwm_phase);
+  expect((uint16_t)(id + 3), _sound_rng, _sref_rng);
+  expect((uint16_t)(id + 4), _sound_v3_effect, _sref_v3_effect);
+  expect((uint16_t)(id + 5), _sound_v3_frames, _sref_v3_frames);
+  expect((uint16_t)(id + 6), _sound_stall_phase, _sref_stall_phase);
+  expect((uint16_t)(id + 7), _sound_flight_gen_seen, _sref_flight_gen_seen);
+  for (uint8_t r = 0; r < kSoundRegCount; ++r) {
+    expect((uint16_t)(id + 8 + r), sound_shadow[r], _sref_shadow[r]);
+  }
+}
+
+static void test_sound_asm(void) {
+  for (uint8_t r = 0; r < kSoundRegCount; ++r) {
+    sound_shadow[r] = 0;
+    _sref_shadow[r] = 0;
+  }
+  sound_gen = _sref_gen = 0;
+  sound_gen_seen = 0;
+  _sound_pwm_phase = _sref_pwm_phase = 0;
+  _sound_rng = _sref_rng = kSoundRngSeed;
+  _sound_v3_effect = _sref_v3_effect = V3_NONE;
+  _sound_v3_frames = _sref_v3_frames = 0;
+  _sound_stall_phase = _sref_stall_phase = 0;
+  flight_gen = 1;
+  _sound_flight_gen_seen = _sref_flight_gen_seen = 1;
+  flight_events = 0;
+  flight_paused = false;
+  flight_status = FLIGHT_ONGOING;
+  flight_fuel = 0x00100000UL;
+  flight_stall = 0;
+  sound_volume = kSoundVolumeDefault;
+
+  // 1) Sweep throttles (incl. clamp at 25/30) and speeds (negative, 0, 0x7F,
+  //    0x80, 0xFF, 0x100, 0x0F00, 0x1200) across full PWM triangle wrap.
+  static const uint8_t kThrs[8] = {0, 1, 6, 12, 19, 24, 25, 40};
+  static const int16_t kSpds[8] = {-10, 0, 0x007F, 0x0080,
+                                   0x00FF, 0x0100, 0x0F00, 0x1500};
+  uint16_t id = 31000u;
+  for (uint8_t i = 0; i < 40; ++i) {
+    flight_throttle = kThrs[i & 7];
+    flight_speed = kSpds[i & 7];
+    _check_sound_step(id);
+    id += 33;
+  }
+
+  // 2) Volume 1, 0, out-of-range (5 -> default 2), pause, fuel 0 (only byte 0
+  //    vs byte 3 non-zero vs all zero).
+  flight_throttle = 14;
+  flight_speed = 0x0500;
+  sound_volume = 1;
+  _check_sound_step(32400);
+  sound_volume = 0;
+  _check_sound_step(32440);
+  sound_volume = 5;
+  _check_sound_step(32480);
+  sound_volume = 2;
+  flight_paused = true;
+  _check_sound_step(32520);
+  flight_paused = false;
+  flight_fuel = 0;
+  _check_sound_step(32560);
+  flight_fuel = 1;
+  _check_sound_step(32600);
+  flight_fuel = 0x01000000UL;
+  _check_sound_step(32640);
+
+  // 3) Voice 3 one-shots & priority: flap -> gear ignored while flap running ->
+  //    hit preempts -> same gen does not retrigger -> gun while idle ->
+  //    touchdown preempts stall.
+  flight_events = FLIGHT_EV_FLAP;
+  ++flight_gen;
+  _check_sound_step(32700);
+  // Same flight_gen: events ignored, flap keeps counting down.
+  _check_sound_step(32740);
+  // Gear arrives while flap still active: dropped.
+  flight_events = FLIGHT_EV_GEAR;
+  ++flight_gen;
+  _check_sound_step(32780);
+  // Hit preempts active flap!
+  flight_events = FLIGHT_EV_HIT | FLIGHT_EV_GUN;
+  ++flight_gen;
+  _check_sound_step(32820);
+  _check_sound_step(32860);
+  // Hit expires -> gun triggers.
+  flight_events = FLIGHT_EV_GUN;
+  ++flight_gen;
+  _check_sound_step(32900);
+  // Gun expires -> idle.
+  _check_sound_step(32940);
+
+  // 4) Stall warble: 6 frames covers phase 0,1 (on), 2,3 (gap), 0,1 (retrigger).
+  flight_stall = 1;
+  id = 33000u;
+  for (uint8_t s = 0; s < 6; ++s) {
+    _check_sound_step(id);
+    id += 35;
+  }
+  // Touchdown preempts stall; stall resumes once touchdown finishes.
+  flight_events = FLIGHT_EV_TOUCHDOWN;
+  ++flight_gen;
+  id = 33250u;
+  for (uint8_t s = 0; s < 5; ++s) {
+    _check_sound_step(id);
+    id += 35;
+  }
+  flight_stall = 0;
+  _check_sound_step(33450u);
+
+  // 5) Crash sweep across all 17 frames (16..0 -> V3_NONE) while crashed.
+  flight_status = FLIGHT_CRASH_ROLL;
+  flight_events = FLIGHT_EV_CRASH;
+  ++flight_gen;
+  id = 33500u;
+  for (uint8_t s = 0; s < 18; ++s) {
+    _check_sound_step(id);
+    id += 35;
+  }
+
+  // 6) Crash aborted mid-sweep by R restart (flight_status -> FLIGHT_ONGOING)
+  //    and by pause (!driver_live).
+  flight_status = FLIGHT_CRASH_ROLL;
+  flight_events = FLIGHT_EV_CRASH;
+  ++flight_gen;
+  _check_sound_step(34200);
+  flight_status = FLIGHT_ONGOING;
+  _check_sound_step(34240);
+
+  flight_status = FLIGHT_CRASH_ROLL;
+  flight_events = FLIGHT_EV_CRASH;
+  ++flight_gen;
+  _check_sound_step(34280);
+  flight_paused = true;
+  _check_sound_step(34320);
+  flight_paused = false;
+  flight_status = FLIGHT_ONGOING;
+}
+
+// 31. opponent_asm.cc _opponent_ai_step_asm, _opponent_fly_and_move_asm,
+// _opponent_fall_asm, and _opponent_cap_asm against pure 16-bit C references.
+int32_t *const kFlightEye[3] = {&flight_eye_x, &flight_eye_y, &flight_eye_z};
+mat3_t world_cam;
+
+static const int8_t kRefOppClimbSpeed[7] = {32, 16, 8, 0, -8, -16, -32};
+static const uint16_t kRefOppMinSpeed[2] = {1300, 1100};
+static const uint16_t kRefOppMaxSpeed[2] = {2800, 2000};
+
+static bool _ref_opp_below(int32_t z, uint8_t lim) {
+  int16_t hm = *(const int16_t *)((const uint8_t *)&z + 1);
+  return hm < (int16_t)lim;
+}
+
+static uint16_t _ref_opp_abs(int16_t v) { return (uint16_t)(v < 0 ? -v : v); }
+
+static int16_t _ref_opp_dot(int16_t a, int16_t b, int16_t c, int16_t d) {
+  return vec_fastmul8p8(a, b) + vec_fastmul8p8(c, d);
+}
+
+static int32_t _ref_opp_step_delta(int16_t h, int16_t speed) {
+  int16_t v = vec_fastmul8p8(h, (int16_t)(speed << 1));
+  for (uint8_t s = flight_step_shift; s != 0; --s) {
+    v >>= 1;
+  }
+  return (int32_t)v;
+}
+
+static void _check_ai_case(uint16_t base_id, uint8_t i, uint8_t flags,
+                           int16_t dx, int16_t dy, int16_t dz, int16_t hx,
+                           int16_t hy, int32_t z, bool ground, uint8_t pullup,
+                           int8_t climb, int8_t prev_turn, uint8_t gun,
+                           int16_t cam_fx, int16_t cam_fy) {
+  uint8_t other = i ^ 1;
+  uint8_t bit = (uint8_t)(i + 1);
+  bool hunt = (flags & kOppFlagHunt) != 0;
+  bool turns = (flags & kOppFlagTurns) != 0;
+  bool bomber = (flags & kOppFlagBomber) != 0;
+
+  // Set up sentinel state in untouched slot `other`.
+  _opponent_head[other].x = 123;
+  _opponent_head[other].y = -45;
+  _opponent_turn[other] = -2;
+  _opponent_bank[other] = 1;
+  _opponent_climb[other] = 2;
+  _opponent_pitch[other] = -1;
+  _opponent_gun[other] = 17;
+
+  // Set up slot `i` inputs.
+  _opponent_head[i].x = hx;
+  _opponent_head[i].y = hy;
+  _opponent_head[i].z = 0;
+  _opponent_z[i] = z;
+  _opponent_turn[i] = prev_turn;
+  _opponent_bank[i] = 99;
+  _opponent_climb[i] = climb;
+  _opponent_gun[i] = gun;
+  _opponent_pullup = pullup;
+  _opponent_firing = (uint8_t)(other + 1); // preserve other bit
+  model_on_ground = ground;
+  flight_cam.front.x = cam_fx;
+  flight_cam.front.y = cam_fy;
+  flight_cam.front.z = 0;
+
+  // Pure 16-bit C reference matching opponent.cc.
+  int8_t ref_want = 0;
+  if (dz > 40) {
+    ref_want = 1;
+  } else if (dz < -40) {
+    ref_want = -1;
+  }
+  int16_t rdx = dx, rdy = dy, rdz = dz;
+  uint8_t cut = 0;
+  while ((uint16_t)(rdx + 63) >= 127 || (uint16_t)(rdy + 63) >= 127) {
+    rdx >>= 1;
+    rdy >>= 1;
+    rdz >>= 1;
+    ++cut;
+  }
+  int16_t cross = _ref_opp_dot((int16_t)(rdy << 8), hx,
+                               (int16_t)(-(rdx << 8)), hy);
+  int16_t dot = _ref_opp_dot((int16_t)(rdx << 8), hx,
+                             (int16_t)(rdy << 8), hy);
+  uint16_t across = _ref_opp_abs(cross);
+
+  uint8_t ref_pullup = pullup;
+  bool ref_aim = false;
+  bool ref_break = false;
+  bool straight = false;
+  if (hunt) {
+    uint8_t floor = 120;
+    if (ref_pullup & bit) {
+      if (!_ref_opp_below(z, 120) && (cut > 5 || !ground)) {
+        ref_pullup &= (uint8_t)~bit;
+      }
+    } else if (ground && dot > 0 && across < ((uint16_t)dot >> 2) && cut > 2 &&
+               !_ref_opp_below(z, 77)) {
+      floor = 60;
+    } else if (_ref_opp_below(z, 120)) {
+      ref_pullup |= bit;
+    }
+    ref_aim = !(ref_pullup & bit) && cut <= 4 && dot > 0 &&
+              across < ((uint16_t)dot >> 3);
+    ref_break = !ground && dot > 0 &&
+                (cut <= 1 ||
+                 (cut == 2 && _ref_opp_dot(cam_fx, hx, cam_fy, hy) < 0));
+    straight = (ref_pullup & bit) != 0;
+    if (straight) {
+      ref_want = 1;
+    } else {
+      uint16_t az16 = _ref_opp_abs(rdz);
+      uint8_t az = az16 > 255 ? 255 : (uint8_t)az16;
+      int8_t d8x = (int8_t)rdx, d8y = (int8_t)rdy;
+      uint8_t ax = (uint8_t)(d8x < 0 ? -d8x : d8x);
+      uint8_t ay = (uint8_t)(d8y < 0 ? -d8y : d8y);
+      uint8_t h = ax > ay ? (uint8_t)(ax + (ay >> 1))
+                          : (uint8_t)(ay + (ax >> 1));
+      uint8_t h16 = h >> 4, h8 = h >> 3;
+      int8_t w = 0;
+      if (az > h16) {
+        w = 1;
+        if (az > (uint8_t)(h8 + h16)) {
+          w = 2;
+          if (az > (uint8_t)((h >> 2) + h8)) {
+            w = 3;
+          }
+        }
+      }
+      int16_t wdz = rdz;
+      if (ref_break) {
+        w = 3;
+        wdz = -wdz;
+      }
+      if (wdz < 0) {
+        w = -w;
+      }
+      if (_ref_opp_below(z, floor)) {
+        if (w < 1) {
+          w = 1;
+        }
+      } else if (w < 0 && _ref_opp_below(z, (uint8_t)(floor + 16))) {
+        w = 0;
+      }
+      ref_want = w;
+    }
+    if (ref_break) {
+      cross = -cross;
+      dot = -1;
+    }
+  } else {
+    ref_aim = bomber;
+  }
+
+  uint8_t ref_gun = gun;
+  uint8_t ref_firing = (uint8_t)(other + 1);
+  if (turns) {
+    if (ref_gun != 0) {
+      --ref_gun;
+    }
+    if (ref_aim && ref_want == climb) {
+      if (ref_gun == 0) {
+        ref_gun = 26;
+      }
+      if (ref_gun >= 22 && !(ref_gun & 1)) {
+        ref_firing |= bit;
+      }
+    }
+  }
+
+  int8_t ref_turn = 0;
+  if (!straight && (dot < 0 || across > ((uint16_t)dot >> 5))) {
+    ref_turn = (int8_t)(hunt ? 2 : 1);
+    if (cross < 0) {
+      ref_turn = -ref_turn;
+    }
+  }
+  int8_t ref_bank = (ref_turn == prev_turn) ? ref_turn : 0;
+  int8_t ref_ret = turns ? (int8_t)(-ref_turn * 8) : 0;
+
+  // Run 6502 assembly.
+  vec_v.x = dx;
+  vec_v.y = dy;
+  vec_v.z = dz;
+  int16_t got_ret = _opponent_ai_step_asm(i, flags);
+
+  expect(base_id + 0, got_ret, ref_ret);
+  expect(base_id + 1, _opponent_step_want, ref_want);
+  expect(base_id + 2, _opponent_pullup, ref_pullup);
+  expect(base_id + 3, _opponent_aim ? 1 : 0, ref_aim ? 1 : 0);
+  if (hunt) {
+    expect(base_id + 4, _opponent_break ? 1 : 0, ref_break ? 1 : 0);
+  }
+  expect(base_id + 5, _opponent_gun[i], ref_gun);
+  expect(base_id + 6, _opponent_firing, ref_firing);
+  expect(base_id + 7, _opponent_turn[i], ref_turn);
+  expect(base_id + 8, _opponent_bank[i], ref_bank);
+  expect(base_id + 9, _opponent_turn[other], -2);
+  expect(base_id + 10, _opponent_gun[other], 17);
+}
+
+static __noinline void test_opponent_step_asm(void) {
+  // 31a. _opponent_ai_step_asm: path mode dz band edges, bomber gun, bank latch.
+  static const int16_t kPathDz[7] = {-300, -41, -40, 0, 40, 41, 300};
+  uint16_t id = 35000u;
+  for (uint8_t k = 0; k < 7; ++k) {
+    _check_ai_case(id, k & 1,
+                   (uint8_t)((k & 1 ? kOppFlagTurns : 0) |
+                             (k & 2 ? kOppFlagBomber : 0)),
+                   500, (int16_t)(k * 30 - 90), kPathDz[k], 256, 0,
+                   0x00100000L, false, 0, (int8_t)((k % 3) - 1),
+                   (int8_t)(k & 1 ? 1 : -1), (uint8_t)(k == 3 ? 1 : 23), 256,
+                   0);
+    id += 16;
+  }
+
+  // 31b. _opponent_ai_step_asm: hunt strafe, pullup, floors, aim, break-off, want.
+  // Ground strafe entry (cut=3, dot>0, across < dot>>2, z>=77), pullup clear,
+  // pullup set below 120, floor+margin clamp, break-off cut<=1 & cut==2 head-on
+  // vs tail chase, dz==0 break-off, and slope thresholds want=0..±3.
+  _check_ai_case(35200u, 0, kOppFlagHunt | kOppFlagTurns, 400, 10, -200, 256, 0,
+                 (int32_t)90 << 8, true, 0, -2, 0, 0, 256, 0);
+  _check_ai_case(35220u, 1, kOppFlagHunt | kOppFlagTurns, 400, 10, -200, 256, 0,
+                 (int32_t)76 << 8, true, 0, -1, 2, 25, 256, 0);
+  _check_ai_case(35240u, 0, kOppFlagHunt | kOppFlagTurns, 2500, 0, 50, 256, 0,
+                 (int32_t)125 << 8, true, 1, 1, 0, 1, 256, 0);
+  _check_ai_case(35260u, 0, kOppFlagHunt, 1000, 0, -50, 256, 0,
+                 (int32_t)125 << 8, true, 1, 0, 0, 0, 256, 0);
+  _check_ai_case(35280u, 1, kOppFlagHunt | kOppFlagTurns, 1000, 0, -50, 256, 0,
+                 (int32_t)125 << 8, false, 2, 0, 0, 0, 256, 0);
+  // Break-off: cut=1 with dz=0 (climbs +3), cut=2 head-on (cam=-head, breaks),
+  // cut=2 tail chase (cam=+head, does not break), and steep |dz|>255 clamp.
+  _check_ai_case(35300u, 0, kOppFlagHunt | kOppFlagTurns, 80, 20, 0, 256, 0,
+                 (int32_t)300 << 8, false, 0, 3, 2, 0, 256, 0);
+  _check_ai_case(35320u, 1, kOppFlagHunt | kOppFlagTurns, 200, -30, 80, 256, 0,
+                 (int32_t)300 << 8, false, 0, -3, -2, 23, -256, 0);
+  _check_ai_case(35340u, 1, kOppFlagHunt | kOppFlagTurns, 200, -30, 80, 256, 0,
+                 (int32_t)300 << 8, false, 0, 1, -2, 23, 256, 0);
+  _check_ai_case(35360u, 0, kOppFlagHunt | kOppFlagTurns, 100, 40, -1500, 181,
+                 181, (int32_t)130 << 8, false, 0, 0, 0, 0, 181, 181);
+  _check_ai_case(35380u, 1, kOppFlagHunt | kOppFlagTurns, -300, -250, 600, 181,
+                 -181, (int32_t)100 << 8, false, 0, 2, 2, 24, 0, 256);
+}
+
+static __noinline void _expect_i32(uint16_t id, int32_t got, int32_t want) {
+  expect(id, (int16_t)(got & 0xFFFF), (int16_t)(want & 0xFFFF));
+  expect((uint16_t)(id + 1), (int16_t)(got >> 16), (int16_t)(want >> 16));
+}
+
+static __noinline void _test_opp_fly_asm(void) {
+  // 31c. _opponent_fly_and_move_asm across whole/substep, fighter/bomber,
+  // min/max speed clamp, cruise accel/decel, climb slopes -3..+3, and z<=0 crash.
+  uint16_t id = 35500u;
+  static const int8_t kWants[7] = {-3, -2, -1, 0, 1, 2, 3};
+  static const int16_t kSpeeds[4] = {1100, 1300, 2000, 2800};
+  for (uint8_t s = 0; s < 3; ++s) {
+    flight_step_shift = s;
+    for (uint8_t k = 0; k < 7; ++k) {
+      uint8_t slot = k & 1;
+      uint8_t flags = (uint8_t)((k & 1 ? kOppFlagTurns : 0) |
+                                (k & 2 ? kOppFlagBomber : 0));
+      int16_t sp0 = kSpeeds[k & 3];
+      int16_t cruise = (int16_t)(k & 4 ? 1750 : sp0);
+      int8_t cl0 = (int8_t)(k == 2 ? kWants[k] : 0);
+      int8_t pt0 = 1;
+      int32_t x0 = 0x00123456L, y0 = 0x00654321L;
+      int32_t z0 = (k == 0 && s == 0) ? 4L : 0x00010000L;
+      int16_t hx = 204, hy = -153;
+
+      // Pure C reference.
+      int8_t rcl = cl0, rpt = pt0;
+      uint16_t rsp = (uint16_t)sp0;
+      if (flags & kOppFlagTurns) {
+        uint8_t role = (flags & kOppFlagBomber) ? 1 : 0;
+        rcl = kWants[k];
+        if (rcl > 0 ? rsp <= kRefOppMinSpeed[role]
+                    : rcl < 0 && rsp >= kRefOppMaxSpeed[role]) {
+          rcl = 0;
+        }
+        if (rsp < (uint16_t)cruise) {
+          rsp += 8;
+        } else if (rsp > (uint16_t)cruise) {
+          rsp -= 8;
+        }
+        rsp = (uint16_t)((int16_t)rsp + kRefOppClimbSpeed[rcl + 3]);
+        if (rcl == cl0) {
+          rpt = rcl;
+        }
+      }
+      int32_t rx = x0, ry = y0, rz = z0;
+      if (rcl != 0) {
+        rz += _ref_opp_step_delta((int16_t)(-kRefOppClimbSpeed[rcl + 3] * 4),
+                                  (int16_t)rsp);
+      }
+      uint8_t rcrash = (rz <= 0) ? 1 : 0;
+      if (!rcrash) {
+        rx += _ref_opp_step_delta(hx, (int16_t)rsp);
+        ry += _ref_opp_step_delta(hy, (int16_t)rsp);
+      }
+
+      // Run 6502 assembly.
+      _opponent_speed[slot] = sp0;
+      _opponent_climb[slot] = cl0;
+      _opponent_pitch[slot] = pt0;
+      _opponent_head[slot].x = hx;
+      _opponent_head[slot].y = hy;
+      _opponent_x[slot] = x0;
+      _opponent_y[slot] = y0;
+      _opponent_z[slot] = z0;
+      _opponent_step_want = kWants[k];
+      uint8_t got_crash = _opponent_fly_and_move_asm(slot, flags, cruise);
+
+      expect(id + 0, got_crash, rcrash);
+      expect(id + 1, _opponent_speed[slot], (int16_t)rsp);
+      expect(id + 2, _opponent_climb[slot], rcl);
+      expect(id + 3, _opponent_pitch[slot], rpt);
+      _expect_i32(id + 4, _opponent_x[slot], rx);
+      _expect_i32(id + 6, _opponent_y[slot], ry);
+      _expect_i32(id + 8, _opponent_z[slot], rz);
+      id += 12;
+    }
+  }
+
+}
+
+static __noinline void _test_opp_fall_asm(void) {
+  // 31d. _opponent_fall_asm: spinning vs non-spinning, whole vs substep,
+  // parked (speed=0), and ground hit (z<=0).
+  flight_step_shift = 0;
+  uint16_t id = 36000u;
+  for (uint8_t c = 0; c < 6; ++c) {
+    uint8_t slot = c & 1;
+    uint8_t bit = (uint8_t)(slot + 1);
+    uint8_t whole = (c & 2) ? 1 : 0;
+    uint8_t down0 = (uint8_t)((bit << 2) | (c >= 2 ? (bit << 4) : 0) | 0x01);
+    int16_t sp0 = (c == 4) ? 0 : 1800;
+    int32_t z0 = (c == 5) ? 100L : 50000L;
+    int16_t hx0 = 200, hy0 = -160;
+    int32_t x0 = 10000L, y0 = 20000L;
+
+    // Reference.
+    int16_t rhx = hx0, rhy = hy0;
+    int8_t rbk = -1;
+    if ((down0 & (uint8_t)(bit << 4)) && whole) {
+      rhx = -hy0;
+      rhy = hx0;
+      rbk = 2;
+    }
+    int32_t rz = z0 + _ref_opp_step_delta(-192, sp0);
+    int32_t rx = x0, ry = y0;
+    uint8_t rdown = down0;
+    uint8_t rdead = (rz <= 0 || sp0 == 0) ? 1 : 0;
+    if (rdead) {
+      rdown &= (uint8_t)~(bit << 2);
+    } else {
+      rx += _ref_opp_step_delta(rhx, sp0);
+      ry += _ref_opp_step_delta(rhy, sp0);
+    }
+
+    _opponent_down = down0;
+    _opponent_speed[slot] = sp0;
+    _opponent_head[slot].x = hx0;
+    _opponent_head[slot].y = hy0;
+    _opponent_bank[slot] = -1;
+    _opponent_pitch[slot] = 0;
+    _opponent_x[slot] = x0;
+    _opponent_y[slot] = y0;
+    _opponent_z[slot] = z0;
+    uint8_t got_dead = _opponent_fall_asm(slot, whole);
+
+    expect(id + 0, got_dead, rdead);
+    expect(id + 1, _opponent_down, rdown);
+    expect(id + 2, _opponent_pitch[slot], 4);
+    expect(id + 3, _opponent_bank[slot], rbk);
+    expect(id + 4, _opponent_head[slot].x, rhx);
+    expect(id + 5, _opponent_head[slot].y, rhy);
+    _expect_i32(id + 6, _opponent_z[slot], rz);
+    _expect_i32(id + 8, _opponent_x[slot], rx);
+    _expect_i32(id + 10, _opponent_y[slot], ry);
+    id += 12;
+  }
+
+}
+
+static __noinline void _test_opp_cap_asm(void) {
+  // 31e. _opponent_cap_asm: far=0..3, depth hysteresis boundary, cap_all=0/1,
+  // newly-capped >2-sprite drop vs <=2-sprite preserve vs already-capped.
+  static const struct {
+    uint8_t far, cap_all, nearer0, capped0;
+    uint16_t x0, x1;
+    uint8_t lv0, c0, r0, lv1, c1, r1;
+  } kCapCases[] = {
+      // far=1 -> nearer=1, capped=1 (slot 0 newly capped, 2x2 -> dropped)
+      {1, 0, 0, 0, 500, 1000, 3, 2, 2, 3, 2, 2},
+      // far=2 -> nearer=0, capped=2 (slot 1 newly capped, 1x2 -> dropped)
+      {2, 0, 1, 0, 1000, 500, 2, 1, 1, 2, 1, 2},
+      // far=0, nearer=0, dn=800, dn-(dn>>3)=700: x1=700 (not < 700 -> stays 0)
+      {0, 0, 0, 0, 800, 700, 2, 2, 2, 2, 1, 1},
+      // far=0, nearer=0, dn=800, thresh=700: x1=699 (< 700 -> flips to 1)
+      {0, 0, 0, 0, 800, 699, 2, 2, 2, 2, 2, 2},
+      // far=3, nearer=1, dn=1600, thresh=1400: x0=1399 -> flips to 0, cap_all=1
+      {3, 1, 1, 1, 1399, 1600, 2, 2, 2, 3, 2, 1},
+      // already capped=3 -> fast exit, nothing dropped
+      {0, 1, 0, 3, 400, 900, 3, 2, 2, 3, 2, 2},
+  };
+  uint16_t id = 36200u;
+  for (uint8_t k = 0; k < sizeof(kCapCases) / sizeof(kCapCases[0]); ++k) {
+    uint8_t far = kCapCases[k].far;
+    uint8_t cap_all = kCapCases[k].cap_all;
+    uint8_t rn = kCapCases[k].nearer0;
+    uint8_t rc0 = kCapCases[k].capped0;
+    uint16_t x0 = kCapCases[k].x0, x1 = kCapCases[k].x1;
+    if (far == 1 || far == 2) {
+      rn = far & 1;
+    } else {
+      uint16_t dn = rn == 0 ? x0 : x1;
+      uint16_t xo = rn == 0 ? x1 : x0;
+      if (xo < (uint16_t)(dn - (dn >> 3))) {
+        rn ^= 1;
+      }
+    }
+    uint8_t rcap = cap_all ? 3 : (uint8_t)((rn ^ 1) + 1);
+    uint8_t rpend = 3;
+    uint8_t rlv[2] = {kCapCases[k].lv0, kCapCases[k].lv1};
+    uint8_t rsh[2] = {kCapCases[k].lv0, kCapCases[k].lv1};
+    bool rkv[2] = {true, true};
+    uint8_t cols[2] = {kCapCases[k].c0, kCapCases[k].c1};
+    uint8_t rows[2] = {kCapCases[k].r0, kCapCases[k].r1};
+    for (uint8_t s = 0; s < 2; ++s) {
+      uint8_t bit = (uint8_t)(s + 1);
+      if ((rcap & bit) && !(rc0 & bit) && rlv[s] != kPlaneLevelDot &&
+          (uint8_t)(cols[s] + rows[s]) > 2) {
+        rsh[s] = kPlaneLevelDot;
+        rlv[s] = kPlaneLevelDot;
+        rkv[s] = false;
+        rpend &= (uint8_t)~bit;
+      }
+    }
+
+    _opponent_nearer = kCapCases[k].nearer0;
+    _opponent_capped = rc0;
+    _opponent_pending = 3;
+    _opponent_cs[0].x = (int16_t)x0;
+    _opponent_cs[1].x = (int16_t)x1;
+    for (uint8_t s = 0; s < 2; ++s) {
+      _opponent_planes[s].lay.level = (s == 0 ? kCapCases[k].lv0 : kCapCases[k].lv1);
+      _opponent_planes[s].lay.cols = cols[s];
+      _opponent_planes[s].lay.rows = rows[s];
+      _opponent_planes[s].key_valid = true;
+      _opponent_shown[s].level = _opponent_planes[s].lay.level;
+    }
+    _opponent_cap_asm(far, cap_all);
+
+    expect(id + 0, _opponent_nearer, rn);
+    expect(id + 1, _opponent_capped, rcap);
+    expect(id + 2, _opponent_pending, rpend);
+    expect(id + 3, _opponent_planes[0].lay.level, rlv[0]);
+    expect(id + 4, _opponent_shown[0].level, rsh[0]);
+    expect(id + 5, _opponent_planes[0].key_valid ? 1 : 0, rkv[0] ? 1 : 0);
+    expect(id + 6, _opponent_planes[1].lay.level, rlv[1]);
+    expect(id + 7, _opponent_shown[1].level, rsh[1]);
+    expect(id + 8, _opponent_planes[1].key_valid ? 1 : 0, rkv[1] ? 1 : 0);
+    id += 12;
+  }
+}
+
+// 32. sprites_asm.h raster-IRQ sprite programmers (terrain Frame A/B,
+// enable==0 early exit, active-only 0..last copies, no-sprites, and panel
+// top/bottom across all four views) against real VICE VIC-II registers
+// ($D000-$D02E) and sprite pointer RAM ($EBF8-$EBFF / $EFF8-$EFFF).
+static __noinline void test_sprites_irq_asm(void) {
+  volatile uint8_t *const vic_p = (volatile uint8_t *)0xD000;
+  volatile uint8_t *const ptr_a = (volatile uint8_t *)0xEBF8;
+  volatile uint8_t *const ptr_b = (volatile uint8_t *)0xEFF8;
+  uint16_t id = 38000u;
+
+  for (uint8_t fi = 0; fi < 2; ++fi) {
+    for (uint8_t s = 0; s < 8; ++s) {
+      _sprites_frames[fi].pos[s * 2] = (uint8_t)(0x20 + fi * 0x40 + s * 3);
+      _sprites_frames[fi].pos[s * 2 + 1] = (uint8_t)(0x50 + fi * 0x30 + s * 5);
+      _sprites_frames[fi].ptr[s] = (uint8_t)(0x80 + fi * 0x20 + s);
+      _sprites_frames[fi].color[s] = (uint8_t)((s + fi * 5 + 1) & 0x0F);
+    }
+    _sprites_frames[fi].msbx = fi ? 0x5A : 0xA5;
+    _sprites_frames[fi].expand = fi ? 0x3C : 0xC3;
+    _sprites_frames[fi].expand_y = fi ? 0x03 : 0x0F;
+  }
+
+  for (uint8_t fi = 0; fi < 2; ++fi) {
+    mem_using_alt_buffer = (fi == 0);
+    _sprites_frames[fi].enable = 0;
+    _sprites_frames[fi].last = 0;
+    vic_p[0x15] = 0xFF;
+    vic_p[0x00] = 0x77;
+    sprites_show_terrain_sprites();
+    expect(id++, vic_p[0x15], 0);
+    expect(id++, vic_p[0x00], 0x77);
+  }
+
+  static const uint8_t kLastCases[] = {0, 2, 7};
+  for (uint8_t fi = 0; fi < 2; ++fi) {
+    mem_using_alt_buffer = (fi == 0);
+    volatile uint8_t *ptrs = (fi == 0) ? ptr_a : ptr_b;
+    for (uint8_t li = 0; li < 3; ++li) {
+      uint8_t last = kLastCases[li];
+      uint8_t en = (uint8_t)((2 << last) - 1);
+      _sprites_frames[fi].enable = en;
+      _sprites_frames[fi].last = last;
+      for (uint8_t s = 0; s < 8; ++s) {
+        vic_p[s * 2] = 0xEE;
+        vic_p[s * 2 + 1] = 0xDD;
+        vic_p[0x27 + s] = 0x0E;
+        ptrs[s] = 0xCC;
+      }
+      sprites_show_terrain_sprites();
+      expect(id++, vic_p[0x15], en);
+      expect(id++, vic_p[0x10], _sprites_frames[fi].msbx);
+      expect(id++, vic_p[0x1D], _sprites_frames[fi].expand);
+      expect(id++, vic_p[0x17], _sprites_frames[fi].expand_y);
+      for (uint8_t s = 0; s <= last; ++s) {
+        expect(id++, vic_p[s * 2], _sprites_frames[fi].pos[s * 2]);
+        expect(id++, vic_p[s * 2 + 1], _sprites_frames[fi].pos[s * 2 + 1]);
+        expect(id++, ptrs[s], _sprites_frames[fi].ptr[s]);
+        expect(id++, vic_p[0x27 + s] & 0x0F, _sprites_frames[fi].color[s]);
+      }
+      for (uint8_t s = last + 1; s < 8; ++s) {
+        expect(id++, vic_p[s * 2], 0xEE);
+        expect(id++, ptrs[s], 0xCC);
+      }
+    }
+  }
+  mem_using_alt_buffer = false;
+
+  vic_p[0x15] = 0xFF;
+  vic_p[0x1D] = 0xFF;
+  vic_p[0x17] = 0xFF;
+  vic_p[0x10] = 0xFF;
+  sprites_show_no_sprites();
+  expect(id++, vic_p[0x15], 0);
+  expect(id++, vic_p[0x1D], 0);
+  expect(id++, vic_p[0x17], 0);
+  expect(id++, vic_p[0x10], 0);
+
+  for (uint8_t s = 0; s < 8; ++s) {
+    _sprites_instrument_xy[s].x = (uint8_t)(0x30 + s * 7);
+    _sprites_instrument_xy[s].y = (uint8_t)(0xB0 + s * 3);
+    _sprites_instrument_idx[s] = (uint8_t)(0x60 + s);
+    vic_p[0x27 + s] = 0x02;
+  }
+  view_state = VIEW_CENTER;
+  vic_p[0x1D] = 0xFF;
+  vic_p[0x17] = 0xFF;
+  vic_p[0x10] = 0xFF;
+  sprites_show_panel_top_sprites();
+  expect(id++, vic_p[0x15], 0x01);
+  expect(id++, vic_p[0x1D], 0);
+  expect(id++, vic_p[0x17], 0);
+  expect(id++, vic_p[0x10], 0);
+  expect(id++, vic_p[0x27] & 0x0F, 1);
+  expect(id++, vic_p[0x00], _sprites_instrument_xy[0].x);
+  expect(id++, vic_p[0x01], _sprites_instrument_xy[0].y);
+  expect(id++, ptr_b[0], _sprites_instrument_idx[0]);
+  sprites_show_panel_bottom_sprites();
+  expect(id++, vic_p[0x15], 0xFF);
+  expect(id++, vic_p[0x10], 0x40);
+  for (uint8_t s = 0; s < 8; ++s) {
+    expect(id++, vic_p[0x27 + s] & 0x0F, 1);
+    expect(id++, vic_p[s * 2], _sprites_instrument_xy[s].x);
+    expect(id++, vic_p[s * 2 + 1], _sprites_instrument_xy[s].y);
+    expect(id++, ptr_b[s], _sprites_instrument_idx[s]);
+  }
+  view_state = VIEW_LEFT;
+  vic_p[0x27 + 7] = 0x02;
+  sprites_show_panel_top_sprites();
+  expect(id++, vic_p[0x15], 0x00);
+  sprites_show_panel_bottom_sprites();
+  expect(id++, vic_p[0x15], 0x80);
+  expect(id++, vic_p[0x10], 0x80);
+  expect(id++, vic_p[0x27 + 7] & 0x0F, 1);
+  expect(id++, vic_p[14], _sprites_instrument_xy[7].x);
+  expect(id++, vic_p[15], _sprites_instrument_xy[7].y);
+  expect(id++, ptr_b[7], _sprites_instrument_idx[7]);
+  view_state = VIEW_RIGHT;
+  vic_p[0x27 + 6] = 0x02;
+  sprites_show_panel_top_sprites();
+  expect(id++, vic_p[0x15], 0x00);
+  sprites_show_panel_bottom_sprites();
+  expect(id++, vic_p[0x15], 0x40);
+  expect(id++, vic_p[0x10], 0x00);
+  expect(id++, vic_p[0x27 + 6] & 0x0F, 1);
+  expect(id++, vic_p[12], _sprites_instrument_xy[6].x);
+  expect(id++, vic_p[13], _sprites_instrument_xy[6].y);
+  expect(id++, ptr_b[6], _sprites_instrument_idx[6]);
+  view_state = VIEW_BACK;
+  sprites_show_panel_top_sprites();
+  expect(id++, vic_p[0x15], 0x00);
+  sprites_show_panel_bottom_sprites();
+  expect(id++, vic_p[0x15], 0x00);
+  view_state = VIEW_CENTER;
+}
+
+// --- Test 33: vec_asm.cc full 6502 vector math equivalence -----------------
+static void _ref_norm_33(vec3_t *v) {
+  uint16_t L2 = (uint16_t)(vec_fastmul8p8(v->x, v->x) +
+                           vec_fastmul8p8(v->y, v->y) +
+                           vec_fastmul8p8(v->z, v->z));
+  if (L2 == 0) {
+    return;
+  }
+  L2 <<= 6;
+  uint16_t res = 0, bit = (uint16_t)1 << 14;
+  while (bit > L2) {
+    bit >>= 2;
+  }
+  while (bit != 0) {
+    if (L2 >= res + bit) {
+      L2 -= res + bit;
+      res = (res >> 1) + bit;
+    } else {
+      res >>= 1;
+    }
+    bit >>= 2;
+  }
+  if (res == 0) {
+    return;
+  }
+  res <<= 1;
+  int16_t *c = &v->x;
+  for (uint8_t i = 0; i < 3; ++i) {
+    c[i] = vec_div8p8(c[i], (int16_t)res);
+    if (c[i] <= -255) {
+      c[i] = -256;
+    } else if (c[i] >= 255) {
+      c[i] = 256;
+    }
+  }
+}
+
+static __noinline void test_vec_full_asm(void) {
+  _cur_id = 33;
+
+  // 33a. vec_negate
+  {
+    static const vec3_t kNeg[3] = {
+        {0, 256, -256}, {32767, -32767, 1}, {-32768, 1234, -5678}};
+    for (uint8_t i = 0; i < 3; ++i) {
+      vec3_t v = kNeg[i];
+      vec_negate(&v);
+      expect_id(v.x, (int16_t)-kNeg[i].x);
+      expect_id(v.y, (int16_t)-kNeg[i].y);
+      expect_id(v.z, (int16_t)-kNeg[i].z);
+    }
+  }
+
+  // 33b. vec_mul_ab new fast paths (bh==0, al==0, bl==0, b==0 when a_lo==0)
+  {
+    static const int16_t kA[8] = {512, 512, -512, 300, -300, 768, 257, -1023};
+    static const int16_t kB[8] = {0, -128, 256, -256, 512, 512, -200, 73};
+    static const int16_t kW[8] = {0, -256, -512, -300, -600, 1536, -200, -291};
+    for (uint8_t i = 0; i < 8; ++i) {
+      expect_id(vec_fastmul8p8(kA[i], kB[i]), kW[i]);
+    }
+  }
+
+  // 33c. vec_mulfrac & vec_mulfrac_core (including ZP preservation)
+  {
+    static const uint16_t kT[8] = {0x0000u, 0x0080u, 0x8000u, 0xFFFFu,
+                                   0x8080u, 0x01FFu, 0xFF01u, 0x1234u};
+    static const int16_t kD[8] = {1000, -1000, 256, -32767,
+                                  129,  -129,  32767, -257};
+    for (uint8_t i = 0; i < 8; ++i) {
+      int16_t hi = vec_fastmul8p8((int16_t)(kT[i] >> 8), kD[i]);
+      int16_t lo = vec_fastmul8p8((int16_t)(kT[i] & 0xFF), kD[i]);
+      int16_t want = (int16_t)(hi + (int16_t)((lo + 128) >> 8));
+      expect_id(vec_mulfrac(kT[i], kD[i]), want);
+      vec_v.x = 111;
+      vec_v.y = -222;
+      vec_v.z = 333;
+      frac_q0 = (uint8_t)(kT[i] & 0xFF);
+      frac_q1 = (uint8_t)(kT[i] >> 8);
+      vec_sx = kD[i];
+      __asm { jsr vec_mulfrac_core; }
+      expect_id(vec_mul_res, want);
+      expect_id(frac_q0, (uint8_t)(kT[i] & 0xFF));
+      expect_id(frac_q1, (uint8_t)(kT[i] >> 8));
+      expect_id(vec_v.x, 111);
+      expect_id(vec_v.y, -222);
+      expect_id(vec_v.z, 333);
+    }
+  }
+
+  // 33d. vec_normalize edge cases (L2==0, L2 in [256..260] fast-path,
+  // L2==255/261, L2==1024 wrap, -32768 wrap/clamp, zero components)
+  {
+    static const vec3_t kNorm[11] = {
+        {-32768, 0, 0},     // L2 wraps to 0 (must not clamp)
+        {-255, 16, 0},      // L2 == 255 (just below fast-path)
+        {256, 16, 0},       // L2 == 257 (fast-path)
+        {256, 32, 0},       // L2 == 260 (top of fast-path)
+        {255, -24, 24},     // L2 == 258 (fast-path + clamp +255 -> +256)
+        {-32768, 256, 0},   // L2 == 256 (fast-path + clamp -32768 -> -256)
+        {256, 36, 0},       // L2 == 261 (just above fast-path)
+        {512, 0, 0},        // L2 == 1024 -> (L2<<6)==0 (early return)
+        {30, 40, 0},        // small vector with z==0
+        {-180, 180, -100},  // general 3D vector
+        {100, -200, 150},   // general 3D vector
+    };
+    for (uint8_t i = 0; i < 11; ++i) {
+      vec3_t got = kNorm[i];
+      vec3_t want = kNorm[i];
+      vec_normalize(&got);
+      _ref_norm_33(&want);
+      expect_id(got.x, want.x);
+      expect_id(got.y, want.y);
+      expect_id(got.z, want.z);
+    }
+  }
+
+  // 33e. vec_project_once & vec_project_nocull
+  {
+    static const int16_t kP[6][6] = {
+        {8, 0, 0, 0, 0, 0},
+        {-100, 0, 0, 0, 0, 0},
+        {1000, -32768, 0, 0, 0, 0},
+        {256, -256, 128, 1, -255, 127},
+        {64, 200, -150, 0, 800, -600},
+        {100, -350, 220, 0, -896, 563},
+    };
+    for (uint8_t i = 0; i < 6; ++i) {
+      vec_v = make_vector(kP[i][0], kP[i][1], kP[i][2]);
+      expect_id(vec_project_once() ? 1 : 0, kP[i][3]);
+      if (i >= 3) {
+        if (i >= 4) {
+          vec_project_nocull();
+        }
+        expect_id(vec_sx, kP[i][4]);
+        expect_id(vec_sy, kP[i][5]);
+      }
+    }
+  }
+}
+
+#endif // __TARGET_TEST_PLANES__
 #pragma optimize(pop)
 
 int main(void) {
@@ -3909,6 +5562,15 @@ int main(void) {
 #ifdef __TARGET_TEST_PLANES__
   test_planes();
   test_planes_sweep();
+  test_flight_asm();
+  test_panel_asm();
+  test_sound_asm();
+  test_opponent_step_asm();
+  _test_opp_fly_asm();
+  _test_opp_fall_asm();
+  _test_opp_cap_asm();
+  test_sprites_irq_asm();
+  test_vec_full_asm();
 #else
   test_poly_rounding();
   test_int8_negate_then_shift();

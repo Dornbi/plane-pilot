@@ -81,6 +81,8 @@ PPILOT_SRC = \
 		menu.cc \
 		flight.h \
 		flight.cc \
+		flight_asm.h \
+		flight_asm.cc \
 		mission.h \
 		pmission.cc \
 		fmission.cc \
@@ -92,6 +94,8 @@ PPILOT_SRC = \
 		msg.cc \
 		panel.h \
 		panel.cc \
+		panel_asm.h \
+		panel_asm.cc \
 		ppilot.cc \
 		poly.h \
 		poly.cc \
@@ -113,6 +117,8 @@ PPILOT_SRC = \
 		sim.cc \
 		sound.h \
 		sound.cc \
+		sound_asm.h \
+		sound_asm.cc \
 		spritedef.h \
 		spritedef.cc \
 		spritedef.bin \
@@ -187,6 +193,8 @@ POLYDEMO_SRC = \
 		sid.h \
 		sound.h \
 		sound.cc \
+		sound_asm.h \
+		sound_asm.cc \
 		sprites.h \
 		sprites.cc \
 		sprites_asm.h \

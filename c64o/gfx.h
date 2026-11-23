@@ -60,10 +60,18 @@ void gfx_draw_projected(uint8_t color);
 // Skips the copy when the heading is unchanged since the last draw.
 void gfx_update_heading_bitmap(uint8_t heading);
 
+// Last heading drawn into the panel bitmap; 0xFF forces a redraw.
+extern uint8_t _gfx_heading_bitmap_cache;
+
 // Forces the next gfx_update_heading_bitmap, and in fpilot gfx_update_ammo,
 // to redraw. Must be called whenever the panel bitmap is re-expanded over the
 // heading strip and the ammo counter.
 void gfx_invalidate_panel_bitmap(void);
+
+#ifdef __ENABLE_OPPONENT__
+// Embedded 80-byte glyph table for the ammo counter digits 0-9.
+extern const char kGfxAmmoDigits[];
+#endif
 
 // fpilot: draws gun_ammo into the panel's ammo counter if it has changed since
 // the last draw (gun.h gun_ammo_shown).

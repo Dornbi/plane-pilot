@@ -239,7 +239,7 @@ bool sprites_stack_add(int16_t depth, int16_t x, int16_t y, int8_t pivot_x,
   // for the 21 lines after it, and none of that may reach the cycle-counted
   // panel split (mem.h kSpritesOffLead). This test is all that keeps the
   // split's lines clear: no interrupt clears $D015 above it any more (gfx.cc
-  // kGfxRasterRows), so no hardware sprite may start below the cut. In a
+  // kGfxRasterPanelTop), so no hardware sprite may start below the cut. In a
   // 1 x 2 stack the lower half is a separate hardware sprite whose Y is 21
   // lines further down, and it is that one's line that counts. An entry
   // whose lower half would start too low is rejected whole, which is better
@@ -681,30 +681,28 @@ void sprites_stack_commit(void) {
 // showing nothing. Written first, they are off before the raster gets there.
 // It only ever clears bits - the panel band leaves all eight set - and
 // clearing one neither stops nor hides a sprite that is being drawn.
+#ifndef __OSCAR64__
 #define _sprites_program_frame(F, SCREEN)                                      \
   do {                                                                         \
     vic.spr_enable = (F).enable;                                               \
-    /* Counts down. Counting up made oscar64 increment the index before the  */ \
-    /* store, so it kept the pre-increment copy in X and shuffled the two    */ \
-    /* through ACCU - which is exactly the zero page this must not touch.    */ \
-    /* Downward, one register indexes both sides and nothing spills.         */ \
-    uint8_t i = 16;                                                            \
-    do {                                                                       \
-      i -= 2;                                                                  \
-      kVicSpritePos[i + 1] = (F).pos[i + 1];                                   \
-      kVicSpritePos[i] = (F).pos[i];                                           \
-    } while (i != 0);                                                          \
-    /* The count is the last index in use plus one, so it is never 0, which  */ \
-    /* would wrap and run 256 passes over the VIC's registers.               */ \
+    if ((F).enable == 0) {                                                     \
+      break;                                                                   \
+    }                                                                          \
+    vic.spr_msbx = (F).msbx;                                                   \
+    vic.spr_expand_x = (F).expand;                                             \
+    vic.spr_expand_y = (F).expand_y;                                           \
     uint8_t k = (F).last + 1;                                                  \
     do {                                                                       \
       --k;                                                                     \
       *((SCREEN) + 1016 + k) = (F).ptr[k];                                     \
       vic.spr_color[k] = (F).color[k];                                         \
     } while (k != 0);                                                          \
-    vic.spr_msbx = (F).msbx;                                                   \
-    vic.spr_expand_x = (F).expand;                                             \
-    vic.spr_expand_y = (F).expand_y;                                           \
+    uint8_t i = (uint8_t)(((F).last + 1) << 1);                                \
+    do {                                                                       \
+      i -= 2;                                                                  \
+      kVicSpritePos[i + 1] = (F).pos[i + 1];                                   \
+      kVicSpritePos[i] = (F).pos[i];                                           \
+    } while (i != 0);                                                          \
   } while (0)
 
 // The frame of the buffer going on screen: the main one while the main line
@@ -726,68 +724,32 @@ inline void sprites_show_no_sprites() {
 
 inline void sprites_show_panel_top_sprites() {
   // Everything the terrain band set up has to be undone before the panel is
-  // drawn, and two of these are easy to miss:
-  //
-  // - $D01D. Parking at x = 0 hides a 24 pixel sprite, because the left border
-  //   ends at 24 and the VIC compares X per raster line. It does *not* hide an
-  //   X-expanded one, which is 48 wide and would poke 24 pixels into the panel.
-  // - Sprite 0's colour. It is the vertical speed needle, the one instrument
-  //   drawn in this band, and the terrain handler writes the colour of every
-  //   index it uses, 0 always among them.
-  // - $D017, for the same reason as $D01D: the back view's tail fin leaves
-  //   sprites 0 and 1 Y-expanded, and two of the instruments are those
-  //   two. Nothing shows it in the back view itself, which draws no
-  //   instruments at all - it shows on the frame the view switches away on,
-  //   where the fin's expansion would still be set while the fuel, speed and
-  //   roll needles are drawn.
-  vic.spr_enable = 0xFF;
+  // drawn. Disabling unused sprites via $D015 avoids VIC-II sprite DMA on
+  // disabled indices in the top panel band (and across the whole panel in
+  // VIEW_BACK).
   vic.spr_expand_x = 0;
   vic.spr_expand_y = 0;
-  vic.spr_color[kSpriteIdxVSpeed] = kColorInstrument;
-// Guarded because clang - which is what `g++` is on macOS - *recognises*
-// `#pragma unroll` and then rejects `full` as its argument, so it is a hard
-// error rather than something -Wno-unknown-pragmas can wave through. gcc treats
-// the whole pragma as unknown and ignores it, so the host build only breaks on
-// one of the two. oscar64 has no _Pragma, so this cannot be hidden in a macro.
-#ifdef __OSCAR64__
-#pragma unroll(full)
-#endif
-  for (uint8_t i = 1; i < 8; i++) {
-    vic.spr_pos[i].x = 0;
-  }
   vic.spr_msbx = 0;
   if (view_state == VIEW_CENTER) {
+    vic.spr_enable = (1 << kSpriteIdxVSpeed);
+    vic.spr_color[kSpriteIdxVSpeed] = kColorInstrument;
     vic.spr_pos[kSpriteIdxVSpeed].x =
         _sprites_instrument_xy[kSpriteIdxVSpeed].x;
     vic.spr_pos[kSpriteIdxVSpeed].y =
         _sprites_instrument_xy[kSpriteIdxVSpeed].y;
+    // The panel is always shown from the alt screen (_gfx_switch_to_panel_top()
+    // has just put $b8 in $d018), so that is the only screen whose sprite
+    // pointers the VIC fetches in this band and the one below.
+    *(kScreenRamAlt + 1016 + kSpriteIdxVSpeed) =
+        _sprites_instrument_idx[kSpriteIdxVSpeed];
   } else {
-    vic.spr_pos[kSpriteIdxVSpeed].x = 0;
+    vic.spr_enable = 0;
   }
-  // The panel is always shown from the alt screen (_gfx_panel_top_writes()
-  // has just put $b8 in $d018), so that is the only screen whose sprite
-  // pointers the VIC fetches in this band and the one below.
-  *(kScreenRamAlt + 1016 + kSpriteIdxVSpeed) =
-      _sprites_instrument_idx[kSpriteIdxVSpeed];
 }
 
 inline void sprites_show_panel_bottom_sprites() {
-  // All eight colours, unconditionally. This band is below the split and is not
-  // cycle critical, and doing it here is what frees the terrain handler to
-  // write every colour without a handshake with the panel code - which is why
-  // the old kIdxThrottle == kIdxSun and kIdxFuel == kIdxSun special cases are
-  // gone.
-  uint8_t i = 8;
-  do {
-    --i;
-    vic.spr_color[i] = kColorInstrument;
-  } while (i != 0);
   if (view_state == VIEW_CENTER) {
     // Sprites 1-7: 0 is the vertical-speed needle the band above placed.
-    // Both loops count an offset from sprite 1 down to zero, the first two
-    // bytes a pass: this runs on every PAL frame, in the main line's time.
-    // The pointers go to the alt screen alone, the one the panel is shown
-    // from (see sprites_show_panel_top_sprites()).
     uint8_t j = 14;
     do {
       j -= 2;
@@ -797,15 +759,20 @@ inline void sprites_show_panel_bottom_sprites() {
     uint8_t k = 7;
     do {
       *(kScreenRamAlt + 1016 + k) = _sprites_instrument_idx[k];
+      vic.spr_color[k] = kColorInstrument;
     } while (--k != 0);
     vic.spr_msbx = (1 << kSpriteIdxThrottle);
+    vic.spr_enable = 0xFF;
   } else if (view_state == VIEW_LEFT) {
+    vic.spr_color[kSpriteIdxFuel] = kColorInstrument;
     vic.spr_pos[kSpriteIdxFuel].x = _sprites_instrument_xy[kSpriteIdxFuel].x;
     vic.spr_pos[kSpriteIdxFuel].y = _sprites_instrument_xy[kSpriteIdxFuel].y;
     *(kScreenRamAlt + 1016 + kSpriteIdxFuel) =
         _sprites_instrument_idx[kSpriteIdxFuel];
     vic.spr_msbx = (1 << kSpriteIdxFuel);
+    vic.spr_enable = (1 << kSpriteIdxFuel);
   } else if (view_state == VIEW_RIGHT) {
+    vic.spr_color[kSpriteIdxThrottle] = kColorInstrument;
     vic.spr_pos[kSpriteIdxThrottle].x =
         _sprites_instrument_xy[kSpriteIdxThrottle].x;
     vic.spr_pos[kSpriteIdxThrottle].y =
@@ -813,11 +780,8 @@ inline void sprites_show_panel_bottom_sprites() {
     *(kScreenRamAlt + 1016 + kSpriteIdxThrottle) =
         _sprites_instrument_idx[kSpriteIdxThrottle];
     // Assume vic.spr_msbx is already 0
+    vic.spr_enable = (1 << kSpriteIdxThrottle);
   }
-  // VIEW_BACK falls out with nothing done, which is the whole of it: the back
-  // view shows no dashboard, so it shows no instrument either.
-  // sprites_show_panel_top_sprites() has already parked all eight sprites at
-  // x = 0, where the left border hides them, and left $D010 zero, so every
-  // needle is off screen for this band and the sprite pointers at +1016 are
-  // stale but never read.
+  // VIEW_BACK falls out with nothing done: panel top already cleared $D015.
 }
+#endif

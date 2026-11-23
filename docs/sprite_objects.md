@@ -15,15 +15,15 @@ Shipped design for all hardware-sprite objects in the 3D viewport: **clouds**, *
 
 ## 1. Band split & properties
 
-### 1.1 Three raster bands (`gfx.cc`, `-DNUM_IRQS=3`)
+### 1.1 Three raster bands (`gfx.cc`)
 
-The screen is split into three sprite bands by raster IRQs:
+The screen is split into three sprite bands by direct chained raster IRQs:
 
-| Band | Starts at raster | Active sprites |
+| Band | Armed at raster | Active sprites |
 | --- | ---: | --- |
-| Viewport (MCCM) | **252** | Slot 0: orient mark (front) or fin top (back); slot 1: fin bottom (back) or stack; slots 1–7 (front/side) or 2–7 (back): depth-sorted stack |
-| Panel top (MCBM) | **161** | Sprite 0: vertical-speed needle (slots 1–7 parked) |
-| Panel bottom (MCBM) | **187** | Instrument gauge needles (airspeed, horizon/roll, altimeter, fuel, throttle) |
+| Viewport (MCCM) | **251** | Slot 0: orient mark (front) or fin top (back); slot 1: fin bottom (back) or stack; slots 1–7 (front/side) or 2–7 (back): depth-sorted stack |
+| Panel top (MCBM) | **161** | Sprite 0: vertical-speed needle in `VIEW_CENTER` (`$D015=$01`, slots 1–7 disabled); `$D015=0` in side/back views |
+| Panel bottom (MCBM) | **186** | Visible instrument gauge needles (`$D015=$FF` in `VIEW_CENTER`, `$80` in `VIEW_LEFT`, `$40` in `VIEW_RIGHT`; IRQ skipped in `VIEW_BACK`) |
 
 ### 1.2 Viewport sprite properties
 

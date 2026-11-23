@@ -471,17 +471,23 @@ static const int16_t kOpponentClimbCost = 8;
 static const int16_t kOpponentLevelAccel = 8;
 // By climb level + 3, -3 to 3: what a whole step of it does to the speed;
 // -4 times this is the 8.8 slope.
+#ifndef __OSCAR64__
 static const int8_t kOpponentClimbSpeed[7] = {
     4 * kOpponentClimbCost, 2 * kOpponentClimbCost,  kOpponentClimbCost,     0,
     -kOpponentClimbCost,    -2 * kOpponentClimbCost, -4 * kOpponentClimbCost};
-static_assert(kOpponentClimbCost == 8, "8.8 slope is -4 * kOpponentClimbSpeed");
+#endif
+static_assert(kOpponentClimbCost == 8 && kOpponentLevelAccel == 8,
+              "8.8 slope is -4 * kOpponentClimbSpeed; opponent_asm.cc");
 // Within this of its path's height, in half metres, an aircraft on its path
 // flies level: 20 m.
 static const int16_t kOpponentPathBand = 40;
+static_assert(kOpponentPathBand == 40, "opponent_asm.cc path band");
 // The speed's range by role (kOpponentFighter, kOpponentBomber >> 2). The
 // fighter's floor is above the player's 1,024 stall.
+#ifndef __OSCAR64__
 __striped static const uint16_t kOpponentMinSpeed[2] = {1300, 1100};
 __striped static const uint16_t kOpponentMaxSpeed[2] = {2800, 2000};
+#endif
 static_assert(kOpponentClimbCost % kOpponentLevelAccel == 0,
               "the speed moves in whole kOpponentLevelAccel (_opponent_fly())");
 
@@ -572,19 +578,13 @@ uint8_t opponent_shot_down;
 // dive - and with bit i << kOpponentSpin, spinning - until it hits the
 // ground, and only then down. Neither flying nor firing meanwhile, and no
 // more hits counted.
-static uint8_t _opponent_down;
+// _opponent_down, _opponent_pullup, and _opponent_firing live in
+// opponent_asm.cc (bss2).
 static const uint8_t kOpponentFalling = 2;
 static const uint8_t kOpponentSpin = 4;
 // Bit i: slot i is in ATTACK, its mode against the player; clear, it is in
 // PATH (docs/opponent_ai.md §3). A hunting slot starts in it.
 static uint8_t _opponent_attack;
-// Bit i: slot i, a hunter, is pulling up - from a strafing run, or from
-// under kOpponentFloor - climbing straight ahead until it is back above the
-// floor, and while the player is on the ground ~1 km off, before it turns
-// for another run (_opponent_strafe()).
-static uint8_t _opponent_pullup;
-// Bit i: slot i fires a round this step (opponent_fires()).
-static uint8_t _opponent_firing;
 // An 8-bit xorshift, never 0 once opponent_reset() has run: the rear
 // gunners' scatter, and the player's damage (damage.cc).
 static uint8_t _opponent_lfsr;
@@ -600,27 +600,8 @@ static_assert(sizeof(_opponent_fresh) < 256,
 // _opponent_speed lives in opponent_asm.cc (bss2).
 // Counts model steps, for the turns at a larger flight_step_shift.
 static uint8_t _opponent_substep;
-// Bit i: slot i was projected anew last frame and is filled this one.
-static uint8_t _opponent_pending;
 static uint8_t _opponent_color[kOpponentMax];
-// Grouped so opponent_invalidate() clears all five in one loop:
-// front: bit i, which of slot i's two block sets is on screen;
-// first: the slot that goes first next frame (opponent_add_sprites());
-// near_m: bit i, slot i is near enough for its near colour;
-// nearer: the slot taken for the nearer while both are in view;
-// capped: bit i, slot i is drawn under kViewTwo this frame.
-static struct {
-  uint8_t front;
-  uint8_t first;
-  uint8_t near_m;
-  uint8_t nearer;
-  uint8_t capped;
-} _opponent_vis;
-#define _opponent_front (_opponent_vis.front)
-#define _opponent_first (_opponent_vis.first)
-#define _opponent_near (_opponent_vis.near_m)
-#define _opponent_nearer (_opponent_vis.nearer)
-#define _opponent_capped (_opponent_vis.capped)
+// _opponent_pending and _opponent_vis live in opponent_asm.cc (bss2).
 // How many of slot i's frames free for a redraw have gone to refills in a
 // row (_opponent_draw()).
 static uint8_t _opponent_refills[kOpponentMax];
@@ -926,6 +907,7 @@ static __noinline void _opponent_ahead(uint8_t i) {
 }
 #endif
 
+#ifndef __OSCAR64__
 // One step of the flight model for slot i, asked to climb at level `want`,
 // descend below 0, or fly level: on a whole step the limits and the speed,
 // then on every step the height, the slope's share of the speed. The move
@@ -965,11 +947,7 @@ static __noinline void _opponent_fly(uint8_t i, int8_t want, bool whole) {
   }
 }
 
-// A hunter's guns' cone, and whether it breaks off: _opponent_strafe()'s.
-#pragma bss(tscratch)
-static bool _opponent_aim;
-static bool _opponent_break;
-#pragma bss(bss)
+// _opponent_aim and _opponent_break live in opponent_asm.cc (tscratch).
 
 static_assert(kOpponentFloor + kOpponentFloorMargin < 256,
               "floor heights fit in uint8_t");
@@ -1093,6 +1071,11 @@ static __noinline void _opponent_guns(uint8_t i, int8_t want) {
   }
   _opponent_gun[i] = g;
 }
+#endif
+static_assert(kOpponentFloor == 120 && kOpponentFloorMargin == 16 &&
+                  kOpponentStrafeFloor == 60 && kOpponentGunCycle == 26 &&
+                  kOpponentBomber == kOppFlagBomber,
+              "opponent_asm.cc AI step constants");
 
 // The next of _opponent_lfsr's 255 values: xorshift 7, 5, 3. A Galois
 // LFSR's next is its last shifted by a bit, and a burst's rounds walked.
@@ -1241,12 +1224,17 @@ static void _opponent_fail(void) {
 // the wings drawn at 60 degrees. Its smoke trails it all the way, and where
 // it hits the ground it is down.
 static const int16_t kOpponentFallZ = -192;
+static_assert(kOpponentDive == 4 && kOpponentFallZ == -192 &&
+                  kOpponentFalling == 2 && kOpponentSpin == 4 &&
+                  kOpponentTurn == 8,
+              "opponent_asm.cc fall and turn constants");
+#ifndef __OSCAR64__
 static __noinline void _opponent_fall(uint8_t i, bool whole) {
   uint8_t bit = _opponent_bit(i);
-  vec3_t *h = &_opponent_head[i];
-  _opponent_pitch[i] = kOpponentDive;
   _opponent_smoke = bit;
   _opponent_smoke_t = kSmokeHit;
+  vec3_t *h = &_opponent_head[i];
+  _opponent_pitch[i] = kOpponentDive;
   if ((_opponent_down & (uint8_t)(bit << kOpponentSpin)) && whole) {
     int16_t hx = h->x;
     h->x = -h->y;
@@ -1262,6 +1250,7 @@ static __noinline void _opponent_fall(uint8_t i, bool whole) {
   }
   _opponent_ahead(i);
 }
+#endif
 
 void opponent_step(void) {
   if (flight_paused || flight_crashed()) {
@@ -1290,7 +1279,15 @@ void opponent_step(void) {
     const opponent_path_t *p = _opponent_path[i];
     uint8_t bit = _opponent_bit(i);
     if (_opponent_down & (uint8_t)(bit << kOpponentFalling)) {
+#ifdef __OSCAR64__
+      _opponent_smoke = bit;
+      _opponent_smoke_t = kSmokeHit;
+      if (_opponent_fall_asm(i, turns ? 1 : 0)) {
+        _opponent_destroy(i, nullptr);
+      }
+#else
       _opponent_fall(i, turns);
+#endif
       continue;
     }
     // Parked: it stays where it is.
@@ -1312,10 +1309,13 @@ void opponent_step(void) {
     // What it steers for, relative, in half metres: a fighter in ATTACK, the
     // player; anything else its waypoint at its path's height.
     bool hunt = (_opponent_attack & bit) && !(p->kind & kOpponentBomber);
-    uint16_t tx = (uint16_t)(flight_eye_x >> 8);
-    uint16_t ty = (uint16_t)(flight_eye_y >> 8);
-    int16_t dz = (int16_t)(flight_eye_z >> 8);
-    if (!hunt) {
+    uint16_t tx, ty;
+    int16_t dz;
+    if (hunt) {
+      tx = _opponent_hm(&flight_eye_x);
+      ty = _opponent_hm(&flight_eye_y);
+      dz = (int16_t)_opponent_hm(&flight_eye_z);
+    } else {
       uint8_t k = (uint8_t)(p->wp + _opponent_next[i]);
       tx = kOpponentWpX[k];
       ty = kOpponentWpY[k];
@@ -1343,7 +1343,24 @@ void opponent_step(void) {
       }
       _opponent_next[i] = w;
     }
-    dz -= (int16_t)(_opponent_z[i] >> 8);
+    vec_v.x = dx;
+    vec_v.y = dy;
+    vec_v.z = dz - (int16_t)_opponent_hm(&_opponent_z[i]);
+#ifdef __OSCAR64__
+    uint8_t flags = (uint8_t)((p->kind & kOpponentBomber) |
+                              (hunt ? kOppFlagHunt : 0) |
+                              (turns ? kOppFlagTurns : 0));
+    int16_t turn_angle = _opponent_ai_step_asm(i, flags);
+    if (turn_angle != 0) {
+      vec3_t *h = &_opponent_head[i];
+      vec_turn_xy(turn_angle, h);
+      vec_normalize(h);
+    }
+    if (_opponent_fly_and_move_asm(i, flags, _opponent_pair->speed)) {
+      _opponent_destroy(i, "ENEMY CRASHED");
+    }
+#else
+    dz = vec_v.z;
     // On a path, up or down at level 1 to the path's height.
     int8_t want = 0;
     if (dz > kOpponentPathBand) {
@@ -1359,9 +1376,6 @@ void opponent_step(void) {
     // stays straight. _opponent_steer() halves (dx, dy, dz) in ZP vec_v until
     // |dx|, |dy| < 64 and forms exact 16-bit cross and dot products in ZP
     // vec_sx and vec_sy.
-    vec_v.x = dx;
-    vec_v.y = dy;
-    vec_v.z = dz;
     uint8_t cut = _opponent_steer(i);
     int16_t cross = vec_sx;
     int16_t dot = vec_sy;
@@ -1419,6 +1433,7 @@ void opponent_step(void) {
     }
 
     _opponent_ahead(i);
+#endif
   }
   _opponent_track();
 }
@@ -1451,7 +1466,12 @@ static __noinline void _opponent_forget(uint8_t i) {
 // only once the other is an eighth nearer, so that two at about the same
 // range do not trade sizes every frame; one in the far range is the farther.
 // Sets _opponent_capped when both slots are in view.
+#ifndef __OSCAR64__
 static __noinline void _opponent_cap(void) {
+  uint8_t extra =
+      (uint8_t)(_opponent_smoke != kOpponentNoSmoke || gun_puff_up()) +
+      (uint8_t)gun_tracer_up();
+  bool cap_all = extra > (view_state == VIEW_BACK ? 0 : 1);
   if (_opponent_far == 1 || _opponent_far == 2) {
     _opponent_nearer = _opponent_far & 1;
   } else {
@@ -1461,12 +1481,7 @@ static __noinline void _opponent_cap(void) {
       _opponent_nearer = o;
     }
   }
-  uint8_t extra =
-      (uint8_t)(_opponent_smoke != kOpponentNoSmoke || gun_puff_up()) +
-      (uint8_t)gun_tracer_up();
-  uint8_t capped = extra > (view_state == VIEW_BACK ? 0 : 1)
-                       ? 3
-                       : _opponent_bit(_opponent_nearer ^ 1);
+  uint8_t capped = cap_all ? 3 : _opponent_bit(_opponent_nearer ^ 1);
   planes_state_t *st = _opponent_planes;
   for (uint8_t i = 0; i < kOpponentMax; ++i, ++st) {
     uint8_t bit = _opponent_bit(i);
@@ -1480,6 +1495,7 @@ static __noinline void _opponent_cap(void) {
   }
   _opponent_capped = capped;
 }
+#endif
 
 // Viewport frustum reach around an aircraft at camera-space depth x > 64:
 // every part of it is within r = kPlaneMaxRadius / 2 eighth metres of c, so
@@ -1798,7 +1814,15 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
 void opponent_add_sprites(void) {
   _opponent_seen = _opponent_cull();
   if (_opponent_seen == 3) {
+#ifdef __OSCAR64__
+    bool smoke = _opponent_smoke != kOpponentNoSmoke || gun_puff_up();
+    bool tracer = gun_tracer_up();
+    bool cap_all = view_state == VIEW_BACK ? (smoke || tracer)
+                                           : (smoke && tracer);
+    _opponent_cap_asm(_opponent_far, cap_all ? 1 : 0);
+#else
     _opponent_cap();
+#endif
   } else {
     _opponent_capped = 0;
     if (_opponent_seen == 0) {
