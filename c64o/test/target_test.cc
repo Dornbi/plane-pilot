@@ -66,6 +66,9 @@
 //   28  flight_asm.cc _flight_physics_move_asm, _flight_fuel_step_asm &
 //       _flight_turn_rot_asm against pure-C arcade flight model reference
 //       (in target_planes_test.prg alongside Tests 11-12)
+//   29  panel_asm.cc panel_update_instruments (all 6 dial arms + caching,
+//       closed-form roll, pitch bar, heading strip, 5 lamps, ammo counter &
+//       view states) against pure-C reference (in target_planes_test.prg)
 
 #include <stdint.h>
 
@@ -92,6 +95,7 @@
 #include "../vec.h"
 #ifdef __TARGET_TEST_PLANES__
 #include "../flight_asm.h"
+#include "../panel_asm.h"
 #include "planes_target_cases.h"
 #else
 #include "../poly_asm.h"
@@ -4200,6 +4204,290 @@ static __noinline void test_flight_asm(void) {
   flight_step_shift = 0;
 }
 
+// --- Test 29: panel_asm.cc panel_update_instruments() ---
+uint16_t msg_span_x0;
+uint16_t msg_span_x1;
+bool msg_active(void) { return false; }
+bool mem_using_alt_buffer;
+
+uint8_t flight_true_heading;
+uint8_t flight_nav_heading;
+uint8_t roll_angle;
+view_state_t view_state;
+uint8_t _gfx_heading_bitmap_cache;
+uint8_t gun_ammo[kGunAmmoDigits];
+bool gun_ammo_shown;
+const char kGfxAmmoDigits[80] = {
+    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+    0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+    0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
+    0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
+    0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57,
+    0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67,
+    0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77,
+    0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87,
+    0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97,
+    0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7,
+};
+
+static const uint8_t _ref_roll_to_bitmap[30] = {
+    8,  7,  7,  6,  6,  5,  5,  4,  4,  3,  3,  2,  2,  1,  1,
+    0,  15, 15, 14, 14, 13, 13, 12, 12, 11, 11, 10, 10, 9,  9};
+
+static void _ref_set_arm(uint8_t idx, uint8_t dir, uint8_t *rx, uint8_t *ry,
+                         uint8_t *ri) {
+  uint8_t arm_idx = dir & 0x0F;
+  uint8_t off = (uint8_t)(arm_idx << 1);
+  int8_t px, py;
+  uint8_t bm;
+  if (idx == kSpriteIdxSpeed || idx == kSpriteIdxAlt1) {
+    px = ((const int8_t *)kSpriteDefLongArm)[off];
+    py = ((const int8_t *)kSpriteDefLongArm)[off + 1];
+    bm = kSpriteDefLongArmBitmap;
+  } else {
+    px = ((const int8_t *)kSpriteDefShortArm)[off];
+    py = ((const int8_t *)kSpriteDefShortArm)[off + 1];
+    bm = kSpriteDefShortArmBitmap;
+  }
+  if (dir & 0x10) {
+    px = (int8_t)(24 - px);
+    py = (int8_t)(20 - py);
+  }
+  rx[idx] = (uint8_t)(kSpriteInstrumentPivotX[idx] - px);
+  ry[idx] = (uint8_t)(kSpriteInstrumentPivotY[idx] - py);
+  ri[idx] = (uint8_t)(bm + arm_idx);
+}
+
+static void _ref_panel_sprites(uint8_t *rx, uint8_t *ry, uint8_t *ri) {
+  _ref_set_arm(kSpriteIdxSpeed, (uint8_t)((uint8_t)(flight_speed >> 6) >> 1),
+               rx, ry, ri);
+  uint16_t alt = (uint16_t)(flight_eye_z >> 8);
+  uint16_t a = alt >> 4;
+  _ref_set_arm(kSpriteIdxAlt1, (uint8_t)a, rx, ry, ri);
+  _ref_set_arm(kSpriteIdxAlt2,
+               (uint8_t)(((uint8_t)vec_fastmul8p8((int16_t)a, 205)) >> 3), rx,
+               ry, ri);
+  int16_t vs = flight_vspeed;
+  if (vs > 0x300) {
+    vs = 0x300;
+  } else if (vs < -0x300) {
+    vs = -0x300;
+  }
+  _ref_set_arm(kSpriteIdxVSpeed, (uint8_t)(0x18 + (vs >> 6)), rx, ry, ri);
+  rx[kSpriteIdxRoll] = 0xAC;
+  ry[kSpriteIdxRoll] = 0xD8;
+  uint8_t r = roll_angle;
+  if (r >= 30) {
+    r -= 30;
+  }
+  ri[kSpriteIdxRoll] = (uint8_t)(0x60 + _ref_roll_to_bitmap[r]);
+  rx[kSpriteIdxPitch] = 0xAC;
+  int8_t pa = (int8_t)(flight_cam.front.z >> 2);
+  ry[kSpriteIdxPitch] = (uint8_t)(0xD8 - (pa >> 2));
+  ri[kSpriteIdxPitch] = 0x68;
+  _ref_set_arm(kSpriteIdxThrottle, (uint8_t)(0x14 + flight_throttle), rx, ry,
+               ri);
+  _ref_set_arm(kSpriteIdxFuel,
+               (uint8_t)(0x18 + ((uint16_t)(flight_fuel >> 8) >> 5)), rx, ry,
+               ri);
+}
+
+static void _check_panel_sprites(uint16_t base_id) {
+  uint8_t rx[8], ry[8], ri[8];
+  _ref_panel_sprites(rx, ry, ri);
+  for (uint8_t i = 0; i < 8; ++i) {
+    expect((uint16_t)(base_id + i * 3 + 0), _sprites_instrument_xy[i].x, rx[i]);
+    expect((uint16_t)(base_id + i * 3 + 1), _sprites_instrument_xy[i].y, ry[i]);
+    expect((uint16_t)(base_id + i * 3 + 2), _sprites_instrument_idx[i], ri[i]);
+  }
+}
+
+static void test_panel_asm(void) {
+  // Seed the four heading strip sources ($F000-$F17F) with distinct bytes.
+  volatile uint8_t *hdg_src = (volatile uint8_t *)0xF000;
+  for (uint16_t i = 0; i < 0x180; ++i) {
+    hdg_src[i] = (uint8_t)((i * 37 + (i >> 5) * 13 + 7) & 0xFF);
+  }
+  volatile uint8_t *hdg_dst = (volatile uint8_t *)0xF5C8;
+  volatile uint8_t *ammo_c = (volatile uint8_t *)0xF6B0;
+  volatile uint8_t *ammo_l = (volatile uint8_t *)0xF7B0;
+
+  panel_asm_reset_cache();
+  _gfx_heading_bitmap_cache = 0xFF;
+  gun_ammo[0] = 0;
+  gun_ammo[1] = 6;
+  gun_ammo[2] = 0;
+  gun_ammo_shown = true;
+  view_state = VIEW_CENTER;
+  flight_speed = 0x0880;
+  flight_eye_z = 0x040000L;
+  flight_vspeed = 0;
+  flight_throttle = 12;
+  flight_fuel = 0x00800000UL;
+  flight_cam.front.z = 0;
+  flight_true_heading = 0;
+  flight_nav_heading = 0;
+  flight_stall = 0;
+  flight_flap = 0;
+  flight_gear = 0;
+
+  // 1) Sweep all 60 roll angles (checks closed-form roll formula + init).
+  for (uint8_t r = 0; r < 60; ++r) {
+    roll_angle = r;
+    panel_update_instruments();
+    _check_panel_sprites((uint16_t)(29000 + r));
+  }
+
+  // 2) Sweep pitch values across [-256, 256].
+  static const int16_t kPitchZ[] = {-256, -255, -128, -17, -16, -4, -1,
+                                    0,    1,    15,   16,  128, 255, 256};
+  for (uint8_t i = 0; i < 14; ++i) {
+    flight_cam.front.z = kPitchZ[i];
+    panel_update_instruments();
+    _check_panel_sprites((uint16_t)(29100 + i));
+  }
+  flight_cam.front.z = 0;
+
+  // 3) Sweep speed, altitude (incl. a_hi == 0 and a_hi > 0), vspeed edges,
+  // throttle, fuel, plus repeated identical calls (cache hits) and single-
+  // gauge changes (cache misses).
+  static const int16_t kSpd[] = {0, 0x0080, 0x03C0, 0x0880, 0x0E80, 0x0F00};
+  static const int32_t kAlt[] = {0x000000L, 0x002000L, 0x041234L,
+                                 0x0FF000L, 0x100000L, 0x15A300L};
+  static const int16_t kVsp[] = {-0x400, -0x301, -0x300, -0x180, -1,
+                                 0,      0x040,  0x2FF,  0x300,  0x500};
+  static const uint32_t kFuel[] = {0x000000UL, 0x002000UL, 0x01E000UL,
+                                   0x03FFFFUL, 0x054321UL, 0x0F8000UL};
+  for (uint8_t i = 0; i < 6; ++i) {
+    flight_speed = kSpd[i];
+    flight_eye_z = kAlt[i];
+    flight_throttle = (uint8_t)(i * 4);
+    flight_fuel = kFuel[i];
+    panel_update_instruments();
+    _check_panel_sprites((uint16_t)(29200 + i * 30));
+    // Repeat unchanged: cache hit path must preserve every sprite byte.
+    panel_update_instruments();
+    _check_panel_sprites((uint16_t)(29215 + i * 30));
+  }
+  for (uint8_t i = 0; i < 10; ++i) {
+    flight_vspeed = kVsp[i];
+    panel_update_instruments();
+    _check_panel_sprites((uint16_t)(29400 + i * 25));
+  }
+  // Altitude fine change within same (flight_eye_z >> 12) vs next step.
+  flight_eye_z = 0x123000L;
+  panel_update_instruments();
+  _check_panel_sprites(29700);
+  flight_eye_z = 0x123FF0L;
+  panel_update_instruments();
+  _check_panel_sprites(29730);
+  flight_eye_z = 0x124000L;
+  panel_update_instruments();
+  _check_panel_sprites(29760);
+
+  // 4) Heading strip copy (all 4 sub-char shifts + wrap across 96) + cache.
+  static const uint8_t kHdg[] = {0, 1, 2, 3, 35, 36, 37, 44, 47};
+  static const uint16_t kHdgBase[4] = {0xF120, 0xF0C0, 0xF060, 0xF000};
+  for (uint8_t hi = 0; hi < 9; ++hi) {
+    uint8_t h = kHdg[hi];
+    flight_true_heading = h;
+    panel_update_instruments();
+    uint8_t ch = (uint8_t)((h >> 2) + 3);
+    if (ch >= 12) {
+      ch -= 12;
+    }
+    uint8_t s = (uint8_t)(ch << 3);
+    const volatile uint8_t *src =
+        (const volatile uint8_t *)kHdgBase[h & 3];
+    for (uint8_t d = 0; d < 48; ++d) {
+      expect((uint16_t)(29800 + hi * 50 + d), hdg_dst[d], src[s]);
+      if (++s == 96) {
+        s = 0;
+      }
+    }
+  }
+  // Cache skip test: overwrite hdg_dst[0] and re-call with same heading.
+  hdg_dst[0] = 0x55;
+  panel_update_instruments();
+  expect(30300, hdg_dst[0], 0x55);
+
+  // 5) All 5 color-RAM lamps across nav_heading boundaries + stall/flap/gear.
+  static const uint8_t kNav[] = {0, 1, 23, 24, 25, 47};
+  for (uint8_t ni = 0; ni < 6; ++ni) {
+    uint8_t nh = kNav[ni];
+    flight_nav_heading = nh;
+    flight_stall = (ni & 1);
+    flight_flap = ((ni >> 1) & 1);
+    flight_gear = ((ni >> 2) & 1);
+    panel_update_instruments();
+    uint8_t want_l = (nh == 0 || nh > 24) ? 0x0A : 0x00;
+    uint8_t want_r = (nh < 24) ? 0x0A : 0x00;
+    expect((uint16_t)(30310 + ni * 5 + 0),
+           (*(volatile uint8_t *)0xDA6D) & 0x0F, want_l);
+    expect((uint16_t)(30310 + ni * 5 + 1),
+           (*(volatile uint8_t *)0xDA6E) & 0x0F, want_r);
+    expect((uint16_t)(30310 + ni * 5 + 2),
+           (*(volatile uint8_t *)0xDA66) & 0x0F, flight_stall ? 0x0A : 0x00);
+    expect((uint16_t)(30310 + ni * 5 + 3),
+           (*(volatile uint8_t *)0xDAB6) & 0x0F, flight_flap ? 0x0A : 0x00);
+    expect((uint16_t)(30310 + ni * 5 + 4),
+           (*(volatile uint8_t *)0xDADE) & 0x0F, flight_gear ? 0x0A : 0x00);
+  }
+
+  // 6) Ammo counter in VIEW_CENTER (3 digits at $F6B0) and VIEW_LEFT (2 at $F7B0),
+  // plus VIEW_RIGHT / VIEW_BACK skipping heading, lamps, and ammo.
+  for (uint8_t i = 0; i < 24; ++i) {
+    ammo_c[i] = 0xEE;
+  }
+  for (uint8_t i = 0; i < 16; ++i) {
+    ammo_l[i] = 0xDD;
+  }
+  gun_ammo[0] = 1;
+  gun_ammo[1] = 7;
+  gun_ammo[2] = 4;
+  gun_ammo_shown = false;
+  view_state = VIEW_CENTER;
+  panel_update_instruments();
+  expect(30400, *(volatile uint8_t *)&gun_ammo_shown, 1);
+  for (uint8_t dig = 0; dig < 3; ++dig) {
+    for (uint8_t b = 0; b < 8; ++b) {
+      expect((uint16_t)(30401 + dig * 8 + b), ammo_c[dig * 8 + b],
+             (uint8_t)kGfxAmmoDigits[gun_ammo[dig] * 8 + b]);
+    }
+  }
+  // Cache skip when gun_ammo_shown == true.
+  ammo_c[0] = 0xCC;
+  panel_update_instruments();
+  expect(30430, ammo_c[0], 0xCC);
+
+  // VIEW_LEFT: 2 digits at $F7B0, lamps untouched.
+  *(volatile uint8_t *)0xDA66 = 0x05;
+  flight_stall = 1;
+  gun_ammo[0] = 9;
+  gun_ammo[1] = 2;
+  gun_ammo[2] = 5;
+  gun_ammo_shown = false;
+  view_state = VIEW_LEFT;
+  panel_update_instruments();
+  expect(30440, *(volatile uint8_t *)&gun_ammo_shown, 1);
+  expect(30441, (*(volatile uint8_t *)0xDA66) & 0x0F, 0x05);
+  for (uint8_t dig = 0; dig < 2; ++dig) {
+    for (uint8_t b = 0; b < 8; ++b) {
+      expect((uint16_t)(30442 + dig * 8 + b), ammo_l[dig * 8 + b],
+             (uint8_t)kGfxAmmoDigits[gun_ammo[dig] * 8 + b]);
+    }
+  }
+
+  // VIEW_RIGHT and VIEW_BACK: gun_ammo_shown stays false.
+  gun_ammo_shown = false;
+  view_state = VIEW_RIGHT;
+  panel_update_instruments();
+  expect(30470, *(volatile uint8_t *)&gun_ammo_shown, 0);
+  view_state = VIEW_BACK;
+  panel_update_instruments();
+  expect(30471, *(volatile uint8_t *)&gun_ammo_shown, 0);
+}
+
 #endif // __TARGET_TEST_PLANES__
 #pragma optimize(pop)
 
@@ -4220,6 +4508,7 @@ int main(void) {
   test_planes();
   test_planes_sweep();
   test_flight_asm();
+  test_panel_asm();
 #else
   test_poly_rounding();
   test_int8_negate_then_shift();

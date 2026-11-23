@@ -5,13 +5,13 @@
 #include "flight.h"
 #include "gfx.h"
 #include "gun.h"
+#include "panel_asm.h"
 #include "roll.h"
 #include "sprites.h"
 #include "view.h"
 
-// Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
-#pragma optimize(push, nooutline)
-
+#ifndef __OSCAR64__
+// Per-frame path: on C64 this lives in panel_asm.cc as hand-written 6502.
 void panel_update_instruments() {
   sprites_set_speed(flight_speed >> 6);
   sprites_set_alt(flight_eye_z >> 8);
@@ -31,8 +31,7 @@ void panel_update_instruments() {
   gfx_update_ammo();
 #endif
 }
-
-#pragma optimize(pop)
+#endif
 
 void panel_maybe_print_debug() {
 #ifdef __ENABLE_DEBUG__

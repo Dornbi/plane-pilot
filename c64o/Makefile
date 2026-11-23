@@ -94,6 +94,8 @@ PPILOT_SRC = \
 		msg.cc \
 		panel.h \
 		panel.cc \
+		panel_asm.h \
+		panel_asm.cc \
 		ppilot.cc \
 		poly.h \
 		poly.cc \

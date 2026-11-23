@@ -554,7 +554,7 @@ static char *const kGfxHeadingDest = (char *)0xF5C8;
 
 // Last heading drawn into the panel bitmap; 0xFF (not a valid heading)
 // forces a redraw after the bitmap has been re-expanded.
-static uint8_t _gfx_heading_bitmap_cache = 0xFF;
+uint8_t _gfx_heading_bitmap_cache = 0xFF;
 
 void gfx_invalidate_panel_bitmap(void) {
   _gfx_heading_bitmap_cache = 0xFF;
@@ -599,7 +599,7 @@ inline void gfx_update_heading_bitmap(uint8_t heading) {
 // the alt screen's RAM and sprite pointers. `make fpanel` gives these cells
 // and the counter's the same slot layout (--pin-slots), so the bit pairs
 // copied across draw the colours they were drawn in.
-static const char kGfxAmmoDigits[] = {
+const char kGfxAmmoDigits[] = {
 #embed 80 4018 "fpanel.koa"
 };
 // The counter's window, row 18 columns 6-8.
