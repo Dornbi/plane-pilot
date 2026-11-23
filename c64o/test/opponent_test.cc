@@ -994,6 +994,9 @@ static void test_flight_model(void) {
 
 static int _msgs = 0;
 static const char *_msg = "";
+uint8_t flight_true_heading = 0;
+static bool _msg_up;
+bool msg_active(void) { return _msg_up; }
 void msg_show(const char *text, uint8_t duration, bool permanent) {
   (void)duration;
   (void)permanent;
@@ -2048,6 +2051,116 @@ static void test_bomber_scale() {
   CHECK(opponent_smoke(sp, sh) == 1, "smoke black after 2 steps");
 }
 
+static void test_callout() {
+  // Periodic callout: 3 o'clock high, 9 o'clock low, 12 o'clock level,
+  // suppressed while another message is up, and urgent "CHECK SIX!" when an
+  // airborne opponent is directly behind within 2 km.
+  flight_paused = false;
+  flight_status = FLIGHT_ONGOING;
+  flight_true_heading = 0; // facing north
+  _msg_up = false;
+
+  // Target visible in viewport resets the 50-frame unseen window: even after
+  // 49 unseen frames no target callout appears; it appears on the 50th.
+  eye_at(0x40, 0x80, 0x04); // z = 0x040000 (2048 half-metres)
+  opponent_reset(0);
+  _opponent_xyz[0] = flight_eye_x;
+  _opponent_xyz[2] = flight_eye_y - (int32_t)(1000L << 8); // 500 m East (right)
+  _opponent_xyz[4] = flight_eye_z + (int32_t)(300L << 8);  // 150 m higher
+  _opponent_callout_t = 1;
+  _opponent_six_t = 0;
+  _opponent_in_view = 1; // slot 0 visible on last frame
+  _msgs = 0;
+  opponent_callout();
+  CHECK(_msgs == 0 && _opponent_callout_t == kCalloutUnseen,
+        "in-view target should suppress callout and reset counter (%d, %d)",
+        _msgs, _opponent_callout_t);
+
+  _opponent_in_view = 0;
+  for (int f = 0; f < 49; ++f) {
+    opponent_callout();
+  }
+  CHECK(_msgs == 0, "callout fired before 50 unseen frames (%d)", _msgs);
+
+  // On the 50th unseen frame, msg_active() still holds it off until clear.
+  _msg_up = true;
+  opponent_callout();
+  CHECK(_msgs == 0, "periodic callout suppressed while msg_active()");
+
+  _msg_up = false;
+  opponent_callout();
+  CHECK(_msgs == 1 && strcmp(_msg, "TARGET 3 O'CLOCK HIGH") == 0,
+        "expected TARGET 3 O'CLOCK HIGH, got \"%s\" (%d)", _msg, _msgs);
+
+  // 9 o'clock (West = +y), 150 m low.
+  _opponent_xyz[2] = flight_eye_y + (int32_t)(1000L << 8);
+  _opponent_xyz[4] = flight_eye_z - (int32_t)(300L << 8);
+  _opponent_callout_t = 1;
+  _msgs = 0;
+  opponent_callout();
+  CHECK(_msgs == 1 && strcmp(_msg, "TARGET 9 O'CLOCK LOW") == 0,
+        "expected TARGET 9 O'CLOCK LOW, got \"%s\"", _msg);
+
+  // 12 o'clock (North = +x), co-altitude.
+  _opponent_xyz[0] = flight_eye_x + (int32_t)(1000L << 8);
+  _opponent_xyz[2] = flight_eye_y;
+  _opponent_xyz[4] = flight_eye_z;
+  _opponent_callout_t = 1;
+  _msgs = 0;
+  opponent_callout();
+  CHECK(_msgs == 1 && strcmp(_msg, "TARGET 12 O'CLOCK") == 0,
+        "expected TARGET 12 O'CLOCK, got \"%s\"", _msg);
+
+  // Verify opponent_add_sprites() populates _opponent_in_view when target is
+  // straight ahead in the viewport, suppressing the 12 o'clock callout.
+  world_cam.front = {256, 0, 0};
+  world_cam.left = {0, 256, 0};
+  world_cam.up = {0, 0, 256};
+  opponent_add_sprites();
+  CHECK((_opponent_in_view & 1) != 0, "ahead target should set _opponent_in_view");
+  _opponent_callout_t = 1;
+  _msgs = 0;
+  opponent_callout();
+  CHECK(_msgs == 0, "target in viewport should suppress 12 o'clock callout");
+
+  // Directly behind (South = -x) within 2 km: suppressed if in viewport (e.g.
+  // back view), urgent "CHECK SIX!" once out of viewport.
+  _opponent_xyz[0] = flight_eye_x - (int32_t)(1000L << 8);
+  _opponent_xyz[2] = flight_eye_y;
+  _opponent_callout_t = 50;
+  _opponent_six_t = 0;
+  _opponent_in_view = 1;
+  _msgs = 0;
+  opponent_callout();
+  CHECK(_msgs == 0, "CHECK SIX! suppressed while target is in viewport");
+
+  _opponent_in_view = 0;
+  _msg_up = true;
+  _msgs = 0;
+  opponent_callout();
+  CHECK(_msgs == 1 && strcmp(_msg, "CHECK SIX!") == 0,
+        "expected urgent CHECK SIX!, got \"%s\" (%d)", _msg, _msgs);
+
+  // Cooldown prevents spamming CHECK SIX! on the next frame.
+  _msgs = 0;
+  opponent_callout();
+  CHECK(_msgs == 0, "CHECK SIX! cooldown failed (%d)", _msgs);
+
+  // Parked aircraft behind (mission 03 Ambush): no urgent CHECK SIX!.
+  eye_at(0x40, 0x80, 0x04);
+  opponent_reset(2);
+  _opponent_xyz[0] = flight_eye_x - (int32_t)(500L << 8);
+  _opponent_xyz[2] = flight_eye_y;
+  _opponent_xyz[4] = 0;
+  _opponent_on[1] = false;
+  _opponent_callout_t = 50;
+  _opponent_six_t = 0;
+  _msg_up = false;
+  _msgs = 0;
+  opponent_callout();
+  CHECK(_msgs == 0, "parked plane triggered urgent CHECK SIX!");
+}
+
 int main() {
   test_look_back();
   test_through_the_dot();
@@ -2064,6 +2177,7 @@ int main() {
   test_waves();
   test_guns();
   test_bomber_scale();
+  test_callout();
   if (_fails) {
     printf("opponent_test: %d checks FAILED\n", _fails);
     return 1;

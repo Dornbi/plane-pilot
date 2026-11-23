@@ -47,6 +47,7 @@ bool sprites_stack_add(int16_t, int16_t, int16_t, int8_t, int8_t, uint8_t, uint8
   return true;
 }
 void msg_show(const char *, uint8_t, bool) {}
+bool msg_active(void) { return false; }
 // The border damage.cc flashes.
 static uint8_t _vic[0x40];
 struct VIC *vic_host = (struct VIC *)_vic;

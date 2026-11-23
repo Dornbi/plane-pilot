@@ -398,6 +398,7 @@ void sim_run(uint8_t selected_mission) {
       msg_show(msg, MSG_FOREVER, true);
     }
     msg_update();
+    opponent_callout();
     damage_frame();
     bm_model_end(630, "MDL:");
 

@@ -10,6 +10,7 @@
 
 #include "color.h"
 #include "flight.h"
+#include "fmath.h"
 #include "gun.h"
 #include "mem.h"
 #include "mission.h"
@@ -552,6 +553,13 @@ static const uint8_t kOpponentNoSmoke = 0;
 static const uint8_t kSmokeHit = 14;
 static const uint8_t kSmokeDown = 35;
 
+// Radio callout cadence (rendered frames, ~7-8 fps on stock C64) and geometry
+// thresholds (half-metres).
+static const uint8_t kCalloutUnseen = 50;
+static const uint8_t kCheckSixCooldown = 45;
+static const uint16_t kCheckSixRange = 4000; // 2 km
+static const int16_t kCalloutAltBand = 160;  // 80 m (~310 ft)
+
 // --- State ------------------------------------------------------------------
 
 #pragma bss(bss2)
@@ -594,6 +602,12 @@ static uint8_t _opponent_lfsr;
 static uint8_t _opponent_smoke;
 static uint8_t _opponent_smoke_t;
 static uint8_t _opponent_smoke_flash;
+// Target radio callout timers (frames), viewport visibility mask, and
+// formatted line buffer (bss2).
+static uint8_t _opponent_callout_t;
+static uint8_t _opponent_six_t;
+static uint8_t _opponent_in_view;
+static char _opponent_callout_buf[24];
 // _opponent_fresh, _opponent_xyz, _opponent_planes, _opponent_shown, and the
 // shared tscratch vectors live in opponent_asm.cc (opponent_asm.h).
 static_assert(sizeof(_opponent_fresh) < 256,
@@ -629,6 +643,7 @@ void opponent_invalidate(void) {
     ((uint8_t *)&_opponent_vis)[--k] = 0;
   } while (k != 0);
   _opponent_pending = 0;
+  _opponent_in_view = 0;
   // Below I/O, so no banking. Written here all the same, not once at boot:
   // it is in no linker region, so nothing loads or clears it.
   planes_dot_bitmap(_opponent_block(kOpponentBlockDot));
@@ -820,6 +835,8 @@ void opponent_reset(uint8_t mission) {
   _opponent_failed = false;
   _opponent_lfsr |= 1;
   _opponent_smoke = kOpponentNoSmoke;
+  _opponent_callout_t = kCalloutUnseen;
+  _opponent_six_t = 0;
   _opponent_substep = 0;
   _opponent_kills = 0;
   opponent_shot_down = 0;
@@ -1447,6 +1464,99 @@ void opponent_step(void) {
   _opponent_track();
 }
 
+#pragma optimize(push, outline)
+static __noinline uint8_t _callout_append(uint8_t n, const char *s) {
+  while (*s) {
+    _opponent_callout_buf[n++] = *s++;
+  }
+  _opponent_callout_buf[n] = 0;
+  return n;
+}
+
+void opponent_callout(void) {
+  if (flight_paused || flight_crashed()) {
+    return;
+  }
+  if (_opponent_six_t != 0) {
+    --_opponent_six_t;
+  }
+  uint8_t live_in_view =
+      _opponent_in_view &
+      (uint8_t)~(_opponent_down | (uint8_t)(_opponent_down >> kOpponentFalling));
+  if (live_in_view != 0) {
+    _opponent_callout_t = kCalloutUnseen;
+  } else if (_opponent_callout_t != 0) {
+    --_opponent_callout_t;
+  }
+  bool want_periodic = _opponent_callout_t == 0 && !msg_active();
+  if (_opponent_six_t != 0 && !want_periodic) {
+    return;
+  }
+
+  uint8_t best_i = kOpponentMax;
+  uint8_t best_clock = 0;
+  uint16_t best_dist = 0xFFFF;
+  for (uint8_t i = 0; i < kOpponentMax; ++i) {
+    uint8_t bit = _opponent_bit(i);
+    if (!_opponent_on[i] ||
+        (_opponent_down & (uint8_t)(bit | (uint8_t)(bit << kOpponentFalling))) !=
+            0 ||
+        (_opponent_in_view & bit) != 0) {
+      continue;
+    }
+    int16_t dx = -_opponent_toward(_opponent_hm(&flight_eye_x), i);
+    int16_t dy = -_opponent_toward(_opponent_hm(&flight_eye_y),
+                                   (uint8_t)(i + kOpponentMax));
+    int8_t rel = (int8_t)(_get_heading(dx, dy) - flight_true_heading);
+    if (rel < 0) {
+      rel += kHeadingMax;
+    }
+    uint8_t clock = (uint8_t)((uint8_t)(rel + 2) >> 2);
+    if (clock == 0 || clock >= 12) {
+      clock = 12;
+    }
+    uint16_t dist = _opponent_abs(dx) + _opponent_abs(dy);
+    if (clock == 6 && _opponent_speed[i] != 0 && dist < kCheckSixRange &&
+        _opponent_six_t == 0) {
+      msg_show("CHECK SIX!");
+      _opponent_six_t = kCheckSixCooldown;
+      _opponent_callout_t = kCalloutUnseen;
+      return;
+    }
+    if (dist < best_dist) {
+      best_dist = dist;
+      best_i = i;
+      best_clock = clock;
+    }
+  }
+  if (!want_periodic || best_i == kOpponentMax) {
+    return;
+  }
+  if (best_clock == 6 && _opponent_speed[best_i] != 0) {
+    msg_show("CHECK SIX!");
+    _opponent_six_t = kCheckSixCooldown;
+  } else {
+    uint8_t n = _callout_append(0, "TARGET ");
+    if (best_clock >= 10) {
+      _opponent_callout_buf[n++] = '1';
+      best_clock -= 10;
+    }
+    _opponent_callout_buf[n++] = (char)('0' + best_clock);
+    n = _callout_append(n, " O'CLOCK");
+    // _opponent_toward returns player - opponent, so < -band means target high.
+    int16_t dz = _opponent_toward(_opponent_hm(&flight_eye_z),
+                                  (uint8_t)(best_i + 2 * kOpponentMax));
+    if (dz < -kCalloutAltBand) {
+      _callout_append(n, " HIGH");
+    } else if (dz > kCalloutAltBand) {
+      _callout_append(n, " LOW");
+    }
+    msg_show(_opponent_callout_buf);
+  }
+  _opponent_callout_t = kCalloutUnseen;
+}
+#pragma optimize(pop)
+
 // Slot i is off screen, or only the dot, so its block sets no longer show
 // what it looks like. Until a new silhouette is filled it is shown as the
 // dot, never as the bitmap from the last time it was in view: that can be
@@ -1814,13 +1924,16 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
   uint8_t color =
       (_opponent_near & bit) ? _opponent_color[i] : kColorOpponentFar;
   // Depth in the clouds' 1 m units, so that the two sort together.
-  sprites_stack_add(far ? _opponent_c.x >> 1 : _opponent_c.x >> 3,
-                    _opponent_f.x, _opponent_f.y, 0, 0, bitmap, bitmap2, color,
-                    flags);
+  if (sprites_stack_add(far ? _opponent_c.x >> 1 : _opponent_c.x >> 3,
+                        _opponent_f.x, _opponent_f.y, 0, 0, bitmap, bitmap2,
+                        color, flags)) {
+    _opponent_in_view |= bit;
+  }
   return started;
 }
 
 void opponent_add_sprites(void) {
+  _opponent_in_view = 0;
   _opponent_seen = _opponent_cull();
   if (_opponent_seen == 3) {
 #ifdef __OSCAR64__

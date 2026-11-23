@@ -97,6 +97,7 @@ Shipped in `fpilot.prg` (`-D__FPILOT__`, guarded by `__ENABLE_OPPONENT__`). Cove
 - **Bomber rear gunner (`_opponent_gunner`):** Active on **any flying bomber** (including `Path` bombers) when player is behind: `1 <= back < 1200` (600 m), `|cross| < back` (±45° horizontal), `-back * 3/16 <= dz < back` (−10° to +45° vertical). Aims along `vec_normalize(d / (2 * back))`.
 - **Scatter & velocity:** Both add `kOpponentScatter[8]` (`±4..±28` in 8.8 via 8-bit xorshift `7,5,3` `opponent_random()`), scaled to `kGunMuzzle = 768` (48 m/step), with no own-velocity addition. `gun_step()` polls `opponent_fires(i, _gun_v)` and calls `_gun_fire_from(i)`.
 - **Provoking:** A `Provoked` opponent switches to `Hunt` on a hit, a 40 m near miss (`kRoundNear`), or player closing inside `kOpponentSpot = 4000` half-metres (2 km).
+- **Radio target callouts (`opponent_callout()` in `sim.cc`):** Called once per rendered frame after `msg_update()`, using `_opponent_in_view` (set in `_opponent_draw()` whenever `sprites_stack_add()` accepts a target into the viewport). Immediately warns `"CHECK SIX!"` (45-frame cooldown) when an out-of-view airborne opponent is directly behind (`6 o'clock`, within 2 km); otherwise, whenever no live target has been visible in the viewport for 50 consecutive frames (`kCalloutUnseen = 50`) and no other message is active, calls the nearest live opponent's clock bearing and altitude band (e.g. `"TARGET 4 O'CLOCK HIGH"` / `"LOW"` / level, ±80 m deadband).
 
 ---
 

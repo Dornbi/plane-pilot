@@ -90,6 +90,10 @@ uint8_t opponent_random(void);
 // smoke is up, 1 for black smoke, 2 for orange, 3 for yellow (hit/impact flash).
 uint8_t opponent_smoke(int32_t *p, int16_t *h);
 
+// Periodic / urgent 3D target callout ("CHECK SIX!" or "TARGET N O'CLOCK
+// HIGH/LOW"), called once per rendered frame from sim.cc after msg_update().
+void opponent_callout(void);
+
 // Aircraft the player has shot down since opponent_reset(), for the debrief
 // (debrief.h): those the guns downed, not those that flew into the ground or
 // into the player.
@@ -108,6 +112,7 @@ inline bool opponent_none_left(void) { return false; }
 inline bool opponent_target(uint8_t i, int32_t *p) { return false; }
 inline void opponent_strike(uint8_t i) {}
 inline uint8_t opponent_smoke(int32_t *p, int16_t *h) { return 0; }
+inline void opponent_callout(void) {}
 inline bool opponent_fires(uint8_t i, int16_t *v) { return false; }
 inline bool opponent_calm(uint8_t i) { return false; }
 inline void opponent_provoke(uint8_t i) {}
