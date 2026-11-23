@@ -78,8 +78,8 @@ MAP_TEST_HDRS = ../mission.h ../world.h
 # sound_test links sound.cc alone. The flight globals it reads are defined in
 # the test itself rather than pulled in from flight.cc, which keeps this a test
 # of the register mapping and lets it set input combinations directly.
-SOUND_TEST_SRC = sound_test.cc ../sound.cc
-SOUND_TEST_HDRS = ../sound.h ../sid.h ../flight.h
+SOUND_TEST_SRC = sound_test.cc ../sound.cc ../sound_asm.cc
+SOUND_TEST_HDRS = ../sound.h ../sound_asm.h ../sid.h ../flight.h
 
 # mul_test links nothing: it replays the arithmetic of the four call sites that
 # were converted from mul16/mul16by8 to vec_fastmul8p8 against the products they
@@ -261,6 +261,7 @@ target_test.prg: target_test.cc int16.h ../vec.h ../vec.cc ../vec_lut.cc \
 target_planes_test.prg: target_test.cc ../vec.h ../vec.cc ../vec_lut.cc \
 		../planes.h ../planes.cc ../planes_asm.h ../planes_asm.cc ../planedef.h \
 		../flight_asm.h ../flight_asm.cc ../panel_asm.h ../panel_asm.cc \
+		../sound_asm.h ../sound_asm.cc \
 		../sprites.h ../sprites_asm.h ../sprites_asm.cc ../spritedef.h ../spritedef.cc \
 		planes_target_cases.h
 	$(OSCAR64) $(TARGET_CFLAGS) -D__TARGET_TEST__ -D__TARGET_TEST_PLANES__ -o=target_planes_test.prg target_test.cc

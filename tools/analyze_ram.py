@@ -171,7 +171,7 @@ DESCRIPTIONS = {
     },
     'Sound Effects': {
         'Code': 'SID driver, engine generator, stall alarm, wind noise, '
-                'combat effects, volume control (`sound.cc`)',
+                'combat effects, volume control (`sound.cc`, `sound_asm.cc`)',
         'Data': 'engine pitch table, wind frequency table, voice-3 tables, '
                 'volume names',
         'BSS': 'the SID register shadow',

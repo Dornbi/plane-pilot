@@ -137,7 +137,7 @@ Feature table total        64,226 B
 4. **Instrument Panel:** `view.cc`, `panel.cc`, `sprites.cc`, `sprites_asm.cc`, `spritedef.cc`; compressed panel/sprite art; sprite bitmaps `$D400–$DFFF`, panel bitmap `$F000–$FF3F`, sprite pointers.
 5. **Menu & Missions:** `menu.cc`, `pmission.cc`/`fmission.cc`, `debrief.cc`, `help.cc`, `map.cc`, `title.cc`; text, mission tables, map tiles, title sprites; `$D000–$D3FF` time-shared under I/O.
 6. **Message System:** `msg.cc` and `screen.cc` notices.
-7. **Sound Effects:** `sound.cc`, pitch/wind/V3 tables, 25 B SID shadow.
+7. **Sound Effects:** `sound.cc`, `sound_asm.cc`, pitch/wind/V3 tables, 25 B SID shadow.
 8. **Music:** `music.cc`, packed `musicdef.cc` pools, note/drum tables.
 9. **Debug / 10. Benchmarks (`ppilot` only):** `panel.cc` `D` overlay, `benchmark.cc` CIA2 counters.
 11. **Core System & Drivers:** `ppilot.cc`, `mem.cc`, `gfx.cc`, `screen.cc`, `keys.cc`, `cpu.cc`, `bcd.cc`, `print.cc`, oscar64 runtime; boot region at `$0860`; off-budget color RAM `$D800–$DBE7`.

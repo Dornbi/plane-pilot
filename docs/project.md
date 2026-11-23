@@ -201,7 +201,7 @@ Mission definitions, start poses, waypoints, navpoints, and (`pmission.cc` only)
 ## 8. Support modules
 
 - `fmath.cc` — closed-form integer heading and roll-angle approximations (no LUTs).
-- `sound.cc` — 3-voice SID flight SFX (`sound_update` → 25 B shadow → 22-reg `sound_blit` gated by `sound_dirty`). See [sound.md](sound.md).
+- `sound.cc`, `sound_asm.cc` — 3-voice SID flight SFX (6502 `sound_update` → 25 B shadow → 22-reg `sound_blit` gated by `sound_dirty`). See [sound.md](sound.md).
 - `music.cc` / `musicdef.cc` — 50 Hz PAL title tune player and packed 24-bar D-minor data. See [music.md](music.md).
 - `cpu.cc` — boot-time CIA2 speed probe for SuperCPU detection ([supercpu.md](supercpu.md)).
 - `keys.cc` — direct CIA1 keyboard matrix and Port 2 joystick scanner (`joy2_state`).

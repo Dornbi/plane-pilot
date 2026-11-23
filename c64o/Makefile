@@ -117,6 +117,8 @@ PPILOT_SRC = \
 		sim.cc \
 		sound.h \
 		sound.cc \
+		sound_asm.h \
+		sound_asm.cc \
 		spritedef.h \
 		spritedef.cc \
 		spritedef.bin \
@@ -191,6 +193,8 @@ POLYDEMO_SRC = \
 		sid.h \
 		sound.h \
 		sound.cc \
+		sound_asm.h \
+		sound_asm.cc \
 		sprites.h \
 		sprites.cc \
 		sprites_asm.h \

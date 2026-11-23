@@ -69,6 +69,10 @@
 //   29  panel_asm.cc panel_update_instruments (all 6 dial arms + caching,
 //       closed-form roll, pitch bar, heading strip, 5 lamps, ammo counter &
 //       view states) against pure-C reference (in target_planes_test.prg)
+//   30  sound_asm.cc sound_update (LFSR roughness, PWM triangle sweep,
+//       quarter-square engine jitter, wind speed clamp/gating, Voice 3
+//       arbitration/priority/stall warble/crash sweep, volume clamp, and
+//       sound_dirty) against pure-C reference (in target_planes_test.prg)
 
 #include <stdint.h>
 
@@ -96,6 +100,7 @@
 #ifdef __TARGET_TEST_PLANES__
 #include "../flight_asm.h"
 #include "../panel_asm.h"
+#include "../sound_asm.h"
 #include "planes_target_cases.h"
 #else
 #include "../poly_asm.h"
@@ -4488,6 +4493,306 @@ static void test_panel_asm(void) {
   expect(30471, *(volatile uint8_t *)&gun_ammo_shown, 0);
 }
 
+// ---------------------------------------------------------------------------
+// 30. sound_asm.cc sound_update() against a pure C reference across all
+//     engine/wind/Voice 3 paths (throttle & speed clamps, LFSR + PWM wrap,
+//     pause/volume/fuel/crash silence, touchdown/hit/gun/gear/flap priority,
+//     stall warble on/gap/wrap, crash sweep 16..0 & R-restart abort).
+// ---------------------------------------------------------------------------
+bool flight_paused;
+enum FlightStatus flight_status;
+uint8_t flight_events;
+uint8_t flight_gen;
+uint8_t sound_volume;
+
+static uint8_t _sref_shadow[kSoundRegCount];
+static uint8_t _sref_gen;
+static uint8_t _sref_pwm_phase;
+static uint8_t _sref_rng;
+static uint8_t _sref_v3_effect;
+static uint8_t _sref_v3_frames;
+static uint8_t _sref_stall_phase;
+static uint8_t _sref_flight_gen_seen;
+
+static uint8_t _ref_sound_rand(void) {
+  bool lsb = (_sref_rng & 1) != 0;
+  _sref_rng >>= 1;
+  if (lsb) {
+    _sref_rng ^= kSoundRngTaps;
+  }
+  return _sref_rng;
+}
+
+static bool _ref_pick_v3(uint8_t events, uint8_t from, uint8_t to) {
+  if (events == 0) {
+    return false;
+  }
+  for (uint8_t i = from; i < to; ++i) {
+    if (events & kSoundV3Ev[i]) {
+      _sref_v3_effect = kSoundV3Id[i];
+      _sref_v3_frames = kSoundV3Dur[i];
+      return true;
+    }
+  }
+  return false;
+}
+
+static __noinline void _ref_sound_update(void) {
+  uint8_t r_pw = _ref_sound_rand();
+  uint8_t r_pitch = _ref_sound_rand();
+  _sref_pwm_phase = (uint8_t)(_sref_pwm_phase + kSoundPwmStep + (r_pw & 3));
+
+  bool driver_live = (sound_volume != 0 && !flight_paused);
+  bool flying =
+      driver_live && (flight_status < FLIGHT_CRASH_ROLL) && (flight_fuel != 0);
+
+  uint8_t tri = (uint8_t)(_sref_pwm_phase << 1);
+  if (_sref_pwm_phase & 0x80) {
+    tri ^= 0xFE;
+  }
+  uint16_t pw = (uint16_t)(kSoundPwmMin + ((uint16_t)tri << 3) +
+                           (r_pw & kSoundPwmJitterMask));
+
+  uint8_t thr = flight_throttle > kMaxThrottle ? kMaxThrottle : flight_throttle;
+  uint16_t base = (uint16_t)(((uint16_t)kSoundEngineFreqHi[thr] << 8) |
+                             kSoundEngineFreqLo[thr]);
+  uint8_t amp = (uint8_t)(base >> kSoundEngineJitterShift);
+  uint16_t prod =
+      (uint16_t)((uint16_t)(amp << 1) * (uint16_t)((r_pitch & 0x1F) << 3)) >> 8;
+  uint16_t freq = (uint16_t)((int16_t)base + (int16_t)prod - (int16_t)amp);
+
+  uint8_t events = 0;
+  if (flight_gen != _sref_flight_gen_seen) {
+    _sref_flight_gen_seen = flight_gen;
+    events = flight_events;
+  }
+  bool retrigger = false;
+  bool stall_gap = false;
+  if (_sref_v3_frames != 0) {
+    --_sref_v3_frames;
+  }
+  if (!driver_live) {
+    _sref_v3_effect = V3_NONE;
+    _sref_v3_frames = 0;
+  } else if (events & FLIGHT_EV_CRASH) {
+    _sref_v3_effect = V3_CRASH;
+    _sref_v3_frames = kSoundCrashFrames;
+    retrigger = true;
+  } else if (_sref_v3_effect == V3_CRASH) {
+    if (_sref_v3_frames == 0 || flight_status < FLIGHT_CRASH_ROLL) {
+      _sref_v3_effect = V3_NONE;
+      _sref_v3_frames = 0;
+    }
+  } else if (!flying) {
+    _sref_v3_effect = V3_NONE;
+    _sref_v3_frames = 0;
+  } else if (_ref_pick_v3(events, 0, 2)) {
+    retrigger = true;
+  } else if (_sref_v3_frames != 0 && _sref_v3_effect != V3_STALL) {
+  } else if (flight_stall) {
+    if (_sref_v3_effect != V3_STALL) {
+      _sref_stall_phase = 0;
+    }
+    _sref_v3_effect = V3_STALL;
+    uint8_t sp = _sref_stall_phase;
+    if (sp == 0) {
+      retrigger = true;
+    }
+    stall_gap = sp >= kSoundStallOnFrames;
+    ++sp;
+    _sref_stall_phase = sp >= kSoundStallPeriodFrames ? 0 : sp;
+  } else if (_ref_pick_v3(events, 2, 5)) {
+    retrigger = true;
+  } else if (_sref_v3_frames == 0) {
+    _sref_v3_effect = V3_NONE;
+  }
+  if (retrigger) {
+    ++_sref_gen;
+  }
+
+  uint8_t eff = _sref_v3_effect;
+  uint16_t v3_freq = (uint16_t)((uint16_t)kSoundV3FreqHi[eff] << 8);
+  if (eff == V3_CRASH) {
+    uint8_t m = (uint8_t)((_sref_v3_frames << 3) - _sref_v3_frames +
+                          (kSoundCrashFreqEnd >> 5));
+    v3_freq = ((uint16_t)((uint16_t)m << 8)) >> 3;
+  }
+  _sref_shadow[14] = (uint8_t)v3_freq;
+  _sref_shadow[15] = (uint8_t)(v3_freq >> 8);
+  _sref_shadow[17] = eff == V3_STALL ? (uint8_t)(kSoundStallPw >> 8) : 0;
+  _sref_shadow[19] = kSoundV3AttDec[eff];
+  _sref_shadow[20] = kSoundV3SusRel[eff];
+  _sref_shadow[18] = stall_gap ? SID_CTRL_RECT : kSoundV3Ctrl[eff];
+
+  _sref_shadow[0] = (uint8_t)freq;
+  _sref_shadow[1] = (uint8_t)(freq >> 8);
+  _sref_shadow[2] = (uint8_t)pw;
+  _sref_shadow[3] = (uint8_t)(pw >> 8) & 0x0F;
+  _sref_shadow[5] = kSoundEngineAttDec;
+  _sref_shadow[6] = kSoundEngineSusRel;
+  _sref_shadow[4] = flying ? (SID_CTRL_RECT | SID_CTRL_GATE) : SID_CTRL_RECT;
+
+  int16_t spd = flight_speed < 0 ? 0 : flight_speed;
+  uint8_t widx = (uint8_t)((uint16_t)spd >> kSoundWindSpeedShift);
+  if (widx >= kSoundWindSteps) {
+    widx = kSoundWindSteps - 1;
+  }
+  _sref_shadow[7] = kSoundWindFreqLo[widx];
+  _sref_shadow[8] = kSoundWindFreqHi[widx];
+  _sref_shadow[12] = kSoundWindAttDec;
+  _sref_shadow[13] = kSoundWindSusRel;
+  _sref_shadow[11] = (flying && flight_speed >= (int16_t)kSoundWindMinSpeed)
+                         ? (SID_CTRL_NOISE | SID_CTRL_GATE)
+                         : SID_CTRL_NOISE;
+
+  uint8_t vol = sound_volume < kSoundVolumeSteps ? sound_volume
+                                                 : kSoundVolumeDefault;
+  _sref_shadow[24] = (flying || eff != V3_NONE) ? kMasterVolume[vol] : 0;
+}
+
+static __noinline void _check_sound_step(uint16_t id) {
+  sound_dirty = 0;
+  sound_update();
+  _ref_sound_update();
+  expect(id, *(volatile uint8_t *)&sound_dirty, 1);
+  expect((uint16_t)(id + 1), sound_gen, _sref_gen);
+  expect((uint16_t)(id + 2), _sound_pwm_phase, _sref_pwm_phase);
+  expect((uint16_t)(id + 3), _sound_rng, _sref_rng);
+  expect((uint16_t)(id + 4), _sound_v3_effect, _sref_v3_effect);
+  expect((uint16_t)(id + 5), _sound_v3_frames, _sref_v3_frames);
+  expect((uint16_t)(id + 6), _sound_stall_phase, _sref_stall_phase);
+  expect((uint16_t)(id + 7), _sound_flight_gen_seen, _sref_flight_gen_seen);
+  for (uint8_t r = 0; r < kSoundRegCount; ++r) {
+    expect((uint16_t)(id + 8 + r), sound_shadow[r], _sref_shadow[r]);
+  }
+}
+
+static void test_sound_asm(void) {
+  for (uint8_t r = 0; r < kSoundRegCount; ++r) {
+    sound_shadow[r] = 0;
+    _sref_shadow[r] = 0;
+  }
+  sound_gen = _sref_gen = 0;
+  sound_gen_seen = 0;
+  _sound_pwm_phase = _sref_pwm_phase = 0;
+  _sound_rng = _sref_rng = kSoundRngSeed;
+  _sound_v3_effect = _sref_v3_effect = V3_NONE;
+  _sound_v3_frames = _sref_v3_frames = 0;
+  _sound_stall_phase = _sref_stall_phase = 0;
+  flight_gen = 1;
+  _sound_flight_gen_seen = _sref_flight_gen_seen = 1;
+  flight_events = 0;
+  flight_paused = false;
+  flight_status = FLIGHT_ONGOING;
+  flight_fuel = 0x00100000UL;
+  flight_stall = 0;
+  sound_volume = kSoundVolumeDefault;
+
+  // 1) Sweep throttles (incl. clamp at 25/30) and speeds (negative, 0, 0x7F,
+  //    0x80, 0xFF, 0x100, 0x0F00, 0x1200) across full PWM triangle wrap.
+  static const uint8_t kThrs[8] = {0, 1, 6, 12, 19, 24, 25, 40};
+  static const int16_t kSpds[8] = {-10, 0, 0x007F, 0x0080,
+                                   0x00FF, 0x0100, 0x0F00, 0x1500};
+  uint16_t id = 31000u;
+  for (uint8_t i = 0; i < 40; ++i) {
+    flight_throttle = kThrs[i & 7];
+    flight_speed = kSpds[i & 7];
+    _check_sound_step(id);
+    id += 33;
+  }
+
+  // 2) Volume 1, 0, out-of-range (5 -> default 2), pause, fuel 0 (only byte 0
+  //    vs byte 3 non-zero vs all zero).
+  flight_throttle = 14;
+  flight_speed = 0x0500;
+  sound_volume = 1;
+  _check_sound_step(32400);
+  sound_volume = 0;
+  _check_sound_step(32440);
+  sound_volume = 5;
+  _check_sound_step(32480);
+  sound_volume = 2;
+  flight_paused = true;
+  _check_sound_step(32520);
+  flight_paused = false;
+  flight_fuel = 0;
+  _check_sound_step(32560);
+  flight_fuel = 1;
+  _check_sound_step(32600);
+  flight_fuel = 0x01000000UL;
+  _check_sound_step(32640);
+
+  // 3) Voice 3 one-shots & priority: flap -> gear ignored while flap running ->
+  //    hit preempts -> same gen does not retrigger -> gun while idle ->
+  //    touchdown preempts stall.
+  flight_events = FLIGHT_EV_FLAP;
+  ++flight_gen;
+  _check_sound_step(32700);
+  // Same flight_gen: events ignored, flap keeps counting down.
+  _check_sound_step(32740);
+  // Gear arrives while flap still active: dropped.
+  flight_events = FLIGHT_EV_GEAR;
+  ++flight_gen;
+  _check_sound_step(32780);
+  // Hit preempts active flap!
+  flight_events = FLIGHT_EV_HIT | FLIGHT_EV_GUN;
+  ++flight_gen;
+  _check_sound_step(32820);
+  _check_sound_step(32860);
+  // Hit expires -> gun triggers.
+  flight_events = FLIGHT_EV_GUN;
+  ++flight_gen;
+  _check_sound_step(32900);
+  // Gun expires -> idle.
+  _check_sound_step(32940);
+
+  // 4) Stall warble: 6 frames covers phase 0,1 (on), 2,3 (gap), 0,1 (retrigger).
+  flight_stall = 1;
+  id = 33000u;
+  for (uint8_t s = 0; s < 6; ++s) {
+    _check_sound_step(id);
+    id += 35;
+  }
+  // Touchdown preempts stall; stall resumes once touchdown finishes.
+  flight_events = FLIGHT_EV_TOUCHDOWN;
+  ++flight_gen;
+  id = 33250u;
+  for (uint8_t s = 0; s < 5; ++s) {
+    _check_sound_step(id);
+    id += 35;
+  }
+  flight_stall = 0;
+  _check_sound_step(33450u);
+
+  // 5) Crash sweep across all 17 frames (16..0 -> V3_NONE) while crashed.
+  flight_status = FLIGHT_CRASH_ROLL;
+  flight_events = FLIGHT_EV_CRASH;
+  ++flight_gen;
+  id = 33500u;
+  for (uint8_t s = 0; s < 18; ++s) {
+    _check_sound_step(id);
+    id += 35;
+  }
+
+  // 6) Crash aborted mid-sweep by R restart (flight_status -> FLIGHT_ONGOING)
+  //    and by pause (!driver_live).
+  flight_status = FLIGHT_CRASH_ROLL;
+  flight_events = FLIGHT_EV_CRASH;
+  ++flight_gen;
+  _check_sound_step(34200);
+  flight_status = FLIGHT_ONGOING;
+  _check_sound_step(34240);
+
+  flight_status = FLIGHT_CRASH_ROLL;
+  flight_events = FLIGHT_EV_CRASH;
+  ++flight_gen;
+  _check_sound_step(34280);
+  flight_paused = true;
+  _check_sound_step(34320);
+  flight_paused = false;
+  flight_status = FLIGHT_ONGOING;
+}
+
 #endif // __TARGET_TEST_PLANES__
 #pragma optimize(pop)
 
@@ -4509,6 +4814,7 @@ int main(void) {
   test_planes_sweep();
   test_flight_asm();
   test_panel_asm();
+  test_sound_asm();
 #else
   test_poly_rounding();
   test_int8_negate_then_shift();
