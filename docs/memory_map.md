@@ -68,8 +68,8 @@ python3 tools/analyze_ram.py c64o/fpilot.map --verbose
 | `$EFF8-$EFFF` | 8 | used | alt screen sprite pointers |
 | `$F000-$FF3F` | 3,904 | used | panel bitmap, incl. heading strips at `$F000` |
 | `$FF40-$FFBF` | 128 | used | back view's tail fin, 2 sprite blocks (`kFinSpriteData`) |
-| `$FFC0-$FFCD` | 14 | used | generated raster IRQ stub (`irqcode`, `gfx.cc _rirq_buf`) |
-| `$FFCE-$FFF7` | 42 | free | free inside `irqcode` region |
+| `$FFC0-$FFC3` | 4 | used | direct raster IRQ trampoline & SuperCPU flag (`irqcode`, `gfx.cc _gfx_irq_vec`, `_gfx_panel_fast`) |
+| `$FFC4-$FFF7` | 52 | free | free inside `irqcode` region |
 | `$FFF8-$FFF9` | 2 | free (orphan) | gap before hardware vectors |
 | `$FFFA-$FFFF` | 6 | used | NMI / RESET / IRQ vectors |
 

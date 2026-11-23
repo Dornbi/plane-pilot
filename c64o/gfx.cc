@@ -10,32 +10,16 @@
 #include "mem.h"
 #include "sound.h"
 #include "sprites.h"
+#ifdef __OSCAR64__
+#include "sprites_asm.h"
+#endif
 #include "vec.h"
 #include "vic.h"
 #include "view.h"
 
 #ifdef __OSCAR64__
-#include <c64/rasterirq.h>
-// The split uses three raster interrupts, slots 0-2 in gfx_init_raster_irqs(),
-// and the Makefile's -DNUM_IRQS=3 sizes the library's five tables for just
-// those rather than its default sixteen. On the command line, not here:
-// oscar64 compiles rasterirq.c without this file's defines.
-static_assert(NUM_IRQS == 3, "gfx_init_raster_irqs() sets slots 0-2");
 #include <oscar.h>
 #else
-#define RIRQ_SIZE 2
-typedef struct RIRQCode {
-  uint8_t size;
-  uint8_t code[RIRQ_SIZE];
-} RIRQCode;
-
-static void _gfx_rirq_init(void) {}
-static void rirq_build(RIRQCode *ic, uint8_t size) {}
-static void rirq_call(RIRQCode *ic, uint8_t n, void *addr) {}
-static void rirq_write(RIRQCode *ic, uint8_t n, void *addr, uint8_t data) {}
-static void rirq_start(void) {}
-static void rirq_stop(void) {}
-
 static const char *oscar_expand_lzo(char *dp, const char *sp) { return sp; }
 #endif
 
@@ -45,192 +29,157 @@ const char kGfxCharsCompressed[] = {
 };
 #pragma data(data)
 
-// Raster IRQ handlers: cycle-counted (note the NOP padding below), so keep
-// the outliner out of them as well.
+// Raster lines for the three direct chained split handlers:
+// - Panel top: armed on line 161 (not a badline; at most 1 tail-fin sprite
+//   fetches on line 161 in VIEW_BACK), spins on $d012 until line 162 starts,
+//   slows a SuperCPU, waits to blanking, switches VIC to panel bitmap + active
+//   top sprite (sprite 0 in VIEW_CENTER, none otherwise).
+// - Panel bottom: armed on line 186 (one line above kViewportEndYPixels + 24 +
+//   1 = 187). Skipped completely in VIEW_BACK / VIEW_UNKNOWN (and debug mode),
+//   chaining straight to terrain.
+// - Terrain: armed on line 251 (one line above kScreenHeightPixels + 2 = 252).
+static const uint8_t kGfxRasterPanelTop =
+    kRasterScreenYStart + kViewportEndYPixels - 1;
+static const uint8_t kGfxRasterPanelBottom =
+    kRasterScreenYStart + kViewportEndYPixels + 24;
+static const uint8_t kGfxRasterTerrain =
+    kRasterScreenYStart + kScreenHeightPixels + 1;
+static_assert(kGfxRasterPanelTop == 161 && kGfxRasterPanelBottom == 186 &&
+                  kGfxRasterTerrain == 251,
+              "gfx.cc direct raster IRQ line constants");
+
+// In mem.h's irqcode region at $FFC0-$FFF7: initialized by
+// gfx_init_raster_irqs() before interrupts start, so it needs no clear.
+// _gfx_irq_vec holds `JMP <next_handler>` patched by each handler;
+// _gfx_panel_fast records cpu_step_shift != 0 for SuperCPU split padding.
+#ifdef __OSCAR64__
+#pragma bss(irqcode)
+static uint8_t _gfx_irq_vec[3];
+static uint8_t _gfx_panel_fast;
+#pragma bss(bss)
+#endif
+
+// Raster IRQ handlers: cycle-counted, so keep the outliner out of them.
 #pragma optimize(push, noasm, nooutline)
 
-// The padding in the two handlers below, in NOPs. It is what puts the three
-// register writes in the horizontal blanking between rasters 162 and 163, so it
-// is measured on a raster and never reasoned about - docs/clouds.md §1.8 and
-// docs/supercpu.md.
-//
-// **Two numbers, because one cannot serve both machines.** Swept on the split
-// itself, the window is ten NOPs wide on either machine and the two barely
-// overlap: a stock C64 draws the frame correctly from **8 to 17** and xscpu64
-// from **15 to 24**, because the interrupt entry and oscar64's rirq dispatcher
-// ahead of the handler still run at 20 MHz on the accelerator. Any shared value
-// is within a NOP or two of one machine's edge, and a NOP or two is what let a
-// stock C64 tear one frame in a few hundred. docs/supercpu.md named this as the
-// way out if the two ever needed different values; they do.
-//
-// 12 and 19 are the middles, with four NOPs of margin on the early side and
-// five on the late one, which is the side the interrupt's entry jitter wanders
-// towards.
-//
-// The choice is made once, in gfx_init_raster_irqs(), from the boot probe: two
-// handlers, one rirq_call, no run-time branch inside a cycle-counted handler.
-#ifndef GFX_PANEL_NOPS
-#define GFX_PANEL_NOPS 12
-#endif
-#ifndef GFX_PANEL_NOPS_FAST
-#define GFX_PANEL_NOPS_FAST 19
-#endif
+#ifdef __OSCAR64__
+static void _gfx_switch_to_panel_top(void);
+static void _switch_to_panel_bottom(void);
+static void _gfx_switch_to_terrain(void);
 
-// The writes, and everything after them. Shared by both handlers so that the
-// padding is the only difference between them; __noinline so the JSR is in both
-// and the two counts stay comparable.
-//
-// The three values are loaded and *then* stored, rather than in load/store
-// pairs. That is not tidying: all three have the same deadline, which is not
-// "the blanking" in general but raster 163's badline - the VIC starts fetching
-// the panel's first character row at cycle 15 and shifts its first pixel out at
-// ~16, and $D018's video matrix, $D011's BMM bit and $D021 all have to be in
-// before that. Three lda/sta pairs span the deadline over eighteen cycles;
-// three loads and three stores span it over twelve. Six cycles of the window,
-// for no bytes and no branch.
-static __noinline void _gfx_panel_top_writes(void) {
+static void _gfx_switch_to_panel_top(void) {
+#ifdef __ENABLE_DEBUG__
+  if (mem_debug_enabled) {
+    sprites_show_no_sprites();
+    // clang-format off
+    __asm {
+        lda #<_gfx_switch_to_terrain;
+        ldx #>_gfx_switch_to_terrain;
+        ldy #251;               // kGfxRasterTerrain
+        sta _gfx_irq_vec + 1;
+        stx _gfx_irq_vec + 2;
+        sty $d012;
+    }
+    // clang-format on
+    return;
+  }
+#endif
+  // Wait for line 162 to start, then slow SuperCPU and pad to horizontal
+  // blanking (~53 cycles after L_pt_spin exits on C64, ~53.3 cycles on SCPU,
+  // dead center of the 10-NOP window on both machines). PHA/PLA (7 cyc, 2 B)
+  // has no branches and is immune to page-crossing jitter.
   // clang-format off
   __asm {
-    lda #$b8;
-    ldx #$3b;
-    ldy #$00;
-    sta $d018;
-    stx $d011;
-    sty $d021;
+        lda #161;               // kGfxRasterPanelTop
+    L_pt_spin:
+        cmp $d012;
+        bcs L_pt_spin;
+
+        lda #0;
+        sta $d07a;              // cpu_speed_slow()
+        pha; pla;
+        pha; pla;
+        pha; pla;
+        pha; pla;
+        ldx _gfx_panel_fast;
+        beq L_pt_go;
+        pha; pla;
+    L_pt_go:
+        nop;
+        lda #$b8;
+        ldx #$3b;
+        ldy #$00;
+        sta $d018;
+        stx $d011;
+        sty $d021;
   }
   // clang-format on
   sprites_show_panel_top_sprites();
   cpu_speed_fast();
+  // clang-format off
+  __asm {
+        // Only VIEW_LEFT (1), VIEW_CENTER (2), VIEW_RIGHT (3) have bottom
+        // needles. VIEW_BACK (4) and VIEW_UNKNOWN (0) skip panel bottom
+        // completely and chain straight to terrain.
+        lda view_state;
+        beq L_pt_arm_terrain;
+        cmp #4;                 // VIEW_BACK
+        beq L_pt_arm_terrain;
+        lda #<_switch_to_panel_bottom;
+        ldx #>_switch_to_panel_bottom;
+        ldy #186;               // kGfxRasterPanelBottom
+        bne L_pt_arm;
+    L_pt_arm_terrain:
+        lda #<_gfx_switch_to_terrain;
+        ldx #>_gfx_switch_to_terrain;
+        ldy #251;               // kGfxRasterTerrain
+    L_pt_arm:
+        sta _gfx_irq_vec + 1;
+        stx _gfx_irq_vec + 2;
+        sty $d012;
+  }
+  // clang-format on
 }
 
-static void _gfx_switch_to_panel_top() {
-  // 1 MHz for the length of this handler, and only this handler. On a 20 MHz
-  // accelerator the padding below would otherwise take a twentieth of the time
-  // and the writes would miss the blanking, drawing one raster line of the
-  // panel in the terrain's colours.
-  //
-  // This is not "run the game slower": the handler takes ~19 us either way, so
-  // against leaving it at 20 MHz it costs about 18 us of a 19,656 us frame -
-  // under a tenth of a percent, and the frame rate is unchanged.
-  cpu_speed_slow();
-#ifdef __ENABLE_DEBUG__
-  if (mem_debug_enabled) {
-    sprites_show_no_sprites();
-    return;
-  }
-#else
-  // Stands in for the test above, which is `lda zp / bne` not taken: five
-  // cycles, so that the writes land where they do in a debug build, which is
-  // where GFX_PANEL_NOPS was measured. Three NOPs were six, and put them a
-  // cycle late - measured on the split's `sta $d018`, 53..58 of line 162 on
-  // x64sc became 54..59, and 55 on xscpu64 became 56. The jmp to the next
-  // instruction is the three: it reads nothing and sets no flags, where any
-  // three-cycle read would be a zero page one, which check_irq_zp.py rightly
-  // refuses in a handler.
-  __asm {
-    nop;
-    jmp next;
-  next:
-  }
-#endif
-#assign num_nop GFX_PANEL_NOPS
-#repeat
-  __asm {
-      nop;
-  }
-#assign num_nop num_nop - 1
-#until num_nop == 0
-#undef num_nop
-  _gfx_panel_top_writes();
-}
-
-// The same handler for a machine whose interrupt entry runs faster than its
-// padding does. Only the count differs; see the comment on the two constants.
-static void _gfx_switch_to_panel_top_fast() {
-  cpu_speed_slow();
-#ifdef __ENABLE_DEBUG__
-  if (mem_debug_enabled) {
-    sprites_show_no_sprites();
-    return;
-  }
-#else
-  // Five cycles, as above.
-  __asm {
-    nop;
-    jmp next;
-  next:
-  }
-#endif
-#assign num_nop GFX_PANEL_NOPS_FAST
-#repeat
-  __asm {
-      nop;
-  }
-#assign num_nop num_nop - 1
-#until num_nop == 0
-#undef num_nop
-  _gfx_panel_top_writes();
-}
-
-static void _switch_to_panel_bottom() {
-  if (mem_debug_enabled) {
-    return;
-  }
+static void _switch_to_panel_bottom(void) {
   sprites_show_panel_bottom_sprites();
+  // clang-format off
+  __asm {
+        lda #<_gfx_switch_to_terrain;
+        ldx #>_gfx_switch_to_terrain;
+        ldy #251;               // kGfxRasterTerrain
+        sta _gfx_irq_vec + 1;
+        stx _gfx_irq_vec + 2;
+        sty $d012;
+  }
+  // clang-format on
 }
 
-static void _gfx_switch_to_terrain() {
+static void _gfx_switch_to_terrain(void) {
   sprites_show_terrain_sprites();
   vic.color_back = COLOR_GRAD2;
   vic.ctrl1 = 0x1b; // Multicolor character mode
   vic_memptr = mem_using_alt_buffer ? 0xA8 : 0xB8;
 
   // Last, and only after the $d018 latch above, which is the one write here
-  // with a deadline. The blit is ~260 cycles, four raster lines, on the one
-  // tick a frame that has a new shadow to copy, and 7 cycles on the others.
-  // Nothing waits on a raster line past this one - gfx_wait_flip_window()
-  // closes at 242 - so overrunning only delays the blit itself.
+  // with a deadline.
   sound_blit();
+  // clang-format off
+  __asm {
+        lda #<_gfx_switch_to_panel_top;
+        ldx #>_gfx_switch_to_panel_top;
+        ldy #161;               // kGfxRasterPanelTop
+        sta _gfx_irq_vec + 1;
+        stx _gfx_irq_vec + 2;
+        sty $d012;
+  }
+  // clang-format on
 }
 
-#ifdef __OSCAR64__
-// The interrupt entry: oscar64's rirq_isr_ram_io from c64/rasterirq.c, copied
-// so that it can bank I/O in for the handlers and put $01 back afterwards.
-//
-// The library's entry assumes I/O is already visible, so the main line could
-// only bank it out - to reach the RAM under $D000-$DFFF - with interrupts
-// masked, and a masked split is a torn panel. This one saves whatever the
-// interrupted code left in $01, runs the handlers with $35 (I/O in, both ROMs
-// out, which is what mem_init() sets) and restores the saved value before the
-// RTI. So a main line that wants the RAM under I/O just writes $01 and carries
-// on: an interrupt in the middle sees I/O, and hands the RAM back when it is
-// done. That is what lets the title aircraft live at $D000 (mem.h), and it is
-// the premise of the opponent sprites' buffers in docs/planes.md §5.
-//
-// It moves no handler, which is not obvious and matters for the panel-top
-// padding above. The dispatcher arms each interrupt a line early, and every
-// RIRQCode that rirq_build() generates opens with a `cmp $d012 / bcs` loop that
-// spins until its own line starts - so what the entry costs comes out of that
-// spin, and the handler still starts on the same cycle of the same line. The
-// four added instructions are twelve cycles ahead of the dispatch, and a nop
-// makes them fourteen: the loop is seven cycles, and a whole number of turns of
-// it keeps the phase it is entered at, and with it the cycle it exits on.
-// Measured on the panel split's `sta $d018` over 400 frames, before and after:
-// x64sc lands on cycles 53 to 58 of line 162 either way, and xscpu64 on cycle
-// 55 every time. Without the nop, x64sc's late edge was a cycle later.
-//
-// So the main line pays only for the five cycles on the way out, a handful of
-// interrupts a frame. Nothing else differs from the library's, down to the
-// order it reads its tables in.
-//
-// The tables and nextIRQ are rasterirq.c's own globals: not in its header, but
-// not static either. _gfx_rirq_tables() below fills them.
-extern byte rasterIRQIndex[];
-extern byte rasterIRQNext[];
-extern byte rasterIRQLow[];
-extern byte rasterIRQHigh[];
-extern volatile byte nextIRQ;
-
+// Direct raster IRQ entry: banks I/O in ($01 = $35) so main-line code can
+// access RAM under $D000-$DFFF without masking interrupts, calls the active
+// handler through _gfx_irq_vec (`JMP target`), acknowledges $D019, and
+// restores registers and $01.
 // clang-format off
 __asm _gfx_isr
 {
@@ -239,41 +188,10 @@ __asm _gfx_isr
 	sta pl01 + 1
 	lda #$35
 	sta $01
-	// Twelve cycles to here, fourteen with this: two turns of the RIRQCode's
-	// seven-cycle spin. See above.
-	nop
 	stx plrx + 1
 	sty plry + 1
-
-	ldx nextIRQ
-	bmi exi
-l1:
-	lda rasterIRQNext, x
-	ldy rasterIRQIndex + 1, x
-	ldx rasterIRQLow, y
-	stx ji + 1
-	ldx rasterIRQHigh, y
-	stx ji + 2
-
-ji:
-	jsr $0000
-
-	inc nextIRQ
-	ldx nextIRQ
-
-	ldy rasterIRQNext, x
-
+	jsr _gfx_irq_vec
 	asl $d019
-
-	cpy #$ff
-	beq e2
-
-	dey
-	sty $d012
-	dey
-	cpy $d012
-	bcc l1
-
 plry:
 	ldy #0
 pl01:
@@ -284,131 +202,11 @@ plra:
 plrx:
 	ldx #0
 	rti
-
-	// A spurious entry. Unlike the library's, A and Y are already saved and $01
-	// already switched, so it leaves the same way as everything else.
-exi:
-	asl $d019
-	jmp plry
-
-	// No more interrupts to service this frame.
-e2:
-	inc rirq_count
-
-	ldy rasterIRQNext
-	dey
-	sty $d012
-	ldx #0
-	stx nextIRQ
-	beq plry
 }
 // clang-format on
-
-// rirq_init(false), which is rirq_init_io(), with the entry above in place of
-// the library's, and without its rirq_init_tables(): _gfx_rirq_tables() below
-// writes every table entry the entry reads.
-static void _gfx_rirq_init(void) {
-  __asm {
-    sei
-  }
-  *(void **)0xfffe = _gfx_isr;
-  vic.intr_enable = 1;
-  vic.ctrl1 &= 0x7f;
-  vic.raster = 255;
-}
 #endif
 
 #pragma optimize(pop)
-
-// The one handler with a deadline, the panel's top, is one call:
-// rirq_build(ic, 1) writes code[0..12], its RTS at 12, and rirq_call() for
-// write 0 touches only 9-11 (c64/rasterirq.c). So 14 bytes, not the library's
-// RIRQCode, whose 32 are sized for five writes; cast to it at the calls. The
-// other two have no RIRQCode at all, see kGfxRasterRows.
-static const uint8_t kGfxRirqCode1 = 13;
-typedef struct {
-  uint8_t size;
-  uint8_t code[kGfxRirqCode1];
-} gfx_rirq1_t;
-#ifdef __OSCAR64__
-static_assert(RIRQ_ADDR_0 + 2 <= kGfxRirqCode1 && RIRQ_DATA_0 < kGfxRirqCode1,
-              "write 0 fits a one-write handler");
-#endif
-
-// In mem.h's irqcode region at $FFC0: built in full by
-// gfx_init_raster_irqs() before the interrupts start, so it needs no clear.
-#pragma bss(irqcode)
-static gfx_rirq1_t _rirq_buf;
-#pragma bss(bss)
-
-#ifdef __OSCAR64__
-// The split's three raster lines, top to bottom: the panel's top and bottom,
-// and the terrain.
-//
-// No interrupt above them switches sprite DMA off for the cycle-counted panel
-// top. A write of $d015 there could only stop a sprite from *starting* on the
-// lines between it and the split, never one already being fetched, and no
-// enabled sprite has a Y in that band: sprites_stack_add() rejects every
-// entry whose last sprite would start below kSpriteVisibleEndYPixels, and the
-// orientation mark and the tail fin sit on fixed lines above it (mem.h
-// kSpritesOffLead, docs/clouds.md 1.8).
-//
-// _gfx_isr arms a slot's interrupt on the line above its row, and a RIRQCode
-// then spins on $d012 until the line below its row starts: that spin is what
-// takes the entry's jitter out, and the first slot, _rirq_buf, has a deadline
-// that needs it. The panel's bottom and the terrain have none, so _gfx_isr
-// calls their handlers directly, with no RIRQCode and no spin, about 70
-// cycles less every time one runs. Their rows are lower to make up for it, so
-// that neither starts on a line it could show on:
-//
-// - The panel's bottom, one lower. On a stock C64 the entry takes just over a
-//   raster line, so the handler starts on the line it always did, the one
-//   below kViewportEndYPixels + 24, within a few cycles of where the spin let
-//   it go. On a SuperCPU the entry is over at once and it starts a line
-//   earlier, which shows nothing: the needles it places are 15 lines further
-//   down, and the band above has sprites 1-7 parked in the border.
-// - The terrain, two lower, because it rewrites $d011, $d018 and $d021 and so
-//   has to stay off the panel's last line on both machines: a SuperCPU starts
-//   it on the first border line, as before, and a stock C64 a line later.
-static const uint8_t kGfxRasterRows[3] = {
-    kRasterScreenYStart + kViewportEndYPixels - 1,
-    kRasterScreenYStart + kViewportEndYPixels + 24 + 1,
-    kRasterScreenYStart + kScreenHeightPixels + 2};
-static_assert(kViewportEndYPixels + 24 < kScreenHeightPixels &&
-                  kRasterScreenYStart + kScreenHeightPixels + 2 < 0xff,
-              "the slots' rows must ascend below 0xff");
-
-// What _gfx_isr calls for slot i.
-static inline void _gfx_rirq_entry(uint8_t i, const void *entry) {
-  rasterIRQLow[i] = (uint8_t)(uint16_t)entry;
-  rasterIRQHigh[i] = (uint8_t)((uint16_t)entry >> 8);
-}
-
-// rirq_set() for each slot and then rirq_sort(), written as the tables they
-// leave behind. The rows already ascend with the slot, so the sort's order is
-// the identity: rasterIRQIndex[i + 1] = i and rasterIRQNext[i] = row i, ended
-// by 0xff. That is all _gfx_isr reads, together with each slot's handler
-// address; the library's rasterIRQRows and the sort itself (118 B) drop out.
-// The sort's write of $d012 is left out too: rirq_start() writes it next.
-//
-// The addresses are three spelt-out stores: read in the loop from a table of
-// pointers, oscar64 indexed every table with the pointer table's byte offset.
-static void _gfx_rirq_tables(void) {
-  uint8_t i = 3;
-  do {
-    --i;
-    rasterIRQIndex[i + 1] = i;
-    rasterIRQNext[i] = kGfxRasterRows[i];
-  } while (i != 0);
-  _gfx_rirq_entry(0, _rirq_buf.code);
-  _gfx_rirq_entry(1, (const void *)_switch_to_panel_bottom);
-  _gfx_rirq_entry(2, (const void *)_gfx_switch_to_terrain);
-  rasterIRQNext[3] = 0xff;
-  nextIRQ = 0;
-}
-#else
-static void _gfx_rirq_tables(void) {}
-#endif
 
 // Raster-IRQ setup and charset loading; one-off, not per frame. The IRQ
 // handlers themselves are above and are deliberately left alone.
@@ -421,44 +219,48 @@ void gfx_init_raster_irqs(void) {
   // agreeing with what the hardware is about to be told.
   mem_den = 0x10;
 
-  _gfx_rirq_init();
-
-  // Interrupts are masked from here to rirq_start(). The first sound_blit()
+#ifdef __OSCAR64__
+  __asm {
+    sei
+  }
+  // Interrupts are masked from here to CLI below. The first sound_blit()
   // then pushes the shadow, which sound_silence() zeroed on the way out, over
   // whatever the chip was left holding.
   sound_mark_dirty();
 
-  // The panel top's NOPs are measured on lines with no sprite DMA. With a
-  // sprite's fetches on them the three writes at the end miss the blanking,
-  // and a band of terrain colour flickers across the top of the panel. The
-  // sprite stack's cull is what keeps those lines clear (kGfxRasterRows,
-  // mem.h kSpritesOffLead and docs/clouds.md §1.8).
-  RIRQCode *panel_top = (RIRQCode *)&_rirq_buf;
-  rirq_build(panel_top, 1);
-  // Which of the two padding counts this machine needs, from the boot probe.
-  // cpu_step_shift is 0 on a stock C64 and 2 on a SuperCPU (docs/supercpu.md),
-  // and it is the only thing in the program that already knows the difference.
-  rirq_call(panel_top, 0,
-            cpu_step_shift ? (void *)_gfx_switch_to_panel_top_fast
-                           : (void *)_gfx_switch_to_panel_top);
-  // The panel's bottom and the terrain are called straight from _gfx_isr
-  // (kGfxRasterRows).
-  _gfx_rirq_tables();
-  rirq_start();
+  _gfx_panel_fast = cpu_step_shift;
+  _gfx_irq_vec[0] = 0x4C; // JMP abs
+  _gfx_irq_vec[1] = (uint8_t)(uint16_t)_gfx_switch_to_terrain;
+  _gfx_irq_vec[2] = (uint8_t)((uint16_t)_gfx_switch_to_terrain >> 8);
+  *(void **)0xfffe = _gfx_isr;
+  vic.intr_enable = 1;
+  vic.ctrl1 &= 0x7f;
+  vic.raster = kGfxRasterTerrain;
+  __asm {
+    asl $d019;
+    cli;
+  }
+#else
+  sound_mark_dirty();
+#endif
 }
 
 // The sound driver's release point, and the reason it needs no other. Because
-// sound_blit() lives in _switch_to_terrain, "raster interrupts masked" and
+// sound_blit() lives in _gfx_switch_to_terrain, "raster interrupts masked" and
 // "the driver has stopped running" are the same statement, and this is the
 // only place that makes it true - reached from screen_enter_static_mccm()
 // (menu, help) and map_enter(), and nowhere else. Silencing here therefore
 // covers all three without any of them knowing about sound.
 //
-// Before the rirq_stop(), not after: map_enter() goes on to bank I/O out, and
+// Before SEI, not after: map_enter() goes on to bank I/O out, and
 // sound_silence() writes $D400 directly.
 inline void gfx_stop_raster_irqs(void) {
   sound_silence();
-  rirq_stop();
+#ifdef __OSCAR64__
+  __asm {
+    sei;
+  }
+#endif
 }
 
 // __noinline: four call sites, and a busy wait has no cycles to save.

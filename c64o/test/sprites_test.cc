@@ -134,14 +134,6 @@ static void test_empty_frame(void) {
   sprites_stack_commit();
   show_terrain();
   assert(spr_enable() == 0x00);
-  assert(spr_expand() == 0x00);
-  assert(spr_msbx() == 0x00);
-  // Disabled rather than parked, but parked as well, so a stray enable cannot
-  // put a sprite somewhere visible.
-  for (uint8_t i = 0; i < 8; ++i) {
-    assert(spr_x(i) == 0);
-    assert(spr_y(i) == 0);
-  }
 }
 
 static void test_single_object(void) {
@@ -323,7 +315,6 @@ static void test_overflow(void) {
   show_terrain();
   assert(spr_enable() == stack(0x3F));
   assert(!enabled(F + 6));
-  assert(spr_x(F + 6) == 0 && spr_y(F + 6) == 0);
 }
 
 static void test_no_index_used_twice(void) {
@@ -346,7 +337,6 @@ static void test_no_index_used_twice(void) {
   memset(seen, 0, sizeof(seen));
   for (uint8_t i = 0; i < 8; ++i) {
     if (!enabled(i)) {
-      assert(spr_x(i) == 0);
       assert(((spr_expand() >> i) & 1) == 0);
       continue;
     }
@@ -354,11 +344,12 @@ static void test_no_index_used_twice(void) {
     seen[spr_ptr(i)] = true;
   }
 
-  // Nothing reads a disabled sprite's pointer or colour, so the handler does
-  // not copy them: past the last index in use both are as it found them
-  // (program_terrain()'s 0xAA).
+  // Nothing reads a disabled sprite's position, pointer or colour, so the
+  // handler does not copy them: past the last index in use all three are as it
+  // found them (program_terrain()'s 0xAA).
   for (uint8_t i = F + 5; i < 8; ++i) {
     assert(!enabled(i));
+    assert(spr_x(i) == 0xAA && spr_y(i) == 0xAA);
     assert(spr_ptr(i) == 0xAA && spr_color(i) == 0xAA);
   }
 }
@@ -522,15 +513,12 @@ static void test_orientation(void) {
   assert(kSpriteIdxOrient < F);
   assert(spr_ptr(kSpriteIdxOrient) == kSpriteDefOrient.bitmap_idx);
 
-  printf("  a frame that sets no mark leaves sprite 0 parked\n");
+  printf("  a frame that sets no mark leaves sprite 0 disabled\n");
   sprites_stack_reset();
   sprites_stack_commit();
   show_terrain();
   assert(!enabled(kSpriteIdxOrient));
-  assert(spr_x(kSpriteIdxOrient) == 0 && spr_y(kSpriteIdxOrient) == 0);
-  // Including the needle's colour, which the panel band would otherwise have to
-  // give back for a mark that was never there.
-  assert(spr_color(kSpriteIdxOrient) == kColorInstrument);
+  assert(spr_enable() == 0x00);
 
   printf("  the side views do not carry it\n");
   // A mark fixed to the middle of the screen is a reference for where the nose
@@ -633,25 +621,19 @@ static void test_panel_bands(void) {
   assert(((spr_expand() >> kSpriteIdxVSpeed) & 1) == 0);
 
   sprites_show_panel_top_sprites();
-  // $D01D. Parking at x = 0 hides a 24 pixel sprite because the left border
-  // ends at 24; an X-expanded one is 48 wide and would poke into the panel.
   assert(spr_expand() == 0x00);
+  assert(spr_expand_y() == 0x00);
   // Sprite 0 is the vertical speed needle, the one instrument drawn in this
-  // band, so it is the one colour the terrain band has to give back here.
+  // band; sprites 1-7 stay disabled in $D015 so they cost no VIC-II DMA.
   assert(spr_color(kSpriteIdxVSpeed) == kColorInstrument);
-  assert(spr_enable() == 0xFF);
+  assert(spr_enable() == (1 << kSpriteIdxVSpeed));
   assert(spr_msbx() == 0x00);
-  for (uint8_t i = 0; i < 8; ++i) {
-    if (i != kSpriteIdxVSpeed) {
-      assert(spr_x(i) == 0);
-    }
-  }
   assert(spr_x(kSpriteIdxVSpeed) == _sprites_instrument_xy[kSpriteIdxVSpeed].x);
   assert(panel_ptr(kSpriteIdxVSpeed) == _sprites_instrument_idx[kSpriteIdxVSpeed]);
 
   sprites_show_panel_bottom_sprites();
-  // All eight, unconditionally. Doing it here is what frees the terrain band to
-  // write every colour without a handshake with the panel code.
+  assert(spr_enable() == 0xFF);
+  // All eight colours restored (0 in panel top, 1..7 in panel bottom).
   for (uint8_t i = 0; i < 8; ++i) {
     assert(spr_color(i) == kColorInstrument);
   }
@@ -663,16 +645,34 @@ static void test_panel_bands(void) {
   }
   assert(spr_msbx() == (1 << kSpriteIdxThrottle));
 
-  printf("  a side view restores the colours but only its own instrument\n");
+  printf("  a side view enables and colours only its own instrument\n");
   view_state = VIEW_LEFT;
   show_terrain();
   sprites_show_panel_top_sprites();
+  assert(spr_enable() == 0x00);
   sprites_show_panel_bottom_sprites();
-  for (uint8_t i = 0; i < 8; ++i) {
-    assert(spr_color(i) == kColorInstrument);
-  }
+  assert(spr_enable() == (1 << kSpriteIdxFuel));
+  assert(spr_color(kSpriteIdxFuel) == kColorInstrument);
   assert(spr_x(kSpriteIdxFuel) == _sprites_instrument_xy[kSpriteIdxFuel].x);
   assert(spr_msbx() == (1 << kSpriteIdxFuel));
+
+  view_state = VIEW_RIGHT;
+  show_terrain();
+  sprites_show_panel_top_sprites();
+  assert(spr_enable() == 0x00);
+  sprites_show_panel_bottom_sprites();
+  assert(spr_enable() == (1 << kSpriteIdxThrottle));
+  assert(spr_color(kSpriteIdxThrottle) == kColorInstrument);
+  assert(spr_x(kSpriteIdxThrottle) ==
+         _sprites_instrument_xy[kSpriteIdxThrottle].x);
+  assert(spr_msbx() == 0x00);
+
+  view_state = VIEW_BACK;
+  show_terrain();
+  sprites_show_panel_top_sprites();
+  assert(spr_enable() == 0x00);
+  sprites_show_panel_bottom_sprites();
+  assert(spr_enable() == 0x00);
   view_state = VIEW_CENTER;
 
   printf("  debug mode drops the sprites entirely\n");
@@ -877,7 +877,6 @@ static void test_fin(void) {
     sprites_stack_commit();
     show_terrain();
     assert(spr_enable() == 0x00);
-    assert(spr_expand_y() == 0x00);
   }
 
   printf("  and the panel band takes the expansion back\n");

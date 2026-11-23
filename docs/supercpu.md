@@ -17,13 +17,11 @@ The viewport/panel split fires on raster line 161 (panel top), switching from MC
 1. **Speed:** At 20 MHz, a 12-NOP delay finishes before the scanline reaches horizontal blank, tearing the top of the panel.
 2. **I/O mirror writes:** VIC writes run at 1 MHz regardless of CPU speed, while CPU instructions between them run at 20 MHz, shifting where the `$D011`/`$D018`/`$D021` writes land on the scanline.
 
-### Solution: 1 MHz mode + split-specific NOP pads
+### Solution: 1 MHz mode + split-specific `PHA/PLA` padding
 
-1. On a fast CPU (`cpu_fast`), the panel-top handler drops to 1 MHz (`$D07A = 0`) on entry and restores 20 MHz (`$D07B = 0`) on exit.
-2. Because a single NOP count cannot sit cleanly inside the horizontal blank window on both machines (IRQ latency + `$D07A` write timing differ by ~14 cycles), `gfx.cc` provides two tiny entry stubs sharing one `_gfx_panel_top_writes()` body:
-   - **Stock C64 (`_gfx_switch_to_panel_top`):** **12 NOPs** before writing VIC registers.
-   - **SuperCPU (`_gfx_switch_to_panel_top_fast`):** switches to 1 MHz, **19 NOPs**, writes VIC registers, restores 20 MHz.
-3. `_gfx_panel_top_writes()` loads all three new register values before storing them (`load-load-load / store-store-store`), tightening the actual VIC write burst to 6 cycles.
+1. After spinning on `$D012` until raster 162 starts, `_gfx_switch_to_panel_top()` drops to 1 MHz (`$D07A = 0`) and restores 20 MHz (`$D07B = 0`) after writing the panel-top sprites.
+2. Because `cpu_speed_slow()` runs at 20 MHz on SuperCPU while the following padding runs at 1 MHz, `_gfx_switch_to_panel_top()` executes four `PHA/PLA` pairs (28 cycles, branch-free and immune to page-crossing jitter) plus one extra `PHA/PLA` pair (+7 cycles) when `_gfx_panel_fast` (`cpu_step_shift != 0`) is set, placing `STA $D018` at ~53 cycles on both stock C64 and SuperCPU.
+3. All three new VIC register values are loaded before storing them (`load-load-load / store-store-store`), tightening the actual VIC write burst to 6 cycles.
 4. Verified over 1,800 consecutive frames on both `x64sc` and `xscpu64` with zero torn scanlines.
 
 ## Flight model speed scaling (`c64o/flight.cc`)

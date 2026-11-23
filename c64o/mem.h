@@ -71,11 +71,11 @@
 // hardware vectors at $FFFA, which nothing else writes: the map's bitmap
 // stops at $FF3F. Like bss2, nothing in the .prg lands here and the startup
 // code does not clear it, so tenants must write every byte before reading it.
-// Tenant: gfx.cc's one generated raster IRQ handler (_rirq_buf, 14 bytes),
-// which gfx_init_raster_irqs() builds in full before it starts the
-// interrupts; the other 42 bytes are free. The KERNAL ROM is never banked in
-// once mem_init() has run, so the CPU reads it from RAM. All of it is in page
-// $FF, so the handler's branch crosses no page.
+// Tenant: gfx.cc's direct raster IRQ trampoline (_gfx_irq_vec, 3 bytes) and
+// SuperCPU split padding flag (_gfx_panel_fast, 1 byte), which
+// gfx_init_raster_irqs() writes before starting interrupts; the other 52 bytes
+// are free. The KERNAL ROM is never banked in once mem_init() has run, so the
+// CPU reads it from RAM.
 #pragma section(irqcode, 0, , , bss)
 #pragma region( irqcode, 0xFFC0, 0xFFF8, , , {irqcode} )
 #pragma section(data_box, 0, , , data)

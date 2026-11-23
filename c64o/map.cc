@@ -318,8 +318,8 @@ void map_enter() {
   // Stop the raster split first: it rewrites $d011, $d018 and $d021 three
   // times a frame and would fight every register below.
   //
-  // Note what "stop" means here. oscar64's rirq_stop() is nothing but an
-  // `sei`; it leaves vic.intr_enable set, and rirq_start() is the matching
+  // Note what "stop" means here. gfx_stop_raster_irqs() runs `sei`; it leaves
+  // vic.intr_enable set, and gfx_init_raster_irqs() is the matching `cli`.
   // `cli`. So the raster IRQs are only masked, and **nothing in map mode may
   // execute a cli** -- one would restart the split on the next raster
   // compare, and the map would be redrawn out from under itself in three

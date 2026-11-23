@@ -50,17 +50,17 @@ Exact per-feature byte totals and the 64 KB address-space walk live in [memory_m
 | `$EC00–$EFE7` / `$EFF8–$EFFF` | Alt screen RAM + sprite pointers |
 | `$F000–$FF3F` | MCBM panel bitmap (rows 12–13 hold off-screen heading strips & ammo digits; rows 14–24 visible) |
 | `$FF40–$FFBF` | Back-view vertical tail fin (2 sprite blocks, pointers 253–254) |
-| `$FFC0–$FFF7` | `irqcode` region (14 B `_rirq_buf` raster stub) |
+| `$FFC0–$FFF7` | `irqcode` region (4 B `_gfx_irq_vec` trampoline + `_gfx_panel_fast`) |
 | `$FFFA–$FFFF` | Hardware NMI / RESET / IRQ vectors |
 
 ### Screen layout & raster split
 
 - Rows 0–13 (rasters 50–161): 3D viewport in MCCM, double-buffered between `$E800` and `$EC00`.
 - Rows 14–24 (rasters 162–249): MCBM instrument panel (or text debug view in `ppilot`).
-- **Three raster IRQs** (`-DNUM_IRQS=3`, `gfx.cc` `kGfxRasterRows[3]`):
-  1. **Raster 161** — `RIRQCode` stub (`_rirq_buf` at `$FFC0`) switches to MCBM panel top (`12` NOPs stock C64 / `19` NOPs SuperCPU in 1 MHz mode) and shows panel-top sprites.
-  2. **Raster 187** — direct ISR switches to panel-bottom sprites.
-  3. **Raster 252** — direct ISR switches back to MCCM terrain, commits terrain sprites, and runs `sound_blit()` when `sound_dirty` is set.
+- **Three direct chained raster IRQs** (`gfx.cc`, dispatched through `_gfx_irq_vec` at `$FFC0`):
+  1. **Raster 161** — `_gfx_switch_to_panel_top` spins to line 162, slows SuperCPU, pads with `PHA/PLA`, switches to MCBM panel top, enables only sprite 0 in `VIEW_CENTER` (`$D015=0` otherwise), and chains straight to terrain in `VIEW_BACK` / debug mode.
+  2. **Raster 186** — `_switch_to_panel_bottom` enables only the visible panel-bottom needles (skipped in `VIEW_BACK`).
+  3. **Raster 251** — `_gfx_switch_to_terrain` copies active terrain sprites `0..last` (skipping all copies when `enable == 0`), switches back to MCCM terrain, and runs `sound_blit()` when `sound_dirty` is set.
 
 ### Character RAM layout (`$E000–$E7FF`)
 

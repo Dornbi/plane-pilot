@@ -32,15 +32,13 @@ Usage:  check_irq_zp.py <program.asm> [<program.asm> ...]
 import re
 import sys
 
-# Functions installed with rirq_call() or _gfx_rirq_entry() in gfx.cc, plus anything they call that
-# the compiler did not inline. A handler that is renamed and not listed here
-# stops being checked, which is the one way this guard can rot -- keep it in
-# step with gfx_init_raster_irqs().
+# Direct raster IRQ handlers in gfx.cc, plus anything they call that the
+# compiler did not inline. A handler that is renamed and not listed here stops
+# being checked, which is the one way this guard can rot -- keep it in step
+# with gfx.cc.
 HANDLERS = (
     "_gfx_switch_to_terrain",
     "_gfx_switch_to_panel_top",
-    "_gfx_switch_to_panel_top_fast",
-    "_gfx_panel_top_writes",
     "_switch_to_panel_bottom",
 )
 

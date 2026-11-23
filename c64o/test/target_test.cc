@@ -5262,6 +5262,141 @@ static __noinline void _test_opp_cap_asm(void) {
   }
 }
 
+// 32. sprites_asm.h raster-IRQ sprite programmers (terrain Frame A/B,
+// enable==0 early exit, active-only 0..last copies, no-sprites, and panel
+// top/bottom across all four views) against real VICE VIC-II registers
+// ($D000-$D02E) and sprite pointer RAM ($EBF8-$EBFF / $EFF8-$EFFF).
+static __noinline void test_sprites_irq_asm(void) {
+  volatile uint8_t *const vic_p = (volatile uint8_t *)0xD000;
+  volatile uint8_t *const ptr_a = (volatile uint8_t *)0xEBF8;
+  volatile uint8_t *const ptr_b = (volatile uint8_t *)0xEFF8;
+  uint16_t id = 38000u;
+
+  for (uint8_t fi = 0; fi < 2; ++fi) {
+    for (uint8_t s = 0; s < 8; ++s) {
+      _sprites_frames[fi].pos[s * 2] = (uint8_t)(0x20 + fi * 0x40 + s * 3);
+      _sprites_frames[fi].pos[s * 2 + 1] = (uint8_t)(0x50 + fi * 0x30 + s * 5);
+      _sprites_frames[fi].ptr[s] = (uint8_t)(0x80 + fi * 0x20 + s);
+      _sprites_frames[fi].color[s] = (uint8_t)((s + fi * 5 + 1) & 0x0F);
+    }
+    _sprites_frames[fi].msbx = fi ? 0x5A : 0xA5;
+    _sprites_frames[fi].expand = fi ? 0x3C : 0xC3;
+    _sprites_frames[fi].expand_y = fi ? 0x03 : 0x0F;
+  }
+
+  for (uint8_t fi = 0; fi < 2; ++fi) {
+    mem_using_alt_buffer = (fi == 0);
+    _sprites_frames[fi].enable = 0;
+    _sprites_frames[fi].last = 0;
+    vic_p[0x15] = 0xFF;
+    vic_p[0x00] = 0x77;
+    sprites_show_terrain_sprites();
+    expect(id++, vic_p[0x15], 0);
+    expect(id++, vic_p[0x00], 0x77);
+  }
+
+  static const uint8_t kLastCases[] = {0, 2, 7};
+  for (uint8_t fi = 0; fi < 2; ++fi) {
+    mem_using_alt_buffer = (fi == 0);
+    volatile uint8_t *ptrs = (fi == 0) ? ptr_a : ptr_b;
+    for (uint8_t li = 0; li < 3; ++li) {
+      uint8_t last = kLastCases[li];
+      uint8_t en = (uint8_t)((2 << last) - 1);
+      _sprites_frames[fi].enable = en;
+      _sprites_frames[fi].last = last;
+      for (uint8_t s = 0; s < 8; ++s) {
+        vic_p[s * 2] = 0xEE;
+        vic_p[s * 2 + 1] = 0xDD;
+        vic_p[0x27 + s] = 0x0E;
+        ptrs[s] = 0xCC;
+      }
+      sprites_show_terrain_sprites();
+      expect(id++, vic_p[0x15], en);
+      expect(id++, vic_p[0x10], _sprites_frames[fi].msbx);
+      expect(id++, vic_p[0x1D], _sprites_frames[fi].expand);
+      expect(id++, vic_p[0x17], _sprites_frames[fi].expand_y);
+      for (uint8_t s = 0; s <= last; ++s) {
+        expect(id++, vic_p[s * 2], _sprites_frames[fi].pos[s * 2]);
+        expect(id++, vic_p[s * 2 + 1], _sprites_frames[fi].pos[s * 2 + 1]);
+        expect(id++, ptrs[s], _sprites_frames[fi].ptr[s]);
+        expect(id++, vic_p[0x27 + s] & 0x0F, _sprites_frames[fi].color[s]);
+      }
+      for (uint8_t s = last + 1; s < 8; ++s) {
+        expect(id++, vic_p[s * 2], 0xEE);
+        expect(id++, ptrs[s], 0xCC);
+      }
+    }
+  }
+  mem_using_alt_buffer = false;
+
+  vic_p[0x15] = 0xFF;
+  vic_p[0x1D] = 0xFF;
+  vic_p[0x17] = 0xFF;
+  vic_p[0x10] = 0xFF;
+  sprites_show_no_sprites();
+  expect(id++, vic_p[0x15], 0);
+  expect(id++, vic_p[0x1D], 0);
+  expect(id++, vic_p[0x17], 0);
+  expect(id++, vic_p[0x10], 0);
+
+  for (uint8_t s = 0; s < 8; ++s) {
+    _sprites_instrument_xy[s].x = (uint8_t)(0x30 + s * 7);
+    _sprites_instrument_xy[s].y = (uint8_t)(0xB0 + s * 3);
+    _sprites_instrument_idx[s] = (uint8_t)(0x60 + s);
+    vic_p[0x27 + s] = 0x02;
+  }
+  view_state = VIEW_CENTER;
+  vic_p[0x1D] = 0xFF;
+  vic_p[0x17] = 0xFF;
+  vic_p[0x10] = 0xFF;
+  sprites_show_panel_top_sprites();
+  expect(id++, vic_p[0x15], 0x01);
+  expect(id++, vic_p[0x1D], 0);
+  expect(id++, vic_p[0x17], 0);
+  expect(id++, vic_p[0x10], 0);
+  expect(id++, vic_p[0x27] & 0x0F, 1);
+  expect(id++, vic_p[0x00], _sprites_instrument_xy[0].x);
+  expect(id++, vic_p[0x01], _sprites_instrument_xy[0].y);
+  expect(id++, ptr_b[0], _sprites_instrument_idx[0]);
+  sprites_show_panel_bottom_sprites();
+  expect(id++, vic_p[0x15], 0xFF);
+  expect(id++, vic_p[0x10], 0x40);
+  for (uint8_t s = 0; s < 8; ++s) {
+    expect(id++, vic_p[0x27 + s] & 0x0F, 1);
+    expect(id++, vic_p[s * 2], _sprites_instrument_xy[s].x);
+    expect(id++, vic_p[s * 2 + 1], _sprites_instrument_xy[s].y);
+    expect(id++, ptr_b[s], _sprites_instrument_idx[s]);
+  }
+  view_state = VIEW_LEFT;
+  vic_p[0x27 + 7] = 0x02;
+  sprites_show_panel_top_sprites();
+  expect(id++, vic_p[0x15], 0x00);
+  sprites_show_panel_bottom_sprites();
+  expect(id++, vic_p[0x15], 0x80);
+  expect(id++, vic_p[0x10], 0x80);
+  expect(id++, vic_p[0x27 + 7] & 0x0F, 1);
+  expect(id++, vic_p[14], _sprites_instrument_xy[7].x);
+  expect(id++, vic_p[15], _sprites_instrument_xy[7].y);
+  expect(id++, ptr_b[7], _sprites_instrument_idx[7]);
+  view_state = VIEW_RIGHT;
+  vic_p[0x27 + 6] = 0x02;
+  sprites_show_panel_top_sprites();
+  expect(id++, vic_p[0x15], 0x00);
+  sprites_show_panel_bottom_sprites();
+  expect(id++, vic_p[0x15], 0x40);
+  expect(id++, vic_p[0x10], 0x00);
+  expect(id++, vic_p[0x27 + 6] & 0x0F, 1);
+  expect(id++, vic_p[12], _sprites_instrument_xy[6].x);
+  expect(id++, vic_p[13], _sprites_instrument_xy[6].y);
+  expect(id++, ptr_b[6], _sprites_instrument_idx[6]);
+  view_state = VIEW_BACK;
+  sprites_show_panel_top_sprites();
+  expect(id++, vic_p[0x15], 0x00);
+  sprites_show_panel_bottom_sprites();
+  expect(id++, vic_p[0x15], 0x00);
+  view_state = VIEW_CENTER;
+}
+
 #endif // __TARGET_TEST_PLANES__
 #pragma optimize(pop)
 
@@ -5288,6 +5423,7 @@ int main(void) {
   _test_opp_fly_asm();
   _test_opp_fall_asm();
   _test_opp_cap_asm();
+  test_sprites_irq_asm();
 #else
   test_poly_rounding();
   test_int8_negate_then_shift();
