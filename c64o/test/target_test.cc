@@ -73,6 +73,9 @@
 //       quarter-square engine jitter, wind speed clamp/gating, Voice 3
 //       arbitration/priority/stall warble/crash sweep, volume clamp, and
 //       sound_dirty) against pure-C reference (in target_planes_test.prg)
+//   31  opponent_asm.cc _opponent_ai_step_asm, _opponent_fly_and_move_asm,
+//       _opponent_fall_asm & _opponent_cap_asm against 16-bit C references
+//       (in target_planes_test.prg)
 
 #include <stdint.h>
 
@@ -99,6 +102,7 @@
 #include "../vec.h"
 #ifdef __TARGET_TEST_PLANES__
 #include "../flight_asm.h"
+#include "../opponent_asm.h"
 #include "../panel_asm.h"
 #include "../sound_asm.h"
 #include "planes_target_cases.h"
@@ -4793,6 +4797,471 @@ static void test_sound_asm(void) {
   flight_status = FLIGHT_ONGOING;
 }
 
+// 31. opponent_asm.cc _opponent_ai_step_asm, _opponent_fly_and_move_asm,
+// _opponent_fall_asm, and _opponent_cap_asm against pure 16-bit C references.
+int32_t *const kFlightEye[3] = {&flight_eye_x, &flight_eye_y, &flight_eye_z};
+mat3_t world_cam;
+
+static const int8_t kRefOppClimbSpeed[7] = {32, 16, 8, 0, -8, -16, -32};
+static const uint16_t kRefOppMinSpeed[2] = {1300, 1100};
+static const uint16_t kRefOppMaxSpeed[2] = {2800, 2000};
+
+static bool _ref_opp_below(int32_t z, uint8_t lim) {
+  int16_t hm = *(const int16_t *)((const uint8_t *)&z + 1);
+  return hm < (int16_t)lim;
+}
+
+static uint16_t _ref_opp_abs(int16_t v) { return (uint16_t)(v < 0 ? -v : v); }
+
+static int16_t _ref_opp_dot(int16_t a, int16_t b, int16_t c, int16_t d) {
+  return vec_fastmul8p8(a, b) + vec_fastmul8p8(c, d);
+}
+
+static int32_t _ref_opp_step_delta(int16_t h, int16_t speed) {
+  int16_t v = vec_fastmul8p8(h, (int16_t)(speed << 1));
+  for (uint8_t s = flight_step_shift; s != 0; --s) {
+    v >>= 1;
+  }
+  return (int32_t)v;
+}
+
+static void _check_ai_case(uint16_t base_id, uint8_t i, uint8_t flags,
+                           int16_t dx, int16_t dy, int16_t dz, int16_t hx,
+                           int16_t hy, int32_t z, bool ground, uint8_t pullup,
+                           int8_t climb, int8_t prev_turn, uint8_t gun,
+                           int16_t cam_fx, int16_t cam_fy) {
+  uint8_t other = i ^ 1;
+  uint8_t bit = (uint8_t)(i + 1);
+  bool hunt = (flags & kOppFlagHunt) != 0;
+  bool turns = (flags & kOppFlagTurns) != 0;
+  bool bomber = (flags & kOppFlagBomber) != 0;
+
+  // Set up sentinel state in untouched slot `other`.
+  _opponent_head[other].x = 123;
+  _opponent_head[other].y = -45;
+  _opponent_turn[other] = -2;
+  _opponent_bank[other] = 1;
+  _opponent_climb[other] = 2;
+  _opponent_pitch[other] = -1;
+  _opponent_gun[other] = 17;
+
+  // Set up slot `i` inputs.
+  _opponent_head[i].x = hx;
+  _opponent_head[i].y = hy;
+  _opponent_head[i].z = 0;
+  _opponent_z[i] = z;
+  _opponent_turn[i] = prev_turn;
+  _opponent_bank[i] = 99;
+  _opponent_climb[i] = climb;
+  _opponent_gun[i] = gun;
+  _opponent_pullup = pullup;
+  _opponent_firing = (uint8_t)(other + 1); // preserve other bit
+  model_on_ground = ground;
+  flight_cam.front.x = cam_fx;
+  flight_cam.front.y = cam_fy;
+  flight_cam.front.z = 0;
+
+  // Pure 16-bit C reference matching opponent.cc.
+  int8_t ref_want = 0;
+  if (dz > 40) {
+    ref_want = 1;
+  } else if (dz < -40) {
+    ref_want = -1;
+  }
+  int16_t rdx = dx, rdy = dy, rdz = dz;
+  uint8_t cut = 0;
+  while ((uint16_t)(rdx + 63) >= 127 || (uint16_t)(rdy + 63) >= 127) {
+    rdx >>= 1;
+    rdy >>= 1;
+    rdz >>= 1;
+    ++cut;
+  }
+  int16_t cross = _ref_opp_dot((int16_t)(rdy << 8), hx,
+                               (int16_t)(-(rdx << 8)), hy);
+  int16_t dot = _ref_opp_dot((int16_t)(rdx << 8), hx,
+                             (int16_t)(rdy << 8), hy);
+  uint16_t across = _ref_opp_abs(cross);
+
+  uint8_t ref_pullup = pullup;
+  bool ref_aim = false;
+  bool ref_break = false;
+  bool straight = false;
+  if (hunt) {
+    uint8_t floor = 120;
+    if (ref_pullup & bit) {
+      if (!_ref_opp_below(z, 120) && (cut > 5 || !ground)) {
+        ref_pullup &= (uint8_t)~bit;
+      }
+    } else if (ground && dot > 0 && across < ((uint16_t)dot >> 2) && cut > 2 &&
+               !_ref_opp_below(z, 77)) {
+      floor = 60;
+    } else if (_ref_opp_below(z, 120)) {
+      ref_pullup |= bit;
+    }
+    ref_aim = !(ref_pullup & bit) && cut <= 4 && dot > 0 &&
+              across < ((uint16_t)dot >> 3);
+    ref_break = !ground && dot > 0 &&
+                (cut <= 1 ||
+                 (cut == 2 && _ref_opp_dot(cam_fx, hx, cam_fy, hy) < 0));
+    straight = (ref_pullup & bit) != 0;
+    if (straight) {
+      ref_want = 1;
+    } else {
+      uint16_t az16 = _ref_opp_abs(rdz);
+      uint8_t az = az16 > 255 ? 255 : (uint8_t)az16;
+      int8_t d8x = (int8_t)rdx, d8y = (int8_t)rdy;
+      uint8_t ax = (uint8_t)(d8x < 0 ? -d8x : d8x);
+      uint8_t ay = (uint8_t)(d8y < 0 ? -d8y : d8y);
+      uint8_t h = ax > ay ? (uint8_t)(ax + (ay >> 1))
+                          : (uint8_t)(ay + (ax >> 1));
+      uint8_t h16 = h >> 4, h8 = h >> 3;
+      int8_t w = 0;
+      if (az > h16) {
+        w = 1;
+        if (az > (uint8_t)(h8 + h16)) {
+          w = 2;
+          if (az > (uint8_t)((h >> 2) + h8)) {
+            w = 3;
+          }
+        }
+      }
+      int16_t wdz = rdz;
+      if (ref_break) {
+        w = 3;
+        wdz = -wdz;
+      }
+      if (wdz < 0) {
+        w = -w;
+      }
+      if (_ref_opp_below(z, floor)) {
+        if (w < 1) {
+          w = 1;
+        }
+      } else if (w < 0 && _ref_opp_below(z, (uint8_t)(floor + 16))) {
+        w = 0;
+      }
+      ref_want = w;
+    }
+    if (ref_break) {
+      cross = -cross;
+      dot = -1;
+    }
+  } else {
+    ref_aim = bomber;
+  }
+
+  uint8_t ref_gun = gun;
+  uint8_t ref_firing = (uint8_t)(other + 1);
+  if (turns) {
+    if (ref_gun != 0) {
+      --ref_gun;
+    }
+    if (ref_aim && ref_want == climb) {
+      if (ref_gun == 0) {
+        ref_gun = 26;
+      }
+      if (ref_gun >= 22 && !(ref_gun & 1)) {
+        ref_firing |= bit;
+      }
+    }
+  }
+
+  int8_t ref_turn = 0;
+  if (!straight && (dot < 0 || across > ((uint16_t)dot >> 5))) {
+    ref_turn = (int8_t)(hunt ? 2 : 1);
+    if (cross < 0) {
+      ref_turn = -ref_turn;
+    }
+  }
+  int8_t ref_bank = (ref_turn == prev_turn) ? ref_turn : 0;
+  int8_t ref_ret = turns ? (int8_t)(-ref_turn * 8) : 0;
+
+  // Run 6502 assembly.
+  vec_v.x = dx;
+  vec_v.y = dy;
+  vec_v.z = dz;
+  int16_t got_ret = _opponent_ai_step_asm(i, flags);
+
+  expect(base_id + 0, got_ret, ref_ret);
+  expect(base_id + 1, _opponent_step_want, ref_want);
+  expect(base_id + 2, _opponent_pullup, ref_pullup);
+  expect(base_id + 3, _opponent_aim ? 1 : 0, ref_aim ? 1 : 0);
+  if (hunt) {
+    expect(base_id + 4, _opponent_break ? 1 : 0, ref_break ? 1 : 0);
+  }
+  expect(base_id + 5, _opponent_gun[i], ref_gun);
+  expect(base_id + 6, _opponent_firing, ref_firing);
+  expect(base_id + 7, _opponent_turn[i], ref_turn);
+  expect(base_id + 8, _opponent_bank[i], ref_bank);
+  expect(base_id + 9, _opponent_turn[other], -2);
+  expect(base_id + 10, _opponent_gun[other], 17);
+}
+
+static __noinline void test_opponent_step_asm(void) {
+  // 31a. _opponent_ai_step_asm: path mode dz band edges, bomber gun, bank latch.
+  static const int16_t kPathDz[7] = {-300, -41, -40, 0, 40, 41, 300};
+  uint16_t id = 35000u;
+  for (uint8_t k = 0; k < 7; ++k) {
+    _check_ai_case(id, k & 1,
+                   (uint8_t)((k & 1 ? kOppFlagTurns : 0) |
+                             (k & 2 ? kOppFlagBomber : 0)),
+                   500, (int16_t)(k * 30 - 90), kPathDz[k], 256, 0,
+                   0x00100000L, false, 0, (int8_t)((k % 3) - 1),
+                   (int8_t)(k & 1 ? 1 : -1), (uint8_t)(k == 3 ? 1 : 23), 256,
+                   0);
+    id += 16;
+  }
+
+  // 31b. _opponent_ai_step_asm: hunt strafe, pullup, floors, aim, break-off, want.
+  // Ground strafe entry (cut=3, dot>0, across < dot>>2, z>=77), pullup clear,
+  // pullup set below 120, floor+margin clamp, break-off cut<=1 & cut==2 head-on
+  // vs tail chase, dz==0 break-off, and slope thresholds want=0..±3.
+  _check_ai_case(35200u, 0, kOppFlagHunt | kOppFlagTurns, 400, 10, -200, 256, 0,
+                 (int32_t)90 << 8, true, 0, -2, 0, 0, 256, 0);
+  _check_ai_case(35220u, 1, kOppFlagHunt | kOppFlagTurns, 400, 10, -200, 256, 0,
+                 (int32_t)76 << 8, true, 0, -1, 2, 25, 256, 0);
+  _check_ai_case(35240u, 0, kOppFlagHunt | kOppFlagTurns, 2500, 0, 50, 256, 0,
+                 (int32_t)125 << 8, true, 1, 1, 0, 1, 256, 0);
+  _check_ai_case(35260u, 0, kOppFlagHunt, 1000, 0, -50, 256, 0,
+                 (int32_t)125 << 8, true, 1, 0, 0, 0, 256, 0);
+  _check_ai_case(35280u, 1, kOppFlagHunt | kOppFlagTurns, 1000, 0, -50, 256, 0,
+                 (int32_t)125 << 8, false, 2, 0, 0, 0, 256, 0);
+  // Break-off: cut=1 with dz=0 (climbs +3), cut=2 head-on (cam=-head, breaks),
+  // cut=2 tail chase (cam=+head, does not break), and steep |dz|>255 clamp.
+  _check_ai_case(35300u, 0, kOppFlagHunt | kOppFlagTurns, 80, 20, 0, 256, 0,
+                 (int32_t)300 << 8, false, 0, 3, 2, 0, 256, 0);
+  _check_ai_case(35320u, 1, kOppFlagHunt | kOppFlagTurns, 200, -30, 80, 256, 0,
+                 (int32_t)300 << 8, false, 0, -3, -2, 23, -256, 0);
+  _check_ai_case(35340u, 1, kOppFlagHunt | kOppFlagTurns, 200, -30, 80, 256, 0,
+                 (int32_t)300 << 8, false, 0, 1, -2, 23, 256, 0);
+  _check_ai_case(35360u, 0, kOppFlagHunt | kOppFlagTurns, 100, 40, -1500, 181,
+                 181, (int32_t)130 << 8, false, 0, 0, 0, 0, 181, 181);
+  _check_ai_case(35380u, 1, kOppFlagHunt | kOppFlagTurns, -300, -250, 600, 181,
+                 -181, (int32_t)100 << 8, false, 0, 2, 2, 24, 0, 256);
+}
+
+static __noinline void _expect_i32(uint16_t id, int32_t got, int32_t want) {
+  expect(id, (int16_t)(got & 0xFFFF), (int16_t)(want & 0xFFFF));
+  expect((uint16_t)(id + 1), (int16_t)(got >> 16), (int16_t)(want >> 16));
+}
+
+static __noinline void _test_opp_fly_asm(void) {
+  // 31c. _opponent_fly_and_move_asm across whole/substep, fighter/bomber,
+  // min/max speed clamp, cruise accel/decel, climb slopes -3..+3, and z<=0 crash.
+  uint16_t id = 35500u;
+  static const int8_t kWants[7] = {-3, -2, -1, 0, 1, 2, 3};
+  static const int16_t kSpeeds[4] = {1100, 1300, 2000, 2800};
+  for (uint8_t s = 0; s < 3; ++s) {
+    flight_step_shift = s;
+    for (uint8_t k = 0; k < 7; ++k) {
+      uint8_t slot = k & 1;
+      uint8_t flags = (uint8_t)((k & 1 ? kOppFlagTurns : 0) |
+                                (k & 2 ? kOppFlagBomber : 0));
+      int16_t sp0 = kSpeeds[k & 3];
+      int16_t cruise = (int16_t)(k & 4 ? 1750 : sp0);
+      int8_t cl0 = (int8_t)(k == 2 ? kWants[k] : 0);
+      int8_t pt0 = 1;
+      int32_t x0 = 0x00123456L, y0 = 0x00654321L;
+      int32_t z0 = (k == 0 && s == 0) ? 4L : 0x00010000L;
+      int16_t hx = 204, hy = -153;
+
+      // Pure C reference.
+      int8_t rcl = cl0, rpt = pt0;
+      uint16_t rsp = (uint16_t)sp0;
+      if (flags & kOppFlagTurns) {
+        uint8_t role = (flags & kOppFlagBomber) ? 1 : 0;
+        rcl = kWants[k];
+        if (rcl > 0 ? rsp <= kRefOppMinSpeed[role]
+                    : rcl < 0 && rsp >= kRefOppMaxSpeed[role]) {
+          rcl = 0;
+        }
+        if (rsp < (uint16_t)cruise) {
+          rsp += 8;
+        } else if (rsp > (uint16_t)cruise) {
+          rsp -= 8;
+        }
+        rsp = (uint16_t)((int16_t)rsp + kRefOppClimbSpeed[rcl + 3]);
+        if (rcl == cl0) {
+          rpt = rcl;
+        }
+      }
+      int32_t rx = x0, ry = y0, rz = z0;
+      if (rcl != 0) {
+        rz += _ref_opp_step_delta((int16_t)(-kRefOppClimbSpeed[rcl + 3] * 4),
+                                  (int16_t)rsp);
+      }
+      uint8_t rcrash = (rz <= 0) ? 1 : 0;
+      if (!rcrash) {
+        rx += _ref_opp_step_delta(hx, (int16_t)rsp);
+        ry += _ref_opp_step_delta(hy, (int16_t)rsp);
+      }
+
+      // Run 6502 assembly.
+      _opponent_speed[slot] = sp0;
+      _opponent_climb[slot] = cl0;
+      _opponent_pitch[slot] = pt0;
+      _opponent_head[slot].x = hx;
+      _opponent_head[slot].y = hy;
+      _opponent_x[slot] = x0;
+      _opponent_y[slot] = y0;
+      _opponent_z[slot] = z0;
+      _opponent_step_want = kWants[k];
+      uint8_t got_crash = _opponent_fly_and_move_asm(slot, flags, cruise);
+
+      expect(id + 0, got_crash, rcrash);
+      expect(id + 1, _opponent_speed[slot], (int16_t)rsp);
+      expect(id + 2, _opponent_climb[slot], rcl);
+      expect(id + 3, _opponent_pitch[slot], rpt);
+      _expect_i32(id + 4, _opponent_x[slot], rx);
+      _expect_i32(id + 6, _opponent_y[slot], ry);
+      _expect_i32(id + 8, _opponent_z[slot], rz);
+      id += 12;
+    }
+  }
+
+}
+
+static __noinline void _test_opp_fall_asm(void) {
+  // 31d. _opponent_fall_asm: spinning vs non-spinning, whole vs substep,
+  // parked (speed=0), and ground hit (z<=0).
+  flight_step_shift = 0;
+  uint16_t id = 36000u;
+  for (uint8_t c = 0; c < 6; ++c) {
+    uint8_t slot = c & 1;
+    uint8_t bit = (uint8_t)(slot + 1);
+    uint8_t whole = (c & 2) ? 1 : 0;
+    uint8_t down0 = (uint8_t)((bit << 2) | (c >= 2 ? (bit << 4) : 0) | 0x01);
+    int16_t sp0 = (c == 4) ? 0 : 1800;
+    int32_t z0 = (c == 5) ? 100L : 50000L;
+    int16_t hx0 = 200, hy0 = -160;
+    int32_t x0 = 10000L, y0 = 20000L;
+
+    // Reference.
+    int16_t rhx = hx0, rhy = hy0;
+    int8_t rbk = -1;
+    if ((down0 & (uint8_t)(bit << 4)) && whole) {
+      rhx = -hy0;
+      rhy = hx0;
+      rbk = 2;
+    }
+    int32_t rz = z0 + _ref_opp_step_delta(-192, sp0);
+    int32_t rx = x0, ry = y0;
+    uint8_t rdown = down0;
+    uint8_t rdead = (rz <= 0 || sp0 == 0) ? 1 : 0;
+    if (rdead) {
+      rdown &= (uint8_t)~(bit << 2);
+    } else {
+      rx += _ref_opp_step_delta(rhx, sp0);
+      ry += _ref_opp_step_delta(rhy, sp0);
+    }
+
+    _opponent_down = down0;
+    _opponent_speed[slot] = sp0;
+    _opponent_head[slot].x = hx0;
+    _opponent_head[slot].y = hy0;
+    _opponent_bank[slot] = -1;
+    _opponent_pitch[slot] = 0;
+    _opponent_x[slot] = x0;
+    _opponent_y[slot] = y0;
+    _opponent_z[slot] = z0;
+    uint8_t got_dead = _opponent_fall_asm(slot, whole);
+
+    expect(id + 0, got_dead, rdead);
+    expect(id + 1, _opponent_down, rdown);
+    expect(id + 2, _opponent_pitch[slot], 4);
+    expect(id + 3, _opponent_bank[slot], rbk);
+    expect(id + 4, _opponent_head[slot].x, rhx);
+    expect(id + 5, _opponent_head[slot].y, rhy);
+    _expect_i32(id + 6, _opponent_z[slot], rz);
+    _expect_i32(id + 8, _opponent_x[slot], rx);
+    _expect_i32(id + 10, _opponent_y[slot], ry);
+    id += 12;
+  }
+
+}
+
+static __noinline void _test_opp_cap_asm(void) {
+  // 31e. _opponent_cap_asm: far=0..3, depth hysteresis boundary, cap_all=0/1,
+  // newly-capped >2-sprite drop vs <=2-sprite preserve vs already-capped.
+  static const struct {
+    uint8_t far, cap_all, nearer0, capped0;
+    uint16_t x0, x1;
+    uint8_t lv0, c0, r0, lv1, c1, r1;
+  } kCapCases[] = {
+      // far=1 -> nearer=1, capped=1 (slot 0 newly capped, 2x2 -> dropped)
+      {1, 0, 0, 0, 500, 1000, 3, 2, 2, 3, 2, 2},
+      // far=2 -> nearer=0, capped=2 (slot 1 newly capped, 1x2 -> dropped)
+      {2, 0, 1, 0, 1000, 500, 2, 1, 1, 2, 1, 2},
+      // far=0, nearer=0, dn=800, dn-(dn>>3)=700: x1=700 (not < 700 -> stays 0)
+      {0, 0, 0, 0, 800, 700, 2, 2, 2, 2, 1, 1},
+      // far=0, nearer=0, dn=800, thresh=700: x1=699 (< 700 -> flips to 1)
+      {0, 0, 0, 0, 800, 699, 2, 2, 2, 2, 2, 2},
+      // far=3, nearer=1, dn=1600, thresh=1400: x0=1399 -> flips to 0, cap_all=1
+      {3, 1, 1, 1, 1399, 1600, 2, 2, 2, 3, 2, 1},
+      // already capped=3 -> fast exit, nothing dropped
+      {0, 1, 0, 3, 400, 900, 3, 2, 2, 3, 2, 2},
+  };
+  uint16_t id = 36200u;
+  for (uint8_t k = 0; k < sizeof(kCapCases) / sizeof(kCapCases[0]); ++k) {
+    uint8_t far = kCapCases[k].far;
+    uint8_t cap_all = kCapCases[k].cap_all;
+    uint8_t rn = kCapCases[k].nearer0;
+    uint8_t rc0 = kCapCases[k].capped0;
+    uint16_t x0 = kCapCases[k].x0, x1 = kCapCases[k].x1;
+    if (far == 1 || far == 2) {
+      rn = far & 1;
+    } else {
+      uint16_t dn = rn == 0 ? x0 : x1;
+      uint16_t xo = rn == 0 ? x1 : x0;
+      if (xo < (uint16_t)(dn - (dn >> 3))) {
+        rn ^= 1;
+      }
+    }
+    uint8_t rcap = cap_all ? 3 : (uint8_t)((rn ^ 1) + 1);
+    uint8_t rpend = 3;
+    uint8_t rlv[2] = {kCapCases[k].lv0, kCapCases[k].lv1};
+    uint8_t rsh[2] = {kCapCases[k].lv0, kCapCases[k].lv1};
+    bool rkv[2] = {true, true};
+    uint8_t cols[2] = {kCapCases[k].c0, kCapCases[k].c1};
+    uint8_t rows[2] = {kCapCases[k].r0, kCapCases[k].r1};
+    for (uint8_t s = 0; s < 2; ++s) {
+      uint8_t bit = (uint8_t)(s + 1);
+      if ((rcap & bit) && !(rc0 & bit) && rlv[s] != kPlaneLevelDot &&
+          (uint8_t)(cols[s] + rows[s]) > 2) {
+        rsh[s] = kPlaneLevelDot;
+        rlv[s] = kPlaneLevelDot;
+        rkv[s] = false;
+        rpend &= (uint8_t)~bit;
+      }
+    }
+
+    _opponent_nearer = kCapCases[k].nearer0;
+    _opponent_capped = rc0;
+    _opponent_pending = 3;
+    _opponent_cs[0].x = (int16_t)x0;
+    _opponent_cs[1].x = (int16_t)x1;
+    for (uint8_t s = 0; s < 2; ++s) {
+      _opponent_planes[s].lay.level = (s == 0 ? kCapCases[k].lv0 : kCapCases[k].lv1);
+      _opponent_planes[s].lay.cols = cols[s];
+      _opponent_planes[s].lay.rows = rows[s];
+      _opponent_planes[s].key_valid = true;
+      _opponent_shown[s].level = _opponent_planes[s].lay.level;
+    }
+    _opponent_cap_asm(far, cap_all);
+
+    expect(id + 0, _opponent_nearer, rn);
+    expect(id + 1, _opponent_capped, rcap);
+    expect(id + 2, _opponent_pending, rpend);
+    expect(id + 3, _opponent_planes[0].lay.level, rlv[0]);
+    expect(id + 4, _opponent_shown[0].level, rsh[0]);
+    expect(id + 5, _opponent_planes[0].key_valid ? 1 : 0, rkv[0] ? 1 : 0);
+    expect(id + 6, _opponent_planes[1].lay.level, rlv[1]);
+    expect(id + 7, _opponent_shown[1].level, rsh[1]);
+    expect(id + 8, _opponent_planes[1].key_valid ? 1 : 0, rkv[1] ? 1 : 0);
+    id += 12;
+  }
+}
+
 #endif // __TARGET_TEST_PLANES__
 #pragma optimize(pop)
 
@@ -4815,6 +5284,10 @@ int main(void) {
   test_flight_asm();
   test_panel_asm();
   test_sound_asm();
+  test_opponent_step_asm();
+  _test_opp_fly_asm();
+  _test_opp_fall_asm();
+  _test_opp_cap_asm();
 #else
   test_poly_rounding();
   test_int8_negate_then_shift();

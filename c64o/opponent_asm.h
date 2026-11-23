@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#include "bool.h"
 #include "planes.h"
 #include "vec.h"
 #ifndef __TARGET_TEST__
@@ -15,6 +16,8 @@ static_assert(kOpponentMax == 2, "opponent_asm assumes 2 opponent slots");
 extern int32_t *const kFlightEye[3];
 extern uint8_t flight_step_shift;
 extern mat3_t world_cam;
+extern bool model_on_ground;
+extern mat3_t flight_cam;
 #endif
 
 // The assembly half of opponent.cc, in opponent_asm.cc: shared opponent world,
@@ -23,11 +26,13 @@ extern mat3_t world_cam;
 // 3-axis position reads, layout/camera-space struct copies, 6-bit steering
 // reduction + 2D heading cross/dot products, position integration
 // (_opponent_move / _opponent_ahead), camera-space body axes (_opponent_axes),
-// and staged frustum culling (_opponent_cull_slot) calling vec_asm.cc's shared
-// vec_mul_ab core. opponent.cc keeps the C counterparts under #ifndef
-// __OSCAR64__ for test/opponent_test.cc and test/mission_test.cc, and
-// test/target_test.cc holds the 6502 assembly to 16-bit C references on the
-// emulated 6510.
+// staged frustum culling (_opponent_cull_slot), per-slot AI/flight/fall step
+// (_opponent_ai_step_asm / _opponent_fly_and_move_asm / _opponent_fall_asm),
+// and 2-opponent sprite-budget depth hysteresis/capping (_opponent_cap_asm)
+// calling vec_asm.cc's shared vec_mul_ab core. opponent.cc keeps the C
+// counterparts under #ifndef __OSCAR64__ for test/opponent_test.cc and
+// test/mission_test.cc, and test/target_test.cc holds the 6502 assembly to
+// 16-bit C references on the emulated 6510.
 
 enum opponent_range_t { kOpponentNear, kOpponentFar, kOpponentOut };
 static_assert(kOpponentNear == 0 && kOpponentFar == 1 && kOpponentOut == 2,
@@ -78,9 +83,37 @@ extern planes_state_t _opponent_planes[2];
 extern planes_layout_t _opponent_shown[2];
 extern __striped int16_t _opponent_speed[2];
 
+extern uint8_t _opponent_down;
+extern uint8_t _opponent_pullup;
+extern uint8_t _opponent_firing;
+extern int8_t _opponent_step_want;
+extern uint8_t _opponent_pending;
+
+struct opponent_vis_t {
+  uint8_t front;
+  uint8_t first;
+  uint8_t near_m;
+  uint8_t nearer;
+  uint8_t capped;
+};
+extern opponent_vis_t _opponent_vis;
+#define _opponent_front (_opponent_vis.front)
+#define _opponent_first (_opponent_vis.first)
+#define _opponent_near (_opponent_vis.near_m)
+#define _opponent_nearer (_opponent_vis.nearer)
+#define _opponent_capped (_opponent_vis.capped)
+
 extern vec3_t _opponent_c;
 extern vec3_t _opponent_cs[2];
 extern mat3_t _opponent_axes_m;
+extern bool _opponent_aim;
+extern bool _opponent_break;
+
+// Flags packed into the `flags` byte for _opponent_ai_step_asm() and
+// _opponent_fly_and_move_asm().
+static const uint8_t kOppFlagHunt = 0x01;
+static const uint8_t kOppFlagTurns = 0x02;
+static const uint8_t kOppFlagBomber = 0x04;
 
 // Pitch sine table (8.8), shared between _opponent_axes() and opponent_fires().
 extern const int16_t kOpponentPitchSin[8];
@@ -96,6 +129,10 @@ void _opponent_move(uint8_t i, uint8_t idx, int16_t h);
 void _opponent_ahead(uint8_t i);
 void _opponent_axes(uint8_t i);
 uint8_t _opponent_cull_slot(uint8_t i);
+int16_t _opponent_ai_step_asm(uint8_t i, uint8_t flags);
+uint8_t _opponent_fly_and_move_asm(uint8_t i, uint8_t flags, int16_t cruise);
+uint8_t _opponent_fall_asm(uint8_t i, uint8_t whole);
+void _opponent_cap_asm(uint8_t far, uint8_t cap_all);
 
 #pragma compile("opponent_asm.cc")
 #endif
