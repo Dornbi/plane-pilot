@@ -250,7 +250,7 @@ endef
 planes_target_cases.h: ../../tools/generate_planes.py ../../lib/planes.py
 	python3 ../../tools/generate_planes.py --target planes_target_cases.h
 
-target_test.prg: target_test.cc int16.h ../vec.h ../vec.cc ../vec_lut.cc \
+target_test.prg: target_test.cc int16.h ../vec.h ../vec.cc ../vec_asm.cc ../vec_lut.cc \
 		../planes.h ../planes.cc ../planes_asm.h ../planes_asm.cc ../planedef.h \
 		../poly_asm.h ../poly_asm.cc ../world_asm.h ../world_asm.cc ../opponent_asm.h ../opponent_asm.cc ../gun_asm.h ../gun_asm.cc \
 		../sprites.h ../sprites_asm.h ../sprites_asm.cc ../spritedef.h ../spritedef.cc \
@@ -258,7 +258,7 @@ target_test.prg: target_test.cc int16.h ../vec.h ../vec.cc ../vec_lut.cc \
 		../render_asm.h ../render_asm.cc ../box_asm.h ../box_asm.cc
 	$(OSCAR64) $(TARGET_CFLAGS) -D__TARGET_TEST__ -o=target_test.prg target_test.cc
 
-target_planes_test.prg: target_test.cc ../vec.h ../vec.cc ../vec_lut.cc \
+target_planes_test.prg: target_test.cc ../vec.h ../vec.cc ../vec_asm.cc ../vec_lut.cc \
 		../planes.h ../planes.cc ../planes_asm.h ../planes_asm.cc ../planedef.h \
 		../flight_asm.h ../flight_asm.cc ../panel_asm.h ../panel_asm.cc \
 		../sound_asm.h ../sound_asm.cc ../opponent_asm.h ../opponent_asm.cc \

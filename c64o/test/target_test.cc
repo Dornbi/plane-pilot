@@ -76,6 +76,11 @@
 //   31  opponent_asm.cc _opponent_ai_step_asm, _opponent_fly_and_move_asm,
 //       _opponent_fall_asm & _opponent_cap_asm against 16-bit C references
 //       (in target_planes_test.prg)
+//   32  sprites_asm.h direct raster ISR sprite programming (in target_planes_test.prg)
+//   33  vec_asm.cc vec_negate, vec_turn_xy, vec_mul_ab bh==0/al==0/bl==0,
+//       vec_mulfrac & vec_mulfrac_core, vec_normalize (incl. L2 in 256..260
+//       fast-path & isqrt), vec_orthonormalize, vec_project_once &
+//       vec_project_nocull against 16-bit C references (in target_planes_test.prg)
 
 #include <stdint.h>
 
@@ -5397,6 +5402,147 @@ static __noinline void test_sprites_irq_asm(void) {
   view_state = VIEW_CENTER;
 }
 
+// --- Test 33: vec_asm.cc full 6502 vector math equivalence -----------------
+static void _ref_norm_33(vec3_t *v) {
+  uint16_t L2 = (uint16_t)(vec_fastmul8p8(v->x, v->x) +
+                           vec_fastmul8p8(v->y, v->y) +
+                           vec_fastmul8p8(v->z, v->z));
+  if (L2 == 0) {
+    return;
+  }
+  L2 <<= 6;
+  uint16_t res = 0, bit = (uint16_t)1 << 14;
+  while (bit > L2) {
+    bit >>= 2;
+  }
+  while (bit != 0) {
+    if (L2 >= res + bit) {
+      L2 -= res + bit;
+      res = (res >> 1) + bit;
+    } else {
+      res >>= 1;
+    }
+    bit >>= 2;
+  }
+  if (res == 0) {
+    return;
+  }
+  res <<= 1;
+  int16_t *c = &v->x;
+  for (uint8_t i = 0; i < 3; ++i) {
+    c[i] = vec_div8p8(c[i], (int16_t)res);
+    if (c[i] <= -255) {
+      c[i] = -256;
+    } else if (c[i] >= 255) {
+      c[i] = 256;
+    }
+  }
+}
+
+static __noinline void test_vec_full_asm(void) {
+  _cur_id = 33;
+
+  // 33a. vec_negate
+  {
+    static const vec3_t kNeg[3] = {
+        {0, 256, -256}, {32767, -32767, 1}, {-32768, 1234, -5678}};
+    for (uint8_t i = 0; i < 3; ++i) {
+      vec3_t v = kNeg[i];
+      vec_negate(&v);
+      expect_id(v.x, (int16_t)-kNeg[i].x);
+      expect_id(v.y, (int16_t)-kNeg[i].y);
+      expect_id(v.z, (int16_t)-kNeg[i].z);
+    }
+  }
+
+  // 33b. vec_mul_ab new fast paths (bh==0, al==0, bl==0, b==0 when a_lo==0)
+  {
+    static const int16_t kA[8] = {512, 512, -512, 300, -300, 768, 257, -1023};
+    static const int16_t kB[8] = {0, -128, 256, -256, 512, 512, -200, 73};
+    static const int16_t kW[8] = {0, -256, -512, -300, -600, 1536, -200, -291};
+    for (uint8_t i = 0; i < 8; ++i) {
+      expect_id(vec_fastmul8p8(kA[i], kB[i]), kW[i]);
+    }
+  }
+
+  // 33c. vec_mulfrac & vec_mulfrac_core (including ZP preservation)
+  {
+    static const uint16_t kT[8] = {0x0000u, 0x0080u, 0x8000u, 0xFFFFu,
+                                   0x8080u, 0x01FFu, 0xFF01u, 0x1234u};
+    static const int16_t kD[8] = {1000, -1000, 256, -32767,
+                                  129,  -129,  32767, -257};
+    for (uint8_t i = 0; i < 8; ++i) {
+      int16_t hi = vec_fastmul8p8((int16_t)(kT[i] >> 8), kD[i]);
+      int16_t lo = vec_fastmul8p8((int16_t)(kT[i] & 0xFF), kD[i]);
+      int16_t want = (int16_t)(hi + (int16_t)((lo + 128) >> 8));
+      expect_id(vec_mulfrac(kT[i], kD[i]), want);
+      vec_v.x = 111;
+      vec_v.y = -222;
+      vec_v.z = 333;
+      frac_q0 = (uint8_t)(kT[i] & 0xFF);
+      frac_q1 = (uint8_t)(kT[i] >> 8);
+      vec_sx = kD[i];
+      __asm { jsr vec_mulfrac_core; }
+      expect_id(vec_mul_res, want);
+      expect_id(frac_q0, (uint8_t)(kT[i] & 0xFF));
+      expect_id(frac_q1, (uint8_t)(kT[i] >> 8));
+      expect_id(vec_v.x, 111);
+      expect_id(vec_v.y, -222);
+      expect_id(vec_v.z, 333);
+    }
+  }
+
+  // 33d. vec_normalize edge cases (L2==0, L2 in [256..260] fast-path,
+  // L2==255/261, L2==1024 wrap, -32768 wrap/clamp, zero components)
+  {
+    static const vec3_t kNorm[11] = {
+        {-32768, 0, 0},     // L2 wraps to 0 (must not clamp)
+        {-255, 16, 0},      // L2 == 255 (just below fast-path)
+        {256, 16, 0},       // L2 == 257 (fast-path)
+        {256, 32, 0},       // L2 == 260 (top of fast-path)
+        {255, -24, 24},     // L2 == 258 (fast-path + clamp +255 -> +256)
+        {-32768, 256, 0},   // L2 == 256 (fast-path + clamp -32768 -> -256)
+        {256, 36, 0},       // L2 == 261 (just above fast-path)
+        {512, 0, 0},        // L2 == 1024 -> (L2<<6)==0 (early return)
+        {30, 40, 0},        // small vector with z==0
+        {-180, 180, -100},  // general 3D vector
+        {100, -200, 150},   // general 3D vector
+    };
+    for (uint8_t i = 0; i < 11; ++i) {
+      vec3_t got = kNorm[i];
+      vec3_t want = kNorm[i];
+      vec_normalize(&got);
+      _ref_norm_33(&want);
+      expect_id(got.x, want.x);
+      expect_id(got.y, want.y);
+      expect_id(got.z, want.z);
+    }
+  }
+
+  // 33e. vec_project_once & vec_project_nocull
+  {
+    static const int16_t kP[6][6] = {
+        {8, 0, 0, 0, 0, 0},
+        {-100, 0, 0, 0, 0, 0},
+        {1000, -32768, 0, 0, 0, 0},
+        {256, -256, 128, 1, -255, 127},
+        {64, 200, -150, 0, 800, -600},
+        {100, -350, 220, 0, -896, 563},
+    };
+    for (uint8_t i = 0; i < 6; ++i) {
+      vec_v = make_vector(kP[i][0], kP[i][1], kP[i][2]);
+      expect_id(vec_project_once() ? 1 : 0, kP[i][3]);
+      if (i >= 3) {
+        if (i >= 4) {
+          vec_project_nocull();
+        }
+        expect_id(vec_sx, kP[i][4]);
+        expect_id(vec_sy, kP[i][5]);
+      }
+    }
+  }
+}
+
 #endif // __TARGET_TEST_PLANES__
 #pragma optimize(pop)
 
@@ -5424,6 +5570,7 @@ int main(void) {
   _test_opp_fall_asm();
   _test_opp_cap_asm();
   test_sprites_irq_asm();
+  test_vec_full_asm();
 #else
   test_poly_rounding();
   test_int8_negate_then_shift();

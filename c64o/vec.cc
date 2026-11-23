@@ -64,12 +64,14 @@ inline void vec_sub(vec3_t *dest, const vec3_t *src) {
   dest->z -= src->z;
 }
 
+#ifndef __OSCAR64__
 // __noinline: six call sites, all once a frame; inlined it cost 221 bytes.
 __noinline void vec_negate(vec3_t *v) {
   v->x = -v->x;
   v->y = -v->y;
   v->z = -v->z;
 }
+#endif // !__OSCAR64__
 
 __forceinline uint16_t vec_fastsqr8p8u(uint16_t a) {
   uint8_t h = _hibyte(a);
@@ -297,6 +299,7 @@ static bool _unused_vec_project(const vec3_t *v) {
 // or frame.
 #pragma optimize(push, outline)
 
+#ifndef __OSCAR64__
 // A loop over the three components rather than three copies of the test: 63
 // bytes instead of 166, for 44 cycles more a call, and it runs only when the
 // attitude changes.
@@ -360,13 +363,11 @@ void vec_normalize(vec3_t *v) {
   _limit_vec(v);
 }
 
-#ifndef __OSCAR64__
 void vec_cross(const vec3_t *u, const vec3_t *v, vec3_t *res) {
   res->x = vec_fastmul8p8(u->y, v->z) - vec_fastmul8p8(u->z, v->y);
   res->y = vec_fastmul8p8(u->z, v->x) - vec_fastmul8p8(u->x, v->z);
   res->z = vec_fastmul8p8(u->x, v->y) - vec_fastmul8p8(u->y, v->x);
 }
-#endif // !__OSCAR64__
 
 void vec_orthonormalize(mat3_t *mat) {
   vec_normalize(&mat->front);
@@ -375,6 +376,7 @@ void vec_orthonormalize(mat3_t *mat) {
   vec_cross(&mat->front, &mat->left, &mat->up);
   _limit_vec(&mat->up);
 }
+#endif // !__OSCAR64__
 
 // One control step, as a small-angle rotation: the off-diagonal over 256 is the
 // angle in radians, so 32 is 7.2 degrees of roll, 16 is 3.6 of pitch and 8 is
@@ -496,6 +498,7 @@ void vec_transform_inv(const mat3_t *mat, const vec3_t *u, vec3_t *res) {
 }
 #endif // !__OSCAR64__
 
+#ifndef __OSCAR64__
 // Both components come from the values the vector arrived with, which is what
 // the general routine's copy of the whole matrix was for. Two temporaries
 // cover it here, since each vector is rotated independently of the other two.
@@ -505,6 +508,7 @@ __noinline void vec_turn_xy(int16_t s, vec3_t *v) {
   v->x = x + vec_fastmul8p8(s, y);
   v->y = y - vec_fastmul8p8(s, x);
 }
+#endif // !__OSCAR64__
 
 __forceinline void vec_turn3_xy(int16_t s, mat3_t *m) {
   vec_turn_xy(s, &m->front);
