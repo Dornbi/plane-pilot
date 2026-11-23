@@ -61,6 +61,8 @@
 //       cross, rotate_step, normalize & orthonormalize against C ref
 //   26  opponent_asm.cc _opponent_move, _opponent_ahead, _opponent_axes &
 //       _opponent_cull_slot against 16-bit C ref
+//   27  render_asm.cc _render_pull_and_snap_asm & _render_fill_sky_ground_asm
+//       against byte-for-byte C reference (level + tilted, main/alt, sky rows)
 
 #include <stdint.h>
 
@@ -506,6 +508,8 @@ void _world_render_object_cur(void) {
 }
 
 uint8_t _render_sky_rows;
+int16_t render_cx_pixels;
+int16_t render_cy_pixels;
 int8_t render_cx_chars;
 int8_t render_cy_chars;
 bool render_alt_box;
@@ -514,8 +518,10 @@ int8_t render_alt_shift_y;
 uint8_t render_sky_rows;
 int8_t roll_dx;
 int8_t roll_dy;
+int16_t roll_dx_div_dy;
 uint8_t roll_period;
 bool roll_x_is_major;
+bool roll_shift_2chars;
 int8_t roll_ex_dy[8];
 int8_t roll_ey_dx[8];
 
@@ -834,8 +840,8 @@ static void test_render_snap_center_asm(void) {
     }
     vec_proj_mul_a = kSnapCases[c].px;
     vec_proj_mul_b = kSnapCases[c].py;
-    render_alt_shift_x = 0;
-    render_alt_shift_y = 0;
+    *(volatile int8_t *)&render_alt_shift_x = 0;
+    *(volatile int8_t *)&render_alt_shift_y = 0;
     _render_snap_center_asm();
 
     int8_t r_cx = 0, r_cy = 0, r_sx = 0, r_sy = 0;
@@ -846,8 +852,8 @@ static void test_render_snap_center_asm(void) {
     expect_id(render_cy_chars, r_cy);
     expect_id(render_alt_box ? 1 : 0, r_alt ? 1 : 0);
     if (roll_period == 1) {
-      expect_id(render_alt_shift_x, r_sx);
-      expect_id(render_alt_shift_y, r_sy);
+      expect_id(*(volatile int8_t *)&render_alt_shift_x, r_sx);
+      expect_id(*(volatile int8_t *)&render_alt_shift_y, r_sy);
     }
   }
 }
@@ -3626,6 +3632,264 @@ static __noinline void test_opponent_hot_asm(void) {
   }
 }
 
+// 27. render_asm.cc _render_pull_and_snap_asm & _render_fill_sky_ground_asm.
+static void _ref_pull_to_center(int16_t *out_px, int16_t *out_py) {
+  int16_t c_maj, c_min, t;
+  int8_t d_maj, d_min;
+  if (roll_x_is_major) {
+    c_maj = render_cx_pixels;
+    c_min = render_cy_pixels;
+    t = 160;
+    d_maj = roll_dx;
+    d_min = roll_dy;
+  } else {
+    c_maj = render_cy_pixels;
+    c_min = render_cx_pixels;
+    t = 64;
+    d_maj = roll_dy;
+    d_min = roll_dx;
+  }
+  t += (roll_shift_2chars ? 64 : 32) - c_maj;
+  int16_t d = t >> 6;
+  if (roll_shift_2chars) {
+    d >>= 1;
+  }
+  int16_t p_maj = c_maj + (t & (roll_shift_2chars ? -128 : -64));
+  if (d_maj < 0) {
+    d = -d;
+  }
+  int16_t prod = vec_fastmul8p8(d, (int16_t)d_min << 8);
+  int16_t p_min = c_min + (int16_t)(prod << 3);
+  if (roll_x_is_major) {
+    *out_px = p_maj;
+    *out_py = p_min;
+  } else {
+    *out_px = p_min;
+    *out_py = p_maj;
+  }
+}
+
+static uint8_t _ref_clamp_pos(int8_t row) {
+  return row < 0 ? 0 : (uint8_t)row;
+}
+
+static uint8_t _ref_fill_sky_ground(uint8_t init_sky_rows) {
+  uint8_t cur_sky = 0;
+  for (uint16_t i = 0; i < kViewportHeight * 40; ++i) {
+    ref_scr[i] = 0xAA;
+    ref_clr[i] = (i < (uint16_t)init_sky_rows * 40) ? COLOR_SKY8 : 0x55;
+  }
+  if (roll_dy == 0) {
+    bool sky_left = roll_dx > 0;
+    int8_t e = render_cy_chars;
+    uint8_t top = _ref_clamp_pos(e);
+    uint8_t bot;
+    if (sky_left) {
+      bot = top;
+      top = _ref_clamp_pos((int8_t)(bot - 4));
+    } else {
+      bot = _ref_clamp_pos((int8_t)(e + 4));
+      if (bot < top) {
+        bot = top;
+      }
+    }
+    uint8_t ch0 = sky_left ? kCharSolid11 : kCharSolidGround;
+    uint8_t ch1 = (uint8_t)(ch0 ^ kCharSolidGround);
+    uint8_t t_end = top > kViewportHeight ? kViewportHeight : top;
+    if (ch0 == kCharSolid11 && t_end > 0) {
+      cur_sky = t_end;
+    }
+    for (uint8_t y = 0; y < t_end; ++y) {
+      for (uint8_t x = 0; x < 40; ++x) {
+        ref_scr[(uint16_t)y * 40 + x] = ch0;
+        if (ch0 == kCharSolid11 && y >= init_sky_rows) {
+          ref_clr[(uint16_t)y * 40 + x] = COLOR_SKY8;
+        }
+      }
+    }
+    if (ch1 == kCharSolid11 && bot < kViewportHeight && bot == cur_sky) {
+      cur_sky = kViewportHeight;
+    }
+    for (uint8_t y = bot; y < kViewportHeight; ++y) {
+      for (uint8_t x = 0; x < 40; ++x) {
+        ref_scr[(uint16_t)y * 40 + x] = ch1;
+        if (ch1 == kCharSolid11 && y >= init_sky_rows) {
+          ref_clr[(uint16_t)y * 40 + x] = COLOR_SKY8;
+        }
+      }
+    }
+  } else {
+    bool sky_left = roll_dy < 0;
+    int16_t lo = -vec_fastmul8p8(roll_dx_div_dy, (int16_t)render_cy_chars << 8) +
+                 (int16_t)((int16_t)render_cx_chars << 4);
+    if (roll_dx_div_dy > 0) {
+      lo += 8;
+    }
+    if (render_alt_box) {
+      if (render_alt_shift_x) {
+        lo += 8;
+      }
+      if (render_alt_shift_y) {
+        lo -= (roll_dx_div_dy >> 1);
+      }
+    }
+    int16_t ad = roll_dx_div_dy < 0 ? -roll_dx_div_dy : roll_dx_div_dy;
+    int16_t w = (int16_t)(ad << 2);
+    if (sky_left) {
+      lo -= w;
+    }
+    for (uint8_t y = 0; y < kViewportHeight; ++y) {
+      int16_t hi = lo + w;
+      if (hi < 0x10 || lo >= (int16_t)(40 << 4)) {
+        uint8_t ch =
+            ((hi < 0x10) != sky_left) ? kCharSolid11 : kCharSolidGround;
+        if (ch == kCharSolid11 && y == cur_sky) {
+          cur_sky = (uint8_t)(y + 1);
+        }
+        for (uint8_t x = 0; x < 40; ++x) {
+          ref_scr[(uint16_t)y * 40 + x] = ch;
+          if (ch == kCharSolid11 && y >= init_sky_rows) {
+            ref_clr[(uint16_t)y * 40 + x] = COLOR_SKY8;
+          }
+        }
+      } else {
+        if (lo >= 0x10) {
+          uint8_t lim = (uint8_t)((uint16_t)lo >> 4);
+          uint8_t ch = sky_left ? kCharSolid11 : kCharSolidGround;
+          for (uint8_t x = 0; x < lim; ++x) {
+            ref_scr[(uint16_t)y * 40 + x] = ch;
+            if (sky_left && y >= init_sky_rows) {
+              ref_clr[(uint16_t)y * 40 + x] = COLOR_SKY8;
+            }
+          }
+        }
+        if (hi < (int16_t)(40 << 4)) {
+          uint8_t r = (uint8_t)((uint16_t)hi >> 4);
+          uint8_t ch = !sky_left ? kCharSolid11 : kCharSolidGround;
+          for (uint8_t x = r; x < 40; ++x) {
+            ref_scr[(uint16_t)y * 40 + x] = ch;
+            if (!sky_left && y >= init_sky_rows) {
+              ref_clr[(uint16_t)y * 40 + x] = COLOR_SKY8;
+            }
+          }
+        }
+      }
+      lo += roll_dx_div_dy;
+    }
+  }
+  return cur_sky;
+}
+
+static void test_render_pull_and_fill_asm(void) {
+  _cur_id = 27;
+  // Part A: _render_pull_and_snap_asm (level, tilted, x/y major, shift_2chars,
+  // negative cx/cy & negative d_maj).
+  struct PullCase {
+    bool x_maj, shift2;
+    uint8_t period;
+    int8_t dx, dy;
+    int16_t cx, cy;
+  };
+  static const PullCase kPullCases[] = {
+      {true, false, 1, 8, 0, 160, 56},
+      {true, false, 1, -8, 0, -200, 120},
+      {true, true, 8, 16, -1, 500, -140},
+      {true, false, 4, 8, -2, -310, 420},
+      {false, false, 1, 0, -8, 90, 310},
+      {false, true, 8, -2, -16, -420, -290},
+      {false, false, 2, 4, 8, 350, -180},
+  };
+  for (uint8_t c = 0; c < sizeof(kPullCases) / sizeof(kPullCases[0]); ++c) {
+    roll_x_is_major = kPullCases[c].x_maj;
+    roll_shift_2chars = kPullCases[c].shift2;
+    roll_period = kPullCases[c].period;
+    roll_dx = kPullCases[c].dx;
+    roll_dy = kPullCases[c].dy;
+    render_cx_pixels = kPullCases[c].cx;
+    render_cy_pixels = kPullCases[c].cy;
+    for (uint8_t e = 0; e < 8; ++e) {
+      int8_t off = (int8_t)e - 4;
+      roll_ex_dy[e] = (int8_t)(roll_dy * off);
+      roll_ey_dx[e] = (int8_t)(roll_dx * off);
+    }
+    *(volatile int8_t *)&render_alt_shift_x = 0;
+    *(volatile int8_t *)&render_alt_shift_y = 0;
+    _render_pull_and_snap_asm();
+
+    int16_t r_px = 0, r_py = 0;
+    _ref_pull_to_center(&r_px, &r_py);
+    int8_t r_cx = 0, r_cy = 0, r_sx = 0, r_sy = 0;
+    bool r_alt = false;
+    _ref_snap_center(r_px, r_py, &r_cx, &r_cy, &r_alt, &r_sx, &r_sy);
+    expect_id(*(volatile int8_t *)&render_cx_chars, r_cx);
+    expect_id(*(volatile int8_t *)&render_cy_chars, r_cy);
+    expect_id(*(volatile bool *)&render_alt_box ? 1 : 0, r_alt ? 1 : 0);
+    if (roll_period == 1) {
+      expect_id(*(volatile int8_t *)&render_alt_shift_x, r_sx);
+      expect_id(*(volatile int8_t *)&render_alt_shift_y, r_sy);
+    }
+  }
+
+  // Part B: _render_fill_sky_ground_asm on $E800 (main) and $EC00 (alt).
+  struct FillCase {
+    bool alt_buf, alt_box;
+    int8_t dx, dy, cx, cy, sx, sy;
+    int16_t dx_div_dy;
+    uint8_t init_sky;
+  };
+  static const FillCase kFillCases[] = {
+      // Level horizons (sky-top, ground-top, clamped edges, int8 wraparound).
+      {false, false, 8, 0, 20, 7, 0, 0, 0, 2},
+      {true, false, 8, 0, 20, 2, 0, 0, 0, 0},
+      {false, false, 8, 0, 20, -5, 0, 0, 0, 4},
+      {true, false, -8, 0, 20, 7, 0, 0, 0, 3},
+      {false, false, -8, 0, 20, -2, 0, 0, 0, 0},
+      {true, false, -8, 0, 20, 126, 0, 0, 0, 0},
+      // Tilted horizons: sky_left (dy < 0) and sky_right (dy > 0), +/- slope,
+      // alt_box shifts (x and y), cy == -128 overflow edge case, sky_rows skip.
+      {false, false, 8, -4, 20, 7, 0, 0, -32, 3},
+      {true, false, -8, -4, 20, 7, 0, 0, 32, 2},
+      {false, true, 8, -8, 18, 6, 0, 4, -16, 4},
+      {true, true, -2, 8, 22, 8, 4, 0, -4, 1},
+      {false, true, 6, 8, 19, 5, 0, 4, 12, 0},
+      {true, false, 8, -2, 20, -128, 0, 0, -64, 0},
+  };
+  uint8_t saved_p01 = *(volatile uint8_t *)0x01;
+  for (uint8_t c = 0; c < sizeof(kFillCases) / sizeof(kFillCases[0]); ++c) {
+    mem_using_alt_buffer = kFillCases[c].alt_buf;
+    uint8_t *scr = (uint8_t *)(mem_using_alt_buffer ? 0xEC00 : 0xE800);
+    for (uint8_t r = 0; r < kScreenHeight; ++r) {
+      mem_screen_row_ptrs[r] = scr + (uint16_t)r * 40;
+    }
+    roll_dx = kFillCases[c].dx;
+    roll_dy = kFillCases[c].dy;
+    roll_dx_div_dy = kFillCases[c].dx_div_dy;
+    render_cx_chars = kFillCases[c].cx;
+    render_cy_chars = kFillCases[c].cy;
+    render_alt_box = kFillCases[c].alt_box;
+    render_alt_shift_x = kFillCases[c].sx;
+    render_alt_shift_y = kFillCases[c].sy;
+    uint8_t init_sky = kFillCases[c].init_sky;
+    *(volatile uint8_t *)&render_sky_rows = init_sky;
+
+    for (uint16_t i = 0; i < kViewportHeight * 40; ++i) {
+      scr[i] = 0xAA;
+      test_clr[i] = (i < (uint16_t)init_sky * 40) ? COLOR_SKY8 : 0x55;
+    }
+    _render_fill_sky_ground_asm();
+    uint8_t want_sky = _ref_fill_sky_ground(init_sky);
+    expect_id(*(volatile uint8_t *)&render_sky_rows, want_sky);
+
+    *(volatile uint8_t *)0x01 = 0x35;
+    for (uint16_t i = 0; i < kViewportHeight * 40; ++i) {
+      expect_id(scr[i], ref_scr[i]);
+      expect_id(test_clr[i], ref_clr[i]);
+    }
+    *(volatile uint8_t *)0x01 = saved_p01;
+  }
+  _init_row_ptrs();
+}
+
 #endif // __TARGET_TEST_PLANES__
 #pragma optimize(pop)
 
@@ -3669,6 +3933,7 @@ int main(void) {
   test_box_asm();
   test_vec_ops_asm();
   test_opponent_hot_asm();
+  test_render_pull_and_fill_asm();
 #endif
 
   // Something for vice_dump.sh's @spin to break on. Everything above has

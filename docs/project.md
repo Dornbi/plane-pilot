@@ -100,12 +100,12 @@ For the `D` debug counters and caveats see [development.md](development.md).
 
 ### `roll.cc` / `roll_asm.cc` — angle tables
 
-Maps roll angle (`0..59`) to slope (`roll_dx`, `roll_dy`), repeat period (`roll_period`), and signed screen-pixel distance from the horizon (`roll_get_dist`). Uses precomputed multiply tables and 6502 `__asm` for fast inner-loop queries.
+Maps roll angle (`0..59`) to slope (`roll_dx`, `roll_dy`), repeat period (`roll_period`), and signed screen-pixel distance from the horizon (`roll_get_dist`). Caches the last `roll_angle` so steady-roll frames return immediately, and uses precomputed multiply tables and 6502 `__asm` for fast inner-loop queries.
 
 ### `render.cc` / `render_asm.cc` — snapping and background fill
 
-- `render_snap_center_chars()` (hand-assembled in `render_asm.cc`, inlining `roll_get_dist()`) snaps the horizon centre to character coordinates and picks main vs alternate `boxdef`.
-- `render_fill_sky_ground()` fills pure-sky and pure-ground spans using `_render_flush_span()` (14-row unrolled sled in `render_asm.cc`), skipping colour-RAM writes on sky rows that remained sky from the previous frame.
+- `render_snap_center_chars()` (hand-assembled in `render_asm.cc` via `_render_pull_and_snap_asm()` / `_render_snap_center_asm()`, with a level `d_min == 0` fast path and inlined `roll_get_dist()`) pulls the horizon centre near the viewport middle, snaps to character coordinates, and picks main vs alternate `boxdef`.
+- `render_fill_sky_ground()` (hand-assembled in `render_asm.cc` via `_render_fill_sky_ground_asm()`) fills level and tilted sky/ground spans using the 14-row self-modifying sled (`_render_flush_span_core`, with a 6-step paired high-byte buffer sync and a zero-save/restore tail-jump fast path for `end_row == 14`) and a 2×-unrolled partial-row span helper, skipping colour-RAM writes on sky rows that remained sky from the previous frame.
 - `render_draw_tiles()` stamps the active `boxdef` across the horizon band.
 
 ### `boxdefs.cc` / `box.cc` / `box_asm.cc` — tiles

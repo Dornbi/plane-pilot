@@ -7,8 +7,10 @@
 
 extern int16_t render_cx_pixels;
 extern int16_t render_cy_pixels;
+#ifndef __OSCAR64__
 extern int16_t render_px_pixels;
 extern int16_t render_py_pixels;
+#endif
 extern int8_t render_cx_chars;
 extern int8_t render_cy_chars;
 extern bool render_alt_box;

@@ -46,12 +46,19 @@ bool roll_x_is_major;
 bool roll_shift_2chars;
 int8_t roll_ex_dy[8];
 int8_t roll_ey_dx[8];
+// Cached roll_angle so steady-roll frames skip recomputing the same tables;
+// 0xFF is outside 0..kRollMax-1 so the first call always runs.
+static uint8_t _roll_cached_angle = 0xFF;
 
 // Note there is a discrepancy between this and the code in roll_angle.py:
 // - For rendering (here), we always cap roll_period at 8
 // - To find boxes (in roll_angle.py) we need the real period to find boxes.
 void roll_update_state() {
   uint8_t a = roll_angle;
+  if (a == _roll_cached_angle) {
+    return;
+  }
+  _roll_cached_angle = a;
   // Each 0 or 0xFF, and v ^ n - n is v or -v: dy's for the half-turn, the
   // slope's for the mirror, and dx's for either but not both.
   uint8_t ny = 0;
