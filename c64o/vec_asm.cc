@@ -1,5 +1,6 @@
 #include "vec.h"
 
+#include <stddef.h>
 #include <stdlib.h>
 
 #include "fmath.h"
@@ -30,7 +31,8 @@ __zeropage int16_t vec_proj_mul_b;
 #define tmp2 vec_proj_recip
 #define project_mul_a vec_proj_mul_a
 #define project_mul_b vec_proj_mul_b
-static __zeropage int16_t mul_res;
+__zeropage int16_t vec_mul_res;
+#define mul_res vec_mul_res
 
 // Unsigned 8 x 8 -> 16 multiply on the quarter-square tables, for assembly:
 // A times vec_mul8_b, returning the high byte in A and the low byte in
@@ -103,148 +105,123 @@ uint16_t vec_mul8x8(uint8_t a, uint8_t b) {
 // or one when |b| is below 256 as well. The short operand, a camera row's
 // component or a byte of a fraction, is a in vec_dot(), vec_mulfrac() and
 // most other callers, so only a is tested.
-int16_t vec_fastmul8p8(int16_t a, int16_t b) {
+// Shared 8.8 multiply core for assembly callers (vec_asm.cc, opponent_asm.cc):
+// vec_proj_mul_a * vec_proj_mul_b -> vec_mul_res (exact trunc((a * b) / 256),
+// wrapping to 16 bits on overflow). Fast-paths a in {0, +256, -256} and b in
+// {0, +256} before any sign/abs work.
+// Preserves: vec_v, vec_sx, vec_sy, frac_q0..frac_d1.
+__noinline void vec_mul_ab(void) {
   // clang-format off
   __asm {
+        // Fast-path a == 0, +256, -256 before taking |a| or |b|.
+        lda project_mul_a;
+        bne L_a_lo_nz_fm;
+        lda project_mul_a + 1;
+        beq L_zero_fm;
+        cmp #1;
+        bne L_a_m256_fm;
+        lda project_mul_b;
+        sta mul_res;
+        lda project_mul_b + 1;
+        sta mul_res + 1;
+        rts;
+    L_a_m256_fm:
+        cmp #$ff;
+        bne L_sign_abs_fm;
+        sec;
+        lda #0;
+        sbc project_mul_b;
+        sta mul_res;
+        lda #0;
+        sbc project_mul_b + 1;
+        sta mul_res + 1;
+        rts;
+    L_zero_fm:
+        sta mul_res;
+        sta mul_res + 1;
+        rts;
+
+    L_a_lo_nz_fm:
+        // Fast-path b == 0, +256 before taking |a| or |b|.
+        lda project_mul_b;
+        bne L_sign_abs_fm;
+        lda project_mul_b + 1;
+        beq L_zero_fm;
+        cmp #1;
+        bne L_sign_abs_fm;
+        lda project_mul_a;
+        sta mul_res;
+        lda project_mul_a + 1;
+        sta mul_res + 1;
+        rts;
+
+    L_sign_abs_fm:
         // Sign of the result in bit 7 of tmp1.
-        lda a+1;
-        eor b+1;
+        lda project_mul_a + 1;
+        eor project_mul_b + 1;
         sta tmp1;
 
         // a = |a|
-        lda a+1;
+        lda project_mul_a + 1;
         bpl L_abs_a_done_fm;
         sec;
         lda #0;
-        sbc a;
-        sta a;
+        sbc project_mul_a;
+        sta project_mul_a;
         lda #0;
-        sbc a+1;
-        sta a+1;
+        sbc project_mul_a + 1;
+        sta project_mul_a + 1;
     L_abs_a_done_fm:
         // b = |b|
-        lda b+1;
+        lda project_mul_b + 1;
         bpl L_abs_b_done_fm;
         sec;
         lda #0;
-        sbc b;
-        sta b;
+        sbc project_mul_b;
+        sta project_mul_b;
         lda #0;
-        sbc b+1;
-        sta b+1;
+        sbc project_mul_b + 1;
+        sta project_mul_b + 1;
     L_abs_b_done_fm:
 
-        lda a;
-        bne L_a_lo_nonzero_fm;
-
-        // |a| is a multiple of 256.
-        lda a+1;
-        bne L_a_hi_nonzero_fm;
-        // a == 0
-    L_zero_fm:
-        sta mul_res;
-        sta mul_res+1;
-        jmp L_done_fm;
-    L_a_hi_nonzero_fm:
-        cmp #1;
-        bne L_a_hi_mul_fm;
-        // |a| == 256: result = |b|
-        lda b;
-        sta mul_res;
-        lda b+1;
-        sta mul_res+1;
-        jmp L_sign_fm;
-    L_a_hi_mul_fm:
-        // result = ah * |b| = ah*bl + (ah*bh << 8)
-        lda b;
-        sta vec_mul8_b;
-        lda a+1;
-        jsr vec_mul8;
-        sta mul_res+1;
-        lda vec_mul8_lo;
-        sta mul_res;
-        lda b+1;
-        sta vec_mul8_b;
-        lda a+1;
-        jsr vec_mul8;
-        lda vec_mul8_lo;
-        clc;
-        adc mul_res+1;
-        sta mul_res+1;
-        jmp L_sign_fm;
-
-    L_a_lo_nonzero_fm:
-        lda b;
-        bne L_b_lo_nonzero_fm;
-
-        // |b| is a multiple of 256.
-        lda b+1;
-        // b == 0
-        beq L_zero_fm;
-        cmp #1;
-        bne L_b_hi_mul_fm;
-        // |b| == 256: result = |a|
-        lda a;
-        sta mul_res;
-        lda a+1;
-        sta mul_res+1;
-        jmp L_sign_fm;
-    L_b_hi_mul_fm:
-        // result = bh * |a| = bh*al + (bh*ah << 8)
-        sta vec_mul8_b;
-        lda a;
-        jsr vec_mul8;
-        sta mul_res+1;
-        lda vec_mul8_lo;
-        sta mul_res;
-        lda a+1;
-        jsr vec_mul8;
-        lda vec_mul8_lo;
-        clc;
-        adc mul_res+1;
-        sta mul_res+1;
-        jmp L_sign_fm;
-
-    L_b_lo_nonzero_fm:
-        ldx b+1;
-        lda a+1;
+        ldx project_mul_b + 1;
+        lda project_mul_a + 1;
         bne L_full_fm;
-        // |a| < 256, which a camera row's component or a fraction's byte is
-        // more often than not: ah's two products are 0. That leaves al*bh,
-        // itself 0 when |b| < 256 too, and al*bl's high byte below.
+        // |a| < 256: ah's two products are 0.
         txa;
         beq L_al_bh_fm;
         stx vec_mul8_b;
-        lda a;
+        lda project_mul_a;
         jsr vec_mul8;
         ldx vec_mul8_lo;
     L_al_bh_fm:
-        sta mul_res+1;
+        sta mul_res + 1;
         stx mul_res;
-        lda b;
+        lda project_mul_b;
+        beq L_sign_fm;
         sta vec_mul8_b;
-        bne L_al_bl_fm;
+        jmp L_al_bl_fm;
 
     L_full_fm:
         // ah*bh, low byte into the result high byte (A = ah, X = bh).
         stx vec_mul8_b;
         jsr vec_mul8;
         lda vec_mul8_lo;
-        sta mul_res+1;
+        sta mul_res + 1;
         // al*bh (vec_mul8_b still bh).
-        lda a;
+        lda project_mul_a;
         jsr vec_mul8;
         tax;
         lda vec_mul8_lo;
         sta mul_res;
         txa;
         clc;
-        adc mul_res+1;
-        sta mul_res+1;
+        adc mul_res + 1;
+        sta mul_res + 1;
         // ah*bl
-        lda b;
+        lda project_mul_b;
         sta vec_mul8_b;
-        lda a+1;
+        lda project_mul_a + 1;
         jsr vec_mul8;
         tax;
         lda vec_mul8_lo;
@@ -252,17 +229,17 @@ int16_t vec_fastmul8p8(int16_t a, int16_t b) {
         adc mul_res;
         sta mul_res;
         txa;
-        adc mul_res+1;
-        sta mul_res+1;
+        adc mul_res + 1;
+        sta mul_res + 1;
         // al*bl, high byte only (vec_mul8_b still bl).
     L_al_bl_fm:
-        lda a;
+        lda project_mul_a;
         jsr vec_mul8;
         clc;
         adc mul_res;
         sta mul_res;
         bcc L_sign_fm;
-        inc mul_res+1;
+        inc mul_res + 1;
 
     L_sign_fm:
         bit tmp1;
@@ -272,13 +249,44 @@ int16_t vec_fastmul8p8(int16_t a, int16_t b) {
         sbc mul_res;
         sta mul_res;
         lda #0;
-        sbc mul_res+1;
-        sta mul_res+1;
+        sbc mul_res + 1;
+        sta mul_res + 1;
 
     L_done_fm:
   }
   // clang-format on
+}
+
+__noinline int16_t vec_fastmul8p8(int16_t a, int16_t b) {
+  // clang-format off
+  __asm {
+        lda a;
+        sta project_mul_a;
+        lda a + 1;
+        sta project_mul_a + 1;
+        lda b;
+        sta project_mul_b;
+        lda b + 1;
+        sta project_mul_b + 1;
+        jsr vec_mul_ab;
+  }
+  // clang-format on
   return mul_res;
+}
+
+__noinline uint16_t vec_fastsqr8p8(int16_t a) {
+  // clang-format off
+  __asm {
+        lda a;
+        sta project_mul_a;
+        sta project_mul_b;
+        lda a + 1;
+        sta project_mul_a + 1;
+        sta project_mul_b + 1;
+        jsr vec_mul_ab;
+  }
+  // clang-format on
+  return (uint16_t)mul_res;
 }
 
 void vec_project_mul(void) {
@@ -799,5 +807,277 @@ void vec_project_nocull() {
 
   vec_sx = vec_div8p8(vec_v.y, vec_v.x);
   vec_sy = vec_div8p8(vec_v.z, vec_v.x);
+}
+
+static_assert(sizeof(vec3_t) == 6 && offsetof(mat3_t, front) == 0 &&
+                  offsetof(mat3_t, left) == 6 && offsetof(mat3_t, up) == 12 &&
+                  sizeof(mat3_t) == 18 && VEC_STEP_PITCH_UP == 2 &&
+                  VEC_STEP_YAW_LEFT == 4,
+              "vec_asm layout assumptions");
+
+// 8.8 fixed-point dot product of a and b. Preserves frac_d0, frac_d1, frac_q1
+// (gun_asm.cc _gun_view_vec holds its divisor and axis index there across calls)
+// as well as vec_v, vec_sx, vec_sy.
+__noinline int16_t vec_dot(const vec3_t *a, const vec3_t *b) {
+  // clang-format off
+  __asm {
+        lda #0;
+        sta frac_r0;
+        sta frac_r1;
+        sta frac_q0;
+    L_vd_loop:
+        ldy frac_q0;
+        lda (a), y;
+        sta project_mul_a;
+        lda (b), y;
+        sta project_mul_b;
+        iny;
+        lda (a), y;
+        sta project_mul_a + 1;
+        lda (b), y;
+        sta project_mul_b + 1;
+        iny;
+        sty frac_q0;
+        jsr vec_mul_ab;
+        clc;
+        lda mul_res;
+        adc frac_r0;
+        sta frac_r0;
+        lda mul_res + 1;
+        adc frac_r1;
+        sta frac_r1;
+        lda frac_q0;
+        cmp #6;
+        bcc L_vd_loop;
+        lda frac_r0;
+        sta mul_res;
+        lda frac_r1;
+        sta mul_res + 1;
+  }
+  // clang-format on
+  return mul_res;
+}
+
+// Inverted matrix transform: res = (mat->front . u, mat->left . u, mat->up . u).
+// Safe when res aliases u or mat.
+__noinline void vec_transform_inv(const mat3_t *mat, const vec3_t *u,
+                                  vec3_t *res) {
+  // clang-format off
+  __asm {
+        lda #0;
+        sta frac_q1;            // mat byte offset: 0..17
+    L_ti_row:
+        lda #0;
+        sta frac_r0;
+        sta frac_r1;
+        sta frac_q0;            // u byte offset: 0, 2, 4
+    L_ti_comp:
+        ldy frac_q1;
+        lda (mat), y;
+        sta project_mul_a;
+        iny;
+        lda (mat), y;
+        sta project_mul_a + 1;
+        iny;
+        sty frac_q1;
+        ldy frac_q0;
+        lda (u), y;
+        sta project_mul_b;
+        iny;
+        lda (u), y;
+        sta project_mul_b + 1;
+        iny;
+        sty frac_q0;
+        jsr vec_mul_ab;
+        clc;
+        lda mul_res;
+        adc frac_r0;
+        sta frac_r0;
+        lda mul_res + 1;
+        adc frac_r1;
+        sta frac_r1;
+        lda frac_q0;
+        cmp #6;
+        bcc L_ti_comp;
+
+        lda frac_q1;
+        cmp #18;
+        bcs L_ti_store;
+        lda frac_r0;
+        pha;
+        lda frac_r1;
+        pha;
+        jmp L_ti_row;
+
+    L_ti_store:
+        ldy #4;
+        lda frac_r0;
+        sta (res), y;
+        iny;
+        lda frac_r1;
+        sta (res), y;
+        ldy #3;
+    L_ti_pop:
+        pla;
+        sta (res), y;
+        dey;
+        bpl L_ti_pop;
+  }
+  // clang-format on
+}
+
+static const uint8_t kVecCrossA[3] = {2, 4, 0};
+static const uint8_t kVecCrossB[3] = {4, 0, 2};
+
+// Cross product res = u x v in 8.8 fixed point.
+__noinline void vec_cross(const vec3_t *u, const vec3_t *v, vec3_t *res) {
+  // clang-format off
+  __asm {
+        lda #0;
+        sta frac_q0;            // k = 0, 1, 2
+        sta frac_q1;            // out_off = 0, 2, 4
+    L_vc_loop:
+        ldx frac_q0;
+        ldy kVecCrossA, x;
+        lda (u), y;
+        sta project_mul_a;
+        iny;
+        lda (u), y;
+        sta project_mul_a + 1;
+        ldy kVecCrossB, x;
+        lda (v), y;
+        sta project_mul_b;
+        iny;
+        lda (v), y;
+        sta project_mul_b + 1;
+        jsr vec_mul_ab;
+        lda mul_res;
+        sta frac_r0;
+        lda mul_res + 1;
+        sta frac_r1;
+
+        ldx frac_q0;
+        ldy kVecCrossB, x;
+        lda (u), y;
+        sta project_mul_a;
+        iny;
+        lda (u), y;
+        sta project_mul_a + 1;
+        ldy kVecCrossA, x;
+        lda (v), y;
+        sta project_mul_b;
+        iny;
+        lda (v), y;
+        sta project_mul_b + 1;
+        jsr vec_mul_ab;
+
+        ldy frac_q1;
+        sec;
+        lda frac_r0;
+        sbc mul_res;
+        sta (res), y;
+        iny;
+        lda frac_r1;
+        sbc mul_res + 1;
+        sta (res), y;
+        iny;
+        sty frac_q1;
+        inc frac_q0;
+        lda frac_q0;
+        cmp #3;
+        bcc L_vc_loop;
+  }
+  // clang-format on
+}
+
+// Small-angle step rotation on two rows of m: p[i] += s*q[i], q[i] -= s*p[i].
+__noinline void vec_rotate_step(uint8_t step, mat3_t *m) {
+  // clang-format off
+  __asm {
+        ldx step;
+        lda #0;
+        cpx #2;                 // VEC_STEP_PITCH_UP
+        bcs L_vr_p0;
+        lda #6;
+    L_vr_p0:
+        sta frac_q0;            // p_off
+        lda #12;
+        cpx #4;                 // VEC_STEP_YAW_LEFT
+        bcc L_vr_q0;
+        lda #6;
+    L_vr_q0:
+        sta frac_q1;            // q_off
+        lda _vec_step, x;
+        sta frac_d0;            // s lo
+        ldy #0;
+        cmp #0;
+        bpl L_vr_spos;
+        dey;
+    L_vr_spos:
+        sty frac_d1;            // s hi (sign-extended)
+        lda #3;
+        sta frac_r0;            // count
+
+    L_vr_loop:
+        // Save original a = m[p_off] on stack, compute s * q.
+        ldy frac_q0;
+        lda (m), y;
+        pha;
+        iny;
+        lda (m), y;
+        pha;
+        ldy frac_q1;
+        lda (m), y;
+        sta project_mul_b;
+        iny;
+        lda (m), y;
+        sta project_mul_b + 1;
+        lda frac_d0;
+        sta project_mul_a;
+        lda frac_d1;
+        sta project_mul_a + 1;
+        jsr vec_mul_ab;         // mul_res = s * b
+
+        // m[p_off] = a + mul_res (original a is still in m[p_off])
+        ldy frac_q0;
+        clc;
+        lda (m), y;
+        adc mul_res;
+        sta (m), y;
+        iny;
+        lda (m), y;
+        adc mul_res + 1;
+        sta (m), y;
+        iny;
+        sty frac_q0;
+
+        // Compute s * original a (popped from stack)
+        pla;
+        sta project_mul_b + 1;
+        pla;
+        sta project_mul_b;
+        lda frac_d0;
+        sta project_mul_a;
+        lda frac_d1;
+        sta project_mul_a + 1;
+        jsr vec_mul_ab;         // mul_res = s * a
+
+        // m[q_off] -= mul_res
+        ldy frac_q1;
+        sec;
+        lda (m), y;
+        sbc mul_res;
+        sta (m), y;
+        iny;
+        lda (m), y;
+        sbc mul_res + 1;
+        sta (m), y;
+        iny;
+        sty frac_q1;
+
+        dec frac_r0;
+        bne L_vr_loop;
+  }
+  // clang-format on
 }
 #pragma optimize(pop)

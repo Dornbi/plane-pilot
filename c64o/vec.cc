@@ -104,6 +104,7 @@ __forceinline uint16_t vec_fastsqr8p8u(uint16_t a) {
   return h2 + (hl << 1) + l2;
 }
 
+#ifndef __OSCAR64__
 uint16_t vec_fastsqr8p8(int16_t a) {
   if (a > 0) {
     return vec_fastsqr8p8u((uint16_t)a);
@@ -111,6 +112,7 @@ uint16_t vec_fastsqr8p8(int16_t a) {
     return vec_fastsqr8p8u(-a);
   }
 }
+#endif // !__OSCAR64__
 
 // General case for multiplication.
 // Note from Claude: this has up-to-a-few-LSB truncation error.
@@ -358,11 +360,13 @@ void vec_normalize(vec3_t *v) {
   _limit_vec(v);
 }
 
+#ifndef __OSCAR64__
 void vec_cross(const vec3_t *u, const vec3_t *v, vec3_t *res) {
   res->x = vec_fastmul8p8(u->y, v->z) - vec_fastmul8p8(u->z, v->y);
   res->y = vec_fastmul8p8(u->z, v->x) - vec_fastmul8p8(u->x, v->z);
   res->z = vec_fastmul8p8(u->x, v->y) - vec_fastmul8p8(u->y, v->x);
 }
+#endif // !__OSCAR64__
 
 void vec_orthonormalize(mat3_t *mat) {
   vec_normalize(&mat->front);
@@ -410,7 +414,7 @@ const mat3_t kVecYawRight = {
 // vec_rotate_step()'s angle per step, in vec_step_t order: the off-diagonal
 // entry that matrix has in its first moved row (vec.h). Built-in magnitudes
 // until vec_set_rotation_shift() scales them.
-static int8_t _vec_step[VEC_STEP_COUNT] = {-32, 32, 16, -16, 8, -8};
+int8_t _vec_step[VEC_STEP_COUNT] = {-32, 32, 16, -16, 8, -8};
 
 void vec_set_rotation_shift(uint8_t shift) {
   // From the built-in magnitudes every time, so this is idempotent - the model
@@ -477,6 +481,7 @@ void vec_transform3_inv(const mat3_t *t, mat3_t *m) {
 
 #pragma optimize(pop)
 
+#ifndef __OSCAR64__
 __noinline int16_t vec_dot(const vec3_t *a, const vec3_t *b) {
   return vec_fastmul8p8(a->x, b->x) + vec_fastmul8p8(a->y, b->y) +
          vec_fastmul8p8(a->z, b->z);
@@ -489,11 +494,12 @@ void vec_transform_inv(const mat3_t *mat, const vec3_t *u, vec3_t *res) {
   res->x = rx;
   res->y = ry;
 }
+#endif // !__OSCAR64__
 
 // Both components come from the values the vector arrived with, which is what
 // the general routine's copy of the whole matrix was for. Two temporaries
 // cover it here, since each vector is rotated independently of the other two.
-void vec_turn_xy(int16_t s, vec3_t *v) {
+__noinline void vec_turn_xy(int16_t s, vec3_t *v) {
   const int16_t x = v->x;
   const int16_t y = v->y;
   v->x = x + vec_fastmul8p8(s, y);
@@ -506,6 +512,7 @@ __forceinline void vec_turn3_xy(int16_t s, mat3_t *m) {
   vec_turn_xy(s, &m->up);
 }
 
+#ifndef __OSCAR64__
 void vec_rotate_step(uint8_t step, mat3_t *m) {
   // Roll moves left and up, pitch front and up, yaw front and left.
   int16_t *p = &m->front.x;
@@ -523,4 +530,5 @@ void vec_rotate_step(uint8_t step, mat3_t *m) {
     q[i] = b - vec_fastmul8p8(s, a);
   }
 }
+#endif // !__OSCAR64__
 #pragma optimize(pop)

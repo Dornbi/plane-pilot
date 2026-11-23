@@ -490,18 +490,21 @@ static_assert(kOpponentClimbCost % kOpponentLevelAccel == 0,
 // And after them, kOpponentDive's: ~37 degrees nose down, shot down - a
 // slope of 3/4, the one _opponent_fall() descends at, so sine 0.6 and
 // cosine 0.8.
-static const int16_t kOpponentPitchSin[8] = {-114, -62, -32, 0,
-                                             32,   62,  114, -154};
+// kOpponentPitchSin[8] lives in opponent_asm.cc (shared with _opponent_axes).
+#ifndef __OSCAR64__
 static const uint8_t kOpponentPitchCos[8] = {229, 248, 254, 0,
                                              254, 248, 229, 205};
+#endif
 static const int8_t kOpponentDive = 4;
 
 // The bank while turning, drawn only, by the turn + 2: cos and sin of 30
 // degrees for a path's turn, 60 for a hunter's, 8.8. The sine is the one
 // _opponent_rot() takes, turning left and up towards the turn; wings-level's
 // cosine (256) is unused.
+#ifndef __OSCAR64__
 static const uint8_t kOpponentBankCos[5] = {128, 222, 0, 222, 128};
 __striped static const int16_t kOpponentBankSin[5] = {222, 128, 0, -128, -222};
+#endif
 
 // ATTACK's floors (docs/opponent_ai.md §5), in half metres: a hunter climbs
 // back above kOpponentFloor, and stops descending within kOpponentFloorMargin
@@ -593,7 +596,7 @@ static uint8_t _opponent_smoke_t;
 static_assert(sizeof(_opponent_fresh) < 256,
               "_opponent_send() clears it by a byte count");
 // The airspeed, which the path's speed is now only the default of.
-__striped static int16_t _opponent_speed[kOpponentMax];
+// _opponent_speed lives in opponent_asm.cc (bss2).
 // Counts model steps, for the turns at a larger flight_step_shift.
 static uint8_t _opponent_substep;
 // Bit i: slot i was projected anew last frame and is filled this one.
@@ -906,6 +909,7 @@ static uint8_t _opponent_steer(uint8_t i) {
 }
 #endif
 
+#ifndef __OSCAR64__
 // What flight.cc's _flight_move_forward() adds along one axis for a level
 // aircraft: the airspeed doubled times the heading's component, shifted by
 // the step size after the multiply.
@@ -919,6 +923,7 @@ static __noinline void _opponent_ahead(uint8_t i) {
   _opponent_move(i, i, _opponent_head[i].x);
   _opponent_move(i, (uint8_t)(i + kOpponentMax), _opponent_head[i].y);
 }
+#endif
 
 // One step of the flight model for slot i, asked to climb at level `want`,
 // descend below 0, or fly level: on a whole step the limits and the speed,
@@ -1542,13 +1547,15 @@ static inline uint8_t _opponent_camera(uint8_t i) {
 // left staying level. Then the bank, while turning: left and up turned about
 // the front by 30 degrees, towards the turn.
 #pragma bss(tscratch)
-static mat3_t _opponent_axes_m;
 static planes_frame_t _opponent_f;
+#ifndef __OSCAR64__
 // The pair _opponent_rot() turns, statics rather than parameters or locals:
 // oscar64's zero page temporaries have no room to spare on this chain.
 static int16_t _opponent_ra, _opponent_rb;
+#endif
 #pragma bss(bss)
 
+#ifndef __OSCAR64__
 // Turns the pair (_opponent_ra, _opponent_rb) by the angle whose cosine and
 // sine, 8.8, are c (< 256) and s (< 256): a' = c a + s b, b' = c b - s a, with
 // the < 256 trig factor first so vec_fastmul8p8 takes its short path.
@@ -1584,7 +1591,6 @@ static void _opponent_axes(uint8_t i) {
   }
 }
 
-#ifndef __OSCAR64__
 static inline void _opponent_axes(uint8_t i, mat3_t *axes) {
   _opponent_axes(i);
   *axes = _opponent_axes_m;
@@ -1595,10 +1601,14 @@ static inline void _opponent_axes(uint8_t i, mat3_t *axes) {
 #pragma optimize(push, nooutline)
 
 static_assert(kOpponentMax == 2, "the slots' turns below are written for two");
+static_assert(kOpponentReachZ == 101 && kOpponentReachX == 135,
+              "opponent_asm.cc _opponent_cull_slot frustum constants");
 
+#ifndef __OSCAR64__
 static __noinline bool _opponent_in_lim(int16_t v, uint16_t lim) {
   return (uint16_t)((uint16_t)v + lim) <= (uint16_t)(lim << 1);
 }
+#endif
 
 // Which aircraft are in view, and where: bit i of the result for slot i, and
 // its camera-space position in _opponent_cs[i]. Camera-space x, z and y are
@@ -1607,6 +1617,25 @@ static __noinline bool _opponent_in_lim(int16_t v, uint16_t lim) {
 // narrow viewport skips three.
 static __noinline uint8_t _opponent_cull(void) {
   uint8_t seen = 0, far = 0;
+#ifdef __OSCAR64__
+  for (uint8_t i = 0; i < kOpponentMax; ++i) {
+    if (!_opponent_on[i]) {
+      continue;
+    }
+    uint8_t bit = _opponent_bit(i);
+    if (!(_opponent_down & bit)) {
+      uint8_t r = _opponent_cull_slot(i);
+      if (r != 0) {
+        seen |= bit;
+        if (r == 2) {
+          far |= bit;
+        }
+        continue;
+      }
+    }
+    _opponent_forget(i);
+  }
+#else
   vec3_t *cs = _opponent_cs;
   for (uint8_t i = 0; i < kOpponentMax; ++i, ++cs) {
     if (!_opponent_on[i]) {
@@ -1644,6 +1673,7 @@ static __noinline uint8_t _opponent_cull(void) {
     }
     _opponent_forget(i);
   }
+#endif
   _opponent_far = far;
   return seen;
 }

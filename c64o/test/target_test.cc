@@ -57,6 +57,10 @@
 //       _world_render_grid_walk against 16-bit C ref
 //   23  poly_asm.cc _poly_project_vertices against 16-bit C ref
 //   24  box_asm.cc _box_prepare_fill & _box_draw_asm against 16-bit C ref
+//   25  vec_asm.cc fastmul fast-paths, fastsqr, dot, transform_inv, turn_xy,
+//       cross, rotate_step, normalize & orthonormalize against C ref
+//   26  opponent_asm.cc _opponent_move, _opponent_ahead, _opponent_axes &
+//       _opponent_cull_slot against 16-bit C ref
 
 #include <stdint.h>
 
@@ -985,7 +989,7 @@ static void _ref_trace_edge(int8_t xa, uint8_t ya, int8_t xb, uint8_t yb) {
   }
 }
 
-static void test_poly_trace_edges_asm(void) {
+static __noinline void test_poly_trace_edges_asm(void) {
   _cur_id = 15;
   struct PolyCase {
     uint8_t n;
@@ -3245,6 +3249,383 @@ static void test_box_asm(void) {
   }
 }
 
+// 25. vec_asm.cc vector operations: vec_fastsqr8p8, vec_dot (preserving
+// frac_d0/d1/q1 and vec_v), vec_transform_inv (aliased & unaliased),
+// vec_turn_xy, vec_cross, vec_rotate_step, vec_normalize, vec_orthonormalize.
+static __noinline void _ref_vec_limit(vec3_t *v) {
+  int16_t *c = &v->x;
+  for (uint8_t i = 0; i < 3; ++i) {
+    if (c[i] <= -255) {
+      c[i] = -256;
+    } else if (c[i] >= 255) {
+      c[i] = 256;
+    }
+  }
+}
+
+static __noinline void _ref_vec_normalize(vec3_t *v) {
+  uint16_t L2 = (uint16_t)((uint16_t)vec_fastmul8p8(v->x, v->x) +
+                           (uint16_t)vec_fastmul8p8(v->y, v->y) +
+                           (uint16_t)vec_fastmul8p8(v->z, v->z));
+  if (L2 == 0) {
+    return;
+  }
+  L2 <<= 6;
+  uint16_t res = 0;
+  uint16_t bit = (uint16_t)1 << 14;
+  while (bit > L2) {
+    bit >>= 2;
+  }
+  while (bit != 0) {
+    if (L2 >= res + bit) {
+      L2 -= res + bit;
+      res = (res >> 1) + bit;
+    } else {
+      res >>= 1;
+    }
+    bit >>= 2;
+  }
+  if (res == 0) {
+    return;
+  }
+  res <<= 1;
+  v->x = vec_div8p8(v->x, (int16_t)res);
+  v->y = vec_div8p8(v->y, (int16_t)res);
+  v->z = vec_div8p8(v->z, (int16_t)res);
+  _ref_vec_limit(v);
+}
+
+static __noinline void test_vec_ops_asm(void) {
+  _cur_id = 25;
+
+  // 25a. vec_fastmul8p8 fast paths (0, +-256, +-512, -32768) & vec_fastsqr8p8.
+  static const int16_t kSqrVals[] = {0,    1,     -1,    15,    -15,   200,
+                                     -200, 255,   -255,  256,   -256,  512,
+                                     -512, 1760,  -1760, 4095,  -4095, 32767,
+                                     -32767, -32768};
+  for (uint8_t i = 0; i < sizeof(kSqrVals) / sizeof(kSqrVals[0]); ++i) {
+    int16_t a = kSqrVals[i];
+    expect_id((int16_t)vec_fastsqr8p8(a), vec_fastmul8p8(a, a));
+    expect_id(vec_fastmul8p8(0, a), 0);
+    expect_id(vec_fastmul8p8(a, 0), 0);
+    expect_id(vec_fastmul8p8(256, a), a);
+    expect_id(vec_fastmul8p8(a, 256), a);
+    expect_id(vec_fastmul8p8(-256, a), (int16_t)(-a));
+    expect_id(vec_fastmul8p8(a, -256), (int16_t)(-a));
+  }
+
+  // 25b. vec_dot + preservation of frac_d0/d1/q1 and vec_v.
+  static const mat3_t kMat = {
+      {196, 128, -104}, {-152, 206, -18}, {76, 62, 236}};
+  static const vec3_t kVecs[] = {
+      {256, 0, 0}, {0, -256, 128}, {310, -420, 185}, {-1200, 950, -340}};
+  for (uint8_t r = 0; r < 3; ++r) {
+    const vec3_t *row = &kMat.front + r;
+    for (uint8_t k = 0; k < sizeof(kVecs) / sizeof(kVecs[0]); ++k) {
+      vec_v = kVecs[k];
+      frac_d0 = 0x5A;
+      frac_d1 = 0xA5;
+      frac_q1 = 0x04;
+      int16_t got = vec_dot(row, &vec_v);
+      int16_t ref = (int16_t)(vec_fastmul8p8(row->x, kVecs[k].x) +
+                              vec_fastmul8p8(row->y, kVecs[k].y) +
+                              vec_fastmul8p8(row->z, kVecs[k].z));
+      expect_id(got, ref);
+      expect_id(frac_d0, 0x5A);
+      expect_id(frac_d1, 0xA5);
+      expect_id(frac_q1, 0x04);
+      expect_id(vec_v.x, kVecs[k].x);
+      expect_id(vec_v.y, kVecs[k].y);
+      expect_id(vec_v.z, kVecs[k].z);
+    }
+  }
+
+  // 25c. vec_transform_inv (separate and in-place res == u).
+  for (uint8_t k = 0; k < sizeof(kVecs) / sizeof(kVecs[0]); ++k) {
+    vec3_t out, alias = kVecs[k];
+    vec_transform_inv(&kMat, &kVecs[k], &out);
+    vec_transform_inv(&kMat, &alias, &alias);
+    int16_t rx = vec_dot(&kMat.front, &kVecs[k]);
+    expect_id(out.x, rx);
+    expect_id(alias.x, rx);
+    int16_t ry = vec_dot(&kMat.left, &kVecs[k]);
+    expect_id(out.y, ry);
+    expect_id(alias.y, ry);
+    int16_t rz = vec_dot(&kMat.up, &kVecs[k]);
+    expect_id(out.z, rz);
+    expect_id(alias.z, rz);
+  }
+
+  // 25d. vec_turn_xy.
+  static const int16_t kTurnS[] = {0, 8, -8, 32, -32, 256, -256};
+  for (uint8_t si = 0; si < sizeof(kTurnS) / sizeof(kTurnS[0]); ++si) {
+    vec3_t v = {181, -181, 42};
+    int16_t rx = (int16_t)(v.x + vec_fastmul8p8(kTurnS[si], v.y));
+    int16_t ry = (int16_t)(v.y - vec_fastmul8p8(kTurnS[si], v.x));
+    vec_turn_xy(kTurnS[si], &v);
+    expect_id(v.x, rx);
+    expect_id(v.y, ry);
+    expect_id(v.z, 42);
+  }
+
+  // 25e. vec_cross.
+  vec3_t cr;
+  vec_cross(&kMat.front, &kMat.left, &cr);
+  expect_id(cr.x, (int16_t)(vec_fastmul8p8(kMat.front.y, kMat.left.z) -
+                            vec_fastmul8p8(kMat.front.z, kMat.left.y)));
+  expect_id(cr.y, (int16_t)(vec_fastmul8p8(kMat.front.z, kMat.left.x) -
+                            vec_fastmul8p8(kMat.front.x, kMat.left.z)));
+  expect_id(cr.z, (int16_t)(vec_fastmul8p8(kMat.front.x, kMat.left.y) -
+                            vec_fastmul8p8(kMat.front.y, kMat.left.x)));
+
+  // 25f. vec_rotate_step across all 6 steps and shifts 0, 1.
+  for (uint8_t sh = 0; sh <= 1; ++sh) {
+    vec_set_rotation_shift(sh);
+    for (uint8_t st = 0; st < VEC_STEP_COUNT; ++st) {
+      mat3_t got_m = kMat;
+      mat3_t ref_m = kMat;
+      int16_t *p = (st < VEC_STEP_PITCH_UP) ? &ref_m.left.x : &ref_m.front.x;
+      int16_t *q = (st >= VEC_STEP_YAW_LEFT) ? &ref_m.left.x : &ref_m.up.x;
+      int16_t s = _vec_step[st];
+      for (uint8_t i = 0; i < 3; ++i) {
+        int16_t a = p[i], b = q[i];
+        p[i] = (int16_t)(a + vec_fastmul8p8(s, b));
+        q[i] = (int16_t)(b - vec_fastmul8p8(s, a));
+      }
+      vec_rotate_step(st, &got_m);
+      int16_t *gm = &got_m.front.x, *rm = &ref_m.front.x;
+      for (uint8_t i = 0; i < 9; ++i) {
+        expect_id(gm[i], rm[i]);
+      }
+    }
+  }
+  vec_set_rotation_shift(0);
+
+  // 25g. vec_normalize & vec_orthonormalize.
+  static const vec3_t kNormCases[] = {
+      {0, 0, 0},       {256, 0, 0},     {-255, 0, 0},   {255, 1, -1},
+      {180, 180, 0},   {196, 128, -104}, {-120, 90, 210}, {10, -20, 30}};
+  for (uint8_t k = 0; k < sizeof(kNormCases) / sizeof(kNormCases[0]); ++k) {
+    vec3_t gv = kNormCases[k], rv = kNormCases[k];
+    vec_normalize(&gv);
+    _ref_vec_normalize(&rv);
+    expect_id(gv.x, rv.x);
+    expect_id(gv.y, rv.y);
+    expect_id(gv.z, rv.z);
+  }
+  mat3_t go = kMat, ro = kMat;
+  vec_orthonormalize(&go);
+  _ref_vec_normalize(&ro.front);
+  vec_cross(&ro.up, &ro.front, &ro.left);
+  _ref_vec_normalize(&ro.left);
+  vec_cross(&ro.front, &ro.left, &ro.up);
+  _ref_vec_limit(&ro.up);
+  int16_t *gop = &go.front.x, *rop = &ro.front.x;
+  for (uint8_t i = 0; i < 9; ++i) {
+    expect_id(gop[i], rop[i]);
+  }
+}
+
+// 26. opponent_asm.cc _opponent_move, _opponent_ahead, _opponent_axes &
+// _opponent_cull_slot against 16-bit C references on the emulated 6510.
+static __noinline void _ref_opp_axes(uint8_t slot, mat3_t *out_m) {
+  static const uint8_t kPCos[8] = {229, 248, 254, 0, 254, 248, 229, 205};
+  static const uint8_t kBCos[5] = {128, 222, 0, 222, 128};
+  static const int16_t kBSin[5] = {222, 128, 0, -128, -222};
+  int16_t hx = _opponent_head[slot].x, hy = _opponent_head[slot].y;
+  uint8_t turn = (uint8_t)(_opponent_bank[slot] + 2);
+  uint8_t pitch = (uint8_t)(_opponent_pitch[slot] + 3);
+  const vec3_t *row = &world_cam.left;
+  int16_t *out = &out_m->front.y;
+  for (uint8_t c = 0; c < 2; ++c, ++row, ++out) {
+    int16_t ra = (int16_t)(vec_fastmul8p8(row->x, hx) +
+                           vec_fastmul8p8(row->y, hy));
+    int16_t rb = row->z;
+    if (pitch != 3) {
+      int16_t s = kOpponentPitchSin[pitch];
+      uint8_t cp = kPCos[pitch];
+      volatile int16_t a = ra;
+      out[0] = (int16_t)(vec_fastmul8p8(cp, a) + vec_fastmul8p8(s, rb));
+      rb = (int16_t)(vec_fastmul8p8(cp, rb) + vec_fastmul8p8(-s, a));
+    } else {
+      out[0] = ra;
+    }
+    ra = (int16_t)(vec_fastmul8p8(row->x, -hy) + vec_fastmul8p8(row->y, hx));
+    if (turn != 2) {
+      int16_t s = kBSin[turn];
+      uint8_t cb = kBCos[turn];
+      volatile int16_t a = ra;
+      out[3] = (int16_t)(vec_fastmul8p8(cb, a) + vec_fastmul8p8(s, rb));
+      rb = (int16_t)(vec_fastmul8p8(cb, rb) + vec_fastmul8p8(-s, a));
+    } else {
+      out[3] = ra;
+    }
+    out[6] = rb;
+  }
+}
+
+static __noinline uint8_t _ref_opp_cull_slot(uint8_t slot, vec3_t *out_cs) {
+  uint8_t range = _opponent_world_delta(slot);
+  if (range == kOpponentOut) {
+    return 0;
+  }
+  int16_t cx = (int16_t)(vec_fastmul8p8(world_cam.front.x, vec_v.x) +
+                         vec_fastmul8p8(world_cam.front.y, vec_v.y) +
+                         vec_fastmul8p8(world_cam.front.z, vec_v.z));
+  if (cx <= 64) {
+    return 0;
+  }
+  int16_t cz = (int16_t)(vec_fastmul8p8(world_cam.up.x, vec_v.x) +
+                         vec_fastmul8p8(world_cam.up.y, vec_v.y) +
+                         vec_fastmul8p8(world_cam.up.z, vec_v.z));
+  uint16_t half = (uint16_t)cx >> 1;
+  uint16_t quar = half >> 1;
+  uint16_t eighth = quar >> 1;
+  uint16_t u32 = eighth >> 2;
+  uint16_t px4 = u32 >> 1;
+  uint16_t lim_z = (uint16_t)(quar - u32 + px4 + 101);
+  if ((uint16_t)((uint16_t)cz + lim_z) > (uint16_t)(lim_z << 1)) {
+    return 0;
+  }
+  uint16_t lim_y = (uint16_t)(half + eighth + px4 + 135);
+  int16_t cy = (int16_t)(vec_fastmul8p8(world_cam.left.x, vec_v.x) +
+                         vec_fastmul8p8(world_cam.left.y, vec_v.y) +
+                         vec_fastmul8p8(world_cam.left.z, vec_v.z));
+  if ((uint16_t)((uint16_t)cy + lim_y) > (uint16_t)(lim_y << 1)) {
+    return 0;
+  }
+  out_cs->x = cx;
+  out_cs->y = cy;
+  out_cs->z = cz;
+  return (uint8_t)(range + 1);
+}
+
+static __noinline void test_opponent_hot_asm(void) {
+  _cur_id = 26;
+
+  // 26a. _opponent_move & _opponent_ahead across step shifts and edge headings.
+  static const int16_t kMoveH[] = {0, 256, -256, 181, -181, -192, 64, -32};
+  for (uint8_t sh = 0; sh <= 2; ++sh) {
+    flight_step_shift = sh;
+    _opponent_speed[0] = 1760;
+    _opponent_speed[1] = 2800;
+    for (uint8_t slot = 0; slot < 2; ++slot) {
+      for (uint8_t k = 0; k < sizeof(kMoveH) / sizeof(kMoveH[0]); ++k) {
+        uint8_t idx = (uint8_t)(slot + (k & 2) * 2);
+        uint16_t base_lo = (k & 1) ? 0xFF80U : 0x0040U;
+        uint16_t base_hi = (k & 1) ? 0x0012U : 0x0034U;
+        uint8_t *bp = (uint8_t *)&_opponent_xyz[idx];
+        bp[0] = (uint8_t)base_lo;
+        bp[1] = (uint8_t)(base_lo >> 8);
+        bp[2] = (uint8_t)base_hi;
+        bp[3] = (uint8_t)(base_hi >> 8);
+        int16_t step =
+            vec_fastmul8p8(kMoveH[k], (int16_t)(_opponent_speed[slot] << 1));
+        for (uint8_t s = 0; s < sh; ++s) {
+          step >>= 1;
+        }
+        uint16_t want_lo = (uint16_t)(base_lo + (uint16_t)step);
+        uint16_t carry = (want_lo < base_lo) ? 1 : 0;
+        uint16_t want_hi =
+            (uint16_t)(base_hi + (step < 0 ? 0xFFFFU : 0U) + carry);
+        _opponent_move(slot, idx, kMoveH[k]);
+        uint16_t got_lo = (uint16_t)(bp[0] | ((uint16_t)bp[1] << 8));
+        uint16_t got_hi = (uint16_t)(bp[2] | ((uint16_t)bp[3] << 8));
+        expect_id((int16_t)got_lo, (int16_t)want_lo);
+        expect_id((int16_t)got_hi, (int16_t)want_hi);
+      }
+      _opponent_head[slot].x = slot ? -181 : 256;
+      _opponent_head[slot].y = slot ? 181 : 0;
+      _opponent_xyz[slot] = 0x0020FF00L;
+      _opponent_xyz[slot + 2] = 0x00100020L;
+      int16_t sx = vec_fastmul8p8(_opponent_head[slot].x,
+                                  (int16_t)(_opponent_speed[slot] << 1)) >>
+                   sh;
+      int16_t sy = vec_fastmul8p8(_opponent_head[slot].y,
+                                  (int16_t)(_opponent_speed[slot] << 1)) >>
+                   sh;
+      int32_t wx = _opponent_xyz[slot] + sx;
+      int32_t wy = _opponent_xyz[slot + 2] + sy;
+      _opponent_ahead(slot);
+      int32_t gx = *(volatile int32_t *)&_opponent_xyz[slot];
+      int32_t gy = *(volatile int32_t *)&_opponent_xyz[slot + 2];
+      expect_id((int16_t)(gx & 0xFFFF), (int16_t)(wx & 0xFFFF));
+      expect_id((int16_t)(gy & 0xFFFF), (int16_t)(wy & 0xFFFF));
+    }
+  }
+  flight_step_shift = 0;
+
+  // 26b. _opponent_axes across level & tilted cameras, all banks/pitches.
+  static const mat3_t kAxCams[2] = {
+      {{256, 0, 0}, {0, 256, 0}, {0, 0, 256}},
+      {{196, 128, -104}, {-152, 206, -18}, {76, 62, 236}},
+  };
+  static const struct {
+    int16_t hx, hy;
+    int8_t bank, pitch;
+  } kAxCases[] = {
+      {256, 0, 0, 0},
+      {0, -256, 1, 2},
+      {-181, 181, -2, -3},
+      {128, -222, 2, 4},
+      {-240, -88, -1, -1},
+  };
+  for (uint8_t ci = 0; ci < 2; ++ci) {
+    world_cam = kAxCams[ci];
+    for (uint8_t slot = 0; slot < 2; ++slot) {
+      for (uint8_t k = 0; k < sizeof(kAxCases) / sizeof(kAxCases[0]); ++k) {
+        _opponent_head[slot].x = kAxCases[k].hx;
+        _opponent_head[slot].y = kAxCases[k].hy;
+        _opponent_bank[slot] = kAxCases[k].bank;
+        _opponent_pitch[slot] = kAxCases[k].pitch;
+        mat3_t ref_m;
+        _ref_opp_axes(slot, &ref_m);
+        _opponent_axes(slot);
+        expect_id(_opponent_axes_m.front.y, ref_m.front.y);
+        expect_id(_opponent_axes_m.front.z, ref_m.front.z);
+        expect_id(_opponent_axes_m.left.y, ref_m.left.y);
+        expect_id(_opponent_axes_m.left.z, ref_m.left.z);
+        expect_id(_opponent_axes_m.up.y, ref_m.up.y);
+        expect_id(_opponent_axes_m.up.z, ref_m.up.z);
+      }
+    }
+  }
+
+  // 26c. _opponent_cull_slot across level/tilted cameras, near/far/out/frustum.
+  flight_eye_x = 0x00200000L;
+  flight_eye_y = 0x00400000L;
+  flight_eye_z = 0x00020000L;
+  static const struct {
+    int32_t dx, dy, dz;
+  } kCullCases[] = {
+      {0x00040000L, 0x00008000L, 0x00004000L},   // near, visible
+      {0x00140000L, -0x00030000L, 0x00010000L},  // far, visible
+      {0x00300000L, 0, 0},                       // out of range
+      {-0x00020000L, 0, 0},                      // behind camera
+      {0x00020000L, 0, 0x00080000L},             // above frustum (z cull)
+      {0x00020000L, 0x000A0000L, 0},             // left of frustum (y cull)
+  };
+  for (uint8_t ci = 0; ci < 2; ++ci) {
+    world_cam = kAxCams[ci];
+    for (uint8_t slot = 0; slot < 2; ++slot) {
+      for (uint8_t k = 0; k < sizeof(kCullCases) / sizeof(kCullCases[0]); ++k) {
+        _opponent_xyz[slot] = flight_eye_x + kCullCases[k].dx;
+        _opponent_xyz[slot + 2] = flight_eye_y + kCullCases[k].dy;
+        _opponent_xyz[slot + 4] = flight_eye_z + kCullCases[k].dz;
+        vec3_t ref_cs;
+        uint8_t want = _ref_opp_cull_slot(slot, &ref_cs);
+        uint8_t got = _opponent_cull_slot(slot);
+        expect_id(got, want);
+        if (want != 0) {
+          expect_id(_opponent_cs[slot].x, ref_cs.x);
+          expect_id(_opponent_cs[slot].y, ref_cs.y);
+          expect_id(_opponent_cs[slot].z, ref_cs.z);
+        }
+      }
+    }
+  }
+}
+
 #endif // __TARGET_TEST_PLANES__
 #pragma optimize(pop)
 
@@ -3286,6 +3667,8 @@ int main(void) {
   test_world_grid_asm();
   test_poly_project_vertices_asm();
   test_box_asm();
+  test_vec_ops_asm();
+  test_opponent_hot_asm();
 #endif
 
   // Something for vice_dump.sh's @spin to break on. Everything above has
