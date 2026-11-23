@@ -130,12 +130,11 @@ Fixed-point 8.8 vector and 3×3 matrix math (zero hardware multiply/divide, enfo
 - `world.cc` / `world_asm.cc` build the per-frame grid basis (`_world_init_start_dx_dy()`), walk visible cells around the aircraft with 8-bit high-byte 3D frustum culling (`_world_render_grid_walk()`), project ground grid dots via `_world_draw_box_points()`, and build/dispatch map objects (`_world_build_obj_verts()`, runways, towns, cities, lakes, fields) to `poly_draw_3d()`. Host builds retain exact C counterparts in `world.cc`.
 - `world_update_objects()` feeds sprites into the viewport sprite stack: clouds (`clouds.cc`), sun, and in `fpilot`, opponents (`opponent.cc`) and tracers/smoke (`gun.cc`).
 
-### `poly.cc` / `poly_asm.h` — filled polygons
+### `poly.cc` / `poly_asm.{h,cc}` — filled polygons
 
 3D convex polygon pipeline in character/2×2 sub-cell space (keeps 16-bit `int` intermediates safe against overflow — see `c64o/test/int16.h`):
-1. 3D frustum early-reject and near-plane clipping (`_project_vertices`, `_clip_near`).
-2. Perspective projection + 2D Sutherland–Hodgman viewport clipping (`_clip_2d`).
-3. 6502 `__asm` rasteriser (`poly_asm.h`): `_poly_bounds_and_clear`, `_poly_trace_edges`, and `_poly_scan_lines2` (solid interior fills + 2×2 fringe characters at edges).
+1. 6502 `__asm` 3D-to-2D projection & clipping (`poly_asm.cc`: `_poly_project_vertices`, `_poly_clip_near_mixed`, `_poly_frustum_core`, `_poly_clip_2d_edge`), with exact host C counterparts in `poly.cc`: fast near-plane pre-scan (skips copying all-in polygons), near-plane clipping with zero-delta fast paths, tightened `0.75·x` / `0.25·x` 3D frustum early-reject, perspective projection directly into unified striped 2D buffers, and 2D Sutherland–Hodgman viewport clipping.
+2. 6502 `__asm` rasteriser (`poly_asm.h`): `_poly_bounds_and_clear`, `_poly_trace_edges`, and `_poly_scan_lines2` (solid interior fills + 2×2 fringe characters at edges).
 
 ### `flight.cc` — flight model
 

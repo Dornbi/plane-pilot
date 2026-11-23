@@ -109,11 +109,11 @@ DESCRIPTIONS = {
     'Polygon Graphics': {
         'Code': 'polygon pipeline, edge scan conversion, near and screen '
                 'clipping, fixed-point vector math (`poly.cc`, `poly_asm.h`, '
-                '`vec.cc`, `vec_asm.cc`, `fmath.cc`)',
+                '`poly_asm.cc`, `vec.cc`, `vec_asm.cc`, `fmath.cc`)',
         'Data': 'sine and cosine tables, inverse-Z LUT, the quarter-square '
                 'multiply tables (`vec_sqr_lo`, `vec_sqr_hi`)',
-        'BSS': 'scratch vertex buffers (`poly_verts`, `clip3_buf`, `proj_buf`, '
-               '`clip2_buf1/2`, `final_verts`)',
+        'BSS': 'scratch vertex buffers (`poly_verts`, `_poly_clip3_buf`, '
+               '`_poly_2d_*`, `final_verts`)',
         'ZP': 'vector registers (`vec_v`, `vec_sx`, `vec_sy`)',
         'VRAM': '',
     },

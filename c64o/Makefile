@@ -94,6 +94,7 @@ PPILOT_SRC = \
 		poly.h \
 		poly.cc \
 		poly_asm.h \
+		poly_asm.cc \
 		render.h \
 		render.cc \
 		render_asm.h \
@@ -179,6 +180,7 @@ POLYDEMO_SRC = \
 		poly.h \
 		poly.cc \
 		poly_asm.h \
+		poly_asm.cc \
 		polydemo.cc \
 		sid.h \
 		sound.h \

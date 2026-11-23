@@ -11,7 +11,10 @@
 #include "world.h"
 #else
 static const uint8_t kGfxDotGround = 0x08;
+#ifndef _ASM_POLY_MAX_VERTS_DEF
+#define _ASM_POLY_MAX_VERTS_DEF
 static const uint8_t kPolyMaxVertices = 6;
+#endif
 static const uint8_t kWorldMapHeight = 16;
 static const uint8_t kWorldMapWidth = 32;
 static const uint8_t kWorldMapObjStart = 7;

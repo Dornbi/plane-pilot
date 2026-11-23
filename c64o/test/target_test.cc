@@ -55,6 +55,7 @@
 //       _clouds_scan_init & _clouds_scan_next against C ref
 //   22  world_asm.cc _world_init_start_dx_dy, _world_build_obj_verts &
 //       _world_render_grid_walk against 16-bit C ref
+//   23  poly_asm.cc _poly_project_vertices against 16-bit C ref
 
 #include <stdint.h>
 
@@ -69,8 +70,8 @@
 #pragma section(gun_bss, 0, , , bss)
 #pragma section(opp_bss, 0, , , bss)
 #pragma section(cld_bss, 0, , , bss)
-#pragma region(bssregion, 0x0400, 0x0800, , , {bss, gun_bss})
-#pragma region(oppbssreg, 0xE000, 0xE800, , , {opp_bss, cld_bss})
+#pragma region(bssregion, 0x0400, 0x0800, , , {bss})
+#pragma region(oppbssreg, 0xE000, 0xE800, , , {opp_bss, cld_bss, gun_bss})
 // And the zero page the programs under test get from -xz: vec_asm.cc's
 // routines keep their operands there.
 #pragma region(zeropage, 0x78, 0x100, , , {zeropage})
@@ -389,9 +390,7 @@ __striped uint8_t *const mem_color_row_ptrs[kViewportHeight] = {
     (uint8_t *)0xF480 + 12 * 40, (uint8_t *)0xF480 + 13 * 40};
 bool mem_using_alt_buffer;
 
-vec3_t _poly_clip3_buf[10];
-uint8_t _poly_min_x[2 * kViewportHeight];
-uint8_t _poly_max_x[2 * kViewportHeight];
+// _poly_clip3_buf, _poly_min_x, _poly_max_x are defined in poly_asm.cc.
 
 __zeropage uint8_t _world_grid_radius;
 __zeropage uint8_t _world_start_cx;
@@ -546,10 +545,11 @@ static bool _ref_frustum_all_out(uint8_t end3) {
     const vec3_t *v = (const vec3_t *)((const uint8_t *)_poly_clip3_buf + o);
     uint16_t ux = (uint16_t)v->x;
     uint16_t zx = ux >> 2;
+    uint16_t yx = ux - zx;
     int16_t vy = v->y;
     int16_t vz = v->z;
     uint8_t c = 0;
-    if ((uint16_t)_abs16(vy) > ux) {
+    if ((uint16_t)_abs16(vy) > yx) {
       c = vy < 0 ? 2 : 1;
     }
     if ((uint16_t)_abs16(vz) > zx) {
@@ -565,7 +565,7 @@ static bool _ref_frustum_all_out(uint8_t end3) {
 
 static void test_poly_frustum_asm(void) {
   _cur_id = 10;
-  static const int8_t kCases8[7][3][3] = {
+  static const int8_t kCases8[9][3][3] = {
       {{100, 101, 0}, {120, 125, 0}, {50, 51, 0}},    // all y > x
       {{100, -101, 0}, {120, -125, 0}, {50, -51, 0}}, // all y < -x
       {{100, 0, 26}, {120, 0, 31}, {40, 0, 11}},      // all z > x>>2
@@ -573,8 +573,10 @@ static void test_poly_frustum_asm(void) {
       {{100, 0, 25}, {120, 0, 31}, {40, 0, 11}},      // z == x>>2 boundary
       {{100, 120, 0}, {100, -120, 0}, {100, 5, 0}},   // straddling x/y
       {{20, 25, 0}, {22, 26, 0}, {18, 20, 0}},        // scaled * 1000 (> 16k)
+      {{100, 76, 0}, {120, 91, 0}, {40, 31, 0}},      // all y > 0.75*x
+      {{100, 75, 0}, {120, 91, 0}, {40, 31, 0}},      // y == 0.75*x boundary
   };
-  for (uint8_t c = 0; c < 7; ++c) {
+  for (uint8_t c = 0; c < 9; ++c) {
     int16_t scale = (c == 6) ? 1000 : 1;
     for (uint8_t i = 0; i < 3; ++i) {
       _poly_clip3_buf[i] = make_vector(kCases8[c][i][0] * scale,
@@ -2756,6 +2758,198 @@ static __noinline void test_world_grid_asm(void) {
     expect(22, (int16_t)got_oh, (int16_t)ref_oh);
   }
 }
+// 23. poly_asm.cc _poly_project_vertices against 16-bit C reference.
+static inline uint8_t _ref_mag_hi(int16_t v) {
+  uint8_t hi = (uint8_t)((uint16_t)v >> 8);
+  return (hi & 0x80) ? (uint8_t)(hi ^ 0xff) : hi;
+}
+
+static uint8_t _ref_clip_2d(const int16_t *in_x, const int16_t *in_y,
+                            uint8_t num_in, int16_t *out_x, int16_t *out_y,
+                            uint8_t e) {
+  uint8_t num_out = 0;
+  int16_t lim = (e == 1) ? 79 : (e == 3 ? 27 : 0);
+  bool keep_gt = (e & 1) == 0;
+  bool axis_y = (e >= 2);
+  int16_t prev_x = in_x[num_in - 1];
+  int16_t prev_y = in_y[num_in - 1];
+  int16_t pa = axis_y ? prev_y : prev_x;
+  bool prev_in = keep_gt ? (pa >= lim) : (pa <= lim);
+
+  for (uint8_t i = 0; i < num_in; ++i) {
+    int16_t curr_x = in_x[i];
+    int16_t curr_y = in_y[i];
+    int16_t ca = axis_y ? curr_y : curr_x;
+    bool curr_in = keep_gt ? (ca >= lim) : (ca <= lim);
+    if (curr_in != prev_in) {
+      int16_t po = axis_y ? prev_x : prev_y;
+      int16_t co = axis_y ? curr_x : curr_y;
+      int16_t d = (int16_t)(co - po);
+      int16_t a = (int16_t)(lim - pa);
+      int16_t den = (int16_t)(ca - pa);
+      int16_t inter;
+      if (d >= -255 && d <= 255) {
+        inter = (int16_t)(po + vec_fastmul8p8(vec_div8p8(a, den), d));
+      } else {
+        inter = (int16_t)(po + vec_mulfrac(vec_frac16(a, den), d));
+      }
+      if (axis_y) {
+        out_x[num_out] = inter;
+        out_y[num_out] = lim;
+      } else {
+        out_x[num_out] = lim;
+        out_y[num_out] = inter;
+      }
+      ++num_out;
+    }
+    if (curr_in) {
+      out_x[num_out] = curr_x;
+      out_y[num_out] = curr_y;
+      ++num_out;
+    }
+    prev_x = curr_x;
+    prev_y = curr_y;
+    pa = ca;
+    prev_in = curr_in;
+  }
+  return num_out;
+}
+
+static uint8_t _ref_project_vertices(const vec3_t *in, uint8_t num_in,
+                                     int8_t *out2d) {
+  static vec3_t c3[10];
+  static int16_t bx0[12], by0[12], bx1[12], by1[12];
+  if (num_in == 0) {
+    return 0;
+  }
+  uint8_t n3 = 0;
+  const vec3_t *prev = &in[num_in - 1];
+  bool prev_in = prev->x >= 8;
+  for (uint8_t i = 0; i < num_in; ++i) {
+    const vec3_t *curr = &in[i];
+    bool curr_in = curr->x >= 8;
+    if (curr_in != prev_in) {
+      int16_t dx = (int16_t)(curr->x - prev->x);
+      int16_t a = (int16_t)(8 - prev->x);
+      int16_t dy = (int16_t)(curr->y - prev->y);
+      int16_t dz = (int16_t)(curr->z - prev->z);
+      uint16_t t = vec_frac16(a, dx);
+      int16_t x = 8, py = prev->y, pz = prev->z;
+      if ((_ref_mag_hi(py) | _ref_mag_hi(pz) | _ref_mag_hi(curr->y) |
+           _ref_mag_hi(curr->z) | _ref_mag_hi(dy) | _ref_mag_hi(dz)) < 15) {
+        x = 64;
+        py <<= 3;
+        pz <<= 3;
+        dy <<= 3;
+        dz <<= 3;
+      }
+      c3[n3].x = x;
+      c3[n3].y = (int16_t)(py + vec_mulfrac(t, dy));
+      c3[n3].z = (int16_t)(pz + vec_mulfrac(t, dz));
+      ++n3;
+    }
+    if (curr_in) {
+      c3[n3++] = *curr;
+    }
+    prev = curr;
+    prev_in = curr_in;
+  }
+  if (n3 < 3) {
+    return 0;
+  }
+  uint8_t all_out = 0x0f;
+  uint8_t edges = 0;
+  for (uint8_t i = 0; i < n3; ++i) {
+    vec_v = c3[i];
+    vec_project_nocull();
+    int16_t px = (int16_t)(80 - (vec_sx >> 1)) >> 1;
+    int16_t py = (int16_t)(28 - (vec_sy >> 1)) >> 1;
+    bx0[i] = px;
+    by0[i] = py;
+    uint8_t out = 0;
+    if ((uint16_t)px >= 80) {
+      out = (px < 0) ? 1 : 2;
+    }
+    if ((uint16_t)py >= 28) {
+      out |= (py < 0) ? 4 : 8;
+    }
+    all_out &= out;
+    edges |= out;
+  }
+  if (all_out) {
+    return 0;
+  }
+  uint8_t n = n3;
+  bool use1 = false;
+  for (uint8_t e = 0; edges; ++e, edges >>= 1) {
+    if (edges & 1) {
+      if (!use1) {
+        n = _ref_clip_2d(bx0, by0, n, bx1, by1, e);
+      } else {
+        n = _ref_clip_2d(bx1, by1, n, bx0, by0, e);
+      }
+      if (n < 3) {
+        return 0;
+      }
+      use1 = !use1;
+    }
+  }
+  const int16_t *fx = use1 ? bx1 : bx0;
+  const int16_t *fy = use1 ? by1 : by0;
+  for (uint8_t i = 0; i < n; ++i) {
+    out2d[2 * i] = (int8_t)fx[i];
+    out2d[2 * i + 1] = (int8_t)fy[i];
+  }
+  return n;
+}
+
+static void test_poly_project_vertices_asm(void) {
+  _cur_id = 23;
+  static const int16_t kPolys[12][4][3] = {
+      // 0: All behind near plane (x < 8)
+      {{-20, 0, 0}, {7, 10, 5}, {-5, -10, -5}, {0, 0, 0}},
+      // 1: All inside viewport (no near clip, no 2D clip)
+      {{400, 60, 20}, {400, -60, 20}, {500, -50, -30}, {500, 50, -30}},
+      // 2: All outside frustum in 0.75 < |y|/x < 1.0 band
+      {{200, 170, 0}, {300, 250, 10}, {250, 210, -10}, {220, 185, 5}},
+      // 3: Mixed near-clip (lifted << 3, dy != 0, dz == 0) + multi-edge 2D clip
+      {{-120, 40, -18}, {-120, -40, -18}, {600, -50, -18}, {600, 50, -18}},
+      // 4: Mixed near-clip (unlifted, |y| > 3840, dy == 0, dz == 0) + long-span 2D clip
+      {{-200, 4500, -100}, {-200, -4500, -100}, {300, -4500, -100}, {300, 4500, -100}},
+      // 5: 2D clip across all 4 edges (huge quad covering full viewport, arg_d == 0)
+      {{100, 150, 60}, {100, -150, 60}, {100, -150, -60}, {100, 150, -60}},
+      // 6: 2D clip right & bottom edges only
+      {{200, -160, -10}, {200, -40, -10}, {200, -40, -70}, {200, -160, -70}},
+      // 7: 2D clip left & top edges only
+      {{200, 160, 70}, {200, 40, 70}, {200, 40, 10}, {200, 160, 10}},
+      // 8: Corner straddler rejected after 2D clip (< 3 vertices)
+      {{100, 80, 30}, {100, 120, 15}, {100, 95, 45}, {100, 110, 35}},
+      // 9: Mixed near-clip (lifted << 3, dy == 0 && dz == 0: parked runway edges)
+      {{-100, 32, -16}, {-100, -32, -16}, {500, -32, -16}, {500, 32, -16}},
+      // 10: Mixed near-clip (lifted << 3, dy == 0 && dz != 0)
+      {{-80, 20, -40}, {-80, -20, -40}, {320, -20, 20}, {320, 20, 20}},
+      // 11: Mixed near-clip (lifted << 3, dy != 0 && dz != 0: pitched/rolled)
+      {{-90, 60, -35}, {-90, -10, -5}, {400, -80, 30}, {400, 30, -25}},
+  };
+  static vec3_t verts[4];
+  static int8_t got2d[2 * kPolyMax2dVertices];
+  static int8_t want2d[2 * kPolyMax2dVertices];
+  for (uint8_t c = 0; c < 12; ++c) {
+    uint8_t nv = (c == 0 || c == 8) ? 3 : 4;
+    for (uint8_t i = 0; i < nv; ++i) {
+      verts[i] = make_vector(kPolys[c][i][0], kPolys[c][i][1], kPolys[c][i][2]);
+    }
+    uint8_t gn = _poly_project_vertices(verts, nv, got2d);
+    uint8_t wn = _ref_project_vertices(verts, nv, want2d);
+    expect_id(gn, wn);
+    if (gn == wn) {
+      for (uint8_t i = 0; i < (uint8_t)(wn * 2); ++i) {
+        expect_id((uint8_t)got2d[i], (uint8_t)want2d[i]);
+      }
+    }
+  }
+}
+
 #endif // __TARGET_TEST_PLANES__
 #pragma optimize(pop)
 
@@ -2795,6 +2989,7 @@ int main(void) {
   test_sprites_asm();
   test_clouds_asm();
   test_world_grid_asm();
+  test_poly_project_vertices_asm();
 #endif
 
   // Something for vice_dump.sh's @spin to break on. Everything above has

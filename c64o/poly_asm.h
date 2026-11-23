@@ -22,16 +22,27 @@ extern __striped uint8_t *const mem_color_row_ptrs[kViewportHeight];
 #endif
 #endif
 
-// The assembly half of poly.cc:
-//   - _poly_frustum_all_out: 3D frustum early rejection (Pass 134)
-//   - _poly_bounds_and_clear: vertical sub-row extent + buffer clear (Pass 140)
-//   - _poly_trace_edges: polygon edge walk + Bresenham span trace (Pass 140)
-//   - _poly_scan_lines2: full quad-cell scanline rasteriser (Passes 137 & 140)
-// All four are static inline under __OSCAR64__ so poly.cc inlines them with
-// zero cross-TU call overhead; poly.cc holds the pure C equivalents
-// (#ifndef __OSCAR64__) for the host and host tests.
+#ifndef POLY_H
+#ifndef _ASM_POLY_MAX_VERTS_DEF
+#define _ASM_POLY_MAX_VERTS_DEF
+static const uint8_t kPolyMaxVertices = 6;
+#endif
+static const uint8_t kPolyMax2dVertices =
+    kPolyMaxVertices + 6; // +5 derived, +6 for safety
+#endif
 
-// Working buffers defined in poly.cc (in scratch/bss2).
+// The assembly half of poly.cc:
+//   - _poly_frustum_all_out: 3D frustum early rejection (poly_asm.cc)
+//   - _poly_project_vertices: near clip, frustum reject, projection, 2D clip,
+//     and packed vertex output (poly_asm.cc)
+//   - _poly_bounds_and_clear: vertical sub-row extent + buffer clear (inline)
+//   - _poly_trace_edges: polygon edge walk + Bresenham span trace (inline)
+//   - _poly_scan_lines2: full quad-cell scanline rasteriser (inline)
+// poly.cc holds the pure C equivalents (#ifndef __OSCAR64__) for the host and
+// host tests.
+
+// Working buffers defined in poly_asm.cc (under __OSCAR64__, in scratch/bss2)
+// or poly.cc (on the host).
 extern vec3_t _poly_clip3_buf[];
 extern uint8_t _poly_min_x[2 * kViewportHeight];
 extern uint8_t _poly_max_x[2 * kViewportHeight];
@@ -66,90 +77,11 @@ static_assert(kScreenWidth == 40 && kScreenHeight == 25 &&
               "poly_asm constants mismatch");
 #endif
 
-// Returns true when every vertex in _poly_clip3_buf[0 .. end3) (byte offset)
-// lies past the same frustum plane and the polygon can be rejected before
-// projection.
-static inline bool _poly_frustum_all_out(uint8_t end3) {
-  // 3D frustum early-reject before vec_project_nocull(): every _poly_clip3_buf
-  // vertex has x >= 8. Screen x in [0, 79] requires vec_sx in [-160, 162]
-  // (|y|/x <= ~0.633 < 1) and screen y in [0, 27] requires vec_sy in [-56, 58]
-  // (|z|/x <= ~0.227 < 0.25). Any polygon with all vertices past the same edge
-  // cannot intersect the viewport.
-  // clang-format off
-  __asm {
-        lda end3;
-        sta vec_v+0;        // vec_v+0 = end3
-        lda #$0f;
-        sta vec_v+2;        // vec_v+2 = out3
-        ldy #$00;
-    L_out3_loop:
-        lda _poly_clip3_buf+1, y;
-        lsr;
-        sta vec_sx+1;
-        lda _poly_clip3_buf+0, y;
-        ror;
-        lsr vec_sx+1;
-        ror;
-        sta vec_sx+0;       // vec_sx = zx = ux >> 2
-
-        ldx #$00;
-        lda _poly_clip3_buf+3, y;
-        bmi L_y_neg;
-        sec;
-        lda _poly_clip3_buf+0, y;
-        sbc _poly_clip3_buf+2, y;
-        lda _poly_clip3_buf+1, y;
-        sbc _poly_clip3_buf+3, y;
-        bcs L_chk_z;
-        ldx #$01;
-        bne L_chk_z;
-    L_y_neg:
-        clc;
-        lda _poly_clip3_buf+0, y;
-        adc _poly_clip3_buf+2, y;
-        lda _poly_clip3_buf+1, y;
-        adc _poly_clip3_buf+3, y;
-        bcs L_chk_z;
-        ldx #$02;
-    L_chk_z:
-        lda _poly_clip3_buf+5, y;
-        bmi L_z_neg;
-        sec;
-        lda vec_sx+0;
-        sbc _poly_clip3_buf+4, y;
-        lda vec_sx+1;
-        sbc _poly_clip3_buf+5, y;
-        bcs L_next_v;
-        txa;
-        ora #$04;
-        tax;
-        bne L_next_v;
-    L_z_neg:
-        clc;
-        lda vec_sx+0;
-        adc _poly_clip3_buf+4, y;
-        lda vec_sx+1;
-        adc _poly_clip3_buf+5, y;
-        bcs L_next_v;
-        txa;
-        ora #$08;
-        tax;
-    L_next_v:
-        txa;
-        and vec_v+2;
-        sta vec_v+2;
-        beq L_out3_done;
-        tya;
-        clc;
-        adc #$06;
-        tay;
-        cmp vec_v+0;
-        bne L_out3_loop;
-    L_out3_done:
-  }
-  // clang-format on
-  return (uint8_t)vec_v.y != 0;
-}
+// Implemented in poly_asm.cc.
+bool _poly_frustum_all_out(uint8_t end3);
+uint8_t _poly_project_vertices(const vec3_t *vertices_3d, uint8_t num_vertices,
+                               int8_t *vertices_2d);
+#pragma compile("poly_asm.cc")
 
 // Scans vertices[0 .. num_vertices - 1] (num_vertices >= 3, packed {x, y}
 // byte pairs) for [min_y, max_y] and clears _poly_min_x/_poly_max_x across the
@@ -607,6 +539,8 @@ static inline void _poly_scan_lines2(uint8_t fill_char_start_idx,
 }
 #else
 bool _poly_frustum_all_out(uint8_t end3);
+uint8_t _poly_project_vertices(const vec3_t *vertices_3d, uint8_t num_vertices,
+                               int8_t *vertices_2d);
 void _poly_bounds_and_clear(const int8_t *verts, uint8_t num_vertices,
                             uint8_t *py_start, uint8_t *py_end);
 void _poly_trace_edges(const int8_t *verts, uint8_t num_vertices);
