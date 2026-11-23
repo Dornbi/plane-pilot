@@ -81,6 +81,8 @@ PPILOT_SRC = \
 		menu.cc \
 		flight.h \
 		flight.cc \
+		flight_asm.h \
+		flight_asm.cc \
 		mission.h \
 		pmission.cc \
 		fmission.cc \

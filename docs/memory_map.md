@@ -133,7 +133,7 @@ Feature table total        64,226 B
 
 1. **Horizon Graphics:** `render.cc`, `render_asm.cc`, `box.cc`, `box_asm.cc`, `roll.cc`, `roll_asm.cc`; `boxdefs`, `chardefs`, roll tables, compressed charset; char RAM `$E000–$E7FF`, main/alt screen RAM `$E800`/`$EC00`, back-view fin `$FF40–$FFBF`. Per-slot caches live in `kBootScratch` (`$0860–$0A5F`).
 2. **Polygon Graphics:** `poly.cc`, `poly_asm.h`, `poly_asm.cc`, `vec.cc`, `vec_asm.cc`, `fmath.cc`; trig, inverse-Z, quarter-square LUTs; vertex scratch buffers.
-3. **World Model:** `flight.cc`, `world.cc`, `world_asm.cc`, `sim.cc`, `world_map.cc`, `clouds.cc`, `clouds_asm.cc`, and in `fpilot`: `opponent.cc`, `opponent_asm.cc`, `planes.cc`, `planes_asm.cc`, `gun.cc`, `gun_asm.cc`, `damage.cc`, plus `kOpponentDotBlock` at `$CFC0`.
+3. **World Model:** `flight.cc`, `flight_asm.cc`, `world.cc`, `world_asm.cc`, `sim.cc`, `world_map.cc`, `clouds.cc`, `clouds_asm.cc`, and in `fpilot`: `opponent.cc`, `opponent_asm.cc`, `planes.cc`, `planes_asm.cc`, `gun.cc`, `gun_asm.cc`, `damage.cc`, plus `kOpponentDotBlock` at `$CFC0`.
 4. **Instrument Panel:** `view.cc`, `panel.cc`, `sprites.cc`, `sprites_asm.cc`, `spritedef.cc`; compressed panel/sprite art; sprite bitmaps `$D400–$DFFF`, panel bitmap `$F000–$FF3F`, sprite pointers.
 5. **Menu & Missions:** `menu.cc`, `pmission.cc`/`fmission.cc`, `debrief.cc`, `help.cc`, `map.cc`, `title.cc`; text, mission tables, map tiles, title sprites; `$D000–$D3FF` time-shared under I/O.
 6. **Message System:** `msg.cc` and `screen.cc` notices.

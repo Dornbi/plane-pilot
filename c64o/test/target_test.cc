@@ -63,6 +63,9 @@
 //       _opponent_cull_slot against 16-bit C ref
 //   27  render_asm.cc _render_pull_and_snap_asm & _render_fill_sky_ground_asm
 //       against byte-for-byte C reference (level + tilted, main/alt, sky rows)
+//   28  flight_asm.cc _flight_physics_move_asm, _flight_fuel_step_asm &
+//       _flight_turn_rot_asm against pure-C arcade flight model reference
+//       (in target_planes_test.prg alongside Tests 11-12)
 
 #include <stdint.h>
 
@@ -88,6 +91,7 @@
 #include "../planes_asm.h"
 #include "../vec.h"
 #ifdef __TARGET_TEST_PLANES__
+#include "../flight_asm.h"
 #include "planes_target_cases.h"
 #else
 #include "../poly_asm.h"
@@ -3891,6 +3895,312 @@ static void test_render_pull_and_fill_asm(void) {
 }
 
 #endif // __TARGET_TEST_PLANES__
+
+#ifdef __TARGET_TEST_PLANES__
+
+// ---------------------------------------------------------------------------
+// 28. flight_asm.cc _flight_physics_move_asm, _flight_fuel_step_asm &
+//     _flight_turn_rot_asm against exact pure-C arcade model reference.
+// ---------------------------------------------------------------------------
+uint8_t flight_step_shift;
+bool model_on_ground;
+bool model_need_normalize;
+mat3_t flight_cam;
+int16_t flight_speed;
+int16_t flight_vspeed;
+uint8_t flight_throttle;
+uint32_t flight_fuel;
+uint8_t flight_flap;
+uint8_t flight_gear;
+uint8_t flight_stall;
+int32_t flight_eye_x;
+int32_t flight_eye_y;
+int32_t flight_eye_z;
+
+static int16_t _ref_flight_step_s(int16_t v) {
+  for (uint8_t n = flight_step_shift; n != 0; --n) {
+    v >>= 1;
+  }
+  return v;
+}
+
+static uint8_t _ref_flight_physics_move(uint8_t whole_step, mat3_t *cam,
+                                        int16_t *spd, int16_t *vspd,
+                                        uint8_t *stall, bool *need_norm,
+                                        int32_t *ex, int32_t *ey, int32_t *ez) {
+  uint8_t alt_penalty = 128;
+  uint16_t z8 = (uint16_t)(*ez >> 8);
+  if ((uint8_t)(*ez >> 24) == 0 && z8 < 0x1010) {
+    alt_penalty = z8 < 0x0800 ? 0 : (uint8_t)((z8 - 0x0800) >> 4);
+  }
+  uint16_t density = 256 - alt_penalty;
+
+  uint16_t speed_sqr = vec_fastsqr8p8(*spd);
+  const uint16_t drag = (uint16_t)_ref_flight_step_s((int16_t)(speed_sqr >> 1));
+  const uint16_t extra = drag >> 11;
+  *spd -= (int16_t)(drag >> 9);
+  if (flight_gear) {
+    *spd -= (int16_t)extra;
+  }
+  if (flight_flap) {
+    *spd -= (int16_t)extra;
+  }
+  if (!model_on_ground) {
+    *spd -= _ref_flight_step_s((int16_t)vec_fastsqr8p8(cam->left.z)) >> 5;
+  }
+  *spd -= _ref_flight_step_s(cam->front.z) >> 3;
+  if (flight_fuel > 0) {
+    *spd += _ref_flight_step_s(vec_fastmul8p8(flight_throttle, (int16_t)density));
+  }
+
+  int16_t sink_penalty = 0;
+  uint16_t stall_speed = 0;
+  if (!model_on_ground) {
+    int16_t raw_lift = vec_fastmul8p8((int16_t)(speed_sqr >> 2), cam->up.z);
+    int16_t lift = vec_fastmul8p8(raw_lift, (int16_t)density);
+    if (flight_flap) {
+      lift += lift >> 1;
+    }
+    int16_t deficit = kFlightAsmTrimLift - lift;
+    if (deficit > 0) {
+      sink_penalty = deficit >> 4;
+      *spd -= _ref_flight_step_s(deficit) >> 10;
+    }
+    uint16_t base_stall_speed;
+    if (flight_flap) {
+      base_stall_speed =
+          (cam->up.z >= 0) ? kFlightAsmStallWithFlaps : 0x0480;
+    } else {
+      base_stall_speed = kFlightAsmStallWithoutFlaps;
+    }
+    stall_speed = base_stall_speed + ((uint16_t)alt_penalty << 1);
+  } else if (whole_step && flight_throttle == 0 && *spd > 0) {
+    *spd -= 2;
+  }
+
+  if (*spd < 0) {
+    *spd = 0;
+  } else if (*spd > (int16_t)kMaxSpeed) {
+    *spd = (int16_t)kMaxSpeed;
+  }
+
+  *stall = (uint16_t)*spd < stall_speed ? 1 : 0;
+  if (*stall) {
+    if (cam->front.z > kFlightAsmMaxStallPitchZ) {
+      vec_rotate_step(cam->up.z < 0 ? VEC_STEP_PITCH_UP : VEC_STEP_PITCH_DOWN,
+                      cam);
+    } else {
+      uint8_t s =
+          (uint8_t)(_ref_flight_step_s((int16_t)(stall_speed - (uint16_t)*spd)) >> 5);
+      if (s == 0) {
+        s = whole_step ? 1 : 0;
+      }
+      cam->front.z -= s;
+      if (cam->front.z < -256) {
+        cam->front.z = -256;
+      }
+    }
+    *need_norm = true;
+  }
+
+  if (!model_on_ground) {
+    *vspd = vec_fastmul8p8(cam->front.z, *spd) - sink_penalty;
+  } else {
+    if (cam->front.z < 0) {
+      cam->front.z = 0;
+      *need_norm = true;
+    }
+    if (cam->left.z != 0) {
+      cam->left.x = -cam->front.y;
+      cam->left.y = cam->front.x;
+      cam->left.z = 0;
+      vec_cross(&cam->front, &cam->left, &cam->up);
+      *need_norm = true;
+    }
+    *vspd = 0;
+  }
+
+  int16_t fspeed = (int16_t)(*spd << 1);
+  *ex += _ref_flight_step_s(vec_fastmul8p8(cam->front.x, fspeed));
+  *ey += _ref_flight_step_s(vec_fastmul8p8(cam->front.y, fspeed));
+  *ez += _ref_flight_step_s(*vspd);
+  if (*ez <= (int32_t)kFlightAsmMinEyeZ) {
+    *ez = (int32_t)kFlightAsmMinEyeZ;
+    return 1;
+  }
+  return 0;
+}
+
+static __noinline void _expect_u32(uint16_t id, uint32_t got, uint32_t want) {
+  expect(id, (int16_t)(got & 0xFFFFu), (int16_t)(want & 0xFFFFu));
+  expect((uint16_t)(id + 1), (int16_t)(got >> 16), (int16_t)(want >> 16));
+}
+
+static __noinline void test_flight_asm(void) {
+  static const struct FlightCase {
+    int16_t fx, fy, fz, lx, ly, lz, ux, uy, uz;
+    int16_t speed;
+    uint8_t throttle, flap, gear, on_ground, whole_step;
+    uint32_t fuel;
+    int32_t ex, ey, ez;
+  } kCases[] = {
+      // 0: level cruise at low altitude
+      {256, 0, 0, 0, 256, 0, 0, 0, 256, 0x0800, 18, 0, 0, 0, 1, 0x10000L,
+       0x100000L, 0x200000L, 0x040000L},
+      // 1: climbing banked turn with gear & flaps, mid altitude decay
+      {180, 120, 140, -100, 200, 128, -80, -60, 230, 0x0600, 24, 1, 1, 0, 1,
+       0x00100L, 0x010000L, -0x020000L, 0x0C3400L},
+      // 2: inverted with flaps, high altitude cap (0x100000)
+      {200, -160, -40, 160, 200, -40, 0, 0, -256, 0x0470, 10, 1, 0, 0, 1,
+       0x00001L, 0x000000L, 0x000000L, 0x100000L},
+      // 3: altitude boundary 0x07FFFF (penalty 0) & fuel == 0
+      {256, 0, 0, 0, 256, 0, 0, 0, 256, 0x0700, 20, 0, 0, 0, 1, 0L,
+       0x000000L, 0x000000L, 0x07FFFFL},
+      // 4: altitude boundary 0x080000 (penalty 0) & 0x0FFFFF
+      {256, 0, 0, 0, 256, 0, 0, 0, 256, 0x0900, 24, 0, 0, 0, 1, 10L,
+       0x000000L, 0x000000L, 0x0FFFFFL},
+      // 5: altitude > 0x01000000 (byte 3 nonzero -> penalty 128), top speed clamp
+      {256, 0, -256, 0, 256, 0, 256, 0, 0, 0x0EFE, 24, 0, 0, 0, 1, 10L,
+       0x000000L, 0x000000L, 0x01020000L},
+      // 6: stall direct break with s > 0 and front.z clamp to -256
+      {0, 10, -250, 0, 256, 0, 256, 0, 10, 0x0100, 0, 0, 0, 0, 1, 0L,
+       0x000000L, 0x000000L, 0x050000L},
+      // 7: stall direct break with s == 0, whole_step = 0 vs 1
+      {256, 0, 10, 0, 256, 0, 0, 0, 256, 0x03F8, 0, 0, 0, 0, 0, 0L,
+       0x000000L, 0x000000L, 0x050000L},
+      // 8: stall dead-spot front.z > 224, up.z >= 0 (PITCH_DOWN)
+      {100, 0, 235, 0, 256, 0, -235, 0, 100, 0x0200, 0, 0, 0, 0, 1, 0L,
+       0x000000L, 0x000000L, 0x050000L},
+      // 9: stall dead-spot front.z > 224, up.z < 0 (PITCH_UP)
+      {-100, 0, 235, 0, -256, 0, -235, 0, -100, 0x0200, 0, 0, 0, 0, 1, 0L,
+       0x000000L, 0x000000L, 0x050000L},
+      // 10: ground mode, wheel friction + speed clamp < 0 + negative front.z + tilted left.z
+      {200, 150, -30, -150, 200, 40, 0, 0, 256, 1, 0, 1, 1, 1, 1, 0L,
+       0x000000L, 0x000000L, 0x002000L},
+      // 11: ground mode parked (speed == 0)
+      {256, 0, 0, 0, 256, 0, 0, 0, 256, 0, 0, 0, 1, 1, 1, 0x20000L,
+       0x005000L, 0x006000L, 0x002000L},
+      // 12: floor clamp boundary (diving through 0x2000)
+      {256, 0, -100, 0, 256, 0, 0, 0, 256, 0x0500, 10, 0, 0, 0, 1, 10L,
+       0x000000L, 0x000000L, 0x002010L},
+      // 13: floor clamp exact 0x2000 vs 0x2001 (level, vspeed 0)
+      {256, 0, 0, 0, 256, 0, 0, 0, 256, 0x0800, 18, 0, 0, 0, 1, 10L,
+       0x000000L, 0x000000L, 0x002001L},
+  };
+
+  for (uint8_t sh = 0; sh <= 2; ++sh) {
+    flight_step_shift = sh;
+    vec_set_rotation_shift(sh);
+    for (uint8_t i = 0; i < sizeof(kCases) / sizeof(kCases[0]); ++i) {
+      const struct FlightCase *tc = &kCases[i];
+      mat3_t ref_cam = {{tc->fx, tc->fy, tc->fz},
+                        {tc->lx, tc->ly, tc->lz},
+                        {tc->ux, tc->uy, tc->uz}};
+      flight_cam = ref_cam;
+      flight_speed = tc->speed;
+      flight_vspeed = 0x1234;
+      flight_throttle = tc->throttle;
+      flight_flap = tc->flap;
+      flight_gear = tc->gear;
+      flight_stall = 0;
+      flight_fuel = tc->fuel;
+      model_on_ground = tc->on_ground != 0;
+      model_need_normalize = false;
+      flight_eye_x = tc->ex;
+      flight_eye_y = tc->ey;
+      flight_eye_z = tc->ez;
+
+      int16_t ref_spd = tc->speed;
+      int16_t ref_vspd = 0x1234;
+      uint8_t ref_stall = 0;
+      bool ref_norm = false;
+      int32_t ref_ex = tc->ex, ref_ey = tc->ey, ref_ez = tc->ez;
+
+      uint8_t got_floor = _flight_physics_move_asm(tc->whole_step);
+      uint8_t want_floor = _ref_flight_physics_move(
+          tc->whole_step, &ref_cam, &ref_spd, &ref_vspd, &ref_stall, &ref_norm,
+          &ref_ex, &ref_ey, &ref_ez);
+
+      uint16_t id = (uint16_t)(28000 + sh * 400 + i * 20);
+      expect(id + 0, got_floor, want_floor);
+      expect(id + 1, flight_speed, ref_spd);
+      expect(id + 2, flight_vspeed, ref_vspd);
+      expect(id + 3, flight_stall, ref_stall);
+      expect(id + 4, model_need_normalize ? 1 : 0, ref_norm ? 1 : 0);
+      expect(id + 5, flight_cam.front.x, ref_cam.front.x);
+      expect(id + 6, flight_cam.front.y, ref_cam.front.y);
+      expect(id + 7, flight_cam.front.z, ref_cam.front.z);
+      expect(id + 8, flight_cam.left.x, ref_cam.left.x);
+      expect(id + 9, flight_cam.left.y, ref_cam.left.y);
+      expect(id + 10, flight_cam.left.z, ref_cam.left.z);
+      expect(id + 11, flight_cam.up.x, ref_cam.up.x);
+      expect(id + 12, flight_cam.up.y, ref_cam.up.y);
+      expect(id + 13, flight_cam.up.z, ref_cam.up.z);
+      _expect_u32((uint16_t)(id + 14), (uint32_t)flight_eye_x, (uint32_t)ref_ex);
+      _expect_u32((uint16_t)(id + 16), (uint32_t)flight_eye_y, (uint32_t)ref_ey);
+      _expect_u32((uint16_t)(id + 18), (uint32_t)flight_eye_z, (uint32_t)ref_ez);
+    }
+  }
+  flight_step_shift = 0;
+  vec_set_rotation_shift(0);
+
+  // Part B: _flight_fuel_step_asm across 32-bit borrow & exhaustion edges.
+  static const struct FuelCase {
+    uint32_t fuel;
+    uint8_t fc;
+  } kFuelCases[] = {
+      {0x021FFFL, 24},
+      {0x01000000L, 1},
+      {0x00010000L, 1},
+      {0x00000100L, 1},
+      {0x00000105L, 10},
+      {0x00000019L, 24},
+      {0x00000018L, 24},
+      {0x00000005L, 24},
+      {0x00000000L, 0},
+      {0x00000000L, 10},
+      {0x00000001L, 0},
+  };
+  for (uint8_t i = 0; i < sizeof(kFuelCases) / sizeof(kFuelCases[0]); ++i) {
+    flight_fuel = kFuelCases[i].fuel;
+    flight_throttle = 18;
+    uint8_t fc = kFuelCases[i].fc;
+    uint8_t got_dry = _flight_fuel_step_asm(fc);
+
+    uint32_t want_fuel = kFuelCases[i].fuel;
+    uint8_t want_thr = 18;
+    uint8_t want_dry = 0;
+    if (want_fuel > fc) {
+      want_fuel -= fc;
+    } else {
+      want_dry = (want_fuel != 0) ? 1 : 0;
+      want_fuel = 0;
+      want_thr = 0;
+    }
+    uint16_t id = (uint16_t)(29500 + i * 4);
+    expect(id + 0, got_dry, want_dry);
+    expect(id + 1, *(volatile uint8_t *)&flight_throttle, want_thr);
+    _expect_u32((uint16_t)(id + 2), flight_fuel, want_fuel);
+  }
+
+  // Part C: _flight_turn_rot_asm across ground/air, sign edges, step shifts.
+  static const int16_t kLeftZ[] = {-256, -128, -33, -32, -31, -1, 0, 1, 31, 32, 33, 128, 256};
+  for (uint8_t gnd = 0; gnd <= 1; ++gnd) {
+    model_on_ground = gnd != 0;
+    for (uint8_t sh = 0; sh <= 2; ++sh) {
+      flight_step_shift = sh;
+      for (uint8_t i = 0; i < sizeof(kLeftZ) / sizeof(kLeftZ[0]); ++i) {
+        flight_cam.left.z = kLeftZ[i];
+        int8_t got_rot = _flight_turn_rot_asm();
+        int8_t want_rot = gnd ? 0 : (int8_t)(_ref_flight_step_s(kLeftZ[i]) >> 5);
+        expect((uint16_t)(28600 + gnd * 100 + sh * 20 + i), got_rot, want_rot);
+      }
+    }
+  }
+  flight_step_shift = 0;
+}
+
+#endif // __TARGET_TEST_PLANES__
 #pragma optimize(pop)
 
 int main(void) {
@@ -3909,6 +4219,7 @@ int main(void) {
 #ifdef __TARGET_TEST_PLANES__
   test_planes();
   test_planes_sweep();
+  test_flight_asm();
 #else
   test_poly_rounding();
   test_int8_negate_then_shift();

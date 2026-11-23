@@ -260,7 +260,7 @@ target_test.prg: target_test.cc int16.h ../vec.h ../vec.cc ../vec_lut.cc \
 
 target_planes_test.prg: target_test.cc ../vec.h ../vec.cc ../vec_lut.cc \
 		../planes.h ../planes.cc ../planes_asm.h ../planes_asm.cc ../planedef.h \
-		planes_target_cases.h
+		../flight_asm.h ../flight_asm.cc planes_target_cases.h
 	$(OSCAR64) $(TARGET_CFLAGS) -D__TARGET_TEST__ -D__TARGET_TEST_PLANES__ -o=target_planes_test.prg target_test.cc
 
 target-test:

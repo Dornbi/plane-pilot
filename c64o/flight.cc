@@ -4,6 +4,9 @@
 #include <stdlib.h>
 
 #include "damage.h"
+#if defined(__OSCAR64__) && !defined(__FLIGHT_AOA__)
+#include "flight_asm.h"
+#endif
 #include "fmath.h"
 #include "gun.h"
 #include "msg.h"
@@ -116,7 +119,8 @@ bool model_on_ground = false;
 // refuels once rather than every step parked. Starts true: a mission begun
 // parked has its tank already.
 static bool model_halted;
-static bool model_need_normalize;
+// Not static: flight_asm.cc sets it under __OSCAR64__ (!__FLIGHT_AOA__).
+bool model_need_normalize;
 
 // The part of a step's speed change that was finer than one unit, carried to
 // the next step. Every longitudinal force is summed at eight times
@@ -439,6 +443,15 @@ static_assert(0x0480 + 2 * 128 < kMaxSpeed, "every stall is below top speed");
 // of a direct change.
 static const int16_t kFlightMaxStallPitchZ = 224;
 
+#ifdef __OSCAR64__
+static_assert(kFlightMinEyeZ == kFlightAsmMinEyeZ &&
+                  kFlightTrimLift == kFlightAsmTrimLift &&
+                  kFlightStallSpeedWithoutFlaps == kFlightAsmStallWithoutFlaps &&
+                  kFlightStallSpeedWithFlaps == kFlightAsmStallWithFlaps &&
+                  kFlightMaxStallPitchZ == kFlightAsmMaxStallPitchZ,
+              "flight_asm.h constants must match flight.cc");
+#endif
+
 // Nose attitude the takeoff rotation drives to, sin(10.6 deg) * 256.
 //
 // This is a fudge, and it is here to compensate for a hole in the model rather
@@ -714,6 +727,7 @@ static int16_t _flight_recip_v(int16_t speed) {
 
 #endif // __FLIGHT_AOA__
 
+#if !defined(__OSCAR64__) || defined(__FLIGHT_AOA__)
 // One axis of the eye's move: v divided by the step, added to the 24.8
 // position. Called rather than written out: each of the three 32-bit adds
 // with their sign extension was ~33 B in line.
@@ -760,6 +774,7 @@ static inline bool _flight_move_forward(int16_t fspeed, int16_t vspeed) {
 }
 
 #endif // __FLIGHT_AOA__
+#endif // !defined(__OSCAR64__) || defined(__FLIGHT_AOA__)
 
 // True when the aircraft is over a runway tile.
 static bool _flight_on_runway() {
@@ -1080,6 +1095,9 @@ void flight_advance() {
       _flight_fall();
     }
 #endif
+#if defined(__OSCAR64__) && !defined(__FLIGHT_AOA__)
+    const bool on_floor = _flight_physics_move_asm(whole_step) != 0;
+#else
     // Altitude density decay (above Z = 0x080000): (Z - 0x080000) >> 12,
     // capped at 128 from Z = 0x101000 up. Z is never below kFlightMinEyeZ, and
     // 0x080000 is a whole number of 0x1000 steps, so all of it is done on
@@ -1462,6 +1480,7 @@ void flight_advance() {
     const bool on_floor =
         _flight_move_forward(flight_speed << 1, flight_vspeed);
 #endif
+#endif // !(defined(__OSCAR64__) && !defined(__FLIGHT_AOA__))
 
     // Z <= 0x4000 in 16 bits: the move above leaves Z at kFlightMinEyeZ or
     // more, never negative, so it is that low only with its top half clear.
@@ -1565,6 +1584,11 @@ void flight_advance() {
     // Fuel
     uint8_t fuel_consumption = whole_step ? flight_throttle : 0;
     fuel_consumption = damage_burn(fuel_consumption);
+#if defined(__OSCAR64__) && !defined(__FLIGHT_AOA__)
+    if (_flight_fuel_step_asm(fuel_consumption)) {
+      msg_show("OUT OF FUEL");
+    }
+#else
     if (flight_fuel > fuel_consumption) {
       flight_fuel -= fuel_consumption;
     } else {
@@ -1577,6 +1601,7 @@ void flight_advance() {
       flight_fuel = 0;
       flight_throttle = 0;
     }
+#endif
     // Come to a halt on a runway - anywhere else on the ground is a crash, and
     // a crash stops the model before it gets here: filled up, and in fpilot
     // rearmed, once until the aircraft moves again. A dry tank has cut the
@@ -1631,6 +1656,13 @@ void flight_advance() {
 #else  // !__FLIGHT_AOA__
 
     // Rotation (only when airborne)
+#ifdef __OSCAR64__
+    int8_t rot = _flight_turn_rot_asm();
+    if (rot != 0) {
+      vec_turn3_xy(rot, &flight_cam);
+      model_need_normalize = true;
+    }
+#else
     if (!model_on_ground) {
       int8_t rot = _flight_step_s(flight_cam.left.z) >> 5;
       if (rot != 0) {
@@ -1642,6 +1674,7 @@ void flight_advance() {
         model_need_normalize = true;
       }
     }
+#endif
 #endif // __FLIGHT_AOA__
 
   } else {

@@ -62,7 +62,8 @@ cycles-baseline: start=119431 approach=144722 cruise=152338 town=144513 lake=134
 | 2026-10-17 | `84c4ccb` | Post-pass 21 `argon-loop` merge | 14,197 B | 650,277 |
 | 2026-10-24 | `1787679` | Opponents & guns landed; 7 scenes incl. model step | 1,437 B | 1,057,692 |
 | 2026-11-01 | `740aa57` | Hunting AI, rear gunners, 10 scenes (`cycles-baseline` above) | 707 B | 1,548,482 |
-| 2026-11-18 | `5cde8c6` | Pass 152 (current `main`) | 1,769 B | 1,172,360 |
+| 2026-11-18 | `5cde8c6` | Pass 152 | 1,769 B | 1,172,360 |
+| 2026-11-23 | `b73518a` | Post-158 + Port 2 joystick, fine control, bomber scaling, landing/debrief grades | 1,084 B | 1,033,435 |
 
 *Note: Non-integer sub-rows from parallel branch merges (`21.a–21.j`, `44.a–44.q`) are summarised in passes 21 and 44; full per-pass diffs live in git history. Keep exactly one integer pass number per row so `tools/ram_loop.sh` continues numbering from 153.*
 
@@ -226,3 +227,4 @@ cycles-baseline: start=119431 approach=144722 cruise=152338 town=144513 lake=134
 | 156 | 2026-11-23 | argon | 14 | 3 | -5.3% | kept | Port `box.cc` horizon tile preparation (`_box_prepare_fill`) and drawing (`_box_draw_asm`, with 4×-unrolled horizontal fast path for `step_y == 0` and self-modifying tilted tile copy) into standalone 6502 `__asm` module `box_asm.{h,cc}` (+9 B stack, +3 B ZP headroom, Test 24 in `target_test.cc`). |
 | 157 | 2026-11-23 | argon | 34 | 316 | -1.3% | kept | Extract shared 8.8 multiply core `vec_mul_ab` in `vec_asm.cc`, port `vec_fastsqr8p8`, `vec_dot`, `vec_transform_inv`, `vec_cross`, `vec_rotate_step` to 6502 `__asm`, and port `_opponent_move`, `_opponent_ahead`, `_opponent_axes`, `_opponent_cull_slot` in `opponent_asm.{h,cc}` (Tests 25–26 in `target_test.cc`). |
 | 158 | 2026-11-23 | argon | 7 | -7 | -1.4% | kept | Port `render.cc` `_pull_to_center` + `render_fill_sky_ground` (2×-unrolled self-modifying partial spans, paired 6-step sled sync, `end_row==14` tail jump) to `render_asm.{h,cc}`, cache `roll_update_state()` angle in `roll.cc`, and early-return `x==0`/`y==0` in `fmath.cc` `_get_ratio()` (Test 27 in `target_test.cc`). |
+| 159 | 2026-11-23 | argon | 40 | 38 | -0.4% | kept | Port arcade `flight_advance()` physics, fuel step, and turn rate into standalone 6502 `__asm` module `flight_asm.{h,cc}` (`combat5 -0.84%`, Test 28 in `target_planes_test.prg`). |

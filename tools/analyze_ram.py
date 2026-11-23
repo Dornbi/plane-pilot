@@ -120,7 +120,7 @@ DESCRIPTIONS = {
     'World Model': {
         'Code': 'flight dynamics, physics integration, waypoint checking, '
                 'terrain grid rendering, clouds, opponents, guns and damage '
-                '(`flight.cc`, `world.cc`, `world_asm.cc`, `sim.cc`, '
+                '(`flight.cc`, `flight_asm.cc`, `world.cc`, `world_asm.cc`, `sim.cc`, '
                 '`world_map.cc`, `clouds.cc`, `clouds_asm.cc`, `opponent.cc`, `opponent_asm.cc`, '
                 '`planes.cc`, `planes_asm.cc`, `gun.cc`, `gun_asm.cc`, '
                 '`damage.cc`)',
