@@ -71,16 +71,16 @@ bool opponent_fires(uint8_t i, int16_t *v) {
   for (int c = 0; c < 3; ++c) v[c] = _fires_v[c];
   return true;
 }
-// The smoking aircraft, when a case puts one up.
-static bool _smoke_on;
+// The smoking aircraft, when a case puts one up (0=off, 1=black, 2=orange, 3=yellow).
+static uint8_t _smoke_on;
 static int32_t _smoke_p[3];
 static int16_t _smoke_h[2];
-bool opponent_smoke(int32_t *p, int16_t *h) {
-  if (!_smoke_on) return false;
+uint8_t opponent_smoke(int32_t *p, int16_t *h) {
+  if (!_smoke_on) return 0;
   for (int c = 0; c < 3; ++c) p[c] = _smoke_p[c];
   h[0] = _smoke_h[0];
   h[1] = _smoke_h[1];
-  return true;
+  return _smoke_on;
 }
 
 // The last sprite offered, and how many were.
@@ -145,7 +145,7 @@ static void start(int16_t speed) {
   memset(_calm, 0, sizeof(_calm));
   memset(_collisions, 0, sizeof(_collisions));
   memset(_provoked, 0, sizeof(_provoked));
-  _smoke_on = false;
+  _smoke_on = 0;
   reset_guns();
 }
 
@@ -598,7 +598,7 @@ static void test_ground(void) {
   _gun_puff[1] = 0;
   _gun_puff[2] = -4 * 16;
   _gun_puff_t = kPuffFrames;
-  _smoke_on = true;
+  _smoke_on = 1;
   _smoke_p[0] = flight_eye_x + 400 * kMetre;
   _smoke_p[1] = flight_eye_y;
   _smoke_p[2] = flight_eye_z;
@@ -621,29 +621,38 @@ static void test_ground(void) {
 }
 
 static void test_smoke(void) {
-  printf("  smoke: one black cloud blob, 25 m behind the smoking aircraft\n");
+  printf("  smoke: cloud blob 14 m behind the smoking aircraft, yellow->orange->black\n");
   start(1500);
   _offers = 0;
   gun_add_sprites();
   CHECK(_offers == 0, "smoke with none up");
-  // 200 m ahead, flying away north: its smoke is 175 m out, 4 m up.
-  _smoke_on = true;
-  _smoke_p[0] = flight_eye_x + 200 * kMetre;
+  // 195 m ahead, flying away north: its smoke is 181 m out, 4 m up.
+  _smoke_on = 3;
+  _smoke_p[0] = flight_eye_x + 195 * kMetre;
   _smoke_p[1] = flight_eye_y;
   _smoke_p[2] = flight_eye_z;
   _smoke_h[0] = 256;
   _smoke_h[1] = 0;
   gun_add_sprites();
   CHECK(_offers == 1, "%d offers for the smoke", _offers);
-  CHECK(_offer.color == kColorBlack &&
+  CHECK(_offer.color == kColorYellow &&
             _offer.flags == (kSpriteFlagExpandX | kSpriteFlagAlignDither),
-        "smoke colour %d flags %d", _offer.color, _offer.flags);
-  CHECK(_offer.depth > 170 && _offer.depth < 180, "smoke at depth %d", _offer.depth);
+        "smoke flash 1 colour %d flags %d", _offer.color, _offer.flags);
+  CHECK(_offer.depth > 176 && _offer.depth < 186, "smoke at depth %d", _offer.depth);
   // The largest single-sprite rung inside ~186 m.
   CHECK(_offer.bitmap == kSpriteDefCloudRung[4].bitmap, "smoke bitmap %d", _offer.bitmap);
   CHECK(_offer.x == 160 && _offer.y < 56, "smoke drawn at %d, %d", _offer.x, _offer.y);
+  // Frame 2 orange, frame 3+ black.
+  _smoke_on = 2;
+  _offers = 0;
+  gun_add_sprites();
+  CHECK(_offers == 1 && _offer.color == kColorOrange, "smoke flash 2 colour %d", _offer.color);
+  _smoke_on = 1;
+  _offers = 0;
+  gun_add_sprites();
+  CHECK(_offers == 1 && _offer.color == kColorBlack, "smoke steady colour %d", _offer.color);
   // 600 m out, the smallest; and with a tracer as well, two offers.
-  _smoke_p[0] = flight_eye_x + 625 * kMetre;
+  _smoke_p[0] = flight_eye_x + 614 * kMetre;
   step(true);
   _offers = 0;
   gun_add_sprites();

@@ -584,16 +584,21 @@ bool gun_puff_up(void) { return _gun_puff_t != 0; }
 // ~292 m, tested directly in camera space's eighth metres.
 static __striped const uint16_t kSmokeRungX[3] = {(292 + 1) * 8, (228 + 1) * 8,
                                                   (186 + 1) * 8};
-// 25 m behind the aircraft along its heading, and 4 m above; or 4 m above
+// 14 m behind the aircraft along its heading, and 4 m above; or 4 m above
 // where a round hit the ground.
-static const int16_t kSmokeBack = 25 * 16;
+static const int16_t kSmokeBack = 14 * 16;
 static const int16_t kSmokeUp = 4 * 16;
+static const uint8_t kSmokeColors[3] = {kColorBlack, kColorOrange,
+                                        kColorYellow};
 
 static void _gun_smoke(void) {
-  if (opponent_smoke(_gun_p, _gun_h)) {
+  uint8_t color = kColorBlack;
+  uint8_t smoke = opponent_smoke(_gun_p, _gun_h);
+  if (smoke != 0) {
     if (!_gun_rel3_to()) {
       return;
     }
+    color = kSmokeColors[smoke - 1];
   } else if (_gun_puff_t != 0) {
     // The puff where the round hit, with no heading to sit back along: the
     // aircraft's sum below, at a zero offset, rather than a loop of its own.
@@ -622,7 +627,7 @@ static void _gun_smoke(void) {
       ++bitmap;
     }
   }
-  _gun_offer(bitmap, kColorBlack, kSpriteFlagExpandX | kSpriteFlagAlignDither);
+  _gun_offer(bitmap, color, kSpriteFlagExpandX | kSpriteFlagAlignDither);
 }
 
 void gun_add_sprites(void) {

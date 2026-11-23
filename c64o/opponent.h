@@ -86,9 +86,9 @@ uint8_t opponent_random(void);
 
 // For gun.cc, which draws it: the smoking aircraft's position, as
 // opponent_target() gives it, and its heading's x and y, 8.8 - the last one
-// hit, for ~2 s after the hit or ~5 s after it went down. False if no smoke
-// is up.
-bool opponent_smoke(int32_t *p, int16_t *h);
+// hit, for ~2 s after the hit or ~5 s after it went down. Returns 0 if no
+// smoke is up, 1 for black smoke, 2 for orange, 3 for yellow (hit/impact flash).
+uint8_t opponent_smoke(int32_t *p, int16_t *h);
 
 // Aircraft the player has shot down since opponent_reset(), for the debrief
 // (debrief.h): those the guns downed, not those that flew into the ground or
@@ -107,7 +107,7 @@ inline bool opponent_targets_down(void) { return false; }
 inline bool opponent_none_left(void) { return false; }
 inline bool opponent_target(uint8_t i, int32_t *p) { return false; }
 inline void opponent_strike(uint8_t i) {}
-inline bool opponent_smoke(int32_t *p, int16_t *h) { return false; }
+inline uint8_t opponent_smoke(int32_t *p, int16_t *h) { return 0; }
 inline bool opponent_fires(uint8_t i, int16_t *v) { return false; }
 inline bool opponent_calm(uint8_t i) { return false; }
 inline void opponent_provoke(uint8_t i) {}

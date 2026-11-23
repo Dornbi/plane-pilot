@@ -2033,6 +2033,19 @@ static void test_bomber_scale() {
   planes_centre(&_opponent_view, &c, &fb);
   CHECK(fb.d > ff.d, "bomber d (%d) should exceed fighter d (%d) at 800 m",
         fb.d, ff.d);
+
+  // Smoke hit flash: yellow (3) on hit frame, orange (2) next step, black (1) after.
+  eye_at(0x70, 0xF0, 0x10);
+  opponent_reset(0);
+  int32_t sp[3];
+  int16_t sh[2];
+  CHECK(opponent_smoke(sp, sh) == 0, "smoke off before hit");
+  opponent_strike(0);
+  CHECK(opponent_smoke(sp, sh) == 3, "smoke yellow on hit");
+  opponent_step();
+  CHECK(opponent_smoke(sp, sh) == 2, "smoke orange after 1 step");
+  opponent_step();
+  CHECK(opponent_smoke(sp, sh) == 1, "smoke black after 2 steps");
 }
 
 int main() {

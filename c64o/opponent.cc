@@ -588,10 +588,12 @@ static uint8_t _opponent_attack;
 // An 8-bit xorshift, never 0 once opponent_reset() has run: the rear
 // gunners' scatter, and the player's damage (damage.cc).
 static uint8_t _opponent_lfsr;
-// 1 + the slot trailing smoke - the last one hit - or kOpponentNoSmoke; and
-// the frames it has left.
+// 1 + the slot trailing smoke - the last one hit - or kOpponentNoSmoke; the
+// frames it has left; and the hit/impact flash countdown (2 = yellow, 1 =
+// orange, 0 = black).
 static uint8_t _opponent_smoke;
 static uint8_t _opponent_smoke_t;
+static uint8_t _opponent_smoke_flash;
 // _opponent_fresh, _opponent_xyz, _opponent_planes, _opponent_shown, and the
 // shared tscratch vectors live in opponent_asm.cc (opponent_asm.h).
 static_assert(sizeof(_opponent_fresh) < 256,
@@ -671,6 +673,7 @@ static __noinline void _opponent_destroy(uint8_t i, const char *text) {
   ++_opponent_kills;
   _opponent_smoke = bit;
   _opponent_smoke_t = kSmokeDown;
+  _opponent_smoke_flash = 2;
   msg_show(text);
 }
 
@@ -702,6 +705,7 @@ void opponent_strike(uint8_t i) {
   opponent_provoke(i);
   _opponent_smoke = bit;
   _opponent_smoke_t = kSmokeHit;
+  _opponent_smoke_flash = 2;
   if (++_opponent_hits[i] == kOpponentHitsToDown) {
     // Shot down: it falls (_opponent_fall()), and is down when it hits the
     // ground - parked, at once. Half of them spin.
@@ -715,15 +719,15 @@ void opponent_strike(uint8_t i) {
   }
 }
 
-bool opponent_smoke(int32_t *p, int16_t *h) {
+uint8_t opponent_smoke(int32_t *p, int16_t *h) {
   if (_opponent_smoke == kOpponentNoSmoke) {
-    return false;
+    return 0;
   }
   uint8_t i = (uint8_t)(_opponent_smoke - 1);
   _opponent_pos(i, p);
   h[0] = _opponent_head[i].x;
   h[1] = _opponent_head[i].y;
-  return true;
+  return (uint8_t)(1 + _opponent_smoke_flash);
 }
 
 // Neither slot flying, parked or falling.
@@ -1258,8 +1262,13 @@ void opponent_step(void) {
   }
   bool turns = (++_opponent_substep & kFlightSubstepMask) == 0;
   // The smoke runs out: this is one call a frame.
-  if (_opponent_smoke != kOpponentNoSmoke && --_opponent_smoke_t == 0) {
-    _opponent_smoke = kOpponentNoSmoke;
+  if (_opponent_smoke != kOpponentNoSmoke) {
+    if (_opponent_smoke_flash != 0) {
+      --_opponent_smoke_flash;
+    }
+    if (--_opponent_smoke_t == 0) {
+      _opponent_smoke = kOpponentNoSmoke;
+    }
   }
   // The pair up is gone: the next, once its smoke has cleared; or, after the
   // last, too few of them down fails the mission.

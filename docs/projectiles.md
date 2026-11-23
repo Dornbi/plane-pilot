@@ -58,9 +58,9 @@ All round positions and velocities are stored **relative to the player's eye** a
 
 ## 5. Smoke & ground-impact puff (`_gun_smoke`)
 
-Draws at most **1 black dithered sprite** (`kColorBlack`, `kSpriteFlagExpandX | kSpriteFlagAlignDither`) reusing cloud rungs 1–4 via `__striped kSmokeRungX[3] = {2344, 1832, 1496}` (1/8 m: rung 4 `< 186 m` down to rung 1 `> 292 m`):
-- Prefers active opponent smoke (`opponent_smoke()`: 25 m behind heading, 4 m up; `kSmokeHit = 14` frames on hit, `kSmokeDown = 35` frames on kill/fall).
-- Falls back to ground-impact puff `_gun_puff` (`kPuffFrames = 10` frames, 4 m up) when no aircraft is smoking.
+Draws at most **1 dithered sprite** (`kSpriteFlagExpandX | kSpriteFlagAlignDither`) reusing cloud rungs 1–4 via `__striped kSmokeRungX[3] = {2344, 1832, 1496}` (1/8 m: rung 4 `< 186 m` down to rung 1 `> 292 m`):
+- Prefers active opponent smoke (`opponent_smoke()`: **14 m** behind heading, 4 m up; `kSmokeHit = 14` frames on hit, `kSmokeDown = 35` frames on kill/fall). Transitions **`kColorYellow` → `kColorOrange` → `kColorBlack`** over the first two frames of a hit or ground impact, leaving the opponent's own sprite colour unchanged.
+- Falls back to ground-impact puff `_gun_puff` (`kColorBlack`, `kPuffFrames = 10` frames, 4 m up) when no aircraft is smoking.
 
 ---
 
