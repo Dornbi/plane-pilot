@@ -165,7 +165,7 @@ Faults are checked in strict priority order (`_flight_landing_fault()`):
 
 - On fault at `Z <= 0x2000`, status becomes `FLIGHT_CRASH_*`, HUD shows `CRASHED: <fault>`, and `FLIGHT_EV_CRASH` fires.
 - **`fpilot` combat crashes:** `FLIGHT_CRASH_SHOT_DOWN` (`SHOT DOWN`) and `FLIGHT_CRASH_COLLISION` (`COLLISION`).
-- **Clean touchdown:** Sets `model_on_ground = true`, `flight_vspeed = 0`, snaps `front.z = 0`, and emits `FLIGHT_EV_TOUCHDOWN`.
+- **Clean touchdown:** Sets `model_on_ground = true`, rates touchdown softness from sink rate (`SMOOTH LANDING` `>= -96`, `FIRM LANDING` `>= -192`, `HARD LANDING` `>= -288`), zeroes `flight_vspeed`, snaps `front.z = 0`, and emits `FLIGHT_EV_TOUCHDOWN`.
 - **Approach warnings:** While airborne with `flight_vspeed < 0` and `Z <= 0x4000`, `_flight_landing_fault(kFlightMaxLandingSpeed, false)` runs with **`check_runway = false`** (so low passes off-runway do not nag) and displays `WARNING: <fault>`.
 
 ---
@@ -220,6 +220,7 @@ Faults are checked in strict priority order (`_flight_landing_fault()`):
 
 - Sets `flight_step_shift` (`0..2`), `kFlightSubstepMask` (`(1 << shift) - 1`), and calls `vec_set_rotation_shift(shift)` (rescaling the 6-byte `vec_rotate_step()` angle table).
 - Continuous per-step accelerations and displacements scale via `__noinline flight_step_s(v)` (`v >> shift`).
+- **Two-stage fine control (`flight_fine_input`):** On a stock C64 (`flight_step_shift == 0`), `sim.cc` sets `flight_fine_input = true` on the first step a roll/pitch/yaw key or Port 2 joystick direction is held, halving that step's rotation angle for fine aiming and runway alignment; holding continues at full rate.
 - Discrete/non-divisible terms (ground rolling friction `-2`, stall break floor `1`, fuel burn, map trail sampling) run only when `whole_step = (model_substep == 0)`.
 
 ### Time compression (`T`)

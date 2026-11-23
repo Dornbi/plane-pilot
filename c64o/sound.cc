@@ -8,7 +8,9 @@
 #include "music.h"
 #include "vec.h"
 
+#pragma bss(bss2)
 uint8_t sound_shadow[kSoundRegCount];
+#pragma bss(bss)
 uint8_t sound_gen;
 uint8_t sound_gen_seen;
 volatile uint8_t sound_dirty;

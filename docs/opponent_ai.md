@@ -130,12 +130,14 @@ Enemy hits call `damage_hit(++gun_player_hits)`:
 
 ### Mission debrief (`c64o/debrief.{h,cc}`)
 
-Leaving flight with `Q` in `fpilot` opens the debrief screen (`screen_begin_text_page()`, exits on next `Q` press):
+Leaving flight with `Q` in `fpilot` opens the debrief screen (`screen_begin_text_page()`, exits on `Q` or Port 2 Fire):
 - **Row 2:** Centred mission title (`kMissionTitles`).
 - **Row 5 (`GOALS`):** `NOT COMPLETED`, `COMPLETED`, or `COMPLETED, LANDED`.
 - **Row 6 (`YOUR AIRCRAFT`):** `UNDAMAGED` (0 hits), `A FEW HOLES` (≤ `damage_armour`), `DAMAGED` (1–2 failures), `BADLY DAMAGED` (3–4 failures), `SWISS CHEESE` (`FLIGHT_CRASH_SHOT_DOWN` or `damage_down()`), or `WRECKED` (other crash).
 - **Rows 8–9 (`ROUNDS FIRED` / `ROUNDS ON TARGET`):** 5-digit `gun_tally` (counted in tens).
 - **Row 10 (`ENEMIES SHOT DOWN`):** `opponent_shot_down` plane glyphs (`'*'` in custom font; gun kills only — excludes ground crashes & collisions) or `'0'`.
+- **Row 11 (`ACCURACY`):** Integer hit rate (`0..100`, or `--` when no rounds fired).
+- **Row 13 (`RATING`):** `ACE` (completed + landed, undamaged, ≥25% accuracy or unarmed), `VETERAN` (completed + landed, ≤ armour hits), `SURVIVOR` (completed + landed with failures), `PASS` (goals completed, did not land), `INCOMPLETE` (returned early), or `FAILED` (crashed/shot down).
 
 ---
 

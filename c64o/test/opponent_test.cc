@@ -2013,6 +2013,28 @@ static void test_waves(void) {
   }
 }
 
+static void test_bomber_scale() {
+  _opponent_set_view(false, false, false);
+  CHECK(_opponent_view.kn == kOpponentKn, "fighter near kn %d", _opponent_view.kn);
+  _opponent_set_view(false, false, true);
+  CHECK(_opponent_view.kn == kOpponentBomberKn && kOpponentBomberKn > kOpponentKn,
+        "bomber near kn %d", _opponent_view.kn);
+  _opponent_set_view(true, false, true);
+  CHECK(_opponent_view.kn == kOpponentBomberKn / 4, "bomber far kn %d",
+        _opponent_view.kn);
+
+  // At 800 m (6,400 eighth-metres), a bomber projects noticeably larger than a
+  // fighter at the same range.
+  vec3_t c = {6400, 0, 0};
+  planes_frame_t ff, fb;
+  _opponent_set_view(false, false, false);
+  planes_centre(&_opponent_view, &c, &ff);
+  _opponent_set_view(false, false, true);
+  planes_centre(&_opponent_view, &c, &fb);
+  CHECK(fb.d > ff.d, "bomber d (%d) should exceed fighter d (%d) at 800 m",
+        fb.d, ff.d);
+}
+
 int main() {
   test_look_back();
   test_through_the_dot();
@@ -2028,6 +2050,7 @@ int main() {
   test_provoked();
   test_waves();
   test_guns();
+  test_bomber_scale();
   if (_fails) {
     printf("opponent_test: %d checks FAILED\n", _fails);
     return 1;

@@ -55,13 +55,13 @@ static inline uint8_t *_opponent_block(uint8_t block) {
   return kOpponentBank + ((uint16_t)block << 6);
 }
 
-// Opponents are drawn bigger than the model: kn 156 against its own 64, so
-// the model's 8 m span (docs/planes.md §1) draws as ~20 m, and the 128 m
-// runway is ~6.4 spans across. Every distance the size sets goes out with
-// it, by 2.4: a silhouette rather than the dot from ~1.2 km, not ~500 m, and
-// back to the dot past ~1.7 km. A multiple of four for kViewFar.
+// Opponents are drawn bigger than the model: fighter kn 156 (~20 m span),
+// bomber kn 204 (~26 m span, +31% larger so bombers read clearly from afar).
+// Multiples of four for kViewFar.
 static const uint8_t kOpponentKn = 156;
-static_assert(kOpponentKn % 4 == 0, "kViewFar divides it by four");
+static const uint8_t kOpponentBomberKn = 204;
+static_assert(kOpponentKn % 4 == 0 && kOpponentBomberKn % 4 == 0,
+              "kViewFar divides it by four");
 
 // The view an aircraft is drawn in: the viewport's centre and the last line a
 // sprite may start on, plain and Y-expanded (mem.h), with the cap and the
@@ -93,9 +93,10 @@ static_assert(kSpriteVisibleEndYPixels - 1 == 89 &&
 // (_opponent_world_delta()), so a quarter of the numerator gives the same k,
 // and the same picture - the dot, or a silhouette the size of one. The dot
 // needs no cap; two sprites' is the safe one.
-static inline void _opponent_set_view(bool far, bool two) {
+static inline void _opponent_set_view(bool far, bool two, bool bomber = false) {
   _opponent_view.kmax = far || two ? kPlaneKMaxTwoSprites : (uint8_t)kPlaneKMax;
-  _opponent_view.kn = far ? kOpponentKn / 4 : kOpponentKn;
+  uint8_t kn = bomber ? kOpponentBomberKn : kOpponentKn;
+  _opponent_view.kn = far ? (uint8_t)(kn >> 2) : kn;
 }
 
 // --- Paths ------------------------------------------------------------------
@@ -1693,7 +1694,8 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
   uint8_t bit = _opponent_bit(i);
   bool started = false;
   bool far = (_opponent_far & bit) != 0;
-  _opponent_set_view(far, (_opponent_capped & bit) != 0);
+  bool bomber = _opponent_color[i] == kColorBrown;
+  _opponent_set_view(far, (_opponent_capped & bit) != 0, bomber);
   _opponent_copy_cs(i);
   bool seen = planes_centre(&_opponent_view, &_opponent_c, &_opponent_f);
   if (seen && ((_opponent_pending & bit) ||

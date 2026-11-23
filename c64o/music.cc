@@ -34,7 +34,9 @@ static_assert(kMusicTotalRows == (uint16_t)kMusicBars * kMusicRowsPerBar,
 // would leave the pulse width somewhere different on every pass. See
 // ../docs/music.md section 6.
 static const uint16_t kMusicPwmBase = 0x0300;
+#pragma bss(bss2)
 static uint8_t _music_pwm_phase;
+#pragma bss(bss)
 
 // --- Voice 3 ----------------------------------------------------------------
 //
@@ -66,6 +68,7 @@ static uint8_t _music_pwm_phase;
 static const uint8_t kMusicV3Arp = 0;
 static const uint8_t kMusicV3Restart = 0xFF;
 
+#pragma bss(bss2)
 static uint8_t _music_v3_owner;
 static uint8_t
     _music_v3_timer; // frames left in the current hit, or in the restart
@@ -77,6 +80,7 @@ static uint16_t _music_v3_step;
 // while the arpeggio actually owns the voice - a hit does not move it, so the
 // shimmer resumes where it left off instead of jumping.
 static uint8_t _music_arp_idx;
+#pragma bss(bss)
 
 // --- Volume ----------------------------------------------------------------
 //
@@ -148,7 +152,9 @@ uint16_t music_note_freq(uint8_t midi) {
 // VIC-II happened to leave on the bus. It is also invisible to every host
 // test, because on the host SID_REGS points at ordinary RAM and reads back
 // exactly what was written.
+#pragma bss(bss2)
 static uint8_t _ctrl[3];
+#pragma bss(bss)
 
 // Voice indices, deliberately distinct from the kSoundRegV* register offsets:
 // _ctrl is indexed by voice, the chip by register.

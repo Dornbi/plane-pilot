@@ -44,11 +44,19 @@ inline bool key_pressed(enum KeyScanCode key) { return false; }
 inline bool keys_pressed(enum KeyScanCode key) { return false; }
 #endif
 
+// Port 2 joystick bits (active-high, updated by keys_poll()).
+static const uint8_t kJoyUp = 0x01;
+static const uint8_t kJoyDown = 0x02;
+static const uint8_t kJoyLeft = 0x04;
+static const uint8_t kJoyRight = 0x08;
+static const uint8_t kJoyFire = 0x10;
+extern uint8_t joy2_state;
+
 #ifdef __OSCAR64__
 // keyb_poll() without the parts nothing here reads: it fills keyb_matrix the
 // same way, but does not decode the last new key into keyb_key, which is most
-// of oscar64's routine. A joystick held in port 1 still leaves the matrix
-// alone, as there.
+// of oscar64's routine. Also reads Port 2 joystick into joy2_state. A joystick
+// held in port 1 still leaves the matrix alone, as there.
 void keys_poll(void);
 #endif
 

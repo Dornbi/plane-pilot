@@ -204,7 +204,7 @@ Mission definitions, start poses, waypoints, navpoints, and (`pmission.cc` only)
 - `sound.cc` — 3-voice SID flight SFX (`sound_update` → 25 B shadow → 22-reg `sound_blit` gated by `sound_dirty`). See [sound.md](sound.md).
 - `music.cc` / `musicdef.cc` — 50 Hz PAL title tune player and packed 24-bar D-minor data. See [music.md](music.md).
 - `cpu.cc` — boot-time CIA2 speed probe for SuperCPU detection ([supercpu.md](supercpu.md)).
-- `keys.cc` — direct CIA1 keyboard matrix scanner.
+- `keys.cc` — direct CIA1 keyboard matrix and Port 2 joystick scanner (`joy2_state`).
 - `bcd.cc` — 6502 double-dabble binary-to-BCD converter.
 - `print.cc` — character/number printing and debug readouts.
 - `msg.cc` / `screen.cc` — timed row-13 HUD status messages and shared screen transitions/notices.
@@ -238,7 +238,6 @@ RAM footprints and headroom are tracked in [memory_map.md](memory_map.md); frame
 
 ## 11. Known gaps
 
-- **No joystick support:** keyboard controls only.
 - **Wind fields unused:** `kMissionWindX`/`kMissionWindY` exist in `mission.h` as zero placeholders not read by `flight.cc`.
 - **Sprite left-edge wrap not built:** sprites pop off the left viewport edge instead of wrapping via PAL X-wrap ([clouds.md](clouds.md) §1.6).
 - **Python vs C64 viewport:** `lib/renderer_engine.py` models a 320×200 full-screen preview; the C64 viewport is 320×112 above the panel.

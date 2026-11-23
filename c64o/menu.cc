@@ -133,8 +133,17 @@ uint8_t menu_run() {
 
     keys_poll();
 
-    const uint8_t menu_edges =
-        keys_edges(keys_scan(kMenuKeys, kMenuKeyCount), &prev_menu_toggles);
+    uint8_t menu_down = keys_scan(kMenuKeys, kMenuKeyCount);
+    if (joy2_state & kJoyUp) {
+      menu_down |= kMenuKeyI;
+    }
+    if (joy2_state & kJoyDown) {
+      menu_down |= kMenuKeyK;
+    }
+    if (joy2_state & kJoyFire) {
+      menu_down |= kMenuKeySpace;
+    }
+    const uint8_t menu_edges = keys_edges(menu_down, &prev_menu_toggles);
 
     if (menu_edges & (kMenuKeyI | kMenuKeyK)) {
       _menu_draw_mission_cursor(selected_mission, scroll_offset, false);

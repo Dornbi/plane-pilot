@@ -44,8 +44,10 @@ int16_t roll_dx_div_dy;
 uint8_t roll_period;
 bool roll_x_is_major;
 bool roll_shift_2chars;
+#pragma bss(bss2)
 int8_t roll_ex_dy[8];
 int8_t roll_ey_dx[8];
+#pragma bss(bss)
 // Cached roll_angle so steady-roll frames skip recomputing the same tables;
 // 0xFF is outside 0..kRollMax-1 so the first call always runs.
 static uint8_t _roll_cached_angle = 0xFF;

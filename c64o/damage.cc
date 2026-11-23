@@ -8,6 +8,7 @@
 // docs/opponent_ai.md §8.
 
 uint8_t damage_bits;
+#pragma bss(bss2)
 uint8_t damage_toggle;
 uint8_t damage_armour;
 // Whole steps until the leaking engine seizes, 0 if it is not leaking.
@@ -20,6 +21,7 @@ static const uint8_t kDamageOilSteps = 200;
 // black at the end.
 static const uint8_t kDamageFlash = 6;
 static uint8_t _damage_flash;
+#pragma bss(bss)
 
 // By failure, in kDamage* bit order: failure k is bit k, so its mask is
 // fmath.h's kBit[k] and needs no table of its own.

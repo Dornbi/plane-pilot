@@ -32,13 +32,20 @@
 // Time compression (T): model steps per rendered frame, 1, 2 or 4. Every
 // start of a mission, R included, sets it back to 1, and so does pausing
 // (see the P handler in sim_run()).
+#pragma bss(bss2)
 static uint8_t sim_time_steps;
+// Which of kHeldKeys[0..5] (roll/pitch/yaw) were active on the previous step,
+// so the first frame of a press uses half-step fine control (flight_fine_input).
+static uint8_t sim_prev_held;
+#pragma bss(bss)
 
 // The mission from its start, for entering the simulation and for R: the
 // message line, the aircraft, the opponents and the guns.
 static __noinline void _start_mission(uint8_t selected_mission) {
   msg_clear();
   sim_time_steps = 1;
+  sim_prev_held = 0;
+  flight_fine_input = false;
 #ifdef __ENABLE_COLOR_SCHEMES__
   // Before mem_init_mccm(), which puts the ground colours in $D022/$D023, and
   // with the horizon boxes' colour caches dropped: they hold the old sky. So
@@ -94,8 +101,15 @@ static const enum KeyScanCode kMapExitKeys[] = {KSCAN_M, KSCAN_SPACE,
 static const uint8_t kMapExitKeyCount =
     sizeof(kMapExitKeys) / sizeof(kMapExitKeys[0]);
 
-// Closes the map if one of those keys is down, and reports whether it did.
-static inline bool _map_poll_exit(void) {
+// Closes the map if one of those keys or Port 2 Fire is down.
+static __noinline bool _map_poll_exit(void) {
+  if (joy2_state & kJoyFire) {
+    map_exit();
+    while (joy2_state & kJoyFire) {
+      keys_poll();
+    }
+    return true;
+  }
   for (uint8_t i = 0; i < kMapExitKeyCount; ++i) {
     if (keys_pressed(kMapExitKeys[i])) {
       map_exit();
@@ -180,17 +194,33 @@ static_assert(VIEW_LEFT == 1 && VIEW_CENTER == 2 && VIEW_RIGHT == 3 &&
                   VIEW_BACK == 4,
               "kHeldKeys 9..12 follow view_state_t");
 
+// Port 2 joystick bits matching kHeldKeys[0..3] (roll left/right, pitch up/down):
+// pulling the stick back (down) pitches up, pushing forward (up) pitches down.
+static const uint8_t kJoyHeldBits[4] = {kJoyLeft, kJoyRight, kJoyDown, kJoyUp};
+
+#pragma optimize(push, outline)
 static __noinline void _poll_held(void) {
+  uint8_t held_rot = 0;
   for (uint8_t i = 0; i < sizeof(kHeldKeys); ++i) {
-    if (keys_pressed((enum KeyScanCode)kHeldKeys[i])) {
+    bool down = keys_pressed((enum KeyScanCode)kHeldKeys[i]) ||
+                (i < 4 && (joy2_state & kJoyHeldBits[i]) != 0);
+    if (down) {
       if (i < kHeldFlightCount) {
+        if (i < 6) {
+          uint8_t bit = kBit[i];
+          held_rot |= bit;
+          flight_fine_input = (sim_prev_held & bit) == 0;
+        }
         flight_input((enum flight_input_t)(i + 1));
+        flight_fine_input = false;
       } else {
         view_update_view((view_state_t)(i - (kHeldFlightCount - 1)));
       }
     }
   }
+  sim_prev_held = held_rot;
 }
+#pragma optimize(pop)
 
 // T's messages. The 2X one is patched to 4X in place, as flight.cc does its
 // navpoint number.
@@ -311,8 +341,10 @@ void sim_run(uint8_t selected_mission) {
     }
     _poll_held();
 #ifdef __FPILOT__
-    // Space fires (docs/projectiles.md); held, a round from each wing in turn.
-    const bool trigger = keys_pressed(KSCAN_SPACE);
+    // Space or Port 2 Fire fires (docs/projectiles.md); held, a round from
+    // each wing in turn.
+    const bool trigger =
+        keys_pressed(KSCAN_SPACE) || (joy2_state & kJoyFire) != 0;
 #else
     const bool trigger = false;
 #endif

@@ -23,14 +23,14 @@
 // words print.h has, its PRINT_*, are a byte each.
 // clang-format off
 static const char kHelpText[] =
-    "I J K L\tROLL" PRINT_AND "PITCH\n"
+    "I J K L\tROLL" PRINT_AND "PITCH / JOY2\n"
     "A S\tYAW\n"
     "+ -\tTHROTTLE UP/DOWN\n"
     "F\t" PRINT_TOGGLE "FLAPS\n"
     "G\t" PRINT_TOGGLE "GEAR\n"
     "B\tBRAKE ON GROUND\n"
 #ifdef __ENABLE_OPPONENT__
-    "SPACE\tFIRE\n"
+    "SPACE\tFIRE / JOY2 FIRE\n"
 #endif
     "\n"
     "1 2 3 4\tLOOK LEFT/FWD/RIGHT/BACK\n"
@@ -72,7 +72,7 @@ static const uint8_t kHelpKeyCol = 2;
 void help_run(void) {
   screen_begin_text_page();
 
-  print_lines(0, 11, "KEYBOARD CONTROLS");
+  print_lines(0, 16, "CONTROLS");
   const uint8_t rows = print_lines(kHelpRowStart, kHelpKeyCol, kHelpText);
   print_lines(kHelpRowStart + rows + 2, 7, "RETURN OR SPACE TO GO BACK");
 
@@ -85,7 +85,7 @@ void help_run(void) {
   while (1) {
     keys_poll();
     const uint8_t down = keys_scan(kHelpKeys, kHelpKeyCount);
-    if (down & kHelpKeysExit) {
+    if ((down & kHelpKeysExit) || (joy2_state & kJoyFire)) {
       break;
     }
 #ifdef __ENABLE_SOUND__
@@ -105,7 +105,7 @@ void help_run(void) {
     // section 3.
     screen_notice_frame();
   }
-  while (keys_scan(kHelpKeys, kHelpKeysExitCount)) {
+  while (keys_scan(kHelpKeys, kHelpKeysExitCount) || (joy2_state & kJoyFire)) {
     keys_poll();
   }
 }

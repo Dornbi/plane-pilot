@@ -17,7 +17,7 @@ Opponents are drawn as **filled convex 3D silhouettes** directly into dynamic ha
 
 Projection uses `px = 256 * S / D` (same focal length as terrain):
 - Model geometry (`planedef.h`) is in **1/16 m** (`kPlaneMaxRadius = 68` ≈ 4.25 m half-span, 8.5 m span).
-- `fpilot` passes camera-space offsets in **1/8 m** at near range (`<= 2 km`, `kn = 156`, ~20 m apparent span = 2.44× scale for combat visibility) and **1/2 m** at far range (`2–4 km`, `kn = 39`):
+- `fpilot` passes camera-space offsets in **1/8 m** at near range (`<= 2 km`, fighters `kn = 156` ~20 m span / bombers `kn = 204` ~26 m span, +31% larger so bombers read clearly from afar) and **1/2 m** at far range (`2–4 km`, `kn >> 2`):
   - Dot → silhouette (`d >= 3`): **~1.2 km** (back `< 2` at ~1.7 km).
   - Near colour (`d >= 8`, §8): **~620 m** (back `< 7` at ~720 m).
   - 2-sprite cap (`kmax = 88`): **~115 m**.

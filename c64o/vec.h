@@ -96,12 +96,14 @@ extern uint8_t vec_proj_tmp1, vec_proj_recip;
 extern int16_t vec_proj_mul_a, vec_proj_mul_b;
 extern int16_t vec_mul_res;
 extern uint8_t frac_q0, frac_q1, frac_r0, frac_r1, frac_d0, frac_d1;
-extern int8_t _vec_step[];
 void vec_mul_ab(void);
 void vec_project_mul(void);
 void vec_frac8(void);
 #endif
 #endif
+
+// Per-step rotation magnitudes used by vec_rotate_step() (defined in vec.cc).
+extern int8_t _vec_step[];
 
 // Squares a 16-bit signed integer and returns a 16-bit unsigned integer.
 // Both input and output use 8.8 fixed-point semantics.

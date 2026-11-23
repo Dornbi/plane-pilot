@@ -281,6 +281,11 @@ void flight_init();
 void flight_init_from_mission(uint8_t mission_idx = 0);
 
 void flight_advance();
+// When true on a stock C64 (flight_step_shift == 0), airborne roll/pitch/yaw
+// inputs in flight_input() apply half the normal step angle for fine aiming
+// and runway alignment. sim.cc sets this on the first frame a control is held.
+extern bool flight_fine_input;
+
 void flight_input(enum flight_input_t input);
 
 #pragma compile("flight.cc")

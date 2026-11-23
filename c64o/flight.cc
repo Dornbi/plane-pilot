@@ -146,6 +146,9 @@ static int16_t model_turn_rem;
 static uint8_t model_substep;
 
 uint8_t flight_step_shift;
+#pragma bss(bss2)
+bool flight_fine_input;
+#pragma bss(bss)
 uint8_t kFlightFramesPerStep = 8;
 uint8_t kFlightSubstepMask = 0;
 
@@ -200,12 +203,14 @@ __noinline int16_t flight_step_s(int16_t v) {
 // in two different index spaces: flight_waypoint_nav is indexed by
 // waypoint-within-mission and flight_nav_point_* by navpoint. Four is the
 // cap on both -- see kMaxNavPoints in flight.h.
+#pragma bss(bss2)
 __striped uint16_t flight_nav_point_x[kMaxNavPoints];
 __striped uint16_t flight_nav_point_y[kMaxNavPoints];
 #ifndef __FPILOT__
 static uint8_t flight_waypoint_nav[kMaxNavPoints];
 #endif
 uint8_t flight_num_nav_points = 0;
+#pragma bss(bss)
 
 // Appends the current position to the flight path, unless it is the pixel
 // already at the head.
@@ -845,13 +850,16 @@ static const char *const kFlightWaypointFault[] = {
 // because msg_show() keeps only the pointer. Every caller below bails out once
 // flight_status is set, so no warning can rewrite the buffer while a crash
 // message is still on screen.
+#pragma bss(bss2)
 #ifdef __FPILOT__
 static char _flight_status_text[24];
 #else
 static char _flight_status_text[32];
 #endif
+#pragma bss(bss)
 
-static const char *_flight_join(const char *prefix, const char *suffix) {
+static __noinline const char *_flight_join(const char *prefix,
+                                           const char *suffix) {
   char *dst = _flight_status_text;
   while (*prefix) {
     *dst++ = *prefix++;
@@ -1521,6 +1529,16 @@ void flight_advance() {
         // The arrival, not the rollout: this block runs on every frame at
         // ground level, so the transition is what the sound wants.
         model_pending_events |= FLIGHT_EV_TOUCHDOWN;
+        if (!touchdown_fault && !flight_crashed()) {
+          // Rate touchdown softness from sink rate before it is zeroed below
+          // (crash limit is kFlightMaxLandingVSpeed = -288). Waypoint
+          // completion runs later in flight_advance() and overwrites this if
+          // touchdown also finishes the mission.
+          msg_show(_flight_join(flight_vspeed >= -0x0060   ? "SMOOTH"
+                                : flight_vspeed >= -0x00C0 ? "FIRM"
+                                                           : "HARD",
+                                " LANDING"));
+        }
       }
 
       model_on_ground = true;
@@ -1876,7 +1894,13 @@ void flight_input(enum flight_input_t input) {
   // order and the static_assert above is what keeps it that way.
   if (input >= FLIGHT_INPUT_ROLL_LEFT && input <= FLIGHT_INPUT_YAW_RIGHT &&
       !damage_skip_input()) {
-    vec_rotate_step(input - FLIGHT_INPUT_ROLL_LEFT, &flight_cam);
+    uint8_t step = (uint8_t)(input - FLIGHT_INPUT_ROLL_LEFT);
+    int8_t orig = _vec_step[step];
+    if (flight_fine_input && flight_step_shift == 0) {
+      _vec_step[step] = (int8_t)(orig >> 1);
+    }
+    vec_rotate_step(step, &flight_cam);
+    _vec_step[step] = orig;
     model_need_normalize = true;
   }
 }

@@ -76,9 +76,7 @@ Fighter Pilot is the combat version using the same engine:
 - Shoot at enemy bombers that shoot back
 - Cause and sustain damage
 
-What you cannot do:
-
-- No joystick support (keyboard controls only)
+- Keyboard and Port 2 joystick controls (stick for pitch/roll/menu, fire for guns/confirm)
 
 Instrument panel:
 
@@ -90,13 +88,13 @@ To fly the plane you can use the following keys:
 
 | Keys            | Action                                |
 | --------------- | ------------------------------------- |
-| `I` `J` `K` `L` | Roll and pitch                        |
+| `I` `J` `K` `L` / Joy 2 | Roll and pitch (tap for fine half-step, hold for full rate) |
 | `A` `S`         | Yaw                                   |
 | `+` `-`         | Throttle up and down                  |
 | `F`             | Toggle flaps                          |
 | `G`             | Toggle landing gear                   |
 | `B`             | Wheel brakes (on ground)              |
-| `Space`         | Fire (Fighter pilot only)             |
+| `Space` / Joy 2 Fire | Fire (Fighter Pilot only) / confirm |
 | `1` `2` `3` `4` | Look left, forward, right, back       |
 | `N`             | Toggle Nav point 1 / 2 (runways)      |
 | `M`             | Toggle map view                       |

@@ -4233,18 +4233,75 @@ static void test_upside_down_waypoint_needs_roll_and_altitude() {
   printf("  PASS\n\n");
 }
 
+static void test_fine_input_half_step() {
+  printf("Running test_fine_input_half_step...\n");
+  flight_set_step_shift(0);
+  flight_init_from_mission(1); // airborne
+  int16_t orig_roll = flight_cam.left.z;
+  flight_fine_input = true;
+  flight_input(FLIGHT_INPUT_ROLL_LEFT);
+  flight_fine_input = false;
+  int16_t half_delta = flight_cam.left.z - orig_roll;
+
+  flight_init_from_mission(1);
+  flight_input(FLIGHT_INPUT_ROLL_LEFT);
+  int16_t full_delta = flight_cam.left.z - orig_roll;
+  assert(half_delta != 0 && full_delta == half_delta * 2);
+  // _vec_step[] must be restored after the fine step.
+  assert(_vec_step[VEC_STEP_ROLL_LEFT] == -32);
+
+  // On SuperCPU (flight_step_shift > 0), fine input does not halve further.
+  flight_set_step_shift(2);
+  flight_init_from_mission(1);
+  flight_fine_input = true;
+  flight_input(FLIGHT_INPUT_ROLL_LEFT);
+  flight_fine_input = false;
+  int16_t scpu_fine = flight_cam.left.z - orig_roll;
+  flight_init_from_mission(1);
+  flight_input(FLIGHT_INPUT_ROLL_LEFT);
+  int16_t scpu_full = flight_cam.left.z - orig_roll;
+  assert(scpu_fine == scpu_full);
+  flight_set_step_shift(0);
+  printf("  PASS\n\n");
+}
+
+static void test_touchdown_softness_rating() {
+  printf("Running test_touchdown_softness_rating...\n");
+  // Three clean touchdown bands: smooth (>= -96), firm (-192..-97), hard
+  // (-288..-193). Each starts just above runway 1 with gear down and a pitch
+  // that lands in the band.
+  struct Case {
+    int16_t pitch;
+    int16_t speed;
+    const char *expect;
+  } cases[] = {
+      {0, 0x0800, "SMOOTH LANDING"},
+      {-16, 0x0800, "FIRM LANDING"},
+      {-30, 0x0800, "HARD LANDING"},
+  };
+  for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+    msg_clear();
+    int16_t vs = _arm_touchdown(cases[i].pitch, 0, cases[i].speed, 1);
+    assert(vs >= kMaxLandingVSpeed);
+    flight_advance();
+    assert(!flight_crashed() && model_on_ground);
+    assert_msg_rendered(cases[i].expect);
+  }
+  printf("  PASS\n\n");
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   mem_screen_row_ptrs[0] = test_screen_row;
   #ifdef __FLIGHT_AOA__
   const char *model = "angle of attack";
-  const int count = 64;
+  const int count = 66;
 #else
   // test_stall_speeds_are_derived has nothing to say about a model that is
   // told its stall speeds, so it is not compiled into the arcade build.
   const char *model = "arcade";
-  const int count = 63;
+  const int count = 65;
 #endif
   printf("=== FLIGHT MODEL COMPREHENSIVE SUITE (%d TESTS, %s) ===\n\n", count,
          model);
@@ -4315,6 +4372,8 @@ int main(int argc, char **argv) {
   test_flight_path_samples_are_connected();
   test_flight_path_ring_buffer();
   test_ground_gear_retraction_blocked();
+  test_fine_input_half_step();
+  test_touchdown_softness_rating();
   printf("ALL %d TESTS PASSED SUCCESSFULLY (%s model)!\n", count, model);
   return 0;
 }

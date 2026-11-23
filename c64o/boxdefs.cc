@@ -1123,7 +1123,9 @@ static const boxdef_t* const alt_boxes[kAltBoxCount] = {
 
 #pragma data(data)
 
+#pragma bss(bss2)
 boxdef_t boxdef;
+#pragma bss(bss)
 const uint8_t *boxdef_char_idx;
 
 static const boxdef_t *_boxdef_set(const boxdef_t *src) {

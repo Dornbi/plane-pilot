@@ -1,14 +1,27 @@
 #include "keys.h"
 
+#ifdef __MAX_RAM__
+#pragma bss(bss2)
+#endif
+uint8_t joy2_state;
+#ifdef __MAX_RAM__
+#pragma bss(bss)
+#endif
+
 #ifdef __OSCAR64__
 #include <c64/cia.h>
 
 void keys_poll(void) {
+  // Read Port 2 joystick with both ports set to input so held keys cannot pull
+  // Port A low through Port B.
+  cia1.ddrb = 0x00;
+  cia1.ddra = 0x00;
+  joy2_state = (uint8_t)(~cia1.pra & 0x1f);
+
   cia1.ddra = 0xff;
   // All rows deselected, so port B reads only the joystick in port 1.
   cia1.pra = 0xff;
   if (cia1.prb == 0xff) {
-    cia1.ddrb = 0x00;
     uint8_t row = 0xfe;
     for (uint8_t i = 0; i < 8; ++i) {
       cia1.pra = row;

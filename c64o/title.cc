@@ -176,6 +176,7 @@ static const uint8_t kTitleGapJitter = 0x7F;
 // _title_x is signed and wider than the register because the block starts off
 // the right-hand edge at 352, which needs the ninth bit in $D010, and because
 // the arithmetic that puts it there works in the same width.
+#pragma bss(bss2)
 static uint16_t _title_gap;
 static int16_t _title_x;
 static uint8_t _title_y;
@@ -185,6 +186,7 @@ static uint8_t _title_y;
 // the top and the second over the right - and the count restarts with the page,
 // which is what makes "the first one" mean anything.
 static bool _title_from_right;
+#pragma bss(bss)
 
 // A Galois LFSR, the same shape as sound.cc's and for the same reason: eight
 // bits of unpredictability for four bytes of state and no multiply. It is
