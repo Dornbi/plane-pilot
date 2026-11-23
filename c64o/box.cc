@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "benchmark.h"
+#include "box_asm.h"
 #include "boxdefs.h"
 #include "chardefs.h"
 #include "color.h"
@@ -38,9 +39,9 @@ static uint8_t *const kBoxChars = kBootScratch;
 static uint8_t *const kBoxColors = kBootScratch + 0x100;
 // Which definition each charset slot currently holds.
 static const boxdef_t *_slot_def[2];
-// The current slot's buffers, for box_draw.
-static const uint8_t *_cur_box_chars;
-static const uint8_t *_cur_box_colors;
+// The current slot's character buffer, for box_draw / box_asm (colors are at
+// +0x100).
+const uint8_t *_cur_box_chars;
 
 // Indices 0..2 are the three solid characters (ground, sky, 11); the tile's
 // own characters follow at 3..char_count+2. kMaxBoxCharCount counts only the
@@ -88,7 +89,6 @@ void box_prepare(void) {
   const uint8_t slot = mem_box_char_start != 0x01;
   const uint8_t slot_offset = slot ? kBoxSlotStride : 0;
   _cur_box_chars = kBoxChars + slot_offset;
-  _cur_box_colors = kBoxColors + slot_offset;
 
   if (src_def != NULL && src_def == _slot_def[slot]) {
     // This slot already holds this definition (typical when flying
@@ -100,7 +100,13 @@ void box_prepare(void) {
     return;
   }
   _slot_def[slot] = src_def;
+  _box_prepare_fill();
+  bm_view_end(750, "CHR:");
+}
 
+#ifndef __OSCAR64__
+// Host C counterpart of box_asm.cc's _box_prepare_fill().
+void _box_prepare_fill(void) {
   // Copy unique characters to kCharRam.
   // The definition stores one byte per character, its index into chardefs.
   // A character is eight bytes of the chardef_bytes stream; its offset grows
@@ -117,7 +123,7 @@ void box_prepare(void) {
       boxdef.grad1_color_start - (boxdef.flip_around & 0x0F);
   const uint8_t flip_end = boxdef.grad1_color_start + (boxdef.flip_around >> 4);
 
-  for (uint8_t i = 0;;) {
+  for (uint8_t i = 0; i < boxdef.char_count; ++i) {
     const uint8_t c = src_idx[i];
     const uint8_t *src = chardef_bytes + chardef_offset_lo[c];
     if (c >= kCharDefPage1) {
@@ -127,7 +133,6 @@ void box_prepare(void) {
       }
     }
     if (i >= flip_start && i < flip_end) {
-#pragma unroll(full)
       for (uint8_t row = 0; row < 8; ++row) {
         dst_ram[row] = src[7 - row];
       }
@@ -135,17 +140,9 @@ void box_prepare(void) {
       memcpy(dst_ram, src, 8);
     }
     dst_ram += 8;
-    if (++i >= boxdef.char_count) {
-      break;
-    }
   }
 
-  // Populate box_chars and box_colors mapping. No bm_view_start() here, and
-  // that is the point: there used to be one, left behind when CHR and PRP were
-  // collapsed into a single counter - deleting CHR's end and PRP's start took
-  // only the first of the two. It restarted the timer at this line, so the
-  // char RAM copy above was in no counter at all, TOT included, and CHR
-  // reported the tail of the function as though it were the whole of it.
+  // Populate box_chars and box_colors mapping.
   _char_lut[0] = kCharSolidGround;
   _color_lut[0] = COLOR_GRAD1_8;
   _char_lut[1] = kCharSolidSky;
@@ -153,11 +150,6 @@ void box_prepare(void) {
   _char_lut[2] = kCharSolid11;
   _color_lut[2] = COLOR_GRAD1_8;
 
-  // A byte counter and a base three entries in, not `_char_lut[i + 3]` with an
-  // int8_t: the tables are behind a pointer now (kBootScratch), and with a
-  // signed index oscar64 builds a 16-bit address for every store, ~20 cycles a
-  // character, where this is a plain absolute,x. Every box has characters, so
-  // nothing is lost by the loop no longer running once for an empty one.
   uint8_t *const char_lut_tile = _char_lut + 3;
   uint8_t *const color_lut_tile = _color_lut + 3;
   for (uint8_t i = boxdef.char_count; i-- != 0;) {
@@ -167,39 +159,31 @@ void box_prepare(void) {
   }
 
   // Fill box_chars and box_colors with the box definition. Its w * h cells
-  // follow the character indices in the same array; the count is summed
-  // rather than stored, since no multiply is linked and h is at most 11.
-  {
-    const uint8_t *src = boxdef_char_idx + boxdef.char_count;
-    uint8_t total_size = 0;
-    for (uint8_t r = boxdef.h; r != 0; --r) {
-      total_size += boxdef.w;
-    }
-    uint8_t *dst_chars = kBoxChars + slot_offset;
-    uint8_t *dst_colors = kBoxColors + slot_offset;
-    for (int8_t i = total_size - 1;;) {
-      const uint8_t idx = src[i];
-      dst_chars[i] = _char_lut[idx];
-      dst_colors[i] = _color_lut[idx];
-      if (--i < 0) {
-        break;
-      }
-    }
+  // follow the character indices in the same array.
+  const uint8_t *src = boxdef_char_idx + boxdef.char_count;
+  uint8_t total_size = 0;
+  for (uint8_t r = boxdef.h; r != 0; --r) {
+    total_size += boxdef.w;
   }
-  bm_view_end(750, "CHR:");
+  uint8_t *dst_chars = (uint8_t *)_cur_box_chars;
+  uint8_t *dst_colors = dst_chars + 0x100;
+  for (int8_t i = total_size - 1; i >= 0; --i) {
+    const uint8_t idx = src[i];
+    dst_chars[i] = _char_lut[idx];
+    dst_colors[i] = _color_lut[idx];
+  }
 }
 
 static void _draw_one_box(int8_t cx, int8_t cy) {
   const uint8_t *src_chr = _cur_box_chars;
-  const uint8_t *src_col = _cur_box_colors;
+  const uint8_t *src_col = _cur_box_chars + 0x100;
 
   int8_t h = boxdef.h;
   if (cy < 0) {
     h += cy;
-    // cy * boxdef.w via the quarter-square routine rather than oscar64's
-    // mul16by8. vec_fastmul8p8 returns trunc(a * b / 256), so shifting cy up
-    // by 8 gives back the exact product. cy is a negative int8_t, so cy << 8
-    // stays in range, and w * h <= kMaxBoxCharCount bounds the result.
+    if (h <= 0) {
+      return;
+    }
     const int16_t skip = vec_fastmul8p8((int16_t)cy << 8, boxdef.w);
     src_chr -= skip;
     src_col -= skip;
@@ -254,8 +238,6 @@ static void _draw_one_box(int8_t cx, int8_t cy) {
   }
 }
 
-// __noinline: run once per box repetition; inlined it cost about 60 bytes.
-// (sx, sy) is the step being taken, so the test is on the side it moves to.
 static __noinline bool _out_of_bounds(int8_t cx, int8_t cy, int8_t sx,
                                       int8_t sy) {
   if (sx > 0) {
@@ -279,14 +261,11 @@ static __noinline bool _out_of_bounds(int8_t cx, int8_t cy, int8_t sx,
   return false;
 }
 
-__forceinline void box_draw(void) {
-  bm_view_start();
-  // cx and cy are now relative to the viewport not the screen.
+// Host C counterpart of box_asm.cc's _box_draw_asm().
+void _box_draw_asm(void) {
   const int8_t base_cx = render_cx_chars - kViewportStartX + boxdef.rel_x;
   const int8_t base_cy = render_cy_chars - kViewportStartY + boxdef.rel_y;
 
-  // Forward repetition from the base, then backward from one step behind it.
-  // The steps are a few characters, so negating them cannot overflow.
   int8_t sx = boxdef.step_x;
   int8_t sy = boxdef.step_y;
   int8_t cx = base_cx;
@@ -305,7 +284,12 @@ __forceinline void box_draw(void) {
     cx = base_cx + sx;
     cy = base_cy + sy;
   }
+}
+#endif // !__OSCAR64__
 
+__forceinline void box_draw(void) {
+  bm_view_start();
+  _box_draw_asm();
   bm_view_end(790, "DRW:");
 }
 #pragma optimize(pop)

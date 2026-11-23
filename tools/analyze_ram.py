@@ -91,8 +91,8 @@ OFF_BUDGET = [
 DESCRIPTIONS = {
     'Horizon Graphics': {
         'Code': 'viewport horizon rendering, cell filling, box generation, '
-                'slot drawing (`render.cc`, `render_asm.cc`, `box.cc`, `roll.cc`, '
-                '`roll_asm.cc`)',
+                'slot drawing (`render.cc`, `render_asm.cc`, `box.cc`, '
+                '`box_asm.cc`, `roll.cc`, `roll_asm.cc`)',
         'Data': 'box definitions (`boxdefs`), character definitions '
                 '(`chardefs`), roll multiply and slope tables, compressed '
                 'charset (`kGfxCharsCompressed`)',
@@ -109,25 +109,25 @@ DESCRIPTIONS = {
     'Polygon Graphics': {
         'Code': 'polygon pipeline, edge scan conversion, near and screen '
                 'clipping, fixed-point vector math (`poly.cc`, `poly_asm.h`, '
-                '`vec.cc`, `vec_asm.cc`, `fmath.cc`)',
+                '`poly_asm.cc`, `vec.cc`, `vec_asm.cc`, `fmath.cc`)',
         'Data': 'sine and cosine tables, inverse-Z LUT, the quarter-square '
                 'multiply tables (`vec_sqr_lo`, `vec_sqr_hi`)',
-        'BSS': 'scratch vertex buffers (`poly_verts`, `clip3_buf`, `proj_buf`, '
-               '`clip2_buf1/2`, `final_verts`)',
+        'BSS': 'scratch vertex buffers (`poly_verts`, `_poly_clip3_buf`, '
+               '`_poly_2d_*`, `final_verts`)',
         'ZP': 'vector registers (`vec_v`, `vec_sx`, `vec_sy`)',
         'VRAM': '',
     },
     'World Model': {
         'Code': 'flight dynamics, physics integration, waypoint checking, '
                 'terrain grid rendering, clouds, opponents, guns and damage '
-                '(`flight.cc`, `world.cc`, `world_asm.h`, `sim.cc`, '
-                '`world_map.cc`, `clouds.cc`, `opponent.cc`, `opponent_asm.cc`, '
+                '(`flight.cc`, `world.cc`, `world_asm.cc`, `sim.cc`, '
+                '`world_map.cc`, `clouds.cc`, `clouds_asm.cc`, `opponent.cc`, `opponent_asm.cc`, '
                 '`planes.cc`, `planes_asm.cc`, `gun.cc`, `gun_asm.cc`, '
                 '`damage.cc`)',
         'Data': 'world map, cloud hash and ladder tables, 3D aircraft models '
                 'and opponent paths',
         'BSS': 'flight path history (`flight_path_px/py`), delta transform '
-               'vectors (`_world_dx4`, `_world_dy4`), camera, opponent, gun '
+               'vectors (`_world_d4`), camera, opponent, gun '
                'and damage state',
         'ZP': 'flight state (`flight_eye_x/y/z`, `flight_speed`, '
               '`flight_throttle`, `flight_fuel`, `flight_vspeed`) and triangle '

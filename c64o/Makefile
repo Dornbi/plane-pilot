@@ -46,6 +46,8 @@ PPILOT_SRC = \
 		bool.h \
 		box.h \
 		box.cc \
+		box_asm.h \
+		box_asm.cc \
 		boxdefs.h \
 		boxdefs.cc \
 		chardefs.h \
@@ -57,6 +59,8 @@ PPILOT_SRC = \
 		clouddef.cc \
 		clouds.h \
 		clouds.cc \
+		clouds_asm.h \
+		clouds_asm.cc \
 		color.h \
 		fmath.h \
 		fmath.cc \
@@ -92,6 +96,7 @@ PPILOT_SRC = \
 		poly.h \
 		poly.cc \
 		poly_asm.h \
+		poly_asm.cc \
 		render.h \
 		render.cc \
 		render_asm.h \
@@ -130,6 +135,7 @@ PPILOT_SRC = \
 		world.h \
 		world.cc \
 		world_asm.h \
+		world_asm.cc \
 		world_map.cc
 
 # Other aircraft (docs/planes.md): fpilot only, see opponent.h.
@@ -176,6 +182,7 @@ POLYDEMO_SRC = \
 		poly.h \
 		poly.cc \
 		poly_asm.h \
+		poly_asm.cc \
 		polydemo.cc \
 		sid.h \
 		sound.h \
@@ -190,6 +197,7 @@ POLYDEMO_SRC = \
 		world.h \
 		world.cc \
 		world_asm.h \
+		world_asm.cc \
 		world_map.cc
 
 VECDEMO_PROGRAM = vecdemo

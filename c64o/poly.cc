@@ -25,9 +25,12 @@ struct vertex16_t {
 #pragma bss(bss2)
 #endif
 
+#ifndef __OSCAR64__
 // Buffers to store the left-most and right-most X bounds for each scanline
+// (defined in poly_asm.cc under __OSCAR64__).
 uint8_t _poly_min_x[2 * kViewportHeight];
 uint8_t _poly_max_x[2 * kViewportHeight];
+#endif
 
 // Initialize the scanline buffers for the sub-rows in [start, end].
 static inline void _poly_clear_buffers(uint8_t start, uint8_t end) {
@@ -428,6 +431,10 @@ void poly_fill(const vertex_t *vertices, uint8_t num_vertices,
   bm_poly_end(750, "SCN:");
 }
 
+#ifndef __OSCAR64__
+// Host C counterparts of poly_asm.cc's _poly_frustum_all_out() and
+// _poly_project_vertices() (including near clip, 2D clip, and projection).
+
 // 3D near clip
 
 // Ones'-complement high-byte magnitude: v is in [-3840, 3839] iff _mag_hi(v) <
@@ -569,11 +576,10 @@ static uint8_t _clip_2d(const vertex16_t *in, uint8_t num_in, vertex16_t *out,
   return num_out;
 }
 
-// Working buffer for _clip_near() in _project_vertices(); file-scope so
-// poly_asm.cc's fast frustum reject can index it directly.
+// Working buffer for _clip_near() in _project_vertices() (defined in
+// poly_asm.cc under __OSCAR64__).
 vec3_t _poly_clip3_buf[kPolyMaxVertices + 4];
 
-#ifndef __OSCAR64__
 // Host C counterpart of poly_asm.cc's _poly_frustum_all_out().
 bool _poly_frustum_all_out(uint8_t end3) {
   uint8_t out3 = 0x0f;
@@ -581,10 +587,11 @@ bool _poly_frustum_all_out(uint8_t end3) {
     const vec3_t *v = (const vec3_t *)((const uint8_t *)_poly_clip3_buf + o);
     uint16_t ux = (uint16_t)v->x;
     uint16_t zx = ux >> 2;
+    uint16_t yx = ux - zx;
     int16_t vy = v->y;
     int16_t vz = v->z;
     uint8_t c = 0;
-    if ((uint16_t)_abs16(vy) > ux) {
+    if ((uint16_t)_abs16(vy) > yx) {
       c = vy < 0 ? 2 : 1;
     }
     if ((uint16_t)_abs16(vz) > zx) {
@@ -597,7 +604,6 @@ bool _poly_frustum_all_out(uint8_t end3) {
   }
   return out3 != 0;
 }
-#endif
 
 // Projects 3d vertices to 2d.
 static uint8_t _project_vertices(const vec3_t *vertices_3d,
@@ -690,11 +696,18 @@ static uint8_t _project_vertices(const vec3_t *vertices_3d,
   return n;
 }
 
+uint8_t _poly_project_vertices(const vec3_t *vertices_3d, uint8_t num_vertices,
+                               int8_t *vertices_2d) {
+  return _project_vertices(vertices_3d, num_vertices, (vertex_t *)vertices_2d);
+}
+#endif // !__OSCAR64__
+
 __noinline void poly_draw_3d(const vec3_t *vertices, uint8_t num_vertices,
                              uint8_t fill_char_start_idx, uint8_t color) {
   static vertex_t final_verts[kPolyMax2dVertices];
   bm_poly_start();
-  uint8_t n = _project_vertices(vertices, num_vertices, final_verts);
+  uint8_t n =
+      _poly_project_vertices(vertices, num_vertices, (int8_t *)final_verts);
   bm_poly_end(630, "PRJ:");
 
   if (n >= 3) {

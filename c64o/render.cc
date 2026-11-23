@@ -14,8 +14,10 @@
 
 int16_t render_cx_pixels;
 int16_t render_cy_pixels;
+#ifndef __OSCAR64__
 int16_t render_px_pixels;
 int16_t render_py_pixels;
+#endif
 int8_t render_cx_chars;
 int8_t render_cy_chars;
 bool render_alt_box;
@@ -28,6 +30,7 @@ int8_t render_alt_shift_y;
 static const int8_t kSkipLines = 4;
 
 
+#ifndef __OSCAR64__
 // Plain 16x16 -> low 16 product, routed through the quarter-square routine
 // instead of oscar64's mul16. vec_fastmul8p8 returns trunc(a * b / 256), so
 // pre-shifting b by 8 recovers a * b exactly - the remainder is zero, so the
@@ -47,12 +50,14 @@ static const int8_t kSkipLines = 4;
 static inline int16_t _render_mul(int16_t a, int8_t b) {
   return vec_fastmul8p8(a, (int16_t)b << 8);
 }
+#endif
 
 // _fill_sky_ground_* negates the _mul result in place of the subtraction the
 // horizon term used to spell out. (oscar64 only takes static_assert at file
 // scope, so it lives here rather than next to the code it guards.)
 static_assert(kViewportStartY == 0, "the horizon term assumes it");
 
+#ifndef __OSCAR64__
 // Finds a point (px, py) on the horizon line that is shifted by an
 // integer number of major axis steps to be close to the viewport center.
 //
@@ -85,16 +90,6 @@ static void _pull_to_center() {
     d = -d;
   }
   int16_t p_min = c_min + (_render_mul(d, d_min) << 3);
-#ifdef __OSCAR64__
-  // Store directly into ZP best_px/best_py for render_snap_center_chars().
-  if (roll_x_is_major) {
-    vec_proj_mul_a = p_maj;
-    vec_proj_mul_b = p_min;
-  } else {
-    vec_proj_mul_a = p_min;
-    vec_proj_mul_b = p_maj;
-  }
-#else
   if (roll_x_is_major) {
     render_px_pixels = p_maj;
     render_py_pixels = p_min;
@@ -102,10 +97,8 @@ static void _pull_to_center() {
     render_px_pixels = p_min;
     render_py_pixels = p_maj;
   }
-#endif
 }
 
-#ifndef __OSCAR64__
 static inline void _render_set_alt_shift() {
   if (roll_x_is_major) {
     render_alt_shift_x = 0;
@@ -152,6 +145,11 @@ void _render_snap_center_asm(void) {
   render_cx_chars = (int8_t)((best_px + 4) >> 3);
   render_cy_chars = (int8_t)((best_py + 4) >> 3);
 }
+
+void _render_pull_and_snap_asm(void) {
+  _pull_to_center();
+  _render_snap_center_asm();
+}
 #endif // !__OSCAR64__
 
 // Distance to line from nearest character.
@@ -170,8 +168,7 @@ static uint16_t _unused_get_dist(int8_t px, int8_t py) {
 
 void render_snap_center_chars() {
   bm_view_start();
-  _pull_to_center();
-  _render_snap_center_asm();
+  _render_pull_and_snap_asm();
   bm_view_end(670, "SNP:");
 }
 
@@ -224,6 +221,7 @@ void _render_flush_span(uint8_t ch, uint8_t start_row, uint8_t end_row) {
 #endif // !__OSCAR64__
 #pragma optimize(pop)
 
+#ifndef __OSCAR64__
 static inline uint8_t _clamp_pos(int8_t row) {
   return row < 0 ? 0 : (uint8_t)row;
 }
@@ -231,21 +229,8 @@ static inline uint8_t _clamp_pos(int8_t row) {
 // One 12.4 position past the right edge of the viewport.
 static const int16_t kFull = kViewportWidth << 4;
 
-// Every row is a left span [0, l) and a right span [r, kViewportWidth), sky on
-// one side and ground on the other, and the cells between them are left for
-// the tiles. For a tilted horizon the spans come from two 12.4 positions per
-// row, lo and hi = lo + w, where w is the kSkipLines band and lo walks by
-// roll_dx_div_dy a row:
-//
-//   hi < 0x10    the whole row is the right side's
-//   lo >= kFull  the whole row is the left side's
-//   otherwise    l = lo >> 4 (0 below 0x10), r = hi >> 4 (the edge at kFull)
-//
-// The left span is always filled before the right one, the order the old
-// per-case loops used, so even a wrapped lo/hi pair, where the spans overlap,
-// writes the same cells.
-void render_fill_sky_ground() {
-  bm_view_start();
+// Host C counterpart of render_asm.cc's _render_fill_sky_ground_asm().
+void _render_fill_sky_ground_asm(void) {
   _render_sky_rows = 0;
 
   if (roll_dy == 0) {
@@ -351,6 +336,24 @@ void render_fill_sky_ground() {
     _render_flush_span(run_ch, run_start, kViewportHeight);
   }
   render_sky_rows = _render_sky_rows;
+}
+#endif // !__OSCAR64__
 
+// Every row is a left span [0, l) and a right span [r, kViewportWidth), sky on
+// one side and ground on the other, and the cells between them are left for
+// the tiles. For a tilted horizon the spans come from two 12.4 positions per
+// row, lo and hi = lo + w, where w is the kSkipLines band and lo walks by
+// roll_dx_div_dy a row:
+//
+//   hi < 0x10    the whole row is the right side's
+//   lo >= kFull  the whole row is the left side's
+//   otherwise    l = lo >> 4 (0 below 0x10), r = hi >> 4 (the edge at kFull)
+//
+// The left span is always filled before the right one, the order the old
+// per-case loops used, so even a wrapped lo/hi pair, where the spans overlap,
+// writes the same cells.
+void render_fill_sky_ground() {
+  bm_view_start();
+  _render_fill_sky_ground_asm();
   bm_view_end(710, "BGR:");
 }

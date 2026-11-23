@@ -20,6 +20,7 @@ Shipped in `fpilot.prg` (`-D__FPILOT__`, guarded by `__ENABLE_OPPONENT__`). Cove
   - `_opponent_toward` (signed wrapped horizontal delta)
   - `_opponent_steer` (6-bit in-place halving + exact `cross`/`dot` via `vec_mul8` in ZP, dropping `opponent_step@stack` to 0 B)
   - `_opponent_pos`, `_opponent_latch_shown`, `_opponent_copy_cs` (indexed copies)
+  - `_opponent_move`, `_opponent_ahead`, `_opponent_axes`, `_opponent_cull_slot` (position integration, camera-space body axes, and staged frustum cull via `vec_asm.cc`'s `vec_mul_ab`)
 - `c64o/fmission.cc` — 10 `fpilot` mission briefings, start poses, navpoints, and wave assignments.
 - `c64o/damage.{h,cc}` — player armour, 5 progressive system failures, red border hit flash, and shot-down dive trigger.
 - `c64o/debrief.{h,cc}` — post-flight debrief screen shown on `Q`.
@@ -146,5 +147,5 @@ Leaving flight with `Q` in `fpilot` opens the debrief screen (`screen_begin_text
 | `damage.cc` | **246 B** (232 + 14) | — | — | 1 B |
 | `debrief.cc` | **446 B** (312 + 134) | — | — | 0 B |
 
-- **Tests:** `c64o/test/opponent_test.cc`, `mission_test.cc`, `fpilot_test.cc`, `gun_test.cc`, and on-target 6510 `target_test.cc` test 17 (`opponent_asm.cc`).
+- **Tests:** `c64o/test/opponent_test.cc`, `mission_test.cc`, `fpilot_test.cc`, `gun_test.cc`, and on-target 6510 `target_test.cc` tests 17 and 26 (`opponent_asm.cc`).
 - **Combat frame timings:** see [framerate.md](framerate.md) (`scramble` 153k, `shootdown` 149k, `headon` 93k, `chase` 118k, `strafe` 151k cycles).

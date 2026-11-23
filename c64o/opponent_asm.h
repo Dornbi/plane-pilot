@@ -9,19 +9,25 @@
 #include "flight.h"
 #include "mem.h"
 #include "opponent.h"
+#include "world.h"
 static_assert(kOpponentMax == 2, "opponent_asm assumes 2 opponent slots");
 #else
 extern int32_t *const kFlightEye[3];
+extern uint8_t flight_step_shift;
+extern mat3_t world_cam;
 #endif
 
 // The assembly half of opponent.cc, in opponent_asm.cc: shared opponent world,
 // silhouette, and scratch state in bss2 / tscratch, plus 6502 routines for
 // eye-to-opponent world wrapping/scaling, waypoint/eye half-metre deltas,
-// 3-axis position reads, layout/camera-space struct copies, and 6-bit steering
-// reduction + 2D heading cross/dot products. opponent.cc keeps the C
-// counterparts under #ifndef __OSCAR64__ for test/opponent_test.cc and
-// test/mission_test.cc, and test/target_test.cc holds the 6502 assembly to
-// 16-bit C references on the emulated 6510.
+// 3-axis position reads, layout/camera-space struct copies, 6-bit steering
+// reduction + 2D heading cross/dot products, position integration
+// (_opponent_move / _opponent_ahead), camera-space body axes (_opponent_axes),
+// and staged frustum culling (_opponent_cull_slot) calling vec_asm.cc's shared
+// vec_mul_ab core. opponent.cc keeps the C counterparts under #ifndef
+// __OSCAR64__ for test/opponent_test.cc and test/mission_test.cc, and
+// test/target_test.cc holds the 6502 assembly to 16-bit C references on the
+// emulated 6510.
 
 enum opponent_range_t { kOpponentNear, kOpponentFar, kOpponentOut };
 static_assert(kOpponentNear == 0 && kOpponentFar == 1 && kOpponentOut == 2,
@@ -70,9 +76,14 @@ extern int32_t _opponent_xyz[6];
 
 extern planes_state_t _opponent_planes[2];
 extern planes_layout_t _opponent_shown[2];
+extern __striped int16_t _opponent_speed[2];
 
 extern vec3_t _opponent_c;
 extern vec3_t _opponent_cs[2];
+extern mat3_t _opponent_axes_m;
+
+// Pitch sine table (8.8), shared between _opponent_axes() and opponent_fires().
+extern const int16_t kOpponentPitchSin[8];
 
 #ifdef __OSCAR64__
 uint8_t _opponent_world_delta(uint8_t i);
@@ -81,6 +92,10 @@ void _opponent_pos(uint8_t i, int32_t *p);
 void _opponent_latch_shown(uint8_t i);
 void _opponent_copy_cs(uint8_t i);
 uint8_t _opponent_steer(uint8_t i);
+void _opponent_move(uint8_t i, uint8_t idx, int16_t h);
+void _opponent_ahead(uint8_t i);
+void _opponent_axes(uint8_t i);
+uint8_t _opponent_cull_slot(uint8_t i);
 
 #pragma compile("opponent_asm.cc")
 #endif

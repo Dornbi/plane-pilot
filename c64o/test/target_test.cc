@@ -51,6 +51,18 @@
 //   19  vec_asm.cc vec_div8p8 / vec_frac16 / vec_fracn & planes_asm.cc planes_centre
 //   20  sprites_asm.cc sprites_stack_add, sprites_stack_commit,
 //       _sprites_set_instrument_sprite & sprites_set_alt against C ref
+//   21  clouds_asm.cc _clouds_build_basis, _clouds_dot, _clouds_apply_offset,
+//       _clouds_scan_init & _clouds_scan_next against C ref
+//   22  world_asm.cc _world_init_start_dx_dy, _world_build_obj_verts &
+//       _world_render_grid_walk against 16-bit C ref
+//   23  poly_asm.cc _poly_project_vertices against 16-bit C ref
+//   24  box_asm.cc _box_prepare_fill & _box_draw_asm against 16-bit C ref
+//   25  vec_asm.cc fastmul fast-paths, fastsqr, dot, transform_inv, turn_xy,
+//       cross, rotate_step, normalize & orthonormalize against C ref
+//   26  opponent_asm.cc _opponent_move, _opponent_ahead, _opponent_axes &
+//       _opponent_cull_slot against 16-bit C ref
+//   27  render_asm.cc _render_pull_and_snap_asm & _render_fill_sky_ground_asm
+//       against byte-for-byte C reference (level + tilted, main/alt, sky rows)
 
 #include <stdint.h>
 
@@ -64,20 +76,27 @@
 #pragma region(stackregion, 0x0200, 0x0400, , , {heap, stack})
 #pragma section(gun_bss, 0, , , bss)
 #pragma section(opp_bss, 0, , , bss)
-#pragma region(bssregion, 0x0400, 0x0800, , , {bss, gun_bss})
-#pragma region(oppbssreg, 0xE000, 0xE800, , , {opp_bss})
+#pragma section(cld_bss, 0, , , bss)
+#pragma region(bssregion, 0x0400, 0x0800, , , {bss})
+#pragma region(oppbssreg, 0xE000, 0xE800, , , {opp_bss, cld_bss, gun_bss})
 // And the zero page the programs under test get from -xz: vec_asm.cc's
 // routines keep their operands there.
-#pragma region(zeropage, 0x68, 0x100, , , {zeropage})
+#pragma region(zeropage, 0x78, 0x100, , , {zeropage})
 
 #include "../planedef.h"
 #include "../planes.h"
 #include "../planes_asm.h"
+#include "../vec.h"
+#ifdef __TARGET_TEST_PLANES__
+#include "planes_target_cases.h"
+#else
 #include "../poly_asm.h"
 #include "../render_asm.h"
-#include "../vec.h"
 #include "../world_asm.h"
-#include "planes_target_cases.h"
+#include "../box_asm.h"
+static const int16_t kTargetCx0 = 160, kTargetCy0 = 56;
+static const int16_t kTargetCut1 = 89, kTargetCut2 = 68;
+#endif
 
 #pragma optimize(push, nooutline)
 
@@ -112,6 +131,7 @@ static __noinline void expect_id(int16_t got, int16_t want) {
 }
 
 // Opaque to the optimiser, so a case cannot be folded into its own answer.
+#ifndef __TARGET_TEST_PLANES__
 volatile int16_t v_sx = 32767;
 volatile int8_t v_cy = -128;
 
@@ -172,6 +192,7 @@ static void test_mul_against_16bit_product(void) {
     }
   }
 }
+#endif // !__TARGET_TEST_PLANES__
 #pragma optimize(pop)
 #pragma optimize(push, outline)
 
@@ -183,6 +204,7 @@ static void test_mul_against_16bit_product(void) {
 // would and compared byte for byte.
 static uint8_t (*const _planes_sets)[4][kPlaneBlockStride] =
     (uint8_t (*)[4][kPlaneBlockStride])0xF000;
+#ifdef __TARGET_TEST_PLANES__
 static uint8_t _planes_dot[kPlaneBlockBytes];
 static planes_state_t *const _tp_state = (planes_state_t *)0xFD00;
 #pragma bss(opp_bss)
@@ -303,6 +325,7 @@ static void test_planes_sweep(void) {
     expect((uint16_t)(2000 + n), (int16_t)(((uint16_t)_sum2 << 8) | _sum1), (int16_t)pc->check);
   }
 }
+#else
 
 // 8. vec_div8p8 answers a divisor of 64 or -64 with a shift instead of its
 // loop (the near clip's lifted vertices, poly.cc). 2a / 128 is the same
@@ -375,16 +398,118 @@ __striped uint8_t *const mem_color_row_ptrs[kViewportHeight] = {
     (uint8_t *)0xF480 + 12 * 40, (uint8_t *)0xF480 + 13 * 40};
 bool mem_using_alt_buffer;
 
-vec3_t _poly_clip3_buf[10];
-uint8_t _poly_min_x[2 * kViewportHeight];
-uint8_t _poly_max_x[2 * kViewportHeight];
+// _poly_clip3_buf, _poly_min_x, _poly_max_x are defined in poly_asm.cc.
 
+__zeropage uint8_t _world_grid_radius;
+__zeropage uint8_t _world_start_cx;
+__zeropage uint8_t _world_start_cy;
+__zeropage vec3_t _world_p_start;
+__zeropage vec3_t _world_dx_vec;
+__zeropage vec3_t _world_dy_vec;
+__zeropage int8_t _world_step_x;
+__zeropage int8_t _world_step_y;
+__zeropage vec3_t _world_vec_v;
+#pragma bss(cld_bss)
+vec3_t _world_d4[18];
+vec3_t _world_poly_verts[kPolyMaxVertices];
+#pragma bss(bss)
 __striped int16_t _world_mitch_x[16];
 __striped int16_t _world_mitch_y[16];
 __striped int16_t _world_mitch_z[16];
-__zeropage vec3_t _world_vec_v;
+
+// Minimal test world map + object tables matching world_map.cc layouts.
+const uint8_t KWorldDotColors[7] = {0, kGfxDotGround, 0, 1, 3, 6, 7};
+const uint8_t kWorldObjX[kWorldObjVerts] = {
+    0,  48, 48, 0,  0,  24, 48, 12, 0,  12, 48, 18,
+    6,  30, 42, 36, 12, 0,  12, 36, 48, 30, 12};
+const uint8_t kWorldObjY[kWorldObjVerts] = {
+    24, 24, 18, 18, 12, 0,  30, 48, 36, 0,  18, 48,
+    18, 6,  24, 36, 42, 18, 0,  6,  24, 42, 48};
+const uint8_t kWorldObjFirstVert[kWorldObjDim] = {0, 4, 4, 8, 8, 12, 17, 8, 17};
+const uint8_t kWorldObjNumVerts[kWorldObjDim] = {4, 4, 4, 4, 4, 5, 6, 4, 6};
+// Mix of MAP_NOTHING (0), dot types (1..6), and object types (7..15).
+const uint8_t kWorldMap[kWorldMapHeight][kWorldMapWidth / 2] = {
+    {0x10, 0x23, 0x74, 0x85, 0x96, 0x10, 0x20, 0x31, 0x42, 0x53, 0x64, 0x75,
+     0x86, 0x90, 0xA1, 0xB2},
+    {0xC3, 0xD4, 0xE5, 0xF6, 0x01, 0x12, 0x23, 0x34, 0x45, 0x56, 0x60, 0x71,
+     0x82, 0x93, 0xA4, 0xB5},
+    {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC,
+     0xDD, 0xEE, 0xFF, 0x00},
+    {0x07, 0x18, 0x29, 0x3A, 0x4B, 0x5C, 0x6D, 0x7E, 0x8F, 0x90, 0x01, 0x12,
+     0x23, 0x34, 0x45, 0x56},
+    {0x21, 0x43, 0x65, 0x07, 0x81, 0xA2, 0xC3, 0xE4, 0x15, 0x36, 0x50, 0x71,
+     0x92, 0xB3, 0xD4, 0xF5},
+    {0x10, 0x32, 0x54, 0x76, 0x98, 0xBA, 0xDC, 0xFE, 0x01, 0x23, 0x45, 0x67,
+     0x89, 0xAB, 0xCD, 0xEF},
+    {0x61, 0x52, 0x43, 0x34, 0x25, 0x16, 0x00, 0x71, 0x82, 0x93, 0xA4, 0xB5,
+     0xC6, 0xD0, 0xE1, 0xF2},
+    {0x00, 0x11, 0x02, 0x13, 0x04, 0x15, 0x06, 0x17, 0x08, 0x19, 0x0A, 0x1B,
+     0x0C, 0x1D, 0x0E, 0x1F},
+    {0x10, 0x23, 0x74, 0x85, 0x96, 0x10, 0x20, 0x31, 0x42, 0x53, 0x64, 0x75,
+     0x86, 0x90, 0xA1, 0xB2},
+    {0xC3, 0xD4, 0xE5, 0xF6, 0x01, 0x12, 0x23, 0x34, 0x45, 0x56, 0x60, 0x71,
+     0x82, 0x93, 0xA4, 0xB5},
+    {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC,
+     0xDD, 0xEE, 0xFF, 0x00},
+    {0x07, 0x18, 0x29, 0x3A, 0x4B, 0x5C, 0x6D, 0x7E, 0x8F, 0x90, 0x01, 0x12,
+     0x23, 0x34, 0x45, 0x56},
+    {0x21, 0x43, 0x65, 0x07, 0x81, 0xA2, 0xC3, 0xE4, 0x15, 0x36, 0x50, 0x71,
+     0x92, 0xB3, 0xD4, 0xF5},
+    {0x10, 0x32, 0x54, 0x76, 0x98, 0xBA, 0xDC, 0xFE, 0x01, 0x23, 0x45, 0x67,
+     0x89, 0xAB, 0xCD, 0xEF},
+    {0x61, 0x52, 0x43, 0x34, 0x25, 0x16, 0x00, 0x71, 0x82, 0x93, 0xA4, 0xB5,
+     0xC6, 0xD0, 0xE1, 0xF2},
+    {0x00, 0x11, 0x02, 0x13, 0x04, 0x15, 0x06, 0x17, 0x08, 0x19, 0x0A, 0x1B,
+     0x0C, 0x1D, 0x0E, 0x1F},
+};
+
+// Records visible object callbacks from _world_render_grid_walk() (after
+// _world_build_obj_verts() + 3D frustum test, matching poly_draw_3d()).
+static volatile uint16_t _test_wg_obj_hash;
+static volatile uint8_t _test_wg_obj_cnt;
+
+static bool _test_poly_visible(const vec3_t *v, uint8_t n) {
+  uint8_t out3 = 0x0f;
+  bool any_in = false;
+  for (uint8_t i = 0; i < n; ++i) {
+    int32_t vx = v[i].x;
+    int32_t vy = v[i].y;
+    int32_t vz4 = (int32_t)v[i].z << 2;
+    if (vx >= 8) {
+      any_in = true;
+    }
+    uint8_t c = 0;
+    if (vy > vx) {
+      c |= 1;
+    }
+    if (vy < -vx) {
+      c |= 2;
+    }
+    if (vz4 > vx) {
+      c |= 4;
+    }
+    if (vz4 < -vx) {
+      c |= 8;
+    }
+    out3 &= c;
+  }
+  return any_in && out3 == 0;
+}
+
+void _world_render_object_cur(void) {
+  uint8_t n = _world_build_obj_verts(_world_obj_idx);
+  if (n && _test_poly_visible(_world_poly_verts, n)) {
+    ++_test_wg_obj_cnt;
+    _test_wg_obj_hash =
+        (uint16_t)((_test_wg_obj_hash * 31) ^ _world_obj_idx ^
+                   (uint16_t)_world_poly_verts[0].x ^
+                   (uint16_t)_world_poly_verts[0].y);
+  }
+}
 
 uint8_t _render_sky_rows;
+int16_t render_cx_pixels;
+int16_t render_cy_pixels;
 int8_t render_cx_chars;
 int8_t render_cy_chars;
 bool render_alt_box;
@@ -393,8 +518,10 @@ int8_t render_alt_shift_y;
 uint8_t render_sky_rows;
 int8_t roll_dx;
 int8_t roll_dy;
+int16_t roll_dx_div_dy;
 uint8_t roll_period;
 bool roll_x_is_major;
+bool roll_shift_2chars;
 int8_t roll_ex_dy[8];
 int8_t roll_ey_dx[8];
 
@@ -430,10 +557,11 @@ static bool _ref_frustum_all_out(uint8_t end3) {
     const vec3_t *v = (const vec3_t *)((const uint8_t *)_poly_clip3_buf + o);
     uint16_t ux = (uint16_t)v->x;
     uint16_t zx = ux >> 2;
+    uint16_t yx = ux - zx;
     int16_t vy = v->y;
     int16_t vz = v->z;
     uint8_t c = 0;
-    if ((uint16_t)_abs16(vy) > ux) {
+    if ((uint16_t)_abs16(vy) > yx) {
       c = vy < 0 ? 2 : 1;
     }
     if ((uint16_t)_abs16(vz) > zx) {
@@ -449,7 +577,7 @@ static bool _ref_frustum_all_out(uint8_t end3) {
 
 static void test_poly_frustum_asm(void) {
   _cur_id = 10;
-  static const int8_t kCases8[7][3][3] = {
+  static const int8_t kCases8[9][3][3] = {
       {{100, 101, 0}, {120, 125, 0}, {50, 51, 0}},    // all y > x
       {{100, -101, 0}, {120, -125, 0}, {50, -51, 0}}, // all y < -x
       {{100, 0, 26}, {120, 0, 31}, {40, 0, 11}},      // all z > x>>2
@@ -457,8 +585,10 @@ static void test_poly_frustum_asm(void) {
       {{100, 0, 25}, {120, 0, 31}, {40, 0, 11}},      // z == x>>2 boundary
       {{100, 120, 0}, {100, -120, 0}, {100, 5, 0}},   // straddling x/y
       {{20, 25, 0}, {22, 26, 0}, {18, 20, 0}},        // scaled * 1000 (> 16k)
+      {{100, 76, 0}, {120, 91, 0}, {40, 31, 0}},      // all y > 0.75*x
+      {{100, 75, 0}, {120, 91, 0}, {40, 31, 0}},      // y == 0.75*x boundary
   };
-  for (uint8_t c = 0; c < 7; ++c) {
+  for (uint8_t c = 0; c < 9; ++c) {
     int16_t scale = (c == 6) ? 1000 : 1;
     for (uint8_t i = 0; i < 3; ++i) {
       _poly_clip3_buf[i] = make_vector(kCases8[c][i][0] * scale,
@@ -710,8 +840,8 @@ static void test_render_snap_center_asm(void) {
     }
     vec_proj_mul_a = kSnapCases[c].px;
     vec_proj_mul_b = kSnapCases[c].py;
-    render_alt_shift_x = 0;
-    render_alt_shift_y = 0;
+    *(volatile int8_t *)&render_alt_shift_x = 0;
+    *(volatile int8_t *)&render_alt_shift_y = 0;
     _render_snap_center_asm();
 
     int8_t r_cx = 0, r_cy = 0, r_sx = 0, r_sy = 0;
@@ -722,8 +852,8 @@ static void test_render_snap_center_asm(void) {
     expect_id(render_cy_chars, r_cy);
     expect_id(render_alt_box ? 1 : 0, r_alt ? 1 : 0);
     if (roll_period == 1) {
-      expect_id(render_alt_shift_x, r_sx);
-      expect_id(render_alt_shift_y, r_sy);
+      expect_id(*(volatile int8_t *)&render_alt_shift_x, r_sx);
+      expect_id(*(volatile int8_t *)&render_alt_shift_y, r_sy);
     }
   }
 }
@@ -865,7 +995,7 @@ static void _ref_trace_edge(int8_t xa, uint8_t ya, int8_t xb, uint8_t yb) {
   }
 }
 
-static void test_poly_trace_edges_asm(void) {
+static __noinline void test_poly_trace_edges_asm(void) {
   _cur_id = 15;
   struct PolyCase {
     uint8_t n;
@@ -1165,7 +1295,7 @@ static __noinline void _check_steer(uint8_t slot, int16_t d, int16_t dy_in,
   }
 }
 
-static void test_opponent_world_delta_asm(void) {
+static __noinline void test_opponent_world_delta_asm(void) {
   _cur_id = 17;
   __striped static const int32_t kEyes[3][3] = {
       {0x00102000L, 0x00204000L, 0x00041000L},
@@ -1357,7 +1487,7 @@ static bool _ref_gun_collides(uint8_t k, bool prev, int16_t *prev_buf) {
   return now || mid;
 }
 
-static void test_gun_asm(void) {
+static __noinline void test_gun_asm(void) {
   _cur_id = 18;
   // _gun_track_all: sub-quantum preservation, positive/negative borrow across
   // bit 16, exact d >> 5 in _gun_moved, and _gun_t zeroed.
@@ -1604,7 +1734,7 @@ static void test_gun_asm(void) {
   kFlightSubstepMask = 0;
   expect_id((int16_t)((vz[0] << 8) | vz[12]), kPuffFrames - 1);
   expect_id(_gun_last, kRoundNone);
-  expect_id(_gun_puff[0], 329);
+  expect_id((int16_t)(((uint16_t)vp[3] << 8) | vp[0]), 329);
 }
 
 // 19. vec_asm.cc restoring division (vec_div8p8, vec_frac16, vec_fracn across
@@ -2005,7 +2135,7 @@ static __noinline void _run_cull(int16_t d, const CullCase *c) {
   expect_id(g ? 1 : 0, w ? 1 : 0);
 }
 
-static void test_sprites_asm(void) {
+static __noinline void test_sprites_asm(void) {
   _cur_id = 20;
   static const CullPreset kCP[7] = {
       {12, 10, 95, 0xFF, 7, 0},    {12, 10, 81, 0xFF, 1, 0x01},
@@ -2182,6 +2312,1585 @@ static void test_sprites_asm(void) {
     expect_id(gi, _sprites_instrument_idx[0]);
   }
 }
+
+// 21. clouds_asm.cc: _clouds_build_basis, _clouds_dot, _clouds_apply_offset,
+// _clouds_scan_init, and _clouds_scan_next against 16-bit C references.
+#pragma bss(cld_bss)
+int32_t flight_eye_x;
+int32_t flight_eye_y;
+int32_t flight_eye_z;
+#pragma bss(bss)
+#include "../clouds_asm.h"
+
+static bool _ref_clouds_outside(int16_t v, int16_t r) {
+  return (uint16_t)(v + r) > (uint16_t)(r << 1);
+}
+
+static __noinline void test_clouds_asm(void) {
+  _cur_id = 21;
+
+  // 21a. _clouds_build_basis exhaustively over all 513 values in [-256, 256].
+  int16_t *cam_elem = &world_cam.front.x;
+  for (int16_t base = -256; base <= 256; base += 9) {
+    for (uint8_t k = 0; k < 9; ++k) {
+      int16_t v = base + k;
+      cam_elem[k] = v > 256 ? 256 : v;
+    }
+    _clouds_build_basis();
+    for (uint8_t k = 0; k < 9; ++k) {
+      expect_id(_clouds_half_basis[k], vec_fastmul8p8(cam_elem[k], 16));
+    }
+  }
+
+  // 21b. _clouds_dot across 0, +-256, general +-1..255, cold & cached z.
+  static const mat3_t kCloudCams[] = {
+      {{256, 0, 0}, {0, 256, 0}, {0, 0, 256}},
+      {{-256, 0, 0}, {0, -256, 0}, {0, 0, -256}},
+      {{204, 153, -17}, {-153, 204, 42}, {33, -29, 252}},
+      {{1, -255, 128}, {-127, 64, -193}, {255, -1, 0}},
+  };
+  static const int16_t kDotV[] = {-4096, -2049, -256, -1, 0, 1, 256, 1777, 4096};
+  static const int16_t kDotDz[] = {-1200, -1, 0, 700};
+  for (uint8_t ci = 0; ci < sizeof(kCloudCams) / sizeof(kCloudCams[0]); ++ci) {
+    world_cam = kCloudCams[ci];
+    for (uint8_t di = 0; di < sizeof(kDotDz) / sizeof(kDotDz[0]); ++di) {
+      _clouds_dz = kDotDz[di];
+      _clouds_z_valid[0] = 0;
+      _clouds_z_valid[1] = 0;
+      _clouds_z_valid[2] = 0;
+      for (uint8_t vi = 0; vi < sizeof(kDotV) / sizeof(kDotV[0]); ++vi) {
+        vec_v.x = kDotV[vi];
+        vec_v.y = kDotV[(uint8_t)(vi + 3) % (sizeof(kDotV) / sizeof(kDotV[0]))];
+        for (uint8_t a = 0; a < 3; ++a) {
+          const vec3_t *row = &world_cam.front + a;
+          int16_t want = vec_fastmul8p8(row->z, _clouds_dz) +
+                         vec_fastmul8p8(row->x, vec_v.x) +
+                         vec_fastmul8p8(row->y, vec_v.y);
+          expect_id(_clouds_dot(a), want);
+        }
+      }
+    }
+  }
+
+  // 21c. _clouds_apply_offset across all 4 patterns x 3 blobs & carry edges.
+  static const vec3_t kCentres[] = {
+      {0, 0, 0},
+      {255, -256, 1024},
+      {16, 256, -1},
+      {4096, -4096, 512},
+  };
+  world_cam = kCloudCams[2];
+  _clouds_build_basis();
+  for (uint8_t ci = 0; ci < sizeof(kCentres) / sizeof(kCentres[0]); ++ci) {
+    _clouds_centre = kCentres[ci];
+    for (uint8_t p = 0; p < kCloudPatternCount; ++p) {
+      _clouds_pat_off = (uint8_t)(p * 9);
+      for (uint8_t b = 0; b < kCloudBlobsPerGroup; ++b) {
+        int16_t wx = _clouds_centre.x;
+        int16_t wy = _clouds_centre.y;
+        int16_t wz = _clouds_centre.z;
+        for (uint8_t ax = 0; ax < 3; ++ax) {
+          int8_t c = kCloudGroupOffset[p][b][ax];
+          wx += (int16_t)c * (int16_t)_clouds_half_basis[ax + 0];
+          wy += (int16_t)c * (int16_t)_clouds_half_basis[ax + 3];
+          wz += (int16_t)c * (int16_t)_clouds_half_basis[ax + 6];
+        }
+        int16_t ret_x = _clouds_apply_offset();
+        expect_id(ret_x, wx);
+        expect_id(*(volatile int16_t *)&vec_v.x, wx);
+        expect_id(*(volatile int16_t *)&vec_v.y, wy);
+        expect_id(*(volatile int16_t *)&vec_v.z, wz);
+        expect_id(*(volatile uint8_t *)&_clouds_pat_off,
+                  (int16_t)(p * 9 + (b + 1) * 3));
+      }
+    }
+  }
+
+  // 21d. Full _clouds_scan_init + _clouds_scan_next across diverse poses.
+  static const int32_t kScanEyes[][3] = {
+      {0x00200000L, 0x00400000L, 0x00010000L},
+      {0x00371234L, 0x00589ABCL, 0x00028000L},
+      {0x00000200L, 0x00000000L, 0x00080000L},
+      {0x007FFFE0L, 0x00FFF010L, 0x00002000L},
+  };
+  for (uint8_t pi = 0; pi < sizeof(kScanEyes) / sizeof(kScanEyes[0]); ++pi) {
+    flight_eye_x = kScanEyes[pi][0];
+    flight_eye_y = kScanEyes[pi][1];
+    flight_eye_z = kScanEyes[pi][2];
+    world_cam = kCloudCams[pi];
+
+    _clouds_scan_init();
+
+    // Independent C reference scan matching pre-Pass 153 clouds.cc.
+    const uint16_t mx = (uint16_t)((uint32_t)flight_eye_x >> 9);
+    const uint16_t my = (uint16_t)((uint32_t)flight_eye_y >> 9);
+    const int16_t rdz = kCloudDeckU - (int16_t)((uint32_t)flight_eye_z >> 9);
+    expect_id(_clouds_dz, rdz);
+    const uint16_t frac_x = (uint16_t)-(int16_t)(mx & (kCloudCellU - 1));
+    const uint16_t frac_y = (uint16_t)-(int16_t)(my & (kCloudCellU - 1));
+    uint8_t cx = (uint8_t)(mx >> kCloudCellShift) - kCloudScanRadius;
+    const uint8_t start_cy =
+        (uint8_t)(my >> kCloudCellShift) - kCloudScanRadius;
+    for (uint8_t ux_hi = 0; ux_hi < 80; ux_hi += 16, ++cx) {
+      const uint8_t hx = kCloudHashX[cx & kCloudCellMaskX];
+      uint8_t cy = start_cy;
+      for (uint8_t uy_hi = 0; uy_hi < 80; uy_hi += 16, ++cy) {
+        const uint8_t idx = (hx ^ kCloudHashY[cy & kCloudCellMaskY]) & 31;
+        const uint8_t ha = kCloudHashA[idx];
+        if ((ha & kCloudGateBits) >= kCloudGateLimit) {
+          continue;
+        }
+        const uint8_t hb = kCloudHashB[idx];
+        const uint16_t ox =
+            frac_x + ((uint16_t)(ux_hi | (hb & 0x0F)) << kCloudJitterShift);
+        if (ox > (uint16_t)(kCloudCullU << 1)) {
+          continue;
+        }
+        const uint16_t oy =
+            frac_y + ((uint16_t)(uy_hi | (hb >> 4)) << kCloudJitterShift);
+        if (oy > (uint16_t)(kCloudCullU << 1)) {
+          continue;
+        }
+        int16_t vx = (int16_t)(ox - kCloudCullU);
+        int16_t vy = (int16_t)(oy - kCloudCullU);
+        int16_t rx = vec_fastmul8p8(world_cam.front.z, rdz) +
+                     vec_fastmul8p8(world_cam.front.x, vx) +
+                     vec_fastmul8p8(world_cam.front.y, vy);
+        if (rx <= 8 || rx > kCloudRungDepth[0]) {
+          continue;
+        }
+        int16_t vert = (rx >> 2) + 128;
+        int16_t rz = vec_fastmul8p8(world_cam.up.z, rdz) +
+                     vec_fastmul8p8(world_cam.up.x, vx) +
+                     vec_fastmul8p8(world_cam.up.y, vy);
+        if (_ref_clouds_outside(rz, vert)) {
+          continue;
+        }
+        int16_t lat = (rx >> 1) + (vert >> 1) + 64;
+        int16_t ry = vec_fastmul8p8(world_cam.left.z, rdz) +
+                     vec_fastmul8p8(world_cam.left.x, vx) +
+                     vec_fastmul8p8(world_cam.left.y, vy);
+        if (_ref_clouds_outside(ry, lat)) {
+          continue;
+        }
+        uint8_t wrung = 0;
+        while (wrung < kCloudRungCount - 1 &&
+               rx <= kCloudRungDepth[wrung + 1]) {
+          ++wrung;
+        }
+
+        uint8_t got_rung = _clouds_scan_next();
+        expect_id(got_rung, wrung);
+        expect_id(*(volatile int16_t *)&_clouds_centre.x, rx);
+        expect_id(*(volatile int16_t *)&_clouds_centre.y, ry);
+        expect_id(*(volatile int16_t *)&_clouds_centre.z, rz);
+        if (wrung < kCloudRungCollapsed) {
+          expect_id(*(volatile int16_t *)&vec_v.x, rx);
+          expect_id(*(volatile int16_t *)&vec_v.y, ry);
+          expect_id(*(volatile int16_t *)&vec_v.z, rz);
+        } else {
+          expect_id(*(volatile uint8_t *)&_clouds_pat_off,
+                    (int16_t)((ha >> 6) * 9));
+          expect_id(*(volatile uint8_t *)&_clouds_basis_valid, 1);
+        }
+      }
+    }
+    expect_id(_clouds_scan_next(), 0xFF);
+    expect_id(_clouds_scan_next(), 0xFF);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 22. world_asm.cc: _world_init_start_dx_dy, _world_build_obj_verts,
+//     _world_render_grid_walk against exact 16-bit C references.
+// ---------------------------------------------------------------------------
+static void _ref_world_split_vec(vec3_t *v, vec3_t d9[9]) {
+  int16_t *vp = (int16_t *)v;
+  int16_t *dp = (int16_t *)d9;
+  for (uint8_t i = 0; i < 3; ++i) {
+    int16_t val = *vp;
+    int16_t hlf = val >> 1;
+    int16_t dbl = val << 1;
+    dp[0 * 3] = -dbl;
+    dp[1 * 3] = -val - hlf;
+    dp[2 * 3] = -val;
+    dp[3 * 3] = -hlf;
+    dp[4 * 3] = 0;
+    dp[5 * 3] = hlf;
+    dp[6 * 3] = val;
+    dp[7 * 3] = val + hlf;
+    dp[8 * 3] = dbl;
+    *vp = dbl << 1;
+    ++vp;
+    ++dp;
+  }
+}
+
+static const uint8_t kRefMitchX[16] = {0, 36, 0,  12, 36, 12, 24, 0,
+                                       36, 24, 0, 12, 24, 24, 12, 24};
+static const uint8_t kRefMitchY[16] = {0, 0,  36, 12, 24, 36, 0,  12,
+                                       36, 24, 24, 0, 12, 12, 24, 36};
+static const uint8_t kRefNumPts3[4] = {8, 4, 2, 1};
+static const uint8_t kRefNumPts4[5] = {4, 2, 2, 1, 1};
+
+static __noinline void test_world_grid_asm(void) {
+  // 4 orthonormal-ish 8.8 camera poses covering positive, negative, and zero
+  // front.{x,y}, level flight, banked roll, and nose-down pitch, across all
+  // three altitude radii (2, 3, 4).
+  static const struct {
+    mat3_t cam;
+    int32_t ex, ey, ez;
+  } kCases[4] = {
+      // Case 0: radius 2 (low), front.x > 0, front.y == 0
+      {{{256, 0, 0}, {0, 256, 0}, {0, 0, 256}}, 0x105E83, 0x17802A, 0x004000},
+      // Case 1: radius 3 (mid), pitched down + rolled, front.x < 0, front.y > 0
+      {{{-177, 177, -51}, {-181, -181, 0}, {-36, 36, 251}},
+       0x223456,
+       0x345678,
+       0x010000},
+      // Case 2: radius 4 (high), level diagonal, front.x > 0, front.y < 0
+      {{{181, -181, 0}, {181, 181, 0}, {0, 0, 256}},
+       0x400000,
+       0x580200,
+       0x038000},
+      // Case 3: radius 3 (mid), front.x == 0, front.y < 0, steep roll
+      {{{0, -256, 0}, {222, 0, -128}, {128, 0, 222}},
+       0x051234,
+       0x0A5678,
+       0x018000},
+  };
+
+#pragma bss(cld_bss)
+  static vec3_t ref_d4[18];
+  static int16_t ref_mx[16], ref_my[16], ref_mz[16];
+#pragma bss(bss)
+  _init_row_ptrs();
+
+  for (uint8_t ci = 0; ci < 4; ++ci) {
+    world_cam = kCases[ci].cam;
+    flight_eye_x = kCases[ci].ex;
+    flight_eye_y = kCases[ci].ey;
+    flight_eye_z = kCases[ci].ez;
+
+    // 1. Run ASM _world_init_start_dx_dy().
+    _world_init_start_dx_dy();
+
+    // Compute exact C reference.
+    uint16_t nz = (uint16_t)((uint32_t)flight_eye_z >> 9);
+    uint8_t ref_r = (nz >= 256) ? 4 : (nz >= 64) ? 3 : 2;
+    int16_t spacing = (int16_t)(0x400 * ref_r);
+    vec3_t ref_dx = {0, 0, 0}, ref_dy = {0, 0, 0}, ref_ps = {0, 0, 0};
+    int8_t ref_sx = 0, ref_sy = 0;
+    uint8_t ref_cx = 0, ref_cy = 0;
+
+    for (uint8_t ax = 0; ax < 2; ++ax) {
+      const int16_t *cam = &world_cam.front.x + ax;
+      vec3_t dv = {cam[0], cam[3], cam[6]};
+      _ref_world_split_vec(&dv, ax ? (ref_d4 + 9) : ref_d4);
+      uint16_t m =
+          (uint16_t)((uint32_t)(ax ? flight_eye_y : flight_eye_x) >> 9);
+      uint8_t grid = (uint8_t)((m + 512) >> 10);
+      int16_t p = spacing;
+      int8_t st = -1;
+      uint8_t stc = (uint8_t)(grid + ref_r);
+      if (cam[0] > 0) {
+        dv.x = -dv.x;
+        dv.y = -dv.y;
+        dv.z = -dv.z;
+      } else {
+        p = -p;
+        st = 1;
+        stc = (uint8_t)(grid - ref_r);
+      }
+      int16_t coord = p - (int16_t)(m - ((uint16_t)grid << 10));
+      if (ax == 0) {
+        ref_dx = dv;
+        ref_sx = st;
+        ref_cx = stc;
+        ref_ps.x = coord;
+      } else {
+        ref_dy = dv;
+        ref_sy = st;
+        ref_cy = stc;
+        ref_ps.y = coord;
+      }
+    }
+    ref_ps.z = -(int16_t)nz;
+    for (uint8_t i = 0; i < 16; ++i) {
+      const vec3_t *dx =
+          (const vec3_t *)((const uint8_t *)ref_d4 + kRefMitchX[i]);
+      const vec3_t *dy =
+          (const vec3_t *)((const uint8_t *)(ref_d4 + 9) + kRefMitchY[i]);
+      ref_mx[i] = dx->x + dy->x;
+      ref_my[i] = dx->y + dy->y;
+      ref_mz[i] = dx->z + dy->z;
+    }
+    vec_transform_inv(&world_cam, &ref_ps, &ref_ps);
+
+    expect(22, _world_grid_radius, ref_r);
+    expect(22, _world_step_x, ref_sx);
+    expect(22, _world_step_y, ref_sy);
+    expect(22, _world_start_cx, ref_cx);
+    expect(22, _world_start_cy, ref_cy);
+    expect(22, _world_dx_vec.x, ref_dx.x);
+    expect(22, _world_dx_vec.y, ref_dx.y);
+    expect(22, _world_dx_vec.z, ref_dx.z);
+    expect(22, _world_dy_vec.x, ref_dy.x);
+    expect(22, _world_dy_vec.y, ref_dy.y);
+    expect(22, _world_dy_vec.z, ref_dy.z);
+    expect(22, _world_p_start.x, ref_ps.x);
+    expect(22, _world_p_start.y, ref_ps.y);
+    expect(22, _world_p_start.z, ref_ps.z);
+    for (uint8_t i = 0; i < 18; ++i) {
+      expect(22, _world_d4[i].x, ref_d4[i].x);
+      expect(22, _world_d4[i].y, ref_d4[i].y);
+      expect(22, _world_d4[i].z, ref_d4[i].z);
+    }
+    for (uint8_t i = 0; i < 16; ++i) {
+      expect(22, _world_mitch_x[i], ref_mx[i]);
+      expect(22, _world_mitch_y[i], ref_my[i]);
+      expect(22, _world_mitch_z[i], ref_mz[i]);
+    }
+
+    // 2. Test _world_build_obj_verts() across all 9 object types (both visible
+    //    and all-behind x < 8 early-reject).
+    for (uint8_t oi = 0; oi < kWorldObjDim; ++oi) {
+      for (uint8_t behind = 0; behind < 2; ++behind) {
+        _world_vec_v.x = behind ? -1500 : 400;
+        _world_vec_v.y = (int16_t)(ci * 130 - 200);
+        _world_vec_v.z = -90;
+        uint8_t got_n = _world_build_obj_verts(oi);
+        uint8_t nv = kWorldObjNumVerts[oi];
+        uint8_t k = kWorldObjFirstVert[oi];
+        bool any_in = false;
+        vec3_t rv[kPolyMaxVertices];
+        for (uint8_t vi = 0; vi < nv; ++vi, ++k) {
+          const vec3_t *dx =
+              (const vec3_t *)((const uint8_t *)ref_d4 + kWorldObjX[k]);
+          const vec3_t *dy =
+              (const vec3_t *)((const uint8_t *)(ref_d4 + 9) + kWorldObjY[k]);
+          rv[vi].x = _world_vec_v.x + dx->x + dy->x;
+          rv[vi].y = _world_vec_v.y + dx->y + dy->y;
+          rv[vi].z = _world_vec_v.z + dx->z + dy->z;
+          if (rv[vi].x >= 8) {
+            any_in = true;
+          }
+        }
+        uint8_t want_n = any_in ? nv : 0;
+        expect(22, got_n, want_n);
+        if (want_n) {
+          for (uint8_t vi = 0; vi < nv; ++vi) {
+            expect(22, _world_poly_verts[vi].x, rv[vi].x);
+            expect(22, _world_poly_verts[vi].y, rv[vi].y);
+            expect(22, _world_poly_verts[vi].z, rv[vi].z);
+          }
+        }
+      }
+    }
+
+    // 3. Test _world_render_grid_walk() end-to-end against exact C reference:
+    //    both dot rendering into screen/color RAM and visible object dispatch.
+    _clear_test_screens(kCharSolidGround, 0x55);
+    _test_wg_obj_hash = 0;
+    _test_wg_obj_cnt = 0;
+    _world_init_start_dx_dy();
+    _world_render_grid_walk();
+    uint16_t got_oh = _test_wg_obj_hash;
+    uint8_t got_oc = _test_wg_obj_cnt;
+
+    // Run pure C reference walk using ref_ps/ref_dx/ref_dy/ref_d4.
+    int16_t a0 = ref_d4[0].x < 0 ? -ref_d4[0].x : ref_d4[0].x;
+    int16_t b0 = ref_d4[9].x < 0 ? -ref_d4[9].x : ref_d4[9].x;
+    int16_t bailout = -(a0 > b0 ? a0 : b0);
+    const uint8_t *npts = (ref_r == 4) ? kRefNumPts4 : kRefNumPts3;
+    uint16_t ref_oh = 0;
+    uint8_t ref_oc = 0;
+    vec3_t ps = ref_ps;
+    uint8_t cx = ref_cx;
+    for (int8_t gx = -(int8_t)ref_r;;) {
+      _world_vec_v = ps;
+      uint8_t ax = (uint8_t)(gx < 0 ? -gx : gx);
+      const uint8_t *row = kWorldMap[cx & 0x0F];
+      uint8_t cy = ref_cy;
+      for (int8_t gy = -(int8_t)ref_r;;) {
+        uint8_t col = cy & 0x1F;
+        uint8_t pair = row[col >> 1];
+        uint8_t mt = (col & 1) ? (uint8_t)(pair >> 4) : (uint8_t)(pair & 0x0F);
+        if (mt >= kWorldMapObjStart) {
+          uint8_t oi = (uint8_t)(mt - kWorldMapObjStart);
+          uint8_t nv = kWorldObjNumVerts[oi];
+          uint8_t k = kWorldObjFirstVert[oi];
+          vec3_t rv[kPolyMaxVertices];
+          for (uint8_t vi = 0; vi < nv; ++vi, ++k) {
+            const vec3_t *dx =
+                (const vec3_t *)((const uint8_t *)ref_d4 + kWorldObjX[k]);
+            const vec3_t *dy =
+                (const vec3_t *)((const uint8_t *)(ref_d4 + 9) + kWorldObjY[k]);
+            rv[vi].x = _world_vec_v.x + dx->x + dy->x;
+            rv[vi].y = _world_vec_v.y + dx->y + dy->y;
+            rv[vi].z = _world_vec_v.z + dx->z + dy->z;
+          }
+          if (_test_poly_visible(rv, nv)) {
+            ++ref_oc;
+            ref_oh = (uint16_t)((ref_oh * 31) ^ oi ^ (uint16_t)rv[0].x ^
+                                (uint16_t)rv[0].y);
+          }
+        } else if (mt != 0) {
+          uint8_t ay = (uint8_t)(gy < 0 ? -gy : gy);
+          uint8_t d = ax > ay ? ax : ay;
+          _ref_world_draw_box_points((uint8_t)((cx << 1) + cy), npts[d],
+                                     KWorldDotColors[mt]);
+        }
+        if (gy == (int8_t)ref_r) {
+          break;
+        }
+        ++gy;
+        cy = (uint8_t)(cy + ref_sy);
+        _world_vec_v.x += ref_dy.x;
+        _world_vec_v.y += ref_dy.y;
+        _world_vec_v.z += ref_dy.z;
+        if ((int16_t)(_world_vec_v.x - bailout) < 0) {
+          break;
+        }
+      }
+      if (gx == (int8_t)ref_r) {
+        break;
+      }
+      ++gx;
+      cx = (uint8_t)(cx + ref_sx);
+      ps.x += ref_dx.x;
+      ps.y += ref_dx.y;
+      ps.z += ref_dx.z;
+      if ((int16_t)(ps.x - bailout) < 0) {
+        break;
+      }
+    }
+    _check_screens(22);
+    expect(22, got_oc, ref_oc);
+    expect(22, (int16_t)got_oh, (int16_t)ref_oh);
+  }
+}
+// 23. poly_asm.cc _poly_project_vertices against 16-bit C reference.
+static inline uint8_t _ref_mag_hi(int16_t v) {
+  uint8_t hi = (uint8_t)((uint16_t)v >> 8);
+  return (hi & 0x80) ? (uint8_t)(hi ^ 0xff) : hi;
+}
+
+static uint8_t _ref_clip_2d(const int16_t *in_x, const int16_t *in_y,
+                            uint8_t num_in, int16_t *out_x, int16_t *out_y,
+                            uint8_t e) {
+  uint8_t num_out = 0;
+  int16_t lim = (e == 1) ? 79 : (e == 3 ? 27 : 0);
+  bool keep_gt = (e & 1) == 0;
+  bool axis_y = (e >= 2);
+  int16_t prev_x = in_x[num_in - 1];
+  int16_t prev_y = in_y[num_in - 1];
+  int16_t pa = axis_y ? prev_y : prev_x;
+  bool prev_in = keep_gt ? (pa >= lim) : (pa <= lim);
+
+  for (uint8_t i = 0; i < num_in; ++i) {
+    int16_t curr_x = in_x[i];
+    int16_t curr_y = in_y[i];
+    int16_t ca = axis_y ? curr_y : curr_x;
+    bool curr_in = keep_gt ? (ca >= lim) : (ca <= lim);
+    if (curr_in != prev_in) {
+      int16_t po = axis_y ? prev_x : prev_y;
+      int16_t co = axis_y ? curr_x : curr_y;
+      int16_t d = (int16_t)(co - po);
+      int16_t a = (int16_t)(lim - pa);
+      int16_t den = (int16_t)(ca - pa);
+      int16_t inter;
+      if (d >= -255 && d <= 255) {
+        inter = (int16_t)(po + vec_fastmul8p8(vec_div8p8(a, den), d));
+      } else {
+        inter = (int16_t)(po + vec_mulfrac(vec_frac16(a, den), d));
+      }
+      if (axis_y) {
+        out_x[num_out] = inter;
+        out_y[num_out] = lim;
+      } else {
+        out_x[num_out] = lim;
+        out_y[num_out] = inter;
+      }
+      ++num_out;
+    }
+    if (curr_in) {
+      out_x[num_out] = curr_x;
+      out_y[num_out] = curr_y;
+      ++num_out;
+    }
+    prev_x = curr_x;
+    prev_y = curr_y;
+    pa = ca;
+    prev_in = curr_in;
+  }
+  return num_out;
+}
+
+static uint8_t _ref_project_vertices(const vec3_t *in, uint8_t num_in,
+                                     int8_t *out2d) {
+  static vec3_t c3[10];
+  static int16_t bx0[12], by0[12], bx1[12], by1[12];
+  if (num_in == 0) {
+    return 0;
+  }
+  uint8_t n3 = 0;
+  const vec3_t *prev = &in[num_in - 1];
+  bool prev_in = prev->x >= 8;
+  for (uint8_t i = 0; i < num_in; ++i) {
+    const vec3_t *curr = &in[i];
+    bool curr_in = curr->x >= 8;
+    if (curr_in != prev_in) {
+      int16_t dx = (int16_t)(curr->x - prev->x);
+      int16_t a = (int16_t)(8 - prev->x);
+      int16_t dy = (int16_t)(curr->y - prev->y);
+      int16_t dz = (int16_t)(curr->z - prev->z);
+      uint16_t t = vec_frac16(a, dx);
+      int16_t x = 8, py = prev->y, pz = prev->z;
+      if ((_ref_mag_hi(py) | _ref_mag_hi(pz) | _ref_mag_hi(curr->y) |
+           _ref_mag_hi(curr->z) | _ref_mag_hi(dy) | _ref_mag_hi(dz)) < 15) {
+        x = 64;
+        py <<= 3;
+        pz <<= 3;
+        dy <<= 3;
+        dz <<= 3;
+      }
+      c3[n3].x = x;
+      c3[n3].y = (int16_t)(py + vec_mulfrac(t, dy));
+      c3[n3].z = (int16_t)(pz + vec_mulfrac(t, dz));
+      ++n3;
+    }
+    if (curr_in) {
+      c3[n3++] = *curr;
+    }
+    prev = curr;
+    prev_in = curr_in;
+  }
+  if (n3 < 3) {
+    return 0;
+  }
+  uint8_t all_out = 0x0f;
+  uint8_t edges = 0;
+  for (uint8_t i = 0; i < n3; ++i) {
+    vec_v = c3[i];
+    vec_project_nocull();
+    int16_t px = (int16_t)(80 - (vec_sx >> 1)) >> 1;
+    int16_t py = (int16_t)(28 - (vec_sy >> 1)) >> 1;
+    bx0[i] = px;
+    by0[i] = py;
+    uint8_t out = 0;
+    if ((uint16_t)px >= 80) {
+      out = (px < 0) ? 1 : 2;
+    }
+    if ((uint16_t)py >= 28) {
+      out |= (py < 0) ? 4 : 8;
+    }
+    all_out &= out;
+    edges |= out;
+  }
+  if (all_out) {
+    return 0;
+  }
+  uint8_t n = n3;
+  bool use1 = false;
+  for (uint8_t e = 0; edges; ++e, edges >>= 1) {
+    if (edges & 1) {
+      if (!use1) {
+        n = _ref_clip_2d(bx0, by0, n, bx1, by1, e);
+      } else {
+        n = _ref_clip_2d(bx1, by1, n, bx0, by0, e);
+      }
+      if (n < 3) {
+        return 0;
+      }
+      use1 = !use1;
+    }
+  }
+  const int16_t *fx = use1 ? bx1 : bx0;
+  const int16_t *fy = use1 ? by1 : by0;
+  for (uint8_t i = 0; i < n; ++i) {
+    out2d[2 * i] = (int8_t)fx[i];
+    out2d[2 * i + 1] = (int8_t)fy[i];
+  }
+  return n;
+}
+
+static void test_poly_project_vertices_asm(void) {
+  _cur_id = 23;
+  static const int16_t kPolys[12][4][3] = {
+      // 0: All behind near plane (x < 8)
+      {{-20, 0, 0}, {7, 10, 5}, {-5, -10, -5}, {0, 0, 0}},
+      // 1: All inside viewport (no near clip, no 2D clip)
+      {{400, 60, 20}, {400, -60, 20}, {500, -50, -30}, {500, 50, -30}},
+      // 2: All outside frustum in 0.75 < |y|/x < 1.0 band
+      {{200, 170, 0}, {300, 250, 10}, {250, 210, -10}, {220, 185, 5}},
+      // 3: Mixed near-clip (lifted << 3, dy != 0, dz == 0) + multi-edge 2D clip
+      {{-120, 40, -18}, {-120, -40, -18}, {600, -50, -18}, {600, 50, -18}},
+      // 4: Mixed near-clip (unlifted, |y| > 3840, dy == 0, dz == 0) + long-span 2D clip
+      {{-200, 4500, -100}, {-200, -4500, -100}, {300, -4500, -100}, {300, 4500, -100}},
+      // 5: 2D clip across all 4 edges (huge quad covering full viewport, arg_d == 0)
+      {{100, 150, 60}, {100, -150, 60}, {100, -150, -60}, {100, 150, -60}},
+      // 6: 2D clip right & bottom edges only
+      {{200, -160, -10}, {200, -40, -10}, {200, -40, -70}, {200, -160, -70}},
+      // 7: 2D clip left & top edges only
+      {{200, 160, 70}, {200, 40, 70}, {200, 40, 10}, {200, 160, 10}},
+      // 8: Corner straddler rejected after 2D clip (< 3 vertices)
+      {{100, 80, 30}, {100, 120, 15}, {100, 95, 45}, {100, 110, 35}},
+      // 9: Mixed near-clip (lifted << 3, dy == 0 && dz == 0: parked runway edges)
+      {{-100, 32, -16}, {-100, -32, -16}, {500, -32, -16}, {500, 32, -16}},
+      // 10: Mixed near-clip (lifted << 3, dy == 0 && dz != 0)
+      {{-80, 20, -40}, {-80, -20, -40}, {320, -20, 20}, {320, 20, 20}},
+      // 11: Mixed near-clip (lifted << 3, dy != 0 && dz != 0: pitched/rolled)
+      {{-90, 60, -35}, {-90, -10, -5}, {400, -80, 30}, {400, 30, -25}},
+  };
+  static vec3_t verts[4];
+  static int8_t got2d[2 * kPolyMax2dVertices];
+  static int8_t want2d[2 * kPolyMax2dVertices];
+  for (uint8_t c = 0; c < 12; ++c) {
+    uint8_t nv = (c == 0 || c == 8) ? 3 : 4;
+    for (uint8_t i = 0; i < nv; ++i) {
+      verts[i] = make_vector(kPolys[c][i][0], kPolys[c][i][1], kPolys[c][i][2]);
+    }
+    uint8_t gn = _poly_project_vertices(verts, nv, got2d);
+    uint8_t wn = _ref_project_vertices(verts, nv, want2d);
+    expect_id(gn, wn);
+    if (gn == wn) {
+      for (uint8_t i = 0; i < (uint8_t)(wn * 2); ++i) {
+        expect_id((uint8_t)got2d[i], (uint8_t)want2d[i]);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 24. box_asm.cc _box_prepare_fill & _box_draw_asm against 16-bit C ref.
+// ---------------------------------------------------------------------------
+boxdef_t boxdef;
+const uint8_t *boxdef_char_idx;
+uint8_t mem_box_char_start;
+const uint8_t *_cur_box_chars;
+
+// Synthetic 3-page chardef stream (600 bytes) and offset table (224 entries)
+// in main data so page 0 (<91), page 1 (91..163), and page 2 (>=164) are all
+// exercised with distinct bytes without crowding opp_bss.
+uint8_t chardef_bytes[600] = {1};
+uint8_t chardef_offset_lo[224] = {1};
+
+static void _ref_box_prepare_fill(uint8_t *ref_char_ram, uint8_t *ref_chars,
+                                  uint8_t *ref_colors) {
+  uint8_t *dst_ram = ref_char_ram + ((uint16_t)mem_box_char_start << 3);
+  const uint8_t *src_idx = boxdef_char_idx;
+  const uint8_t flip_start =
+      boxdef.grad1_color_start - (boxdef.flip_around & 0x0F);
+  const uint8_t flip_end = boxdef.grad1_color_start + (boxdef.flip_around >> 4);
+  for (uint8_t i = 0; i < boxdef.char_count; ++i) {
+    const uint8_t c = src_idx[i];
+    const uint8_t *src = chardef_bytes + chardef_offset_lo[c];
+    if (c >= kCharDefPage1) {
+      src += 256;
+      if (c >= kCharDefPage2) {
+        src += 256;
+      }
+    }
+    for (uint8_t row = 0; row < 8; ++row) {
+      dst_ram[row] = (i >= flip_start && i < flip_end) ? src[7 - row] : src[row];
+    }
+    dst_ram += 8;
+  }
+  uint8_t cl[35], kl[35];
+  cl[0] = kCharSolidGround;
+  kl[0] = COLOR_GRAD1_8;
+  cl[1] = kCharSolidSky;
+  kl[1] = COLOR_SKY8;
+  cl[2] = kCharSolid11;
+  kl[2] = COLOR_GRAD1_8;
+  for (uint8_t i = 0; i < boxdef.char_count; ++i) {
+    cl[3 + i] = (uint8_t)(mem_box_char_start + i);
+    kl[3 + i] = (i >= boxdef.grad1_color_start) ? COLOR_GRAD1_8 : COLOR_SKY8;
+  }
+  const uint8_t *src = boxdef_char_idx + boxdef.char_count;
+  uint8_t total = (uint8_t)(boxdef.w * boxdef.h);
+  for (uint8_t i = 0; i < total; ++i) {
+    uint8_t idx = src[i];
+    ref_chars[i] = cl[idx];
+    ref_colors[i] = kl[idx];
+  }
+}
+
+static uint8_t _ref_box_sky_rows;
+
+static void _ref_draw_one_box(int8_t cx, int8_t cy) {
+  const uint8_t *src_chr = _cur_box_chars;
+  const uint8_t *src_col = _cur_box_chars + 0x100;
+  int8_t h = (int8_t)boxdef.h;
+  if (cy < 0) {
+    h = (int8_t)(h + cy);
+    if (h <= 0) {
+      return;
+    }
+    int16_t skip = (int16_t)cy * (int16_t)boxdef.w;
+    src_chr -= skip;
+    src_col -= skip;
+    cy = 0;
+  }
+  int8_t ov = (int8_t)(cy + h - kViewportHeight);
+  if (ov > 0) {
+    h = (int8_t)(h - ov);
+  }
+  if (h <= 0) {
+    return;
+  }
+  int8_t w = (int8_t)boxdef.w;
+  if (cx < 0) {
+    w = (int8_t)(w + cx);
+    src_chr -= cx;
+    src_col -= cx;
+    cx = 0;
+  }
+  ov = (int8_t)(cx + w - 40);
+  if (ov > 0) {
+    w = (int8_t)(w - ov);
+  }
+  if (w <= 0) {
+    return;
+  }
+  if ((uint8_t)cy < _ref_box_sky_rows) {
+    _ref_box_sky_rows = (uint8_t)cy;
+  }
+  uint8_t *dst_chr = ref_scr + (uint16_t)cy * 40 + (uint8_t)cx;
+  uint8_t *dst_col = ref_clr + (uint16_t)cy * 40 + (uint8_t)cx;
+  for (int8_t y = 0; y < h; ++y) {
+    for (int8_t x = 0; x < w; ++x) {
+      dst_chr[x] = src_chr[x];
+      dst_col[x] = src_col[x];
+    }
+    src_chr += boxdef.w;
+    src_col += boxdef.w;
+    dst_chr += 40;
+    dst_col += 40;
+  }
+}
+
+static bool _ref_box_oob(int8_t cx, int8_t cy, int8_t sx, int8_t sy) {
+  if (sx > 0) {
+    if (cx >= 40) return true;
+  } else {
+    if ((int8_t)(cx + (int8_t)boxdef.w) <= 0) return true;
+  }
+  if (sy > 0) {
+    if (cy >= kViewportHeight) return true;
+  } else {
+    if ((int8_t)(cy + (int8_t)boxdef.h) <= 0) return true;
+  }
+  return false;
+}
+
+static void _ref_box_draw(void) {
+  const int8_t base_cx = (int8_t)(render_cx_chars + boxdef.rel_x);
+  const int8_t base_cy = (int8_t)(render_cy_chars + boxdef.rel_y);
+  int8_t sx = boxdef.step_x;
+  int8_t sy = boxdef.step_y;
+  int8_t cx = base_cx;
+  int8_t cy = base_cy;
+  for (uint8_t pass = 2;;) {
+    do {
+      _ref_draw_one_box(cx, cy);
+      cx = (int8_t)(cx + sx);
+      cy = (int8_t)(cy + sy);
+    } while (!_ref_box_oob(cx, cy, sx, sy));
+    if (--pass == 0) {
+      break;
+    }
+    sx = (int8_t)(-sx);
+    sy = (int8_t)(-sy);
+    cx = (int8_t)(base_cx + sx);
+    cy = (int8_t)(base_cy + sy);
+  }
+}
+
+static void test_box_asm(void) {
+  _cur_id = 24;
+  _init_row_ptrs();
+
+  // Populate chardef_bytes & chardef_offset_lo in place (RAM under oscar64).
+  uint8_t *cb = (uint8_t *)chardef_bytes;
+  uint8_t *co = (uint8_t *)chardef_offset_lo;
+  for (uint16_t i = 0; i < 600; ++i) {
+    cb[i] = (uint8_t)((i * 37 + 13) ^ (i >> 2));
+  }
+  for (uint8_t c = 0; c < 224; ++c) {
+    if (c < kCharDefPage1) {
+      co[c] = (uint8_t)((c * 2) & 0xF0);
+    } else if (c < kCharDefPage2) {
+      co[c] = (uint8_t)(((c - kCharDefPage1) * 3) & 0xF0);
+    } else {
+      co[c] = (uint8_t)(((c - kCharDefPage2) * 1) & 0x38);
+    }
+  }
+
+  // Test 24a: _box_prepare_fill on both slots, all 3 chardef pages, and flips.
+  static const uint8_t kPrepMap0[] = {
+      // 6 char indices across pages 0 (<91), 1 (91..163), 2 (>=164)
+      5, 90, 91, 120, 164, 210,
+      // 4 x 5 uniform-row cells (like box_r8)
+      3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 2, 2, 2, 2};
+  static const uint8_t kPrepMap1[] = {
+      // 8 char indices across all 3 pages
+      0, 42, 91, 163, 164, 180, 200, 223,
+      // 6 x 4 varied cells (tilted/vertical box)
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0,
+      1, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0};
+
+  uint8_t *const test_cram = (uint8_t *)((uint16_t)BOX_CHAR_RAM_HI << 8);
+  uint8_t *const ref_cram = (uint8_t *)0xEC00;
+  uint8_t *const ref_ch = (uint8_t *)0xFE00;
+  uint8_t *const ref_cl = (uint8_t *)0xFE60;
+
+  for (uint8_t slot = 0; slot < 2; ++slot) {
+    mem_box_char_start = slot ? 0x61 : 0x01;
+    _cur_box_chars = (const uint8_t *)(BOX_SCRATCH_BASE + (slot ? 0xA0 : 0));
+    if (slot == 0) {
+      boxdef.w = 4;
+      boxdef.h = 5;
+      boxdef.grad1_color_start = 3;
+      boxdef.char_count = 6;
+      boxdef.flip_around = 0x21; // flip indices 2..4 (inclusive)
+      boxdef_char_idx = kPrepMap0;
+    } else {
+      boxdef.w = 6;
+      boxdef.h = 4;
+      boxdef.grad1_color_start = 4;
+      boxdef.char_count = 8;
+      boxdef.flip_around = 0x32; // flip indices 2..6 (inclusive)
+      boxdef_char_idx = kPrepMap1;
+    }
+    uint16_t off = (uint16_t)mem_box_char_start << 3;
+    uint16_t nbytes = (uint16_t)boxdef.char_count << 3;
+    for (uint16_t i = 0; i < nbytes; ++i) {
+      test_cram[off + i] = 0xAA;
+      ref_cram[off + i] = 0xAA;
+    }
+    _box_prepare_fill();
+    _ref_box_prepare_fill(ref_cram, ref_ch, ref_cl);
+    for (uint16_t i = 0; i < nbytes; ++i) {
+      expect_id(test_cram[off + i], ref_cram[off + i]);
+    }
+    uint8_t total = (uint8_t)(boxdef.w * boxdef.h);
+    for (uint8_t i = 0; i < total; ++i) {
+      expect_id(_cur_box_chars[i], ref_ch[i]);
+      expect_id((_cur_box_chars + 0x100)[i], ref_cl[i]);
+    }
+  }
+
+  // Test 24b: _box_draw_asm Path A (step_y == 0, horizontal fast path).
+  mem_box_char_start = 0x01;
+  _cur_box_chars = (const uint8_t *)BOX_SCRATCH_BASE;
+  boxdef.w = 4;
+  boxdef.h = 5;
+  boxdef.step_x = 4;
+  boxdef.step_y = 0;
+  boxdef.rel_x = 0;
+  boxdef.rel_y = -5;
+  boxdef.grad1_color_start = 2;
+  boxdef.char_count = 6;
+  boxdef.flip_around = 0x00;
+  boxdef_char_idx = kPrepMap0;
+  _box_prepare_fill();
+
+  static const int8_t kHorizCy[] = {8, 3, 16, 0, -3, 19, -120, 60};
+  static const uint8_t kHorizSky[] = {10, 4, 14, 6, 8, 5, 7, 9};
+  for (uint8_t c = 0; c < sizeof(kHorizCy); ++c) {
+    _clear_test_screens(0x55, 0x0E);
+    render_cx_chars = 20;
+    render_cy_chars = kHorizCy[c];
+    render_sky_rows = kHorizSky[c];
+    _ref_box_sky_rows = kHorizSky[c];
+    _box_draw_asm();
+    _ref_box_draw();
+    _cur_id = 24;
+    expect_id(*(volatile uint8_t *)&render_sky_rows, _ref_box_sky_rows);
+    _check_screens(24);
+  }
+
+  // Test 24c: _box_draw_asm Path B (step_y != 0, tilted & vertical tiles).
+  static const struct {
+    uint8_t w, h;
+    int8_t sx, sy, rx, ry;
+    int8_t cx, cy;
+    uint8_t sky;
+  } kTiltCases[] = {
+      {8, 5, 8, 2, -4, -2, 20, 7, 10},   // sx > 0, sy > 0
+      {8, 5, -8, 2, -4, -2, 18, 6, 8},   // sx < 0, sy > 0
+      {8, 5, 8, -2, -4, -2, 20, 8, 12},  // sx > 0, sy < 0
+      {8, 5, -8, -2, -4, -2, 16, 7, 9},  // sx < 0, sy < 0
+      {5, 4, 0, 4, 0, 0, 19, 5, 6},      // vertical (sx == 0, sy > 0)
+      {5, 4, 0, -4, -5, -3, 3, 13, 14},  // vertical clipped left/bottom
+      {11, 6, -5, 6, -5, 0, 35, -3, 5},  // clipped right/top
+  };
+  mem_box_char_start = 0x61;
+  _cur_box_chars = (const uint8_t *)(BOX_SCRATCH_BASE + 0xA0);
+  uint8_t *slot_chr = (uint8_t *)_cur_box_chars;
+  uint8_t *slot_col = slot_chr + 0x100;
+  for (uint8_t i = 0; i < 66; ++i) {
+    slot_chr[i] = (uint8_t)(0x61 + (i & 31));
+    slot_col[i] = (i & 1) ? COLOR_GRAD1_8 : COLOR_SKY8;
+  }
+  for (uint8_t c = 0; c < sizeof(kTiltCases) / sizeof(kTiltCases[0]); ++c) {
+    boxdef.w = kTiltCases[c].w;
+    boxdef.h = kTiltCases[c].h;
+    boxdef.step_x = kTiltCases[c].sx;
+    boxdef.step_y = kTiltCases[c].sy;
+    boxdef.rel_x = kTiltCases[c].rx;
+    boxdef.rel_y = kTiltCases[c].ry;
+    _clear_test_screens(0x33, 0x0E);
+    render_cx_chars = kTiltCases[c].cx;
+    render_cy_chars = kTiltCases[c].cy;
+    render_sky_rows = kTiltCases[c].sky;
+    _ref_box_sky_rows = kTiltCases[c].sky;
+    _box_draw_asm();
+    _ref_box_draw();
+    _cur_id = 24;
+    expect_id(*(volatile uint8_t *)&render_sky_rows, _ref_box_sky_rows);
+    _check_screens(24);
+  }
+}
+
+// 25. vec_asm.cc vector operations: vec_fastsqr8p8, vec_dot (preserving
+// frac_d0/d1/q1 and vec_v), vec_transform_inv (aliased & unaliased),
+// vec_turn_xy, vec_cross, vec_rotate_step, vec_normalize, vec_orthonormalize.
+static __noinline void _ref_vec_limit(vec3_t *v) {
+  int16_t *c = &v->x;
+  for (uint8_t i = 0; i < 3; ++i) {
+    if (c[i] <= -255) {
+      c[i] = -256;
+    } else if (c[i] >= 255) {
+      c[i] = 256;
+    }
+  }
+}
+
+static __noinline void _ref_vec_normalize(vec3_t *v) {
+  uint16_t L2 = (uint16_t)((uint16_t)vec_fastmul8p8(v->x, v->x) +
+                           (uint16_t)vec_fastmul8p8(v->y, v->y) +
+                           (uint16_t)vec_fastmul8p8(v->z, v->z));
+  if (L2 == 0) {
+    return;
+  }
+  L2 <<= 6;
+  uint16_t res = 0;
+  uint16_t bit = (uint16_t)1 << 14;
+  while (bit > L2) {
+    bit >>= 2;
+  }
+  while (bit != 0) {
+    if (L2 >= res + bit) {
+      L2 -= res + bit;
+      res = (res >> 1) + bit;
+    } else {
+      res >>= 1;
+    }
+    bit >>= 2;
+  }
+  if (res == 0) {
+    return;
+  }
+  res <<= 1;
+  v->x = vec_div8p8(v->x, (int16_t)res);
+  v->y = vec_div8p8(v->y, (int16_t)res);
+  v->z = vec_div8p8(v->z, (int16_t)res);
+  _ref_vec_limit(v);
+}
+
+static __noinline void test_vec_ops_asm(void) {
+  _cur_id = 25;
+
+  // 25a. vec_fastmul8p8 fast paths (0, +-256, +-512, -32768) & vec_fastsqr8p8.
+  static const int16_t kSqrVals[] = {0,    1,     -1,    15,    -15,   200,
+                                     -200, 255,   -255,  256,   -256,  512,
+                                     -512, 1760,  -1760, 4095,  -4095, 32767,
+                                     -32767, -32768};
+  for (uint8_t i = 0; i < sizeof(kSqrVals) / sizeof(kSqrVals[0]); ++i) {
+    int16_t a = kSqrVals[i];
+    expect_id((int16_t)vec_fastsqr8p8(a), vec_fastmul8p8(a, a));
+    expect_id(vec_fastmul8p8(0, a), 0);
+    expect_id(vec_fastmul8p8(a, 0), 0);
+    expect_id(vec_fastmul8p8(256, a), a);
+    expect_id(vec_fastmul8p8(a, 256), a);
+    expect_id(vec_fastmul8p8(-256, a), (int16_t)(-a));
+    expect_id(vec_fastmul8p8(a, -256), (int16_t)(-a));
+  }
+
+  // 25b. vec_dot + preservation of frac_d0/d1/q1 and vec_v.
+  static const mat3_t kMat = {
+      {196, 128, -104}, {-152, 206, -18}, {76, 62, 236}};
+  static const vec3_t kVecs[] = {
+      {256, 0, 0}, {0, -256, 128}, {310, -420, 185}, {-1200, 950, -340}};
+  for (uint8_t r = 0; r < 3; ++r) {
+    const vec3_t *row = &kMat.front + r;
+    for (uint8_t k = 0; k < sizeof(kVecs) / sizeof(kVecs[0]); ++k) {
+      vec_v = kVecs[k];
+      frac_d0 = 0x5A;
+      frac_d1 = 0xA5;
+      frac_q1 = 0x04;
+      int16_t got = vec_dot(row, &vec_v);
+      int16_t ref = (int16_t)(vec_fastmul8p8(row->x, kVecs[k].x) +
+                              vec_fastmul8p8(row->y, kVecs[k].y) +
+                              vec_fastmul8p8(row->z, kVecs[k].z));
+      expect_id(got, ref);
+      expect_id(frac_d0, 0x5A);
+      expect_id(frac_d1, 0xA5);
+      expect_id(frac_q1, 0x04);
+      expect_id(vec_v.x, kVecs[k].x);
+      expect_id(vec_v.y, kVecs[k].y);
+      expect_id(vec_v.z, kVecs[k].z);
+    }
+  }
+
+  // 25c. vec_transform_inv (separate and in-place res == u).
+  for (uint8_t k = 0; k < sizeof(kVecs) / sizeof(kVecs[0]); ++k) {
+    vec3_t out, alias = kVecs[k];
+    vec_transform_inv(&kMat, &kVecs[k], &out);
+    vec_transform_inv(&kMat, &alias, &alias);
+    int16_t rx = vec_dot(&kMat.front, &kVecs[k]);
+    expect_id(out.x, rx);
+    expect_id(alias.x, rx);
+    int16_t ry = vec_dot(&kMat.left, &kVecs[k]);
+    expect_id(out.y, ry);
+    expect_id(alias.y, ry);
+    int16_t rz = vec_dot(&kMat.up, &kVecs[k]);
+    expect_id(out.z, rz);
+    expect_id(alias.z, rz);
+  }
+
+  // 25d. vec_turn_xy.
+  static const int16_t kTurnS[] = {0, 8, -8, 32, -32, 256, -256};
+  for (uint8_t si = 0; si < sizeof(kTurnS) / sizeof(kTurnS[0]); ++si) {
+    vec3_t v = {181, -181, 42};
+    int16_t rx = (int16_t)(v.x + vec_fastmul8p8(kTurnS[si], v.y));
+    int16_t ry = (int16_t)(v.y - vec_fastmul8p8(kTurnS[si], v.x));
+    vec_turn_xy(kTurnS[si], &v);
+    expect_id(v.x, rx);
+    expect_id(v.y, ry);
+    expect_id(v.z, 42);
+  }
+
+  // 25e. vec_cross.
+  vec3_t cr;
+  vec_cross(&kMat.front, &kMat.left, &cr);
+  expect_id(cr.x, (int16_t)(vec_fastmul8p8(kMat.front.y, kMat.left.z) -
+                            vec_fastmul8p8(kMat.front.z, kMat.left.y)));
+  expect_id(cr.y, (int16_t)(vec_fastmul8p8(kMat.front.z, kMat.left.x) -
+                            vec_fastmul8p8(kMat.front.x, kMat.left.z)));
+  expect_id(cr.z, (int16_t)(vec_fastmul8p8(kMat.front.x, kMat.left.y) -
+                            vec_fastmul8p8(kMat.front.y, kMat.left.x)));
+
+  // 25f. vec_rotate_step across all 6 steps and shifts 0, 1.
+  for (uint8_t sh = 0; sh <= 1; ++sh) {
+    vec_set_rotation_shift(sh);
+    for (uint8_t st = 0; st < VEC_STEP_COUNT; ++st) {
+      mat3_t got_m = kMat;
+      mat3_t ref_m = kMat;
+      int16_t *p = (st < VEC_STEP_PITCH_UP) ? &ref_m.left.x : &ref_m.front.x;
+      int16_t *q = (st >= VEC_STEP_YAW_LEFT) ? &ref_m.left.x : &ref_m.up.x;
+      int16_t s = _vec_step[st];
+      for (uint8_t i = 0; i < 3; ++i) {
+        int16_t a = p[i], b = q[i];
+        p[i] = (int16_t)(a + vec_fastmul8p8(s, b));
+        q[i] = (int16_t)(b - vec_fastmul8p8(s, a));
+      }
+      vec_rotate_step(st, &got_m);
+      int16_t *gm = &got_m.front.x, *rm = &ref_m.front.x;
+      for (uint8_t i = 0; i < 9; ++i) {
+        expect_id(gm[i], rm[i]);
+      }
+    }
+  }
+  vec_set_rotation_shift(0);
+
+  // 25g. vec_normalize & vec_orthonormalize.
+  static const vec3_t kNormCases[] = {
+      {0, 0, 0},       {256, 0, 0},     {-255, 0, 0},   {255, 1, -1},
+      {180, 180, 0},   {196, 128, -104}, {-120, 90, 210}, {10, -20, 30}};
+  for (uint8_t k = 0; k < sizeof(kNormCases) / sizeof(kNormCases[0]); ++k) {
+    vec3_t gv = kNormCases[k], rv = kNormCases[k];
+    vec_normalize(&gv);
+    _ref_vec_normalize(&rv);
+    expect_id(gv.x, rv.x);
+    expect_id(gv.y, rv.y);
+    expect_id(gv.z, rv.z);
+  }
+  mat3_t go = kMat, ro = kMat;
+  vec_orthonormalize(&go);
+  _ref_vec_normalize(&ro.front);
+  vec_cross(&ro.up, &ro.front, &ro.left);
+  _ref_vec_normalize(&ro.left);
+  vec_cross(&ro.front, &ro.left, &ro.up);
+  _ref_vec_limit(&ro.up);
+  int16_t *gop = &go.front.x, *rop = &ro.front.x;
+  for (uint8_t i = 0; i < 9; ++i) {
+    expect_id(gop[i], rop[i]);
+  }
+}
+
+// 26. opponent_asm.cc _opponent_move, _opponent_ahead, _opponent_axes &
+// _opponent_cull_slot against 16-bit C references on the emulated 6510.
+static __noinline void _ref_opp_axes(uint8_t slot, mat3_t *out_m) {
+  static const uint8_t kPCos[8] = {229, 248, 254, 0, 254, 248, 229, 205};
+  static const uint8_t kBCos[5] = {128, 222, 0, 222, 128};
+  static const int16_t kBSin[5] = {222, 128, 0, -128, -222};
+  int16_t hx = _opponent_head[slot].x, hy = _opponent_head[slot].y;
+  uint8_t turn = (uint8_t)(_opponent_bank[slot] + 2);
+  uint8_t pitch = (uint8_t)(_opponent_pitch[slot] + 3);
+  const vec3_t *row = &world_cam.left;
+  int16_t *out = &out_m->front.y;
+  for (uint8_t c = 0; c < 2; ++c, ++row, ++out) {
+    int16_t ra = (int16_t)(vec_fastmul8p8(row->x, hx) +
+                           vec_fastmul8p8(row->y, hy));
+    int16_t rb = row->z;
+    if (pitch != 3) {
+      int16_t s = kOpponentPitchSin[pitch];
+      uint8_t cp = kPCos[pitch];
+      volatile int16_t a = ra;
+      out[0] = (int16_t)(vec_fastmul8p8(cp, a) + vec_fastmul8p8(s, rb));
+      rb = (int16_t)(vec_fastmul8p8(cp, rb) + vec_fastmul8p8(-s, a));
+    } else {
+      out[0] = ra;
+    }
+    ra = (int16_t)(vec_fastmul8p8(row->x, -hy) + vec_fastmul8p8(row->y, hx));
+    if (turn != 2) {
+      int16_t s = kBSin[turn];
+      uint8_t cb = kBCos[turn];
+      volatile int16_t a = ra;
+      out[3] = (int16_t)(vec_fastmul8p8(cb, a) + vec_fastmul8p8(s, rb));
+      rb = (int16_t)(vec_fastmul8p8(cb, rb) + vec_fastmul8p8(-s, a));
+    } else {
+      out[3] = ra;
+    }
+    out[6] = rb;
+  }
+}
+
+static __noinline uint8_t _ref_opp_cull_slot(uint8_t slot, vec3_t *out_cs) {
+  uint8_t range = _opponent_world_delta(slot);
+  if (range == kOpponentOut) {
+    return 0;
+  }
+  int16_t cx = (int16_t)(vec_fastmul8p8(world_cam.front.x, vec_v.x) +
+                         vec_fastmul8p8(world_cam.front.y, vec_v.y) +
+                         vec_fastmul8p8(world_cam.front.z, vec_v.z));
+  if (cx <= 64) {
+    return 0;
+  }
+  int16_t cz = (int16_t)(vec_fastmul8p8(world_cam.up.x, vec_v.x) +
+                         vec_fastmul8p8(world_cam.up.y, vec_v.y) +
+                         vec_fastmul8p8(world_cam.up.z, vec_v.z));
+  uint16_t half = (uint16_t)cx >> 1;
+  uint16_t quar = half >> 1;
+  uint16_t eighth = quar >> 1;
+  uint16_t u32 = eighth >> 2;
+  uint16_t px4 = u32 >> 1;
+  uint16_t lim_z = (uint16_t)(quar - u32 + px4 + 101);
+  if ((uint16_t)((uint16_t)cz + lim_z) > (uint16_t)(lim_z << 1)) {
+    return 0;
+  }
+  uint16_t lim_y = (uint16_t)(half + eighth + px4 + 135);
+  int16_t cy = (int16_t)(vec_fastmul8p8(world_cam.left.x, vec_v.x) +
+                         vec_fastmul8p8(world_cam.left.y, vec_v.y) +
+                         vec_fastmul8p8(world_cam.left.z, vec_v.z));
+  if ((uint16_t)((uint16_t)cy + lim_y) > (uint16_t)(lim_y << 1)) {
+    return 0;
+  }
+  out_cs->x = cx;
+  out_cs->y = cy;
+  out_cs->z = cz;
+  return (uint8_t)(range + 1);
+}
+
+static __noinline void test_opponent_hot_asm(void) {
+  _cur_id = 26;
+
+  // 26a. _opponent_move & _opponent_ahead across step shifts and edge headings.
+  static const int16_t kMoveH[] = {0, 256, -256, 181, -181, -192, 64, -32};
+  for (uint8_t sh = 0; sh <= 2; ++sh) {
+    flight_step_shift = sh;
+    _opponent_speed[0] = 1760;
+    _opponent_speed[1] = 2800;
+    for (uint8_t slot = 0; slot < 2; ++slot) {
+      for (uint8_t k = 0; k < sizeof(kMoveH) / sizeof(kMoveH[0]); ++k) {
+        uint8_t idx = (uint8_t)(slot + (k & 2) * 2);
+        uint16_t base_lo = (k & 1) ? 0xFF80U : 0x0040U;
+        uint16_t base_hi = (k & 1) ? 0x0012U : 0x0034U;
+        uint8_t *bp = (uint8_t *)&_opponent_xyz[idx];
+        bp[0] = (uint8_t)base_lo;
+        bp[1] = (uint8_t)(base_lo >> 8);
+        bp[2] = (uint8_t)base_hi;
+        bp[3] = (uint8_t)(base_hi >> 8);
+        int16_t step =
+            vec_fastmul8p8(kMoveH[k], (int16_t)(_opponent_speed[slot] << 1));
+        for (uint8_t s = 0; s < sh; ++s) {
+          step >>= 1;
+        }
+        uint16_t want_lo = (uint16_t)(base_lo + (uint16_t)step);
+        uint16_t carry = (want_lo < base_lo) ? 1 : 0;
+        uint16_t want_hi =
+            (uint16_t)(base_hi + (step < 0 ? 0xFFFFU : 0U) + carry);
+        _opponent_move(slot, idx, kMoveH[k]);
+        uint16_t got_lo = (uint16_t)(bp[0] | ((uint16_t)bp[1] << 8));
+        uint16_t got_hi = (uint16_t)(bp[2] | ((uint16_t)bp[3] << 8));
+        expect_id((int16_t)got_lo, (int16_t)want_lo);
+        expect_id((int16_t)got_hi, (int16_t)want_hi);
+      }
+      _opponent_head[slot].x = slot ? -181 : 256;
+      _opponent_head[slot].y = slot ? 181 : 0;
+      _opponent_xyz[slot] = 0x0020FF00L;
+      _opponent_xyz[slot + 2] = 0x00100020L;
+      int16_t sx = vec_fastmul8p8(_opponent_head[slot].x,
+                                  (int16_t)(_opponent_speed[slot] << 1)) >>
+                   sh;
+      int16_t sy = vec_fastmul8p8(_opponent_head[slot].y,
+                                  (int16_t)(_opponent_speed[slot] << 1)) >>
+                   sh;
+      int32_t wx = _opponent_xyz[slot] + sx;
+      int32_t wy = _opponent_xyz[slot + 2] + sy;
+      _opponent_ahead(slot);
+      int32_t gx = *(volatile int32_t *)&_opponent_xyz[slot];
+      int32_t gy = *(volatile int32_t *)&_opponent_xyz[slot + 2];
+      expect_id((int16_t)(gx & 0xFFFF), (int16_t)(wx & 0xFFFF));
+      expect_id((int16_t)(gy & 0xFFFF), (int16_t)(wy & 0xFFFF));
+    }
+  }
+  flight_step_shift = 0;
+
+  // 26b. _opponent_axes across level & tilted cameras, all banks/pitches.
+  static const mat3_t kAxCams[2] = {
+      {{256, 0, 0}, {0, 256, 0}, {0, 0, 256}},
+      {{196, 128, -104}, {-152, 206, -18}, {76, 62, 236}},
+  };
+  static const struct {
+    int16_t hx, hy;
+    int8_t bank, pitch;
+  } kAxCases[] = {
+      {256, 0, 0, 0},
+      {0, -256, 1, 2},
+      {-181, 181, -2, -3},
+      {128, -222, 2, 4},
+      {-240, -88, -1, -1},
+  };
+  for (uint8_t ci = 0; ci < 2; ++ci) {
+    world_cam = kAxCams[ci];
+    for (uint8_t slot = 0; slot < 2; ++slot) {
+      for (uint8_t k = 0; k < sizeof(kAxCases) / sizeof(kAxCases[0]); ++k) {
+        _opponent_head[slot].x = kAxCases[k].hx;
+        _opponent_head[slot].y = kAxCases[k].hy;
+        _opponent_bank[slot] = kAxCases[k].bank;
+        _opponent_pitch[slot] = kAxCases[k].pitch;
+        mat3_t ref_m;
+        _ref_opp_axes(slot, &ref_m);
+        _opponent_axes(slot);
+        expect_id(_opponent_axes_m.front.y, ref_m.front.y);
+        expect_id(_opponent_axes_m.front.z, ref_m.front.z);
+        expect_id(_opponent_axes_m.left.y, ref_m.left.y);
+        expect_id(_opponent_axes_m.left.z, ref_m.left.z);
+        expect_id(_opponent_axes_m.up.y, ref_m.up.y);
+        expect_id(_opponent_axes_m.up.z, ref_m.up.z);
+      }
+    }
+  }
+
+  // 26c. _opponent_cull_slot across level/tilted cameras, near/far/out/frustum.
+  flight_eye_x = 0x00200000L;
+  flight_eye_y = 0x00400000L;
+  flight_eye_z = 0x00020000L;
+  static const struct {
+    int32_t dx, dy, dz;
+  } kCullCases[] = {
+      {0x00040000L, 0x00008000L, 0x00004000L},   // near, visible
+      {0x00140000L, -0x00030000L, 0x00010000L},  // far, visible
+      {0x00300000L, 0, 0},                       // out of range
+      {-0x00020000L, 0, 0},                      // behind camera
+      {0x00020000L, 0, 0x00080000L},             // above frustum (z cull)
+      {0x00020000L, 0x000A0000L, 0},             // left of frustum (y cull)
+  };
+  for (uint8_t ci = 0; ci < 2; ++ci) {
+    world_cam = kAxCams[ci];
+    for (uint8_t slot = 0; slot < 2; ++slot) {
+      for (uint8_t k = 0; k < sizeof(kCullCases) / sizeof(kCullCases[0]); ++k) {
+        _opponent_xyz[slot] = flight_eye_x + kCullCases[k].dx;
+        _opponent_xyz[slot + 2] = flight_eye_y + kCullCases[k].dy;
+        _opponent_xyz[slot + 4] = flight_eye_z + kCullCases[k].dz;
+        vec3_t ref_cs;
+        uint8_t want = _ref_opp_cull_slot(slot, &ref_cs);
+        uint8_t got = _opponent_cull_slot(slot);
+        expect_id(got, want);
+        if (want != 0) {
+          expect_id(_opponent_cs[slot].x, ref_cs.x);
+          expect_id(_opponent_cs[slot].y, ref_cs.y);
+          expect_id(_opponent_cs[slot].z, ref_cs.z);
+        }
+      }
+    }
+  }
+}
+
+// 27. render_asm.cc _render_pull_and_snap_asm & _render_fill_sky_ground_asm.
+static void _ref_pull_to_center(int16_t *out_px, int16_t *out_py) {
+  int16_t c_maj, c_min, t;
+  int8_t d_maj, d_min;
+  if (roll_x_is_major) {
+    c_maj = render_cx_pixels;
+    c_min = render_cy_pixels;
+    t = 160;
+    d_maj = roll_dx;
+    d_min = roll_dy;
+  } else {
+    c_maj = render_cy_pixels;
+    c_min = render_cx_pixels;
+    t = 64;
+    d_maj = roll_dy;
+    d_min = roll_dx;
+  }
+  t += (roll_shift_2chars ? 64 : 32) - c_maj;
+  int16_t d = t >> 6;
+  if (roll_shift_2chars) {
+    d >>= 1;
+  }
+  int16_t p_maj = c_maj + (t & (roll_shift_2chars ? -128 : -64));
+  if (d_maj < 0) {
+    d = -d;
+  }
+  int16_t prod = vec_fastmul8p8(d, (int16_t)d_min << 8);
+  int16_t p_min = c_min + (int16_t)(prod << 3);
+  if (roll_x_is_major) {
+    *out_px = p_maj;
+    *out_py = p_min;
+  } else {
+    *out_px = p_min;
+    *out_py = p_maj;
+  }
+}
+
+static uint8_t _ref_clamp_pos(int8_t row) {
+  return row < 0 ? 0 : (uint8_t)row;
+}
+
+static uint8_t _ref_fill_sky_ground(uint8_t init_sky_rows) {
+  uint8_t cur_sky = 0;
+  for (uint16_t i = 0; i < kViewportHeight * 40; ++i) {
+    ref_scr[i] = 0xAA;
+    ref_clr[i] = (i < (uint16_t)init_sky_rows * 40) ? COLOR_SKY8 : 0x55;
+  }
+  if (roll_dy == 0) {
+    bool sky_left = roll_dx > 0;
+    int8_t e = render_cy_chars;
+    uint8_t top = _ref_clamp_pos(e);
+    uint8_t bot;
+    if (sky_left) {
+      bot = top;
+      top = _ref_clamp_pos((int8_t)(bot - 4));
+    } else {
+      bot = _ref_clamp_pos((int8_t)(e + 4));
+      if (bot < top) {
+        bot = top;
+      }
+    }
+    uint8_t ch0 = sky_left ? kCharSolid11 : kCharSolidGround;
+    uint8_t ch1 = (uint8_t)(ch0 ^ kCharSolidGround);
+    uint8_t t_end = top > kViewportHeight ? kViewportHeight : top;
+    if (ch0 == kCharSolid11 && t_end > 0) {
+      cur_sky = t_end;
+    }
+    for (uint8_t y = 0; y < t_end; ++y) {
+      for (uint8_t x = 0; x < 40; ++x) {
+        ref_scr[(uint16_t)y * 40 + x] = ch0;
+        if (ch0 == kCharSolid11 && y >= init_sky_rows) {
+          ref_clr[(uint16_t)y * 40 + x] = COLOR_SKY8;
+        }
+      }
+    }
+    if (ch1 == kCharSolid11 && bot < kViewportHeight && bot == cur_sky) {
+      cur_sky = kViewportHeight;
+    }
+    for (uint8_t y = bot; y < kViewportHeight; ++y) {
+      for (uint8_t x = 0; x < 40; ++x) {
+        ref_scr[(uint16_t)y * 40 + x] = ch1;
+        if (ch1 == kCharSolid11 && y >= init_sky_rows) {
+          ref_clr[(uint16_t)y * 40 + x] = COLOR_SKY8;
+        }
+      }
+    }
+  } else {
+    bool sky_left = roll_dy < 0;
+    int16_t lo = -vec_fastmul8p8(roll_dx_div_dy, (int16_t)render_cy_chars << 8) +
+                 (int16_t)((int16_t)render_cx_chars << 4);
+    if (roll_dx_div_dy > 0) {
+      lo += 8;
+    }
+    if (render_alt_box) {
+      if (render_alt_shift_x) {
+        lo += 8;
+      }
+      if (render_alt_shift_y) {
+        lo -= (roll_dx_div_dy >> 1);
+      }
+    }
+    int16_t ad = roll_dx_div_dy < 0 ? -roll_dx_div_dy : roll_dx_div_dy;
+    int16_t w = (int16_t)(ad << 2);
+    if (sky_left) {
+      lo -= w;
+    }
+    for (uint8_t y = 0; y < kViewportHeight; ++y) {
+      int16_t hi = lo + w;
+      if (hi < 0x10 || lo >= (int16_t)(40 << 4)) {
+        uint8_t ch =
+            ((hi < 0x10) != sky_left) ? kCharSolid11 : kCharSolidGround;
+        if (ch == kCharSolid11 && y == cur_sky) {
+          cur_sky = (uint8_t)(y + 1);
+        }
+        for (uint8_t x = 0; x < 40; ++x) {
+          ref_scr[(uint16_t)y * 40 + x] = ch;
+          if (ch == kCharSolid11 && y >= init_sky_rows) {
+            ref_clr[(uint16_t)y * 40 + x] = COLOR_SKY8;
+          }
+        }
+      } else {
+        if (lo >= 0x10) {
+          uint8_t lim = (uint8_t)((uint16_t)lo >> 4);
+          uint8_t ch = sky_left ? kCharSolid11 : kCharSolidGround;
+          for (uint8_t x = 0; x < lim; ++x) {
+            ref_scr[(uint16_t)y * 40 + x] = ch;
+            if (sky_left && y >= init_sky_rows) {
+              ref_clr[(uint16_t)y * 40 + x] = COLOR_SKY8;
+            }
+          }
+        }
+        if (hi < (int16_t)(40 << 4)) {
+          uint8_t r = (uint8_t)((uint16_t)hi >> 4);
+          uint8_t ch = !sky_left ? kCharSolid11 : kCharSolidGround;
+          for (uint8_t x = r; x < 40; ++x) {
+            ref_scr[(uint16_t)y * 40 + x] = ch;
+            if (!sky_left && y >= init_sky_rows) {
+              ref_clr[(uint16_t)y * 40 + x] = COLOR_SKY8;
+            }
+          }
+        }
+      }
+      lo += roll_dx_div_dy;
+    }
+  }
+  return cur_sky;
+}
+
+static void test_render_pull_and_fill_asm(void) {
+  _cur_id = 27;
+  // Part A: _render_pull_and_snap_asm (level, tilted, x/y major, shift_2chars,
+  // negative cx/cy & negative d_maj).
+  struct PullCase {
+    bool x_maj, shift2;
+    uint8_t period;
+    int8_t dx, dy;
+    int16_t cx, cy;
+  };
+  static const PullCase kPullCases[] = {
+      {true, false, 1, 8, 0, 160, 56},
+      {true, false, 1, -8, 0, -200, 120},
+      {true, true, 8, 16, -1, 500, -140},
+      {true, false, 4, 8, -2, -310, 420},
+      {false, false, 1, 0, -8, 90, 310},
+      {false, true, 8, -2, -16, -420, -290},
+      {false, false, 2, 4, 8, 350, -180},
+  };
+  for (uint8_t c = 0; c < sizeof(kPullCases) / sizeof(kPullCases[0]); ++c) {
+    roll_x_is_major = kPullCases[c].x_maj;
+    roll_shift_2chars = kPullCases[c].shift2;
+    roll_period = kPullCases[c].period;
+    roll_dx = kPullCases[c].dx;
+    roll_dy = kPullCases[c].dy;
+    render_cx_pixels = kPullCases[c].cx;
+    render_cy_pixels = kPullCases[c].cy;
+    for (uint8_t e = 0; e < 8; ++e) {
+      int8_t off = (int8_t)e - 4;
+      roll_ex_dy[e] = (int8_t)(roll_dy * off);
+      roll_ey_dx[e] = (int8_t)(roll_dx * off);
+    }
+    *(volatile int8_t *)&render_alt_shift_x = 0;
+    *(volatile int8_t *)&render_alt_shift_y = 0;
+    _render_pull_and_snap_asm();
+
+    int16_t r_px = 0, r_py = 0;
+    _ref_pull_to_center(&r_px, &r_py);
+    int8_t r_cx = 0, r_cy = 0, r_sx = 0, r_sy = 0;
+    bool r_alt = false;
+    _ref_snap_center(r_px, r_py, &r_cx, &r_cy, &r_alt, &r_sx, &r_sy);
+    expect_id(*(volatile int8_t *)&render_cx_chars, r_cx);
+    expect_id(*(volatile int8_t *)&render_cy_chars, r_cy);
+    expect_id(*(volatile bool *)&render_alt_box ? 1 : 0, r_alt ? 1 : 0);
+    if (roll_period == 1) {
+      expect_id(*(volatile int8_t *)&render_alt_shift_x, r_sx);
+      expect_id(*(volatile int8_t *)&render_alt_shift_y, r_sy);
+    }
+  }
+
+  // Part B: _render_fill_sky_ground_asm on $E800 (main) and $EC00 (alt).
+  struct FillCase {
+    bool alt_buf, alt_box;
+    int8_t dx, dy, cx, cy, sx, sy;
+    int16_t dx_div_dy;
+    uint8_t init_sky;
+  };
+  static const FillCase kFillCases[] = {
+      // Level horizons (sky-top, ground-top, clamped edges, int8 wraparound).
+      {false, false, 8, 0, 20, 7, 0, 0, 0, 2},
+      {true, false, 8, 0, 20, 2, 0, 0, 0, 0},
+      {false, false, 8, 0, 20, -5, 0, 0, 0, 4},
+      {true, false, -8, 0, 20, 7, 0, 0, 0, 3},
+      {false, false, -8, 0, 20, -2, 0, 0, 0, 0},
+      {true, false, -8, 0, 20, 126, 0, 0, 0, 0},
+      // Tilted horizons: sky_left (dy < 0) and sky_right (dy > 0), +/- slope,
+      // alt_box shifts (x and y), cy == -128 overflow edge case, sky_rows skip.
+      {false, false, 8, -4, 20, 7, 0, 0, -32, 3},
+      {true, false, -8, -4, 20, 7, 0, 0, 32, 2},
+      {false, true, 8, -8, 18, 6, 0, 4, -16, 4},
+      {true, true, -2, 8, 22, 8, 4, 0, -4, 1},
+      {false, true, 6, 8, 19, 5, 0, 4, 12, 0},
+      {true, false, 8, -2, 20, -128, 0, 0, -64, 0},
+  };
+  uint8_t saved_p01 = *(volatile uint8_t *)0x01;
+  for (uint8_t c = 0; c < sizeof(kFillCases) / sizeof(kFillCases[0]); ++c) {
+    mem_using_alt_buffer = kFillCases[c].alt_buf;
+    uint8_t *scr = (uint8_t *)(mem_using_alt_buffer ? 0xEC00 : 0xE800);
+    for (uint8_t r = 0; r < kScreenHeight; ++r) {
+      mem_screen_row_ptrs[r] = scr + (uint16_t)r * 40;
+    }
+    roll_dx = kFillCases[c].dx;
+    roll_dy = kFillCases[c].dy;
+    roll_dx_div_dy = kFillCases[c].dx_div_dy;
+    render_cx_chars = kFillCases[c].cx;
+    render_cy_chars = kFillCases[c].cy;
+    render_alt_box = kFillCases[c].alt_box;
+    render_alt_shift_x = kFillCases[c].sx;
+    render_alt_shift_y = kFillCases[c].sy;
+    uint8_t init_sky = kFillCases[c].init_sky;
+    *(volatile uint8_t *)&render_sky_rows = init_sky;
+
+    for (uint16_t i = 0; i < kViewportHeight * 40; ++i) {
+      scr[i] = 0xAA;
+      test_clr[i] = (i < (uint16_t)init_sky * 40) ? COLOR_SKY8 : 0x55;
+    }
+    _render_fill_sky_ground_asm();
+    uint8_t want_sky = _ref_fill_sky_ground(init_sky);
+    expect_id(*(volatile uint8_t *)&render_sky_rows, want_sky);
+
+    *(volatile uint8_t *)0x01 = 0x35;
+    for (uint16_t i = 0; i < kViewportHeight * 40; ++i) {
+      expect_id(scr[i], ref_scr[i]);
+      expect_id(test_clr[i], ref_clr[i]);
+    }
+    *(volatile uint8_t *)0x01 = saved_p01;
+  }
+  _init_row_ptrs();
+}
+
+#endif // __TARGET_TEST_PLANES__
 #pragma optimize(pop)
 
 int main(void) {
@@ -2197,12 +3906,14 @@ int main(void) {
   g_first_fail = 0;
   g_cases = 0;
 
+#ifdef __TARGET_TEST_PLANES__
+  test_planes();
+  test_planes_sweep();
+#else
   test_poly_rounding();
   test_int8_negate_then_shift();
   test_fastmul_edges();
   test_mul_against_16bit_product();
-  test_planes();
-  test_planes_sweep();
   test_div_by_64();
   test_fastmul_short();
   test_poly_frustum_asm();
@@ -2216,6 +3927,14 @@ int main(void) {
   test_gun_asm();
   test_vec_div_and_planes_centre_asm();
   test_sprites_asm();
+  test_clouds_asm();
+  test_world_grid_asm();
+  test_poly_project_vertices_asm();
+  test_box_asm();
+  test_vec_ops_asm();
+  test_opponent_hot_asm();
+  test_render_pull_and_fill_asm();
+#endif
 
   // Something for vice_dump.sh's @spin to break on. Everything above has
   // landed in the globals by the time the loop is reached.

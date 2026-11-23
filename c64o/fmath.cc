@@ -8,47 +8,42 @@ const uint8_t kBit[8] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80};
 // Calculates the ratio of |y| to |x| + |y|,
 // scaled by a factor of 64 to return a value between 0 and 64.
 uint8_t _get_ratio(int16_t x, int16_t y) {
+  if (y == 0) {
+    return 0;
+  }
+  if (x == 0) {
+    return 64;
+  }
   uint16_t ay = _abs16(y);
   uint16_t ax = _abs16(x);
   uint16_t sum = ay + ax;
 
-  if (sum == 0) {
-    return 0;
-  }
-
   // --- OPTIMIZED DIVISION-FREE RATIO CALCULATION ---
   uint8_t ratio = 0;
+  uint16_t n = ay;
+  uint16_t d = sum;
 
-  // If ay == sum, the result is exactly 64.
-  // (We handle this first because 64 requires a 7th bit).
-  if (ay == sum) {
-    ratio = 64;
-  } else {
-    uint16_t n = ay;
-    uint16_t d = sum;
-
-    // Safety check: Prevent 16-bit overflow when we shift 'n' left.
-    // If sum is incredibly large, we scale both down by a factor of 2.
-    // Because n < d at this point, if d <= 32767, then n * 2 is guaranteed <=
-    // 65534.
-    if (d > 32767) {
-      n >>= 1;
-      d >>= 1;
-    }
-
-    // 6-bit shift-subtract division to calculate (n * 64) / d, a bit a
-    // pass, most significant first. Counted down: oscar64 unrolls a for loop
-    // with a constant count, which is what this was written out as.
-    uint8_t b = 6;
-    do {
-      n <<= 1;
-      ratio <<= 1;
-      if (n >= d) {
-        n -= d;
-        ratio |= 1;
-      }
-    } while (--b != 0);
+  // Safety check: Prevent 16-bit overflow when we shift 'n' left.
+  // If sum is incredibly large, we scale both down by a factor of 2.
+  // Because n < d at this point, if d <= 32767, then n * 2 is guaranteed <=
+  // 65534.
+  if (d > 32767) {
+    n >>= 1;
+    d >>= 1;
   }
+
+  // 6-bit shift-subtract division to calculate (n * 64) / d, a bit a
+  // pass, most significant first. Counted down: oscar64 unrolls a for loop
+  // with a constant count, which is what this was written out as.
+  uint8_t b = 6;
+  do {
+    n <<= 1;
+    ratio <<= 1;
+    if (n >= d) {
+      n -= d;
+      ratio |= 1;
+    }
+  } while (--b != 0);
   return ratio;
 }
 

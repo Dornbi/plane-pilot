@@ -610,6 +610,14 @@ static void test_poly_asm_c_fallbacks() {
   _poly_clip3_buf[0] = {100, 0, 25};
   assert(!_poly_frustum_all_out(3 * sizeof(vec3_t)));
 
+  // y > 0.75 * x (yx = x - (x >> 2)) is rejected; exact y == yx is not.
+  _poly_clip3_buf[0] = {100, 76, 0};
+  _poly_clip3_buf[1] = {200, 151, 0};
+  _poly_clip3_buf[2] = {40, 31, 0};
+  assert(_poly_frustum_all_out(3 * sizeof(vec3_t)));
+  _poly_clip3_buf[0] = {100, 75, 0};
+  assert(!_poly_frustum_all_out(3 * sizeof(vec3_t)));
+
   // Opposite-side vertices cannot be rejected by one plane.
   _poly_clip3_buf[0] = {100, 120, 0};
   _poly_clip3_buf[1] = {100, -120, 0};

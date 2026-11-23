@@ -105,7 +105,7 @@ Each cell `(cx, cy)` hashes via `kCloudHashX`/`kCloudHashY` into `kCloudHashA` (
 
 ### 2.5 Three-blob groups & runtime culling
 
-Each active cell holds a 3-blob cloud group (4 world-axis offset patterns, `kCloudOffsetU = 32` m horizontal, 16 m lift on blob C, max blob separation 64 m = 0.67 diameter). `clouds.cc` caches per-axis dot products lazily (`_clouds_z[3]` / `_clouds_z_valid[3]`), applies staged wedge rejects (`vert = (x >> 2) + 128`, `lat = (x >> 1) + (vert >> 1) + 64`), and skips `_clouds_build_basis()` and `_clouds_apply_offset()` entirely for collapsed far groups (§3.5). Per-call temporaries live in `tscratch` (`$EA30`) on `fpilot` and `bss2` on `ppilot`. Colour is `COLOR_CLOUD` (white, or med grey at Night in `ppilot`).
+Each active cell holds a 3-blob cloud group (4 world-axis offset patterns, `kCloudOffsetU = 32` m horizontal, 16 m lift on blob C, max blob separation 64 m = 0.67 diameter). `clouds_asm.cc` (with host C counterparts in `clouds.cc`) runs the 5×5 scan, hash gate, world-box cull, staged camera-row dot products via `vec_mul8` with lazy `_clouds_z[3]` / `_clouds_z_valid[3]` caching, wedge rejects (`vert = (x >> 2) + 128`, `lat = (x >> 1) + (x >> 3) + 128`), and rung walk in 6502 assembly, skipping `_clouds_build_basis()` (8-bit `trunc(world_cam / 16)` in camera-row order) and `_clouds_apply_offset()` entirely for collapsed far groups (§3.5). Per-call temporaries live in `tscratch` (`$EA30`) on `fpilot` and `bss2` on `ppilot`. Colour is `COLOR_CLOUD` (white, or med grey at Night in `ppilot`).
 
 ### 2.6 Deck altitude
 

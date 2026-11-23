@@ -252,18 +252,24 @@ planes_target_cases.h: ../../tools/generate_planes.py ../../lib/planes.py
 
 target_test.prg: target_test.cc int16.h ../vec.h ../vec.cc ../vec_lut.cc \
 		../planes.h ../planes.cc ../planes_asm.h ../planes_asm.cc ../planedef.h \
-		../poly_asm.h ../world_asm.h ../opponent_asm.h ../opponent_asm.cc ../gun_asm.h ../gun_asm.cc \
+		../poly_asm.h ../poly_asm.cc ../world_asm.h ../world_asm.cc ../opponent_asm.h ../opponent_asm.cc ../gun_asm.h ../gun_asm.cc \
 		../sprites.h ../sprites_asm.h ../sprites_asm.cc ../spritedef.h ../spritedef.cc \
-		../render_asm.h ../render_asm.cc \
-		planes_target_cases.h
+		../clouddef.h ../clouddef.cc ../clouds_asm.h ../clouds_asm.cc \
+		../render_asm.h ../render_asm.cc ../box_asm.h ../box_asm.cc
 	$(OSCAR64) $(TARGET_CFLAGS) -D__TARGET_TEST__ -o=target_test.prg target_test.cc
+
+target_planes_test.prg: target_test.cc ../vec.h ../vec.cc ../vec_lut.cc \
+		../planes.h ../planes.cc ../planes_asm.h ../planes_asm.cc ../planedef.h \
+		planes_target_cases.h
+	$(OSCAR64) $(TARGET_CFLAGS) -D__TARGET_TEST__ -D__TARGET_TEST_PLANES__ -o=target_planes_test.prg target_test.cc
 
 target-test:
 	@if ! command -v $(OSCAR64) >/dev/null 2>&1; then \
 		echo "target_test: $(OSCAR64) not found - skipped (the 16-bit cases were not run)"; \
 	else \
-		$(MAKE) --no-print-directory target_test.prg && \
-		../../tools/run_target_test.sh target_test.prg; \
+		$(MAKE) --no-print-directory target_test.prg target_planes_test.prg && \
+		../../tools/run_target_test.sh target_test.prg && \
+		../../tools/run_target_test.sh target_planes_test.prg; \
 	fi
 
 narrowing:
@@ -290,6 +296,7 @@ test-both:
 
 clean:
 	rm -rf flight_test msg_test map_test sound_test music_test mul_test sprites_test cpu_test poly_test planes_test planes_edge_test opponent_test gun_test fpilot_test mission_test asm_c_test planes_cases.h planes_target_cases.h output.txt *.dSYM
-	rm -f target_test.prg target_test.asm target_test.lbl target_test.map target_test.int target_test.dbj
+	rm -f target_test.prg target_test.asm target_test.lbl target_test.map target_test.int target_test.dbj \
+		target_planes_test.prg target_planes_test.asm target_planes_test.lbl target_planes_test.map target_planes_test.int target_planes_test.dbj
 
 .PHONY: all test test-both narrowing narrowing-update target-test flight_test msg_test map_test sound_test music_test mul_test sprites_test poly_test asm_c_test clean

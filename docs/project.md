@@ -100,18 +100,18 @@ For the `D` debug counters and caveats see [development.md](development.md).
 
 ### `roll.cc` / `roll_asm.cc` — angle tables
 
-Maps roll angle (`0..59`) to slope (`roll_dx`, `roll_dy`), repeat period (`roll_period`), and signed screen-pixel distance from the horizon (`roll_get_dist`). Uses precomputed multiply tables and 6502 `__asm` for fast inner-loop queries.
+Maps roll angle (`0..59`) to slope (`roll_dx`, `roll_dy`), repeat period (`roll_period`), and signed screen-pixel distance from the horizon (`roll_get_dist`). Caches the last `roll_angle` so steady-roll frames return immediately, and uses precomputed multiply tables and 6502 `__asm` for fast inner-loop queries.
 
 ### `render.cc` / `render_asm.cc` — snapping and background fill
 
-- `render_snap_center_chars()` (hand-assembled in `render_asm.cc`, inlining `roll_get_dist()`) snaps the horizon centre to character coordinates and picks main vs alternate `boxdef`.
-- `render_fill_sky_ground()` fills pure-sky and pure-ground spans using `_render_flush_span()` (14-row unrolled sled in `render_asm.cc`), skipping colour-RAM writes on sky rows that remained sky from the previous frame.
+- `render_snap_center_chars()` (hand-assembled in `render_asm.cc` via `_render_pull_and_snap_asm()` / `_render_snap_center_asm()`, with a level `d_min == 0` fast path and inlined `roll_get_dist()`) pulls the horizon centre near the viewport middle, snaps to character coordinates, and picks main vs alternate `boxdef`.
+- `render_fill_sky_ground()` (hand-assembled in `render_asm.cc` via `_render_fill_sky_ground_asm()`) fills level and tilted sky/ground spans using the 14-row self-modifying sled (`_render_flush_span_core`, with a 6-step paired high-byte buffer sync and a zero-save/restore tail-jump fast path for `end_row == 14`) and a 2×-unrolled partial-row span helper, skipping colour-RAM writes on sky rows that remained sky from the previous frame.
 - `render_draw_tiles()` stamps the active `boxdef` across the horizon band.
 
-### `boxdefs.cc` / `box.cc` — tiles
+### `boxdefs.cc` / `box.cc` / `box_asm.cc` — tiles
 
 - `boxdefs.cc` stores the 68 tile definitions and the 728-byte overlapping character superstring (`chardefs.cc`).
-- `box.cc` (`box_prepare()`) copies the active tile's unique characters (reversing byte order for vertically flipped chars) into the inactive 32-char RAM slot (`128..159` or `160..191`), returning early when the same `boxdef` is already resident. Per-slot cache tables live in `kBootScratch` (`$0860–$0A5F`).
+- `box.cc` (`box_prepare()`, `box_draw()`) and its 6502 assembly half `box_asm.cc` (`_box_prepare_fill()`, `_box_draw_asm()`) copy the active tile's unique characters (reversing byte order for vertically flipped chars) into the inactive 32-char RAM slot (`$01..$20` or `$61..$80`), returning early when the same `boxdef` is already resident, and stamp the horizon tiles across the 40×14 viewport (using a 4×-unrolled full-row fast path for level `step_y == 0` boxes and a self-modifying 2D copy loop for tilted horizons). Per-slot cache tables live in `kBootScratch` (`$0860–$0A5F`).
 
 ---
 
@@ -124,18 +124,17 @@ Fixed-point 8.8 vector and 3×3 matrix math (zero hardware multiply/divide, enfo
 - **Exact restoring division (`vec_frac8`)** in `vec_asm.cc` for perspective projection and opponent rendering.
 - **Perspective & rotation:** `vec_project()`, `vec_transform_inv()`, `vec_rotate_step()` (6-multiply incremental rotation from a 6-byte table), `vec_turn3_xy()` (horizontal yaw), and `vec_orthonormalize()`.
 
-### `world.cc` / `world_asm.h` / `world_map.cc` — ground detail
+### `world.cc` / `world_asm.cc` / `world_map.cc` — ground detail
 
 - `world_map.cc` defines the 32×16-cell repeating world (each cell = 8×8 world units = 1,024 m; total 32.8×16.4 km).
-- `world.cc` walks visible cells around the aircraft, projecting ground grid dots via hand-assembled `_world_draw_box_points()` (`world_asm.h`) with horizontal viewport pre-culling, and dispatching map objects (runways, towns, cities, lakes, fields) to `poly_draw_3d()`.
+- `world.cc` / `world_asm.cc` build the per-frame grid basis (`_world_init_start_dx_dy()`), walk visible cells around the aircraft with 8-bit high-byte 3D frustum culling (`_world_render_grid_walk()`), project ground grid dots via `_world_draw_box_points()`, and build/dispatch map objects (`_world_build_obj_verts()`, runways, towns, cities, lakes, fields) to `poly_draw_3d()`. Host builds retain exact C counterparts in `world.cc`.
 - `world_update_objects()` feeds sprites into the viewport sprite stack: clouds (`clouds.cc`), sun, and in `fpilot`, opponents (`opponent.cc`) and tracers/smoke (`gun.cc`).
 
-### `poly.cc` / `poly_asm.h` — filled polygons
+### `poly.cc` / `poly_asm.{h,cc}` — filled polygons
 
 3D convex polygon pipeline in character/2×2 sub-cell space (keeps 16-bit `int` intermediates safe against overflow — see `c64o/test/int16.h`):
-1. 3D frustum early-reject and near-plane clipping (`_project_vertices`, `_clip_near`).
-2. Perspective projection + 2D Sutherland–Hodgman viewport clipping (`_clip_2d`).
-3. 6502 `__asm` rasteriser (`poly_asm.h`): `_poly_bounds_and_clear`, `_poly_trace_edges`, and `_poly_scan_lines2` (solid interior fills + 2×2 fringe characters at edges).
+1. 6502 `__asm` 3D-to-2D projection & clipping (`poly_asm.cc`: `_poly_project_vertices`, `_poly_clip_near_mixed`, `_poly_frustum_core`, `_poly_clip_2d_edge`), with exact host C counterparts in `poly.cc`: fast near-plane pre-scan (skips copying all-in polygons), near-plane clipping with zero-delta fast paths, tightened `0.75·x` / `0.25·x` 3D frustum early-reject, perspective projection directly into unified striped 2D buffers, and 2D Sutherland–Hodgman viewport clipping.
+2. 6502 `__asm` rasteriser (`poly_asm.h`): `_poly_bounds_and_clear`, `_poly_trace_edges`, and `_poly_scan_lines2` (solid interior fills + 2×2 fringe characters at edges).
 
 ### `flight.cc` — flight model
 
