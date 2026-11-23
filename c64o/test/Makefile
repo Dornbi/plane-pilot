@@ -255,7 +255,7 @@ target_test.prg: target_test.cc int16.h ../vec.h ../vec.cc ../vec_lut.cc \
 		../poly_asm.h ../poly_asm.cc ../world_asm.h ../world_asm.cc ../opponent_asm.h ../opponent_asm.cc ../gun_asm.h ../gun_asm.cc \
 		../sprites.h ../sprites_asm.h ../sprites_asm.cc ../spritedef.h ../spritedef.cc \
 		../clouddef.h ../clouddef.cc ../clouds_asm.h ../clouds_asm.cc \
-		../render_asm.h ../render_asm.cc
+		../render_asm.h ../render_asm.cc ../box_asm.h ../box_asm.cc
 	$(OSCAR64) $(TARGET_CFLAGS) -D__TARGET_TEST__ -o=target_test.prg target_test.cc
 
 target_planes_test.prg: target_test.cc ../vec.h ../vec.cc ../vec_lut.cc \

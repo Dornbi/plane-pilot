@@ -108,10 +108,10 @@ Maps roll angle (`0..59`) to slope (`roll_dx`, `roll_dy`), repeat period (`roll_
 - `render_fill_sky_ground()` fills pure-sky and pure-ground spans using `_render_flush_span()` (14-row unrolled sled in `render_asm.cc`), skipping colour-RAM writes on sky rows that remained sky from the previous frame.
 - `render_draw_tiles()` stamps the active `boxdef` across the horizon band.
 
-### `boxdefs.cc` / `box.cc` — tiles
+### `boxdefs.cc` / `box.cc` / `box_asm.cc` — tiles
 
 - `boxdefs.cc` stores the 68 tile definitions and the 728-byte overlapping character superstring (`chardefs.cc`).
-- `box.cc` (`box_prepare()`) copies the active tile's unique characters (reversing byte order for vertically flipped chars) into the inactive 32-char RAM slot (`128..159` or `160..191`), returning early when the same `boxdef` is already resident. Per-slot cache tables live in `kBootScratch` (`$0860–$0A5F`).
+- `box.cc` (`box_prepare()`, `box_draw()`) and its 6502 assembly half `box_asm.cc` (`_box_prepare_fill()`, `_box_draw_asm()`) copy the active tile's unique characters (reversing byte order for vertically flipped chars) into the inactive 32-char RAM slot (`$01..$20` or `$61..$80`), returning early when the same `boxdef` is already resident, and stamp the horizon tiles across the 40×14 viewport (using a 4×-unrolled full-row fast path for level `step_y == 0` boxes and a self-modifying 2D copy loop for tilted horizons). Per-slot cache tables live in `kBootScratch` (`$0860–$0A5F`).
 
 ---
 

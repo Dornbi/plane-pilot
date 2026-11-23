@@ -91,8 +91,8 @@ OFF_BUDGET = [
 DESCRIPTIONS = {
     'Horizon Graphics': {
         'Code': 'viewport horizon rendering, cell filling, box generation, '
-                'slot drawing (`render.cc`, `render_asm.cc`, `box.cc`, `roll.cc`, '
-                '`roll_asm.cc`)',
+                'slot drawing (`render.cc`, `render_asm.cc`, `box.cc`, '
+                '`box_asm.cc`, `roll.cc`, `roll_asm.cc`)',
         'Data': 'box definitions (`boxdefs`), character definitions '
                 '(`chardefs`), roll multiply and slope tables, compressed '
                 'charset (`kGfxCharsCompressed`)',

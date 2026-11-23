@@ -46,6 +46,8 @@ PPILOT_SRC = \
 		bool.h \
 		box.h \
 		box.cc \
+		box_asm.h \
+		box_asm.cc \
 		boxdefs.h \
 		boxdefs.cc \
 		chardefs.h \

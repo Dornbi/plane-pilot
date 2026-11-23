@@ -56,6 +56,7 @@
 //   22  world_asm.cc _world_init_start_dx_dy, _world_build_obj_verts &
 //       _world_render_grid_walk against 16-bit C ref
 //   23  poly_asm.cc _poly_project_vertices against 16-bit C ref
+//   24  box_asm.cc _box_prepare_fill & _box_draw_asm against 16-bit C ref
 
 #include <stdint.h>
 
@@ -86,6 +87,7 @@
 #include "../poly_asm.h"
 #include "../render_asm.h"
 #include "../world_asm.h"
+#include "../box_asm.h"
 static const int16_t kTargetCx0 = 160, kTargetCy0 = 56;
 static const int16_t kTargetCut1 = 89, kTargetCut2 = 68;
 #endif
@@ -2950,6 +2952,299 @@ static void test_poly_project_vertices_asm(void) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 24. box_asm.cc _box_prepare_fill & _box_draw_asm against 16-bit C ref.
+// ---------------------------------------------------------------------------
+boxdef_t boxdef;
+const uint8_t *boxdef_char_idx;
+uint8_t mem_box_char_start;
+const uint8_t *_cur_box_chars;
+
+// Synthetic 3-page chardef stream (600 bytes) and offset table (224 entries)
+// in main data so page 0 (<91), page 1 (91..163), and page 2 (>=164) are all
+// exercised with distinct bytes without crowding opp_bss.
+uint8_t chardef_bytes[600] = {1};
+uint8_t chardef_offset_lo[224] = {1};
+
+static void _ref_box_prepare_fill(uint8_t *ref_char_ram, uint8_t *ref_chars,
+                                  uint8_t *ref_colors) {
+  uint8_t *dst_ram = ref_char_ram + ((uint16_t)mem_box_char_start << 3);
+  const uint8_t *src_idx = boxdef_char_idx;
+  const uint8_t flip_start =
+      boxdef.grad1_color_start - (boxdef.flip_around & 0x0F);
+  const uint8_t flip_end = boxdef.grad1_color_start + (boxdef.flip_around >> 4);
+  for (uint8_t i = 0; i < boxdef.char_count; ++i) {
+    const uint8_t c = src_idx[i];
+    const uint8_t *src = chardef_bytes + chardef_offset_lo[c];
+    if (c >= kCharDefPage1) {
+      src += 256;
+      if (c >= kCharDefPage2) {
+        src += 256;
+      }
+    }
+    for (uint8_t row = 0; row < 8; ++row) {
+      dst_ram[row] = (i >= flip_start && i < flip_end) ? src[7 - row] : src[row];
+    }
+    dst_ram += 8;
+  }
+  uint8_t cl[35], kl[35];
+  cl[0] = kCharSolidGround;
+  kl[0] = COLOR_GRAD1_8;
+  cl[1] = kCharSolidSky;
+  kl[1] = COLOR_SKY8;
+  cl[2] = kCharSolid11;
+  kl[2] = COLOR_GRAD1_8;
+  for (uint8_t i = 0; i < boxdef.char_count; ++i) {
+    cl[3 + i] = (uint8_t)(mem_box_char_start + i);
+    kl[3 + i] = (i >= boxdef.grad1_color_start) ? COLOR_GRAD1_8 : COLOR_SKY8;
+  }
+  const uint8_t *src = boxdef_char_idx + boxdef.char_count;
+  uint8_t total = (uint8_t)(boxdef.w * boxdef.h);
+  for (uint8_t i = 0; i < total; ++i) {
+    uint8_t idx = src[i];
+    ref_chars[i] = cl[idx];
+    ref_colors[i] = kl[idx];
+  }
+}
+
+static uint8_t _ref_box_sky_rows;
+
+static void _ref_draw_one_box(int8_t cx, int8_t cy) {
+  const uint8_t *src_chr = _cur_box_chars;
+  const uint8_t *src_col = _cur_box_chars + 0x100;
+  int8_t h = (int8_t)boxdef.h;
+  if (cy < 0) {
+    h = (int8_t)(h + cy);
+    if (h <= 0) {
+      return;
+    }
+    int16_t skip = (int16_t)cy * (int16_t)boxdef.w;
+    src_chr -= skip;
+    src_col -= skip;
+    cy = 0;
+  }
+  int8_t ov = (int8_t)(cy + h - kViewportHeight);
+  if (ov > 0) {
+    h = (int8_t)(h - ov);
+  }
+  if (h <= 0) {
+    return;
+  }
+  int8_t w = (int8_t)boxdef.w;
+  if (cx < 0) {
+    w = (int8_t)(w + cx);
+    src_chr -= cx;
+    src_col -= cx;
+    cx = 0;
+  }
+  ov = (int8_t)(cx + w - 40);
+  if (ov > 0) {
+    w = (int8_t)(w - ov);
+  }
+  if (w <= 0) {
+    return;
+  }
+  if ((uint8_t)cy < _ref_box_sky_rows) {
+    _ref_box_sky_rows = (uint8_t)cy;
+  }
+  uint8_t *dst_chr = ref_scr + (uint16_t)cy * 40 + (uint8_t)cx;
+  uint8_t *dst_col = ref_clr + (uint16_t)cy * 40 + (uint8_t)cx;
+  for (int8_t y = 0; y < h; ++y) {
+    for (int8_t x = 0; x < w; ++x) {
+      dst_chr[x] = src_chr[x];
+      dst_col[x] = src_col[x];
+    }
+    src_chr += boxdef.w;
+    src_col += boxdef.w;
+    dst_chr += 40;
+    dst_col += 40;
+  }
+}
+
+static bool _ref_box_oob(int8_t cx, int8_t cy, int8_t sx, int8_t sy) {
+  if (sx > 0) {
+    if (cx >= 40) return true;
+  } else {
+    if ((int8_t)(cx + (int8_t)boxdef.w) <= 0) return true;
+  }
+  if (sy > 0) {
+    if (cy >= kViewportHeight) return true;
+  } else {
+    if ((int8_t)(cy + (int8_t)boxdef.h) <= 0) return true;
+  }
+  return false;
+}
+
+static void _ref_box_draw(void) {
+  const int8_t base_cx = (int8_t)(render_cx_chars + boxdef.rel_x);
+  const int8_t base_cy = (int8_t)(render_cy_chars + boxdef.rel_y);
+  int8_t sx = boxdef.step_x;
+  int8_t sy = boxdef.step_y;
+  int8_t cx = base_cx;
+  int8_t cy = base_cy;
+  for (uint8_t pass = 2;;) {
+    do {
+      _ref_draw_one_box(cx, cy);
+      cx = (int8_t)(cx + sx);
+      cy = (int8_t)(cy + sy);
+    } while (!_ref_box_oob(cx, cy, sx, sy));
+    if (--pass == 0) {
+      break;
+    }
+    sx = (int8_t)(-sx);
+    sy = (int8_t)(-sy);
+    cx = (int8_t)(base_cx + sx);
+    cy = (int8_t)(base_cy + sy);
+  }
+}
+
+static void test_box_asm(void) {
+  _cur_id = 24;
+  _init_row_ptrs();
+
+  // Populate chardef_bytes & chardef_offset_lo in place (RAM under oscar64).
+  uint8_t *cb = (uint8_t *)chardef_bytes;
+  uint8_t *co = (uint8_t *)chardef_offset_lo;
+  for (uint16_t i = 0; i < 600; ++i) {
+    cb[i] = (uint8_t)((i * 37 + 13) ^ (i >> 2));
+  }
+  for (uint8_t c = 0; c < 224; ++c) {
+    if (c < kCharDefPage1) {
+      co[c] = (uint8_t)((c * 2) & 0xF0);
+    } else if (c < kCharDefPage2) {
+      co[c] = (uint8_t)(((c - kCharDefPage1) * 3) & 0xF0);
+    } else {
+      co[c] = (uint8_t)(((c - kCharDefPage2) * 1) & 0x38);
+    }
+  }
+
+  // Test 24a: _box_prepare_fill on both slots, all 3 chardef pages, and flips.
+  static const uint8_t kPrepMap0[] = {
+      // 6 char indices across pages 0 (<91), 1 (91..163), 2 (>=164)
+      5, 90, 91, 120, 164, 210,
+      // 4 x 5 uniform-row cells (like box_r8)
+      3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 2, 2, 2, 2};
+  static const uint8_t kPrepMap1[] = {
+      // 8 char indices across all 3 pages
+      0, 42, 91, 163, 164, 180, 200, 223,
+      // 6 x 4 varied cells (tilted/vertical box)
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0,
+      1, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0};
+
+  uint8_t *const test_cram = (uint8_t *)((uint16_t)BOX_CHAR_RAM_HI << 8);
+  uint8_t *const ref_cram = (uint8_t *)0xEC00;
+  uint8_t *const ref_ch = (uint8_t *)0xFE00;
+  uint8_t *const ref_cl = (uint8_t *)0xFE60;
+
+  for (uint8_t slot = 0; slot < 2; ++slot) {
+    mem_box_char_start = slot ? 0x61 : 0x01;
+    _cur_box_chars = (const uint8_t *)(BOX_SCRATCH_BASE + (slot ? 0xA0 : 0));
+    if (slot == 0) {
+      boxdef.w = 4;
+      boxdef.h = 5;
+      boxdef.grad1_color_start = 3;
+      boxdef.char_count = 6;
+      boxdef.flip_around = 0x21; // flip indices 2..4 (inclusive)
+      boxdef_char_idx = kPrepMap0;
+    } else {
+      boxdef.w = 6;
+      boxdef.h = 4;
+      boxdef.grad1_color_start = 4;
+      boxdef.char_count = 8;
+      boxdef.flip_around = 0x32; // flip indices 2..6 (inclusive)
+      boxdef_char_idx = kPrepMap1;
+    }
+    uint16_t off = (uint16_t)mem_box_char_start << 3;
+    uint16_t nbytes = (uint16_t)boxdef.char_count << 3;
+    for (uint16_t i = 0; i < nbytes; ++i) {
+      test_cram[off + i] = 0xAA;
+      ref_cram[off + i] = 0xAA;
+    }
+    _box_prepare_fill();
+    _ref_box_prepare_fill(ref_cram, ref_ch, ref_cl);
+    for (uint16_t i = 0; i < nbytes; ++i) {
+      expect_id(test_cram[off + i], ref_cram[off + i]);
+    }
+    uint8_t total = (uint8_t)(boxdef.w * boxdef.h);
+    for (uint8_t i = 0; i < total; ++i) {
+      expect_id(_cur_box_chars[i], ref_ch[i]);
+      expect_id((_cur_box_chars + 0x100)[i], ref_cl[i]);
+    }
+  }
+
+  // Test 24b: _box_draw_asm Path A (step_y == 0, horizontal fast path).
+  mem_box_char_start = 0x01;
+  _cur_box_chars = (const uint8_t *)BOX_SCRATCH_BASE;
+  boxdef.w = 4;
+  boxdef.h = 5;
+  boxdef.step_x = 4;
+  boxdef.step_y = 0;
+  boxdef.rel_x = 0;
+  boxdef.rel_y = -5;
+  boxdef.grad1_color_start = 2;
+  boxdef.char_count = 6;
+  boxdef.flip_around = 0x00;
+  boxdef_char_idx = kPrepMap0;
+  _box_prepare_fill();
+
+  static const int8_t kHorizCy[] = {8, 3, 16, 0, -3, 19, -120, 60};
+  static const uint8_t kHorizSky[] = {10, 4, 14, 6, 8, 5, 7, 9};
+  for (uint8_t c = 0; c < sizeof(kHorizCy); ++c) {
+    _clear_test_screens(0x55, 0x0E);
+    render_cx_chars = 20;
+    render_cy_chars = kHorizCy[c];
+    render_sky_rows = kHorizSky[c];
+    _ref_box_sky_rows = kHorizSky[c];
+    _box_draw_asm();
+    _ref_box_draw();
+    _cur_id = 24;
+    expect_id(*(volatile uint8_t *)&render_sky_rows, _ref_box_sky_rows);
+    _check_screens(24);
+  }
+
+  // Test 24c: _box_draw_asm Path B (step_y != 0, tilted & vertical tiles).
+  static const struct {
+    uint8_t w, h;
+    int8_t sx, sy, rx, ry;
+    int8_t cx, cy;
+    uint8_t sky;
+  } kTiltCases[] = {
+      {8, 5, 8, 2, -4, -2, 20, 7, 10},   // sx > 0, sy > 0
+      {8, 5, -8, 2, -4, -2, 18, 6, 8},   // sx < 0, sy > 0
+      {8, 5, 8, -2, -4, -2, 20, 8, 12},  // sx > 0, sy < 0
+      {8, 5, -8, -2, -4, -2, 16, 7, 9},  // sx < 0, sy < 0
+      {5, 4, 0, 4, 0, 0, 19, 5, 6},      // vertical (sx == 0, sy > 0)
+      {5, 4, 0, -4, -5, -3, 3, 13, 14},  // vertical clipped left/bottom
+      {11, 6, -5, 6, -5, 0, 35, -3, 5},  // clipped right/top
+  };
+  mem_box_char_start = 0x61;
+  _cur_box_chars = (const uint8_t *)(BOX_SCRATCH_BASE + 0xA0);
+  uint8_t *slot_chr = (uint8_t *)_cur_box_chars;
+  uint8_t *slot_col = slot_chr + 0x100;
+  for (uint8_t i = 0; i < 66; ++i) {
+    slot_chr[i] = (uint8_t)(0x61 + (i & 31));
+    slot_col[i] = (i & 1) ? COLOR_GRAD1_8 : COLOR_SKY8;
+  }
+  for (uint8_t c = 0; c < sizeof(kTiltCases) / sizeof(kTiltCases[0]); ++c) {
+    boxdef.w = kTiltCases[c].w;
+    boxdef.h = kTiltCases[c].h;
+    boxdef.step_x = kTiltCases[c].sx;
+    boxdef.step_y = kTiltCases[c].sy;
+    boxdef.rel_x = kTiltCases[c].rx;
+    boxdef.rel_y = kTiltCases[c].ry;
+    _clear_test_screens(0x33, 0x0E);
+    render_cx_chars = kTiltCases[c].cx;
+    render_cy_chars = kTiltCases[c].cy;
+    render_sky_rows = kTiltCases[c].sky;
+    _ref_box_sky_rows = kTiltCases[c].sky;
+    _box_draw_asm();
+    _ref_box_draw();
+    _cur_id = 24;
+    expect_id(*(volatile uint8_t *)&render_sky_rows, _ref_box_sky_rows);
+    _check_screens(24);
+  }
+}
+
 #endif // __TARGET_TEST_PLANES__
 #pragma optimize(pop)
 
@@ -2990,6 +3285,7 @@ int main(void) {
   test_clouds_asm();
   test_world_grid_asm();
   test_poly_project_vertices_asm();
+  test_box_asm();
 #endif
 
   // Something for vice_dump.sh's @spin to break on. Everything above has
