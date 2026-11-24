@@ -2159,6 +2159,57 @@ static void test_callout() {
   _msgs = 0;
   opponent_callout();
   CHECK(_msgs == 0, "parked plane triggered urgent CHECK SIX!");
+
+  // New wave off-screen: waits one render frame for _opponent_in_view, then
+  // says "NEW WAVE AT <clock> O'CLOCK[ HIGH| LOW]".
+  eye_at(0x40, 0x80, 0x04);
+  opponent_reset(3); // mission 04 has multiple waves
+  // Finish wave 1 so opponent_step() spawns wave 2.
+  _opponent_down = 3;
+  _opponent_smoke = kOpponentNoSmoke;
+  opponent_step();
+  CHECK(_opponent_new_wave && _opponent_callout_t == 2,
+        "wave 2 should arm new-wave callout (%d, %d)",
+        _opponent_new_wave, _opponent_callout_t);
+  // Place wave 2 at 3 o'clock high, off-screen.
+  _opponent_xyz[0] = flight_eye_x;
+  _opponent_xyz[2] = flight_eye_y - (int32_t)(1000L << 8);
+  _opponent_xyz[4] = flight_eye_z + (int32_t)(300L << 8);
+  _opponent_on[1] = false;
+  _opponent_in_view = 0;
+  _msgs = 0;
+  opponent_callout(); // frame T: waits for opponent_add_sprites()
+  CHECK(_msgs == 0, "new wave fired before render visibility check");
+  opponent_callout(); // frame T+1: confirmed off-screen
+  CHECK(_msgs == 1 && strcmp(_msg, "NEW WAVE AT 3 O'CLOCK HIGH") == 0,
+        "expected NEW WAVE AT 3 O'CLOCK HIGH, got \"%s\" (%d)", _msg, _msgs);
+  CHECK(!_opponent_new_wave, "new-wave flag should clear after callout");
+
+  // New wave spawning directly behind says NEW WAVE AT 6 O'CLOCK and starts
+  // the CHECK SIX cooldown so CHECK SIX! does not immediately overwrite it.
+  _opponent_xyz[0] = flight_eye_x - (int32_t)(1000L << 8);
+  _opponent_xyz[2] = flight_eye_y;
+  _opponent_xyz[4] = flight_eye_z;
+  _opponent_new_wave = true;
+  _opponent_callout_t = 1;
+  _opponent_six_t = 0;
+  _msgs = 0;
+  opponent_callout();
+  CHECK(_msgs == 1 && strcmp(_msg, "NEW WAVE AT 6 O'CLOCK") == 0,
+        "expected NEW WAVE AT 6 O'CLOCK, got \"%s\" (%d)", _msg, _msgs);
+  _msgs = 0;
+  opponent_callout();
+  CHECK(_msgs == 0, "CHECK SIX! overwrote NEW WAVE AT 6 O'CLOCK (%d)", _msgs);
+
+  // New wave already on screen clears silently with no banner.
+  _opponent_new_wave = true;
+  _opponent_callout_t = 1;
+  _opponent_in_view = 1;
+  _msgs = 0;
+  opponent_callout();
+  CHECK(_msgs == 0 && !_opponent_new_wave,
+        "on-screen new wave should clear silently (%d, %d)",
+        _msgs, _opponent_new_wave);
 }
 
 int main() {

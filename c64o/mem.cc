@@ -31,28 +31,14 @@ static uint8_t *const kSpriteData = (uint8_t *)0xD400;
 bool mem_debug_enabled;
 #endif
 bool mem_using_alt_buffer;
+uint8_t *mem_screen_ram;
+uint8_t mem_box_char_start;
+__striped uint8_t *mem_screen_row_ptrs[kScreenHeight];
 
 // Initialized, so it lives in data rather than in the bss2 region above -
 // which mem_init() clears to zero, the one value this must never power up
 // holding.
 volatile uint8_t mem_den = 0x10;
-
-uint8_t *mem_screen_ram = kScreenRamMain;
-uint8_t mem_box_char_start = 0x01;
-__striped uint8_t *mem_screen_row_ptrs[kScreenHeight] = {
-    kScreenRamMain + kScreenWidth * 0,  kScreenRamMain + kScreenWidth * 1,
-    kScreenRamMain + kScreenWidth * 2,  kScreenRamMain + kScreenWidth * 3,
-    kScreenRamMain + kScreenWidth * 4,  kScreenRamMain + kScreenWidth * 5,
-    kScreenRamMain + kScreenWidth * 6,  kScreenRamMain + kScreenWidth * 7,
-    kScreenRamMain + kScreenWidth * 8,  kScreenRamMain + kScreenWidth * 9,
-    kScreenRamMain + kScreenWidth * 10, kScreenRamMain + kScreenWidth * 11,
-    kScreenRamMain + kScreenWidth * 12, kScreenRamMain + kScreenWidth * 13,
-    kScreenRamMain + kScreenWidth * 14, kScreenRamMain + kScreenWidth * 15,
-    kScreenRamMain + kScreenWidth * 16, kScreenRamMain + kScreenWidth * 17,
-    kScreenRamMain + kScreenWidth * 18, kScreenRamMain + kScreenWidth * 19,
-    kScreenRamMain + kScreenWidth * 20, kScreenRamMain + kScreenWidth * 21,
-    kScreenRamMain + kScreenWidth * 22, kScreenRamMain + kScreenWidth * 23,
-    kScreenRamMain + kScreenWidth * 24};
 
 // uint8_t mem_color_buffer[kViewportWidth * kViewportHeight];
 // Reuse kSpriteDsataCompressed.
@@ -160,6 +146,13 @@ void mem_init(void) {
 
   __asm {
     cli;
+  }
+
+  uint8_t *row = kScreenRamMain;
+  mem_screen_ram = row;
+  mem_box_char_start = 0x01;
+  for (uint8_t y = 0; y < kScreenHeight; ++y, row += kScreenWidth) {
+    mem_screen_row_ptrs[y] = row;
   }
 
   //  Fill Color buffer with sky color.

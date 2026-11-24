@@ -557,7 +557,7 @@ static const uint8_t kSmokeDown = 35;
 // thresholds (half-metres).
 static const uint8_t kCalloutUnseen = 50;
 static const uint8_t kCheckSixCooldown = 45;
-static const uint16_t kCheckSixRange = 4000; // 2 km
+static const uint8_t kCheckSixRangeHi = 16;  // < 4096 half-metres (~2 km)
 static const int16_t kCalloutAltBand = 160;  // 80 m (~310 ft)
 
 // --- State ------------------------------------------------------------------
@@ -602,12 +602,13 @@ static uint8_t _opponent_lfsr;
 static uint8_t _opponent_smoke;
 static uint8_t _opponent_smoke_t;
 static uint8_t _opponent_smoke_flash;
-// Target radio callout timers (frames), viewport visibility mask, and
-// formatted line buffer (bss2).
+// Target radio callout timers (frames), viewport visibility mask, pending new
+// wave flag, and formatted line buffer (bss2).
 static uint8_t _opponent_callout_t;
 static uint8_t _opponent_six_t;
 static uint8_t _opponent_in_view;
-static char _opponent_callout_buf[24];
+static bool _opponent_new_wave;
+static char _opponent_callout_buf[32];
 // _opponent_fresh, _opponent_xyz, _opponent_planes, _opponent_shown, and the
 // shared tscratch vectors live in opponent_asm.cc (opponent_asm.h).
 static_assert(sizeof(_opponent_fresh) < 256,
@@ -837,6 +838,7 @@ void opponent_reset(uint8_t mission) {
   _opponent_smoke = kOpponentNoSmoke;
   _opponent_callout_t = kCalloutUnseen;
   _opponent_six_t = 0;
+  _opponent_new_wave = false;
   _opponent_substep = 0;
   _opponent_kills = 0;
   opponent_shot_down = 0;
@@ -1293,6 +1295,11 @@ void opponent_step(void) {
     if (!_opponent_last) {
       if (_opponent_smoke == kOpponentNoSmoke) {
         _opponent_send();
+        _opponent_new_wave = true;
+        // Wait one render frame so opponent_add_sprites() populates
+        // _opponent_in_view before opponent_callout() decides whether the new
+        // wave is off-screen.
+        _opponent_callout_t = 2;
       }
     } else if (_opponent_kills < _opponent_need) {
       _opponent_fail();
@@ -1480,44 +1487,47 @@ void opponent_callout(void) {
   if (_opponent_six_t != 0) {
     --_opponent_six_t;
   }
-  uint8_t live_in_view =
-      _opponent_in_view &
-      (uint8_t)~(_opponent_down | (uint8_t)(_opponent_down >> kOpponentFalling));
-  if (live_in_view != 0) {
+  uint8_t dead = _opponent_down | (uint8_t)(_opponent_down >> kOpponentFalling);
+  if ((_opponent_in_view & (uint8_t)~dead) != 0) {
     _opponent_callout_t = kCalloutUnseen;
+    _opponent_new_wave = false;
   } else if (_opponent_callout_t != 0) {
     --_opponent_callout_t;
   }
   bool want_periodic = _opponent_callout_t == 0 && !msg_active();
-  if (_opponent_six_t != 0 && !want_periodic) {
+  if ((_opponent_six_t != 0 || _opponent_new_wave) && !want_periodic) {
     return;
   }
 
+  uint8_t skip = dead | _opponent_in_view;
   uint8_t best_i = kOpponentMax;
   uint8_t best_clock = 0;
   uint16_t best_dist = 0xFFFF;
   for (uint8_t i = 0; i < kOpponentMax; ++i) {
-    uint8_t bit = _opponent_bit(i);
-    if (!_opponent_on[i] ||
-        (_opponent_down & (uint8_t)(bit | (uint8_t)(bit << kOpponentFalling))) !=
-            0 ||
-        (_opponent_in_view & bit) != 0) {
+    if (!_opponent_on[i] || (skip & _opponent_bit(i)) != 0) {
       continue;
     }
-    int16_t dx = -_opponent_toward(_opponent_hm(&flight_eye_x), i);
-    int16_t dy = -_opponent_toward(_opponent_hm(&flight_eye_y),
-                                   (uint8_t)(i + kOpponentMax));
-    int8_t rel = (int8_t)(_get_heading(dx, dy) - flight_true_heading);
-    if (rel < 0) {
-      rel += kHeadingMax;
+    int16_t tx = _opponent_toward(_opponent_hm(&flight_eye_x), i);
+    int16_t ty = _opponent_toward(_opponent_hm(&flight_eye_y),
+                                  (uint8_t)(i + kOpponentMax));
+    uint16_t dist = _opponent_abs(tx) + _opponent_abs(ty);
+    int8_t rel = 0;
+    if (dist != 0) {
+      rel = (int8_t)(_get_heading(tx, ty) + kHeadingMax / 2 -
+                     flight_true_heading);
+      if (rel >= (int8_t)kHeadingMax) {
+        rel -= kHeadingMax;
+      } else if (rel < 0) {
+        rel += kHeadingMax;
+      }
     }
     uint8_t clock = (uint8_t)((uint8_t)(rel + 2) >> 2);
-    if (clock == 0 || clock >= 12) {
+    if (clock == 0) {
       clock = 12;
     }
-    uint16_t dist = _opponent_abs(dx) + _opponent_abs(dy);
-    if (clock == 6 && _opponent_speed[i] != 0 && dist < kCheckSixRange &&
-        _opponent_six_t == 0) {
+    if (clock == 6 && _opponent_speed[i] != 0 &&
+        (uint8_t)(dist >> 8) < kCheckSixRangeHi && _opponent_six_t == 0 &&
+        !_opponent_new_wave) {
       msg_show("CHECK SIX!");
       _opponent_six_t = kCheckSixCooldown;
       _opponent_callout_t = kCalloutUnseen;
@@ -1533,26 +1543,31 @@ void opponent_callout(void) {
     return;
   }
   if (best_clock == 6 && _opponent_speed[best_i] != 0) {
-    msg_show("CHECK SIX!");
     _opponent_six_t = kCheckSixCooldown;
-  } else {
-    uint8_t n = _callout_append(0, "TARGET ");
-    if (best_clock >= 10) {
-      _opponent_callout_buf[n++] = '1';
-      best_clock -= 10;
+    if (!_opponent_new_wave) {
+      msg_show("CHECK SIX!");
+      _opponent_callout_t = kCalloutUnseen;
+      return;
     }
-    _opponent_callout_buf[n++] = (char)('0' + best_clock);
-    n = _callout_append(n, " O'CLOCK");
-    // _opponent_toward returns player - opponent, so < -band means target high.
-    int16_t dz = _opponent_toward(_opponent_hm(&flight_eye_z),
-                                  (uint8_t)(best_i + 2 * kOpponentMax));
-    if (dz < -kCalloutAltBand) {
-      _callout_append(n, " HIGH");
-    } else if (dz > kCalloutAltBand) {
-      _callout_append(n, " LOW");
-    }
-    msg_show(_opponent_callout_buf);
   }
+  uint8_t n = _callout_append(
+      0, _opponent_new_wave ? "NEW WAVE AT " : "TARGET ");
+  _opponent_new_wave = false;
+  if (best_clock >= 10) {
+    _opponent_callout_buf[n++] = '1';
+    best_clock -= 10;
+  }
+  _opponent_callout_buf[n++] = (char)('0' + best_clock);
+  n = _callout_append(n, " O'CLOCK");
+  // _opponent_toward returns player - opponent, so < -band means target high.
+  int16_t dz = _opponent_toward(_opponent_hm(&flight_eye_z),
+                                (uint8_t)(best_i + 2 * kOpponentMax));
+  if (dz < -kCalloutAltBand) {
+    _callout_append(n, " HIGH");
+  } else if (dz > kCalloutAltBand) {
+    _callout_append(n, " LOW");
+  }
+  msg_show(_opponent_callout_buf);
   _opponent_callout_t = kCalloutUnseen;
 }
 #pragma optimize(pop)

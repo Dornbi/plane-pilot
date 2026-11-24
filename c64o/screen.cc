@@ -74,8 +74,14 @@ void screen_enter_static_mccm(void) {
 
 // --- Transient notices ------------------------------------------------------
 
+#if defined(__OSCAR64__) && !defined(__TARGET_TEST__)
+#pragma bss(bss2)
+#endif
 static uint8_t _notice_frames;
 static uint8_t _notice_len;
+#if defined(__OSCAR64__) && !defined(__TARGET_TEST__)
+#pragma bss(bss)
+#endif
 
 void screen_notice_volume(void) {
 #ifdef __ENABLE_SOUND__

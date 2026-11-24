@@ -12,6 +12,9 @@
 #include "roll.h"
 #include "vec.h"
 
+#if defined(__OSCAR64__) && !defined(__TARGET_TEST__)
+#pragma bss(bss2)
+#endif
 int16_t render_cx_pixels;
 int16_t render_cy_pixels;
 #ifndef __OSCAR64__
@@ -23,6 +26,9 @@ int8_t render_cy_chars;
 bool render_alt_box;
 int8_t render_alt_shift_x;
 int8_t render_alt_shift_y;
+#if defined(__OSCAR64__) && !defined(__TARGET_TEST__)
+#pragma bss(bss)
+#endif
 
 // Skip so many lines, which will be filled by tiles.
 // PERF: 4 -> cycles: -1000. Bytes: +260 with the old per-case fill loops; the
@@ -182,10 +188,16 @@ void render_snap_center_chars() {
 // back by msg_restore_color() before every fill.
 #pragma optimize(push, nooutline)
 
+#if defined(__OSCAR64__) && !defined(__TARGET_TEST__)
+#pragma bss(bss2)
+#endif
 uint8_t render_sky_rows;
 // This frame's rows of sky so far, counted from the top without a gap: the
 // next frame's render_sky_rows.
 uint8_t _render_sky_rows;
+#if defined(__OSCAR64__) && !defined(__TARGET_TEST__)
+#pragma bss(bss)
+#endif
 
 static_assert(kViewportStartX == 0 && kViewportStartY == 0,
               "viewport row y is screen row y, from its first column");

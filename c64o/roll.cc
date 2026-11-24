@@ -37,6 +37,9 @@ __striped const int kRollDxDivDy[kRollMirror + 1] = _VALUES_FOR_ANGLES;
 #undef _VALUE
 #undef _VALUE0
 
+#if defined(__OSCAR64__) && !defined(__TARGET_TEST__)
+#pragma bss(bss2)
+#endif
 uint8_t roll_angle;
 int8_t roll_dx;
 int8_t roll_dy;
@@ -44,6 +47,9 @@ int16_t roll_dx_div_dy;
 uint8_t roll_period;
 bool roll_x_is_major;
 bool roll_shift_2chars;
+#if defined(__OSCAR64__) && !defined(__TARGET_TEST__)
+#pragma bss(bss)
+#endif
 #pragma bss(bss2)
 int8_t roll_ex_dy[8];
 int8_t roll_ey_dx[8];

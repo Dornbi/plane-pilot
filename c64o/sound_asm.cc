@@ -9,9 +9,6 @@
 #pragma bss(bss2)
 #endif
 uint8_t sound_shadow[kSoundRegCount];
-#if defined(__OSCAR64__) && !defined(__TARGET_TEST__)
-#pragma bss(bss)
-#endif
 uint8_t sound_gen;
 uint8_t sound_gen_seen;
 volatile uint8_t sound_dirty;
@@ -21,6 +18,9 @@ uint8_t _sound_v3_effect;
 uint8_t _sound_v3_frames;
 uint8_t _sound_stall_phase;
 uint8_t _sound_flight_gen_seen;
+#if defined(__OSCAR64__) && !defined(__TARGET_TEST__)
+#pragma bss(bss)
+#endif
 
 const uint8_t kMasterVolume[kSoundVolumeSteps] = {0, 7, 15};
 

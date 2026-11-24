@@ -121,7 +121,7 @@
 // places later, and data is hundreds of small tables that fit; with data_compr
 // last, the holes stayed empty and bytes saved on the compressed data went
 // into them rather than to the free run at the top.
-#pragma region( main, MEM_BOOT_END, MEM_MAIN_END, , , {code, data_compr, data, data_box, bss, heap} )
+#pragma region( main, MEM_BOOT_END, MEM_MAIN_END, , , {code, data_box, data_compr, data, bss, heap} )
 // No heap: nothing calls malloc() or new. oscar64 otherwise keeps 1,024 bytes
 // at the end of the region for it whatever is left, and fails the link with
 // "Cannot place heap section" once less than that is - so the free figures
