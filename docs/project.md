@@ -58,9 +58,27 @@ Exact per-feature byte totals and the 64 KB address-space walk live in [memory_m
 - Rows 0–13 (rasters 50–161): 3D viewport in MCCM, double-buffered between `$E800` and `$EC00`.
 - Rows 14–24 (rasters 162–249): MCBM instrument panel (or text debug view in `ppilot`).
 - **Three direct chained raster IRQs** (`gfx.cc`, dispatched through `_gfx_irq_vec` at `$FFC0`):
-  1. **Raster 161** — `_gfx_switch_to_panel_top` spins to line 162, slows SuperCPU, pads with `PHA/PLA`, switches to MCBM panel top, enables only sprite 0 in `VIEW_CENTER` (`$D015=0` otherwise), and chains straight to terrain in `VIEW_BACK` / debug mode.
+  1. **Raster 161** — `_gfx_switch_to_panel_top` spins to line 162, slows SuperCPU, pads with `PHA/PLA`, switches to MCBM panel top (`$D018 = $B8`, so the panel always reads its screen matrix from alt `$EE30`), enables only sprite 0 in `VIEW_CENTER` (`$D015=0` otherwise), and chains straight to terrain in `VIEW_BACK` / debug mode.
   2. **Raster 186** — `_switch_to_panel_bottom` enables only the visible panel-bottom needles (skipped in `VIEW_BACK`).
-  3. **Raster 251** — `_gfx_switch_to_terrain` copies active terrain sprites `0..last` (skipping all copies when `enable == 0`), switches back to MCCM terrain, and runs `sound_blit()` when `sound_dirty` is set.
+  3. **Raster 251** — `_gfx_switch_to_terrain` copies active terrain sprites `0..last` (skipping all copies when `enable == 0`), switches back to MCCM terrain (`$D018 = $A8` or `$B8` from `mem_using_alt_buffer`), and runs `sound_blit()` when `sound_dirty` is set.
+
+### Double-buffering & deferred vsync (`mem.cc`, `gfx.cc`)
+
+Four viewport resources are double-buffered, while Color RAM and the panel are single-buffered:
+
+- **Double-buffered:** viewport screen RAM (`$E800` vs `$EC00`, toggled by `mem_using_alt_buffer`), horizon `boxdef` character slots (`mem_box_char_start` `0x01` vs `0x61` in `$E000–$E7FF` + `kBootScratch` caches), viewport sprite frames (`_sprites_frames[0]` vs `[1]` + sprite pointers at `$EBF8` vs `$EFF8`), and in `fpilot` two 4-block opponent bitmap sets per slot under I/O (`$D000–$D3FF`).
+- **Single-buffered:** hardware Color RAM (`$D800–$DA2F`, 560 bytes) cannot be double-buffered; rendering stages colours into `mem_color_buffer` (reusing the post-init `kSpriteDataCompressed` blob) and `_copy_color_ram()` blits them to `$D800` (~6,000–7,300 cycles, ~108 PAL lines). The MCBM panel bitmap/colors/needles and `sound_shadow` are likewise single-buffered.
+
+**Flip window (rasters 162–242):**
+- Opens at **162** (the first line below the viewport, so `_copy_color_ram()` never recolours the displayed frame).
+- Closes at **242** (8 lines / ~500 cycles before raster `251`, where `_gfx_switch_to_terrain()` latches `mem_using_alt_buffer` into `$D018`).
+- `_mem_toggle_buffer_ptrs()` atomically flips the 1-byte `mem_using_alt_buffer` *before* `_copy_color_ram()` runs; the copy then straddles raster `251` through the lower/top border and finishes well before the next frame's viewport begins at line `50`.
+
+**Deferred, checkpointed handoff:**
+- At the end of a frame, `mem_request_flip()` flips immediately if the raster is in `[162, 242]`; otherwise it sets `mem_flip_pending = true` and starts the next frame's buffer-independent stages immediately instead of busy-waiting.
+- Lightweight `mem_try_flip()` checkpoints (~1.5k–3k cycles apart across input, model, sound, per-row/per-blob cloud scan, opponent projection, and horizon snap) catch the 81-line flip window as soon as the beam enters it.
+- `mem_finish_flip()` acts as a tear-free barrier before any back-buffer write (`planes_fill()` on opponent redraws, `sprites_stack_commit()`, and the viewport draw pass), waiting only if `mem_flip_pending` is still set (e.g. paused low-work scenes or a 20 MHz SuperCPU).
+- Screen/mode transitions clear or flush `mem_flip_pending` (`mem_use_main_buffer()`, `map_enter()`, `mem_switch_debug()`, `view_update_view()`, `KSCAN_R`), and `ppilot`'s `D` debug mode flips synchronously. Non-simulation screens (menu, help, map) use `gfx_wait_vsync()` (line 255) with raster IRQs masked.
 
 ### Character RAM layout (`$E000–$E7FF`)
 
@@ -84,13 +102,13 @@ MCCM provides three shared screen colours (`$D021` background, `$D022` multi 1, 
 
 ## 3. Frame loop (`sim.cc`)
 
-`sim_run()` loops once per rendered frame until `Q` (or menu exit):
+`sim_run()` loops once per rendered frame until `Q` (or menu exit), split around the `mem_finish_flip()` barrier so a deferred flip from the previous frame overlaps with buffer-independent work:
 
-1. **Input:** `keys_update()`, toggle keys (`P`, `R`, `N`, `M`, `T`, `V`, `H`, `Q`, `D` in `ppilot`, views `1`–`4`), plus held flight controls (`I/J/K/L`, `A/S`, `+/-`, `F`, `G`, `B`, `Space` in `fpilot`).
-2. **Model step (`MDL`):** Loops `sim_time_steps` times (1×, 2×, or 4× under `T` time compression, re-polling held keys on extra steps): `flight_advance()`, and in `fpilot` `opponent_step()`, `gun_step(trigger)`, ORing `flight_events` across substeps.
-3. **Horizon & terrain (`SNP`, `BGR`, `CHR`, `DRW`, `GRD`/`PLY`):** `render_snap_center_chars()`, `render_fill_sky_ground()`, `box_prepare()`, `render_draw_tiles()`, `world_draw_terrain()` (ground grid dots + 3D polygons), `msg_restore_color()`.
-4. **Post-render (`UPD`/`CLD`/`SPR`):** `view_update_cam()`, `sprites_stack_reset()`, `world_update_objects()` (clouds, sun, plus `opponent_add_sprites()` and `gun_add_sprites()` in `fpilot`), `sprites_stack_commit()`, `panel_update()`, `damage_frame()` (red hit flash in `fpilot`), `sound_update()`.
-5. **Buffer flip (`COL`):** `mem_switch_buffer()` waits for the raster flip window, swaps `$E800`/`$EC00`, and copies the staged colour RAM to `$D800`.
+1. **Input:** `keys_poll()`, toggle keys (`P`, `R`, `N`, `M`, `T`, `V`, `H`, `Q`, `D` in `ppilot`, views `1`–`4`), plus held flight controls (`I/J/K/L`, `A/S`, `+/-`, `F`, `G`, `B`, `Space` in `fpilot`), followed by `mem_try_flip()`.
+2. **Model step (`MDL`):** Loops `sim_time_steps` times (1×, 2×, or 4× under `T` time compression, re-polling held keys on extra steps): `flight_advance()`, and in `fpilot` `opponent_step()`, `gun_step(trigger)` (with `mem_try_flip()` checkpoints between calls), ORing `flight_events`, then `msg_update()`, `opponent_callout()`, `damage_frame()`.
+3. **Buffer-independent view & sprite prep (`UPD`/`CLD`, `SNP`):** `view_update_cam()`, `world_update_roll_state()`, `sound_update()`, `world_update_objects()` (clouds, opponents, guns, sun, orientation mark, tail fin — checkpointed per cloud row/blob and around opponent projection, with `mem_finish_flip()` before `planes_fill()`), `render_snap_center_chars()`, and `world_prepare_grid()`.
+4. **Flip barrier & viewport draw (`SPR`, `BGR`, `CHR`, `DRW`, `GRD`/`PLY`):** `mem_finish_flip()`, `sprites_stack_commit()`, `msg_restore_color()`, `render_fill_sky_ground()`, `box_prepare()`, `box_draw()`, `world_draw_grid()` (ground grid dots + 3D polygons), `msg_render()`.
+5. **Panel & flip request (`COL`):** `panel_update_instruments()` (kept after the viewport draw so attitude needles stay locked to the displayed horizon), `panel_maybe_print_debug()`, `bm_total()`, and `mem_request_flip()` (flips immediately if in rasters 162–242, otherwise sets `mem_flip_pending` for the next iteration's checkpoints).
 
 For the `D` debug counters and caveats see [development.md](development.md).
 
@@ -150,7 +168,7 @@ Initialises VIC bank 3 (`$C000–$FFFF`), banks out BASIC/KERNAL (`MMAP_NO_ROM`)
 
 ### `gfx.cc` — raster IRQs, characters, points
 
-- Installs the 3 raster IRQs (161, 187, 252) with stock (12 NOP) / SuperCPU (19 NOP + 1 MHz) panel-top handlers ([supercpu.md](supercpu.md)).
+- Installs the 3 direct chained raster IRQs (161, 186, 251) with stock / SuperCPU `PHA/PLA` panel-top split padding ([supercpu.md](supercpu.md)) and provides `gfx_in_flip_window()` / `gfx_wait_flip_window()` / `gfx_wait_vsync()`.
 - Draws MCCM ground dots (`gfx_draw_point`) and updates the instrument panel:
   - **5 indicator lamps** (`--pin-color-ram` in `Makefile`: nav left/right, stall, flaps, gear), toggled by storing light red or black into colour RAM.
   - **Heading strip** and (`fpilot`) **ammo digits** (`--pin-slots`), copied from the off-screen head of the panel bitmap (`$F000–$F17F`).
