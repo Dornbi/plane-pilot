@@ -1894,8 +1894,10 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
       planes_place(&_opponent_planes[i].lay, &_opponent_view, &_opponent_f);
     } else {
       _opponent_axes(i);
+      mem_try_flip();
       planes_project_axes(&_opponent_planes[i], &_opponent_view,
                           &_opponent_axes_m, &_opponent_f);
+      mem_try_flip();
       if (_opponent_f.cached) {
         _opponent_latch_shown(i);
       } else {

@@ -411,16 +411,15 @@ void sim_run(uint8_t selected_mission) {
     view_update_cam();
     world_update_roll_state();
 
-    // Panel instruments ($F000 bitmap, single-buffered sprite tables, panel
-    // lamps) and sound (sound_shadow) do not touch either viewport screen
-    // buffer or mem_color_buffer, so running them here lets a deferred flip
-    // catch the raster window while they execute instead of delaying the next
-    // mem_request_flip().
-    panel_update_instruments();
+    // sound_update() writes only sound_shadow (independent of screen/color
+    // buffers), so it can run ahead of the flip barrier. panel_update_instruments()
+    // stays after the viewport draw so the panel needles never lead the
+    // displayed horizon by a frame while a deferred flip is still pending.
     sound_update();
     mem_try_flip();
 
     world_update_objects();
+    mem_try_flip();
 
     render_snap_center_chars();
     mem_try_flip();
@@ -440,6 +439,7 @@ void sim_run(uint8_t selected_mission) {
     world_draw_grid();
     msg_render();
 
+    panel_update_instruments();
     panel_maybe_print_debug();
 
     bm_total(990, "TOT:");

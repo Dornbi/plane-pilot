@@ -10,19 +10,19 @@ Snapshot after the deferred/checkpointed buffer flip (post-pass 164):
 
 | Scene | Type | Wall cycles / frame | PAL frames | Effective FPS |
 | --- | --- | ---: | ---: | ---: |
-| `start` (01 Recon, airborne) | frozen | 81,766 | 4.16 | 12.0 |
-| `approach` (final to runway) | frozen | 106,456 | 5.42 | 9.3 |
-| `cruise` (level flight, clouds) | frozen | 109,402 | 5.57 | 9.0 |
-| `town` (over town polygons) | frozen | 98,863 | 5.03 | 10.0 |
-| `lake` (over lake polygons) | frozen | 108,107 | 5.50 | 9.1 |
-| `scramble` (04 pair pass + guns) | live | 136,620 | 6.95 | 7.2 |
-| `shootdown` (04 scripted 5 hits + fall) | live | 133,501 | 6.79 | 7.4 |
-| `headon` (05 hunters closing ahead) | live | 87,625 | 4.46 | 11.2 |
-| `chase` (05 hunters behind, back view) | live | 104,359 | 5.31 | 9.4 |
-| `strafe` (04 pair strafing run) | live | 134,500 | 6.84 | 7.3 |
-| **Total (10 scenes)** | | **1,101,199** | | |
+| `start` (01 Recon, airborne) | frozen | 81,453 | 4.14 | 12.1 |
+| `approach` (final to runway) | frozen | 106,629 | 5.42 | 9.2 |
+| `cruise` (level flight, clouds) | frozen | 108,941 | 5.54 | 9.0 |
+| `town` (over town polygons) | frozen | 99,157 | 5.04 | 9.9 |
+| `lake` (over lake polygons) | frozen | 100,907 | 5.13 | 9.8 |
+| `scramble` (04 pair pass + guns) | live | 136,842 | 6.96 | 7.2 |
+| `shootdown` (04 scripted 5 hits + fall) | live | 133,657 | 6.80 | 7.4 |
+| `headon` (05 hunters closing ahead) | live | 87,223 | 4.44 | 11.3 |
+| `chase` (05 hunters behind, back view) | live | 104,439 | 5.31 | 9.4 |
+| `strafe` (04 pair strafing run) | live | 134,652 | 6.85 | 7.3 |
+| **Total (10 scenes)** | | **1,093,900** | | |
 
-*(Before the deferred/checkpointed flip, the same continuous wall-clock measurement totaled **1,160,901** cycles, including **70,128** cycles spent spinning in `gfx_wait_flip_window()`. Deferring the flip into the next frame's buffer-independent stages cut spin-wait to **10,085** cycles overall — and from **35,028** to **1,182** cycles (−96.6%) across the five live combat scenes — saving **59,702** wall-clock cycles (−5.14%). Earlier snapshots in [ram-loop.md](ram-loop.md) timed only `bm_model_start()`..`bm_total()`, excluding input polling, `_copy_color_ram()`, and flip-window waits.)*
+*(Before the deferred/checkpointed flip, the same continuous wall-clock measurement totaled **1,160,901** cycles, including **70,128** cycles spent spinning in `gfx_wait_flip_window()`. Deferring the flip into the next frame's buffer-independent stages and checkpointing inside the cloud scan and opponent projection cut wall-clock time by **67,001** cycles (**−5.77%**). Earlier snapshots in [ram-loop.md](ram-loop.md) timed only `bm_model_start()`..`bm_total()`, excluding input polling, `_copy_color_ram()`, and flip-window waits.)*
 
 ### Where a frame goes (historical ablation)
 
@@ -36,6 +36,6 @@ An earlier August 2026 ablation of `ppilot` (`CLOUDS=`, `SOUND=`, polygon disabl
 
 ## Reading the numbers
 
-1. **Unquantised average frame rate via deferred flip.** `mem_request_flip()` flips immediately if the raster is inside the safe flip window (rasters 162–242) and otherwise sets `mem_flip_pending` and immediately begins the next frame's buffer-independent stages (input, model, camera/roll, panel instruments, sound, cloud/opponent/gun sprite stack, horizon snap, and grid setup), calling `mem_try_flip()` checkpoints to catch the window as soon as the beam enters it and `mem_finish_flip()` before writing the back buffer. Individual frames still present on a 50 Hz refresh boundary without tearing, but average frame time tracks true CPU work rather than rounding each frame up to `ceil(work / 19656)`.
+1. **Unquantised average frame rate via deferred flip.** `mem_request_flip()` flips immediately if the raster is inside the safe flip window (rasters 162–242) and otherwise sets `mem_flip_pending` and immediately begins the next frame's buffer-independent stages (input, model, camera/roll, sound, cloud/opponent/gun sprite stack, horizon snap, and grid setup), calling `mem_try_flip()` checkpoints to catch the window as soon as the beam enters it and `mem_finish_flip()` before writing the back buffer. Individual frames still present on a 50 Hz refresh boundary without tearing, but average frame time tracks true CPU work rather than rounding each frame up to `ceil(work / 19656)`.
 2. **Stage counters include VIC DMA steals.** Enabling sprites adds DMA cycles on the scanlines they occupy, so turning clouds or opponents off lowers `BGR`/`DRW`/`GRD` slightly alongside `UPD`.
 3. **Rolling raises `CHR`.** On a frozen pose `box_prepare()` takes its early return (~400 cycles); while rolling, copying new horizon characters costs ~10,000–15,000 cycles.

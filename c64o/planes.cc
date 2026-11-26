@@ -5,6 +5,9 @@
 
 #include "planedef.h"
 #include "planes_asm.h"
+#if defined(__FPILOT__) && defined(__OSCAR64__) && !defined(__TARGET_TEST__)
+#include "mem.h"
+#endif
 
 // Per-frame path: the outliner (-Oo) would trade cycles for bytes here.
 #pragma optimize(push, nooutline)
@@ -593,6 +596,9 @@ void planes_project_axes(planes_state_t *state, const planes_view_t *view,
 
   // 8. body axes are the caller's, 9. the polygons in screen pixels
   _project(k, axes);
+#if defined(__FPILOT__) && defined(__OSCAR64__) && !defined(__TARGET_TEST__)
+  mem_try_flip();
+#endif
   PROFILE_START();
   // 10. bounding box, Y-expansion and layout; 11. slide, don't reject
   _planes_layout(state, frame->level);

@@ -678,6 +678,11 @@ uint8_t _clouds_scan_next(void) {
         sta vec_sx + 1;
         lda #0;
         sta vec_sx;
+#ifndef __TARGET_TEST__
+        // Check once per outer grid row so a long run of culled cells cannot
+        // step past the 81-line flip window. Preserves vec_sx/vec_sy/tscratch.
+        jsr mem_try_flip;
+#endif
         clc;
     L_sn_nr_rts:
         rts;
