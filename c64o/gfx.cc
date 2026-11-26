@@ -316,8 +316,12 @@ static const uint8_t kFlipWindowSpan = kFlipWindowLast - kFlipWindowFirst;
 // the low byte of the raster counter, but every line in the window is below
 // 256 and PAL's lines 256..311 read back as 0..55, so the unsigned compare
 // rejects them along with the top border.
+inline bool gfx_in_flip_window(void) {
+  return (uint8_t)(vic.raster - kFlipWindowFirst) <= kFlipWindowSpan;
+}
+
 inline void gfx_wait_flip_window(void) {
-  while ((uint8_t)(vic.raster - kFlipWindowFirst) > kFlipWindowSpan)
+  while (!gfx_in_flip_window())
     ;
 }
 

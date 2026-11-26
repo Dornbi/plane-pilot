@@ -14,7 +14,10 @@ extern int32_t flight_eye_z;
 // View matrix.
 extern mat3_t world_cam;
 
-// Renders the world gird and objects.
+// Precomputes the grid walk state (buffer-independent) and draws the grid.
+void world_prepare_grid();
+void world_draw_grid();
+// Renders the world grid and objects (prepare + draw).
 void world_render_grid();
 
 // Updates the roll state.

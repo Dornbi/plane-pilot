@@ -315,6 +315,7 @@ static void _map_draw_layer(bool screen) {
 }
 
 void map_enter() {
+  mem_flip_pending = false;
   // Stop the raster split first: it rewrites $d011, $d018 and $d021 three
   // times a frame and would fight every register below.
   //

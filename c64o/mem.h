@@ -330,7 +330,17 @@ void mem_init(void);
 // Switches SCREEN_RAM back and forth between 0xC800 and 0xCC00.
 // @result screen_ram
 extern bool mem_using_alt_buffer;
+extern bool mem_flip_pending;
 void mem_switch_buffer(void);
+#ifdef __OSCAR64__
+void mem_request_flip(void);
+void mem_try_flip(void);
+void mem_finish_flip(void);
+#else
+inline void mem_request_flip(void) {}
+inline void mem_try_flip(void) {}
+inline void mem_finish_flip(void) {}
+#endif
 void mem_use_main_buffer(void);
 
 // $d011's DEN bit (0x10), or zero while a screen transition is rebuilding

@@ -286,9 +286,10 @@ void _world_render_grid_walk(void) {
 }
 #endif // !__OSCAR64__
 
-__noinline void world_render_grid() {
+void world_prepare_grid() { _world_init_start_dx_dy(); }
+
+__noinline void world_draw_grid() {
   bm_model_start();
-  _world_init_start_dx_dy();
   _world_render_grid_walk();
   bm_model_end(830, "GRD:");
 
@@ -297,6 +298,11 @@ __noinline void world_render_grid() {
     print_labeled_bcd(772, "GRD:", _world_grid_radius, 2);
   }
 #endif
+}
+
+__noinline void world_render_grid() {
+  world_prepare_grid();
+  world_draw_grid();
 }
 
 void world_update_roll_state() {
@@ -345,6 +351,7 @@ __forceinline void world_update_objects() {
   bm_sub_start();
   clouds_add_candidates();
   bm_sub_end(BM_SUB_CLOUDS);
+  mem_try_flip();
 #endif
   opponent_add_sprites();
   gun_add_sprites();
@@ -366,9 +373,6 @@ __forceinline void world_update_objects() {
   // in. Both are cleared by sprites_stack_reset() above, so a frame that skips
   // them leaves their sprites disabled.
   sprites_set_fin();
-  bm_sub_start();
-  sprites_stack_commit();
-  bm_sub_end(BM_SUB_SPRITES);
   bm_end(779, "UPD:");
 }
 #pragma optimize(pop)

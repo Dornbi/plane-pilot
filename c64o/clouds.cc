@@ -213,6 +213,7 @@ void clouds_add_candidates(void) {
     const sprite_cloud_rung_t *meta = &kSpriteDefCloudRung[rung + collapsed];
 
     do {
+      mem_try_flip();
       int16_t depth = _clouds_centre.x;
       if (!collapsed) {
         depth = _clouds_apply_offset();

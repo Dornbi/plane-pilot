@@ -315,6 +315,7 @@ void sim_run(uint8_t selected_mission) {
     }
 
     if (key_pressed(KSCAN_R)) {
+      mem_finish_flip();
       _start_mission(flight_active_mission_idx);
       view_update_view(VIEW_CENTER);
       mem_switch_debug(false);
@@ -349,6 +350,7 @@ void sim_run(uint8_t selected_mission) {
     const bool trigger = false;
 #endif
 
+    mem_try_flip();
     bm_model_start();
     // One step per rendered frame, and never two unless T asked for them. The
     // model carries no elapsed time, so the aircraft covers the same ground
@@ -380,8 +382,11 @@ void sim_run(uint8_t selected_mission) {
     uint8_t steps = sim_time_steps;
     for (;;) {
       flight_advance();
+      mem_try_flip();
       opponent_step();
+      mem_try_flip();
       gun_step(trigger);
+      mem_try_flip();
       events |= flight_events;
       if (--steps == 0) {
         break;
@@ -405,39 +410,39 @@ void sim_run(uint8_t selected_mission) {
     bm_start();
     view_update_cam();
     world_update_roll_state();
+
+    // Panel instruments ($F000 bitmap, single-buffered sprite tables, panel
+    // lamps) and sound (sound_shadow) do not touch either viewport screen
+    // buffer or mem_color_buffer, so running them here lets a deferred flip
+    // catch the raster window while they execute instead of delaying the next
+    // mem_request_flip().
+    panel_update_instruments();
+    sound_update();
+    mem_try_flip();
+
     world_update_objects();
 
     render_snap_center_chars();
+    mem_try_flip();
+    world_prepare_grid();
+
+    // Everything below writes into the back screen buffer, mem_color_buffer,
+    // the back box charset slot, or the back sprite frame, so the previous
+    // frame's flip must be complete before we proceed.
+    mem_finish_flip();
+    bm_sub_start();
+    sprites_stack_commit();
+    bm_sub_end(BM_SUB_SPRITES);
     msg_restore_color();
     render_fill_sky_ground();
     box_prepare();
     box_draw();
-    world_render_grid();
+    world_draw_grid();
     msg_render();
 
-    // Everything above draws the viewport, so it has to finish before
-    // mem_switch_buffer() puts that buffer on screen. The panel does not: its
-    // bitmap at $F000 and the sprite registers are single-buffered and belong
-    // to the raster handlers, not to either screen buffer. Running it here
-    // rather than before the render spends it in the gap between the last
-    // drawing call and the raster reaching the flip window, which is time
-    // mem_switch_buffer() would otherwise spin away.
-    //
-    // Note it still reads this iteration's flight state - world_update_roll_state()
-    // above produced roll_angle - so nothing is pipelined and no input gets a
-    // frame staler. Moving flight_advance() or view_update_cam() down here
-    // would fill the gap more completely, but only by rendering the previous
-    // iteration's state, and at a ~10 Hz frame rate that added latency costs
-    // more at the controls than the cycles are worth.
-    panel_update_instruments();
     panel_maybe_print_debug();
 
-    // Same gap, and for the same reason: sound_update() writes only
-    // sound_shadow, which belongs to the raster handler rather than to either
-    // screen buffer, so it has no business holding up the flip.
-    sound_update();
-
     bm_total(990, "TOT:");
-    mem_switch_buffer();
+    mem_request_flip();
   }
 }

@@ -1862,6 +1862,7 @@ static __noinline bool _opponent_draw(uint8_t i, bool busy) {
     }
   }
   if (_opponent_pending & bit) {
+    mem_finish_flip();
     _opponent_front ^= bit;
     busy = true;
   }
@@ -1977,6 +1978,7 @@ void opponent_add_sprites(void) {
   _opponent_busy = _opponent_pending != 0;
   uint8_t first = _opponent_first;
   for (uint8_t n = 0; n < kOpponentMax; ++n) {
+    mem_try_flip();
     uint8_t i = n ^ first;
     if ((_opponent_seen & _opponent_bit(i)) &&
         _opponent_draw(i, _opponent_busy)) {

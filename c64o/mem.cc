@@ -31,6 +31,7 @@ static uint8_t *const kSpriteData = (uint8_t *)0xD400;
 bool mem_debug_enabled;
 #endif
 bool mem_using_alt_buffer;
+bool mem_flip_pending;
 uint8_t *mem_screen_ram;
 uint8_t mem_box_char_start;
 __striped uint8_t *mem_screen_row_ptrs[kScreenHeight];
@@ -209,12 +210,12 @@ static void _mem_toggle_buffer_ptrs(void) {
   }
 }
 
-void mem_switch_buffer(void) {
-  gfx_wait_flip_window();
+static __noinline void _mem_do_flip(void) {
+  mem_flip_pending = false;
 
   // The toggle goes before the copy, and the order is load-bearing. Only one
   // of the two has a near deadline: _switch_to_terrain() latches
-  // mem_using_alt_buffer into $d018 at raster 250, and if the toggle missed
+  // mem_using_alt_buffer into $d018 at raster 251, and if the toggle missed
   // that latch the frame would be shown with the previous buffer's characters
   // and this frame's colors. The copy has until the next frame's first
   // viewport line, hundreds of cycles later, so it is the one that waits.
@@ -233,6 +234,36 @@ void mem_switch_buffer(void) {
   bm_view_end(910, "COL:");
 }
 
+void mem_switch_buffer(void) {
+  gfx_wait_flip_window();
+  _mem_do_flip();
+}
+
+#ifdef __OSCAR64__
+__noinline void mem_try_flip(void) {
+  if (mem_flip_pending && gfx_in_flip_window()) {
+    _mem_do_flip();
+  }
+}
+
+__noinline void mem_request_flip(void) {
+#ifdef __ENABLE_DEBUG__
+  if (mem_debug_enabled) {
+    mem_switch_buffer();
+    return;
+  }
+#endif
+  mem_flip_pending = true;
+  mem_try_flip();
+}
+
+__noinline void mem_finish_flip(void) {
+  if (mem_flip_pending) {
+    mem_switch_buffer();
+  }
+}
+#endif
+
 // Startup and mode-switch helpers; none of these run per frame.
 #pragma optimize(push, outline)
 
@@ -240,6 +271,7 @@ void mem_use_main_buffer(void) {
   __asm {
     sei;
   }
+  mem_flip_pending = false;
   vic_memptr = kVicMemScreenMain;
   if (mem_using_alt_buffer) {
     _mem_toggle_buffer_ptrs();
@@ -274,6 +306,7 @@ __noinline void mem_clear_screen(void) {
 
 #ifdef __ENABLE_DEBUG__
 void mem_switch_debug(bool debug) {
+  mem_finish_flip();
   mem_debug_enabled = debug;
   if (debug) {
     mem_init_mccm();

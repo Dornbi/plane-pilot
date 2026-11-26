@@ -37,6 +37,9 @@ void gfx_stop_raster_irqs(void);
 // frame. The simulation keeps its interrupts, so it uses the window below.
 void gfx_wait_vsync(void);
 
+// True while the raster is inside the safe flip window (see gfx.cc).
+bool gfx_in_flip_window(void);
+
 // Blocks until the raster is somewhere it is safe to swap the screen buffers
 // and rewrite the viewport's color RAM. Unlike gfx_wait_vsync() this is a
 // window, not a line, so it usually returns without waiting at all and can

@@ -259,6 +259,7 @@ void view_update_view(view_state_t new_state) {
   if (new_state == view_state) {
     return;
   }
+  mem_finish_flip();
   view_state = new_state;
   // Unlike every other caller of this, the simulation is still running and the
   // raster split still owns the screen. view_refresh_panel() is written for

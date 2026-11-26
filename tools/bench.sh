@@ -10,9 +10,10 @@
 #   ...
 #   total     612345
 #
-# Each number is the average cycles per frame of a frame's work:
-# bm_model_start() through bm_total() in sim_run(), the model step and the
-# render, everything but the wait for the flip.
+# Each number is the average full wall-clock cycles per frame over the timed
+# window: a continuous CIA2 timer across complete iterations of sim_run()
+# (input poll, model step, render, deferred/immediate buffer flip and color
+# RAM copy, any remaining flip-window wait, raster IRQs, and VIC DMA).
 #
 # Five scenes are frozen, timed over 16 frames: tools/shot.cc's poses, and
 # the start of the first mission (fpilot's 01 Recon, airborne). The other
@@ -95,16 +96,15 @@ cp "$REPO/tools/shot.cc" "$REPO/tools/shot.h" "$REPO/tools/shot_pose.h" \
   "$REPO/tools/bench.cc" "$REPO/tools/bench.h" "$BUILD/src/"
 ln -sfn "$OSCAR64_INCLUDE" "$BUILD/include"
 
-# The keyboard poll redirect is make_shots.sh's, which explains it. Then a
-# frame's work in sim_run() gets bench_begin() before bm_model_start() and
-# bench_end() after bm_total(). Every patch is checked: a silent miss would
+# The keyboard poll redirect is make_shots.sh's, which explains it. Then
+# sim_run() gets bench_end() after bm_total() to drive the continuous wall-clock
+# timer across complete frames. Every patch is checked: a silent miss would
 # time the wrong thing, or nothing, and still print a plausible number.
 cd "$BUILD/src"
 perl -0pi -e 's/(while \(1\) \{\n)    keys_poll\(\);/$1    shot_poll();/' help.cc sim.cc
 perl -0pi -e 's/(title_tick\(\);\n\n)    keys_poll\(\);/$1    shot_poll();/' menu.cc
 perl -0pi -e 's/^(#include "screen\.h")$/$1\n#include "shot.h"/m' menu.cc sim.cc help.cc
 perl -0pi -e 's/^(#include "screen\.h")$/$1\n#include "bench.h"/m' sim.cc
-perl -0pi -e 's/^(    )(bm_model_start\(\);)$/$1bench_begin();\n$1$2/m' sim.cc
 perl -0pi -e 's/^(    bm_total\(990, "TOT:"\);)$/$1\n    bench_end();/m' sim.cc
 # The help screen is never timed and no script opens it, and fpilot has no
 # room for the bench's own code beside it: help_run() returns at once, and
@@ -114,7 +114,7 @@ for f in menu.cc help.cc sim.cc; do
   [ "$(grep -c 'shot_poll();' "$f")" = 1 ] ||
     { echo "bench: could not redirect the keyboard poll in c64o/$f" >&2; exit 1; }
 done
-for p in 'bench_begin();' 'bench_end();' '#include "bench.h"'; do
+for p in 'bench_end();' '#include "bench.h"'; do
   [ "$(grep -cF "$p" sim.cc)" = 1 ] ||
     { echo "bench: could not patch '$p' into c64o/sim.cc" >&2; exit 1; }
 done
