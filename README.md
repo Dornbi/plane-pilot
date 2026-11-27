@@ -2,9 +2,7 @@
 
 Plane Pilot and Fighter Pilot are 3D flight simulators for the C64.
 
-
-
-<video src="https://github.com/user-attachments/assets/b0cbc998-c712-4358-b754-6c445e65b75e" controls="controls" style="max-width: 100%;"></video>
+https://github.com/user-attachments/assets/4fcf8281-c0c5-47de-b8c0-aab6940b6934
 
 ## History and motivation
 
